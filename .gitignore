@@ -1,0 +1,21 @@
+# ملفات النظام
+.DS_Store
+Thumbs.db
+
+# محرّرات
+.vscode/
+.idea/
+*.swp
+
+# مؤقتات
+*.tmp
+*.bak
+*.log
+node_modules/
+
+# ⚠️ ممنوع أي أسرار تدخل الريبو
+.env
+.env.*
+*secret*
+*.key
+*credentials*
