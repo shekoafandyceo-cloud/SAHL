@@ -7,6 +7,9 @@ Thumbs.db
 .idea/
 *.swp
 
+# إعدادات محلية للجهاز — launch.json بيتشارك، ده لأ
+.claude/settings.local.json
+
 # مؤقتات
 *.tmp
 *.bak
