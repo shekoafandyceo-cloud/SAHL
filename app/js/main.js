@@ -498,43 +498,43 @@ function refreshOrdersScope(){
 // كرت "جاهز للخروج" — اضغط يروح لفلتر بوسطة + scroll للجدول
 // كارت الجاهزية فوق جدول الأوردرات
 function initReadyCard(){
-(function(){
-  var c = document.getElementById('card-ready');
-  if(!c) return;
-  c.addEventListener('click', function(){
-    var fst = $id('fst');
-    if(fst){ fst.value = 'bosta_assigned'; }
-    if(window.__syncFilterUI) window.__syncFilterUI();
-    try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
-    window.scrollTo({ top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth' });
-  });
-})();
+  (function(){
+    var c = document.getElementById('card-ready');
+    if(!c) return;
+    c.addEventListener('click', function(){
+      var fst = $id('fst');
+      if(fst){ fst.value = 'bosta_assigned'; }
+      if(window.__syncFilterUI) window.__syncFilterUI();
+      try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
+      window.scrollTo({ top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth' });
+    });
+  })();
 
-// زرار "حدد غير المطبوع" — يحدّد كل الأوردرات اللي لسه ماتطبعش في القايمة الحالية
-(function(){
-  var btn = document.getElementById('bb-sel-unprinted');
-  if(!btn) return;
-  btn.addEventListener('click', function(){
-    var added = 0;
-    (fil||[]).forEach(function(o){
-      if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
-        selectedIds.add(o.id);
-        added++;
-      }
+  // زرار "حدد غير المطبوع" — يحدّد كل الأوردرات اللي لسه ماتطبعش في القايمة الحالية
+  (function(){
+    var btn = document.getElementById('bb-sel-unprinted');
+    if(!btn) return;
+    btn.addEventListener('click', function(){
+      var added = 0;
+      (fil||[]).forEach(function(o){
+        if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
+          selectedIds.add(o.id);
+          added++;
+        }
+      });
+      // علّم الـ checkboxes الظاهرة في الجدول
+      $id('tbody').querySelectorAll('.cb-row').forEach(function(cb){
+        var id = cb.getAttribute('data-id');
+        if(selectedIds.has(id)){
+          cb.checked = true;
+          var tr = cb.closest('tr'); if(tr) tr.classList.add('sel');
+        }
+      });
+      updateBulkBar(); updateMasterCb();
+      if(added > 0){ toast('تم تحديد '+num(added)+' أوردر غير مطبوع — دوس "🖨️ طبع البوالص"','ok'); }
+      else { toast('كل الأوردرات في القايمة دي اتطبعت بالفعل','er'); }
     });
-    // علّم الـ checkboxes الظاهرة في الجدول
-    $id('tbody').querySelectorAll('.cb-row').forEach(function(cb){
-      var id = cb.getAttribute('data-id');
-      if(selectedIds.has(id)){
-        cb.checked = true;
-        var tr = cb.closest('tr'); if(tr) tr.classList.add('sel');
-      }
-    });
-    updateBulkBar(); updateMasterCb();
-    if(added > 0){ toast('تم تحديد '+num(added)+' أوردر غير مطبوع — دوس "🖨️ طبع البوالص"','ok'); }
-    else { toast('كل الأوردرات في القايمة دي اتطبعت بالفعل','er'); }
-  });
-})();
+  })();
 }
 
 
@@ -843,12 +843,12 @@ function tourMaybeAutoStart(){
 // reposition on resize while active
 // إعادة رسم الجولة عند تغيير المقاس
 function initTourResize(){
-window.addEventListener('resize', function(){ if(tourActive) tourRender(); });
-// expose tour controls for inline onclick handlers (bubble + welcome card)
-// exports الجولة على window اتشالت — الأزرار بقت data-act
+  window.addEventListener('resize', function(){ if(tourActive) tourRender(); });
+  // expose tour controls for inline onclick handlers (bubble + welcome card)
+  // exports الجولة على window اتشالت — الأزرار بقت data-act
 
-// ===== كروت/تنبيهات صفحة الأوردرات من السيرفر (RPC + كويريهات مخصّصة) =====
-// المدة الحالية بتواريخ القاهرة للـ RPC. NULL = كل الفترات.
+  // ===== كروت/تنبيهات صفحة الأوردرات من السيرفر (RPC + كويريهات مخصّصة) =====
+  // المدة الحالية بتواريخ القاهرة للـ RPC. NULL = كل الفترات.
 }
 function ordersPeriodCairoDates(){
   var p=ordersPeriod;
@@ -2247,14 +2247,14 @@ function doBulkUpdate(ns){
 // Login wireup
 // نموذج الدخول والخروج
 function initLoginForm(){
-$id('login-btn').addEventListener('click', doLogin);
-$id('login-pass').addEventListener('keydown', function(e){ if(e.key === 'Enter') doLogin(); });
-$id('login-user').addEventListener('keydown', function(e){ if(e.key === 'Enter') $id('login-pass').focus(); });
-$id('logout-btn').addEventListener('click', doLogout);
+  $id('login-btn').addEventListener('click', doLogin);
+  $id('login-pass').addEventListener('keydown', function(e){ if(e.key === 'Enter') doLogin(); });
+  $id('login-user').addEventListener('keydown', function(e){ if(e.key === 'Enter') $id('login-pass').focus(); });
+  $id('logout-btn').addEventListener('click', doLogout);
 
-// =====================================================
-//  SIGNUP — view switching + handler
-// =====================================================
+  // =====================================================
+  //  SIGNUP — view switching + handler
+  // =====================================================
 }
 function showAuthView(name){
   // hide all sboxes inside #login
@@ -2268,28 +2268,28 @@ function showAuthView(name){
 
 // التسجيل وتبديل شاشات المصادقة
 function initSignupForm(){
-$id('show-signup-btn').addEventListener('click', function(){
-  $id('signup-err').textContent = '';
-  showAuthView('signup');
-});
-$id('back-to-login-btn').addEventListener('click', function(){
-  $id('login-err').textContent = '';
-  showAuthView('login');
-});
-$id('back-from-check-btn').addEventListener('click', function(){
-  showAuthView('login');
-});
-$id('signup-btn').addEventListener('click', doSignup);
-// Enter-to-submit on signup form
-['signup-store','signup-email','signup-phone','signup-pass'].forEach(function(id){
-  var el = $id(id);
-  if(!el) return;
-  el.addEventListener('keydown', function(e){ if(e.key === 'Enter') doSignup(); });
-});
-// Restrict phone field to digits
-$id('signup-phone').addEventListener('input', function(){
-  this.value = (this.value || '').replace(/\D/g, '').slice(0, 11);
-});
+  $id('show-signup-btn').addEventListener('click', function(){
+    $id('signup-err').textContent = '';
+    showAuthView('signup');
+  });
+  $id('back-to-login-btn').addEventListener('click', function(){
+    $id('login-err').textContent = '';
+    showAuthView('login');
+  });
+  $id('back-from-check-btn').addEventListener('click', function(){
+    showAuthView('login');
+  });
+  $id('signup-btn').addEventListener('click', doSignup);
+  // Enter-to-submit on signup form
+  ['signup-store','signup-email','signup-phone','signup-pass'].forEach(function(id){
+    var el = $id(id);
+    if(!el) return;
+    el.addEventListener('keydown', function(e){ if(e.key === 'Enter') doSignup(); });
+  });
+  // Restrict phone field to digits
+  $id('signup-phone').addEventListener('input', function(){
+    this.value = (this.value || '').replace(/\D/g, '').slice(0, 11);
+  });
 }
 
 function doSignup(){
@@ -2422,34 +2422,34 @@ function bootstrapTenantIfNeeded(authUser, onDone){
 
 // زرار التحديث + بحث وفلاتر الأوردرات
 function initRefreshAndSearch(){
-$id('rbtn').addEventListener('click', function(){
-  // Refresh whichever page is currently visible (not just orders).
-  // Wallet is refreshed for everyone (admin + employee) because the depletion lock applies to both.
-  var active = document.querySelector('.tnav-btn.active');
-  var page = active ? active.getAttribute('data-page') : 'orders';
-  if(page === 'stock'){
-    loadStock();
-    loadWalletState();
-  } else if(page === 'finance'){
-    loadFinance();
-    loadWalletState();
-  } else if(page === 'billing'){
-    loadBilling();
-  } else if(page === 'settings'){
-    loadSettings();
-  } else if(page === 'issues' && typeof loadIssues === 'function'){
-    loadIssues();
-    loadWalletState();
-  } else {
-    loadAll(); // orders (and everything it pulls in)
-  }
-});
-$id('qinp').addEventListener('input',function(){clearTimeout(stm);stm=setTimeout(doFilter,240);});
-$id('fst').addEventListener('change',doFilter);
-$id('fpl').addEventListener('change',doFilter);
-$id('fpy').addEventListener('change',doFilter);
+  $id('rbtn').addEventListener('click', function(){
+    // Refresh whichever page is currently visible (not just orders).
+    // Wallet is refreshed for everyone (admin + employee) because the depletion lock applies to both.
+    var active = document.querySelector('.tnav-btn.active');
+    var page = active ? active.getAttribute('data-page') : 'orders';
+    if(page === 'stock'){
+      loadStock();
+      loadWalletState();
+    } else if(page === 'finance'){
+      loadFinance();
+      loadWalletState();
+    } else if(page === 'billing'){
+      loadBilling();
+    } else if(page === 'settings'){
+      loadSettings();
+    } else if(page === 'issues' && typeof loadIssues === 'function'){
+      loadIssues();
+      loadWalletState();
+    } else {
+      loadAll(); // orders (and everything it pulls in)
+    }
+  });
+  $id('qinp').addEventListener('input',function(){clearTimeout(stm);stm=setTimeout(doFilter,240);});
+  $id('fst').addEventListener('change',doFilter);
+  $id('fpl').addEventListener('change',doFilter);
+  $id('fpy').addEventListener('change',doFilter);
 
-// ---- custom animated filter dropdowns: native <select>s stay as the source of truth ----
+  // ---- custom animated filter dropdowns: native <select>s stay as the source of truth ----
 }
 function fdropCloseAll(except){
   document.querySelectorAll('.fdrop.open').forEach(function(w){ if(w!==except) w.classList.remove('open'); });
@@ -2490,15 +2490,15 @@ function enhanceFilters(){
 }
 // القوايم المنسدلة + شريط طلبات الإلغاء
 function initFilterDropdowns(){
-document.addEventListener('click',function(){ fdropCloseAll(); });
-document.addEventListener('keydown',function(e){ if(e.key==='Escape') fdropCloseAll(); });
-window.__syncFilterUI=function(){ ['fst','fpl','fpy'].forEach(function(id){ var s=$id(id); if(s&&s.__fsync)s.__fsync(); }); reflectStatusCards(); };
-(function(){ var b=$id('cxbar'); if(b) b.addEventListener('click', showCancelRequested); })();
-document.addEventListener('click', function(ev){ var t=ev.target; if(t && t.id==='cx-resolve'){ ev.preventDefault(); resolveCancelRequest(); } });
-enhanceFilters();
-wireBillingEvents();
+  document.addEventListener('click',function(){ fdropCloseAll(); });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape') fdropCloseAll(); });
+  window.__syncFilterUI=function(){ ['fst','fpl','fpy'].forEach(function(id){ var s=$id(id); if(s&&s.__fsync)s.__fsync(); }); reflectStatusCards(); };
+  (function(){ var b=$id('cxbar'); if(b) b.addEventListener('click', showCancelRequested); })();
+  document.addEventListener('click', function(ev){ var t=ev.target; if(t && t.id==='cx-resolve'){ ev.preventDefault(); resolveCancelRequest(); } });
+  enhanceFilters();
+  wireBillingEvents();
 
-// ---- clickable status cards: tap a card to filter orders by that status (no-op during the demo/tour) ----
+  // ---- clickable status cards: tap a card to filter orders by that status (no-op during the demo/tour) ----
 }
 function reflectStatusCards(){
   var v=$id('fst')?$id('fst').value:'';
@@ -2626,47 +2626,47 @@ function printSelectedAwb(){
 // ============================================================================
 
 function initOrdersUI(){
-if($id('fst')) $id('fst').addEventListener('change',reflectStatusCards);
-wireStatusCards();
+  if($id('fst')) $id('fst').addEventListener('change',reflectStatusCards);
+  wireStatusCards();
 
-// ---- orders period bar: scope table + top cards to a chosen date range (no-op during the demo) ----
-(function(){
-  var bar=$id('orders-period-bar'); if(!bar)return;
-  bar.querySelectorAll('.pseg-btn').forEach(function(b){
-    b.addEventListener('click',function(){ if(tourActive)return; setOrdersPeriod(b.getAttribute('data-period')); });
-  });
-  var ap=$id('op-apply');
-  if(ap) ap.addEventListener('click',function(){
-    if(tourActive)return;
-    setPeriod(ordersPeriod, 'custom', $id('op-from').value, $id('op-to').value);
-    refreshOrdersScope();
-  });
-  // keep the sliding pill aligned: on resize, when the bar becomes visible (after login), and once now
-  window.addEventListener('resize',positionPeriodInd);
-  if('IntersectionObserver' in window){
-    new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting) positionPeriodInd(); }); }).observe(bar);
-  }
-  requestAnimationFrame(positionPeriodInd);
-  setTimeout(positionPeriodInd,300);
-})();
-$id('psize').addEventListener('change',function(){PS=parseInt($id('psize').value)||50;localStorage.setItem('sb_ps',PS);cur=1;if(tourActive){doFilter();}else{fetchOrdersPage();}});
-$id('xcls').addEventListener('click',function(){$id('ovl').classList.remove('open');sel=null;});
-$id('ovl').addEventListener('click',function(e){if(e.target===$id('ovl')){$id('ovl').classList.remove('open');sel=null;}});
-document.addEventListener('keydown',function(e){if(e.key==='Escape'){$id('ovl').classList.remove('open');sel=null;}});
-$id('tdate').textContent=new Date().toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  // ---- orders period bar: scope table + top cards to a chosen date range (no-op during the demo) ----
+  (function(){
+    var bar=$id('orders-period-bar'); if(!bar)return;
+    bar.querySelectorAll('.pseg-btn').forEach(function(b){
+      b.addEventListener('click',function(){ if(tourActive)return; setOrdersPeriod(b.getAttribute('data-period')); });
+    });
+    var ap=$id('op-apply');
+    if(ap) ap.addEventListener('click',function(){
+      if(tourActive)return;
+      setPeriod(ordersPeriod, 'custom', $id('op-from').value, $id('op-to').value);
+      refreshOrdersScope();
+    });
+    // keep the sliding pill aligned: on resize, when the bar becomes visible (after login), and once now
+    window.addEventListener('resize',positionPeriodInd);
+    if('IntersectionObserver' in window){
+      new IntersectionObserver(function(es){ es.forEach(function(e){ if(e.isIntersecting) positionPeriodInd(); }); }).observe(bar);
+    }
+    requestAnimationFrame(positionPeriodInd);
+    setTimeout(positionPeriodInd,300);
+  })();
+  $id('psize').addEventListener('change',function(){PS=parseInt($id('psize').value)||50;localStorage.setItem('sb_ps',PS);cur=1;if(tourActive){doFilter();}else{fetchOrdersPage();}});
+  $id('xcls').addEventListener('click',function(){$id('ovl').classList.remove('open');sel=null;});
+  $id('ovl').addEventListener('click',function(e){if(e.target===$id('ovl')){$id('ovl').classList.remove('open');sel=null;}});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){$id('ovl').classList.remove('open');sel=null;}});
+  $id('tdate').textContent=new Date().toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
-  $id('bb-ok').addEventListener('click',function(){doBulkUpdate('confirmed');});
-$id('bb-bs').addEventListener('click',function(){doBulkUpdate('bosta_assigned');});
-$id('bb-cn').addEventListener('click',function(){doBulkUpdate('cancelled');});
-$id('bb-sel').addEventListener('change',function(){if(this.value){doBulkUpdate(this.value);this.value='';}});
-$id('bclear').addEventListener('click',function(){selectedIds.clear();updateBulkBar();renderTable();});
-   $id('bb-print').addEventListener('click', printSelectedAwb);
+    $id('bb-ok').addEventListener('click',function(){doBulkUpdate('confirmed');});
+  $id('bb-bs').addEventListener('click',function(){doBulkUpdate('bosta_assigned');});
+  $id('bb-cn').addEventListener('click',function(){doBulkUpdate('cancelled');});
+  $id('bb-sel').addEventListener('change',function(){if(this.value){doBulkUpdate(this.value);this.value='';}});
+  $id('bclear').addEventListener('click',function(){selectedIds.clear();updateBulkBar();renderTable();});
+     $id('bb-print').addEventListener('click', printSelectedAwb);
 
-// ─────────────────────────────────────────────────
-// STOCK MANAGEMENT
-// ─────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────
+  // STOCK MANAGEMENT
+  // ─────────────────────────────────────────────────
 
-// ===== WhatsApp Inbox (مرحلة 1: استقبال + قراءة) =====
+  // ===== WhatsApp Inbox (مرحلة 1: استقبال + قراءة) =====
 }
 var waConvos=[], waActiveId=null, waPollTimer=null, waRenderedCount=0;
 
@@ -3637,69 +3637,69 @@ function openMovementEditor(){
 // Stock event wireup
 // التنقّل بين الصفحات وتابات المخزون والتحليلات
 function initNavAndStock(){
-$id('nav-orders').addEventListener('click',function(){showPage('orders');});
-$id('nav-stock').addEventListener('click',function(){showPage('stock');});
-if($id('nav-issues'))$id('nav-issues').addEventListener('click',function(){showPage('issues');});
-$id('nav-finance').addEventListener('click',function(){showPage('finance');});
-if($id('nav-billing'))$id('nav-billing').addEventListener('click',function(){showPage('billing');});
-if($id('nav-settings'))$id('nav-settings').addEventListener('click',function(){showPage('settings');});
-if($id('nav-analytics'))$id('nav-analytics').addEventListener('click',function(){showPage('analytics');});
-if($id('nav-inbox'))$id('nav-inbox').addEventListener('click',function(){showPage('inbox');});
-if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
-if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waSearchQuery=(this.value||'').trim().toLowerCase(); renderConvos(); });
-if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});
-if($id('wa-send-btn'))$id('wa-send-btn').addEventListener('click',waSend);
-if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',function(){ var p=$id('wa-qr-panel'); if(p) p.classList.toggle('open'); });
-if($id('wa-docattach'))$id('wa-docattach').addEventListener('click',function(){ var f=$id('wa-docfile'); if(f) f.click(); });
-if($id('wa-docfile'))$id('wa-docfile').addEventListener('change',waPickFile);
-if($id('wa-label-btn'))$id('wa-label-btn').addEventListener('click',function(){ var lp=$id('wa-label-picker'); if(!lp) return; var show=lp.style.display==='none'; if(show){ var conv=waConvos.filter(function(x){return x.id===waActiveId;})[0]; waRenderLabelPicker(conv); } lp.style.display=show?'flex':'none'; this.classList.toggle('on',show); });
-if($id('wa-note-btn'))$id('wa-note-btn').addEventListener('click',function(){ var nb=$id('wa-note-box'); if(!nb) return; var show=nb.style.display==='none'; nb.style.display=show?'flex':'none'; this.classList.toggle('on',show); if(show){ var ni=$id('wa-note-input'); if(ni) ni.focus(); } });
-if($id('wa-note-save'))$id('wa-note-save').addEventListener('click',waSaveNote);
-if($id('wa-orders-head'))$id('wa-orders-head').addEventListener('click',function(){var b=$id('wa-orders-body'),a=$id('wa-orders-arrow');if(!b)return;var collapsed=b.classList.toggle('collapsed');if(a)a.textContent=collapsed?'▸':'▾';});
-if($id('wa-attach'))$id('wa-attach').addEventListener('click',function(){var f=$id('wa-file');if(f)f.click();});
-if($id('wa-file'))$id('wa-file').addEventListener('change',waPickImage);
-if($id('wa-input')){
-  $id('wa-input').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();waSend();}});
-  $id('wa-input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
-}
-document.querySelectorAll('.stock-tab[data-tab]').forEach(function(b){
-  b.addEventListener('click',function(){
-    currentStockTab=b.getAttribute('data-tab');
-    document.querySelectorAll('.stock-tab[data-tab]').forEach(function(x){x.classList.toggle('active',x===b);});
-    $id('stock-products-tab').style.display = currentStockTab==='products'?'block':'none';
-    $id('stock-movements-tab').style.display = currentStockTab==='movements'?'block':'none';
+  $id('nav-orders').addEventListener('click',function(){showPage('orders');});
+  $id('nav-stock').addEventListener('click',function(){showPage('stock');});
+  if($id('nav-issues'))$id('nav-issues').addEventListener('click',function(){showPage('issues');});
+  $id('nav-finance').addEventListener('click',function(){showPage('finance');});
+  if($id('nav-billing'))$id('nav-billing').addEventListener('click',function(){showPage('billing');});
+  if($id('nav-settings'))$id('nav-settings').addEventListener('click',function(){showPage('settings');});
+  if($id('nav-analytics'))$id('nav-analytics').addEventListener('click',function(){showPage('analytics');});
+  if($id('nav-inbox'))$id('nav-inbox').addEventListener('click',function(){showPage('inbox');});
+  if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
+  if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waSearchQuery=(this.value||'').trim().toLowerCase(); renderConvos(); });
+  if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});
+  if($id('wa-send-btn'))$id('wa-send-btn').addEventListener('click',waSend);
+  if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',function(){ var p=$id('wa-qr-panel'); if(p) p.classList.toggle('open'); });
+  if($id('wa-docattach'))$id('wa-docattach').addEventListener('click',function(){ var f=$id('wa-docfile'); if(f) f.click(); });
+  if($id('wa-docfile'))$id('wa-docfile').addEventListener('change',waPickFile);
+  if($id('wa-label-btn'))$id('wa-label-btn').addEventListener('click',function(){ var lp=$id('wa-label-picker'); if(!lp) return; var show=lp.style.display==='none'; if(show){ var conv=waConvos.filter(function(x){return x.id===waActiveId;})[0]; waRenderLabelPicker(conv); } lp.style.display=show?'flex':'none'; this.classList.toggle('on',show); });
+  if($id('wa-note-btn'))$id('wa-note-btn').addEventListener('click',function(){ var nb=$id('wa-note-box'); if(!nb) return; var show=nb.style.display==='none'; nb.style.display=show?'flex':'none'; this.classList.toggle('on',show); if(show){ var ni=$id('wa-note-input'); if(ni) ni.focus(); } });
+  if($id('wa-note-save'))$id('wa-note-save').addEventListener('click',waSaveNote);
+  if($id('wa-orders-head'))$id('wa-orders-head').addEventListener('click',function(){var b=$id('wa-orders-body'),a=$id('wa-orders-arrow');if(!b)return;var collapsed=b.classList.toggle('collapsed');if(a)a.textContent=collapsed?'▸':'▾';});
+  if($id('wa-attach'))$id('wa-attach').addEventListener('click',function(){var f=$id('wa-file');if(f)f.click();});
+  if($id('wa-file'))$id('wa-file').addEventListener('change',waPickImage);
+  if($id('wa-input')){
+    $id('wa-input').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();waSend();}});
+    $id('wa-input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
+  }
+  document.querySelectorAll('.stock-tab[data-tab]').forEach(function(b){
+    b.addEventListener('click',function(){
+      currentStockTab=b.getAttribute('data-tab');
+      document.querySelectorAll('.stock-tab[data-tab]').forEach(function(x){x.classList.toggle('active',x===b);});
+      $id('stock-products-tab').style.display = currentStockTab==='products'?'block':'none';
+      $id('stock-movements-tab').style.display = currentStockTab==='movements'?'block':'none';
+    });
   });
-});
-$id('prod-search').addEventListener('input',renderProducts);
-$id('mov-search').addEventListener('input',renderMovements);
-$id('mov-type').addEventListener('change',renderMovements);
-$id('perf-search').addEventListener('input',renderProductPerformance);
-// Analytics (performance) sub-tabs
-document.querySelectorAll('.stock-tab[data-atab]').forEach(function(b){
-  b.addEventListener('click',function(){
-    analyticsCurrentTab=b.getAttribute('data-atab');
-    document.querySelectorAll('.stock-tab[data-atab]').forEach(function(x){x.classList.toggle('active',x===b);});
-    $id('analytics-products-tab').style.display = analyticsCurrentTab==='products'?'block':'none';
-    $id('analytics-platforms-tab').style.display = analyticsCurrentTab==='platforms'?'block':'none';
-    $id('analytics-employees-tab').style.display = analyticsCurrentTab==='employees'?'block':'none';
-    if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = analyticsCurrentTab==='employees'?'none':'';
-    renderAnalyticsActive();
+  $id('prod-search').addEventListener('input',renderProducts);
+  $id('mov-search').addEventListener('input',renderMovements);
+  $id('mov-type').addEventListener('change',renderMovements);
+  $id('perf-search').addEventListener('input',renderProductPerformance);
+  // Analytics (performance) sub-tabs
+  document.querySelectorAll('.stock-tab[data-atab]').forEach(function(b){
+    b.addEventListener('click',function(){
+      analyticsCurrentTab=b.getAttribute('data-atab');
+      document.querySelectorAll('.stock-tab[data-atab]').forEach(function(x){x.classList.toggle('active',x===b);});
+      $id('analytics-products-tab').style.display = analyticsCurrentTab==='products'?'block':'none';
+      $id('analytics-platforms-tab').style.display = analyticsCurrentTab==='platforms'?'block':'none';
+      $id('analytics-employees-tab').style.display = analyticsCurrentTab==='employees'?'block':'none';
+      if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = analyticsCurrentTab==='employees'?'none':'';
+      renderAnalyticsActive();
+    });
   });
-});
-document.querySelectorAll('.aperiod-btn').forEach(function(b){
-  b.addEventListener('click',function(){
-    setPeriod(analyticsPeriod, b.getAttribute('data-aperiod'));
-    document.querySelectorAll('.aperiod-btn').forEach(function(x){x.classList.toggle('active',x===b);});
-    renderAnalyticsActive();
+  document.querySelectorAll('.aperiod-btn').forEach(function(b){
+    b.addEventListener('click',function(){
+      setPeriod(analyticsPeriod, b.getAttribute('data-aperiod'));
+      document.querySelectorAll('.aperiod-btn').forEach(function(x){x.classList.toggle('active',x===b);});
+      renderAnalyticsActive();
+    });
   });
-});
-$id('add-product-btn').addEventListener('click',function(){openProductEditor(null);});
-$id('add-mov-btn').addEventListener('click',openMovementEditor);
+  $id('add-product-btn').addEventListener('click',function(){openProductEditor(null);});
+  $id('add-mov-btn').addEventListener('click',openMovementEditor);
 
 
-// ─────────────────────────────────────────────────
-// SMART STOCK ALERTS + ISSUES CENTER
-// ─────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────
+  // SMART STOCK ALERTS + ISSUES CENTER
+  // ─────────────────────────────────────────────────
 }
 function parseMovementDate(m){
   var raw=m.created_at || m.movement_date;
@@ -5278,107 +5278,107 @@ function renderFinancePlatforms(){
 // ────────────────── FINANCE EVENT WIREUP ──────────────────
 // الفاينانس والمصاريف والمشاكل والتلميحات
 function initFinanceAndIssues(){
-document.querySelectorAll('.period-btn').forEach(function(b){
-  b.addEventListener('click', function(){
-    var type = b.getAttribute('data-period');
-    document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
-    var crow = $id('fin-custom-row');
-    if(type === 'custom'){ if(crow) crow.style.display='flex'; return; }  // wait for طبّق
-    if(crow) crow.style.display='none';
-    setPeriod(financePeriod, type);
-    financeChartManual = false;             // chart auto-follows the new period
-    financeChartPeriod = autoChartGran();
+  document.querySelectorAll('.period-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      var type = b.getAttribute('data-period');
+      document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
+      var crow = $id('fin-custom-row');
+      if(type === 'custom'){ if(crow) crow.style.display='flex'; return; }  // wait for طبّق
+      if(crow) crow.style.display='none';
+      setPeriod(financePeriod, type);
+      financeChartManual = false;             // chart auto-follows the new period
+      financeChartPeriod = autoChartGran();
+      renderFinance();
+    });
+  });
+
+  // Chart period toggle (daily/weekly/monthly/yearly)
+  document.querySelectorAll('.chart-period-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      financeChartManual = true;   // user override — stops auto-following the period
+      financeChartPeriod = b.getAttribute('data-cp');
+      document.querySelectorAll('.chart-period-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
+      renderFinanceChart();
+    });
+  });
+  $id('fin-custom-apply').addEventListener('click', function(){
+    var from = $id('fin-from').value;
+    var to = $id('fin-to').value;
+    if(!from || !to){ toast('اختر التاريخين','er'); return; }
+    if(from > to){ var sw=from; from=to; to=sw; }
+    setPeriod(financePeriod, 'custom', from, to);
+    document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-period')==='custom'); });
+    financeChartManual = false;
+    financeChartPeriod = autoChartGran();   // chart follows the custom range
     renderFinance();
   });
-});
-
-// Chart period toggle (daily/weekly/monthly/yearly)
-document.querySelectorAll('.chart-period-btn').forEach(function(b){
-  b.addEventListener('click', function(){
-    financeChartManual = true;   // user override — stops auto-following the period
-    financeChartPeriod = b.getAttribute('data-cp');
-    document.querySelectorAll('.chart-period-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
-    renderFinanceChart();
+  // Finance tabs
+  document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(b){
+    b.addEventListener('click', function(){
+      financeCurrentTab = b.getAttribute('data-ftab');
+      document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(x){ x.classList.toggle('active', x===b); });
+      $id('finance-overview-tab').style.display = financeCurrentTab==='overview' ? 'block' : 'none';
+      $id('finance-expenses-tab').style.display = financeCurrentTab==='expenses' ? 'block' : 'none';
+    });
   });
-});
-$id('fin-custom-apply').addEventListener('click', function(){
-  var from = $id('fin-from').value;
-  var to = $id('fin-to').value;
-  if(!from || !to){ toast('اختر التاريخين','er'); return; }
-  if(from > to){ var sw=from; from=to; to=sw; }
-  setPeriod(financePeriod, 'custom', from, to);
-  document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-period')==='custom'); });
-  financeChartManual = false;
-  financeChartPeriod = autoChartGran();   // chart follows the custom range
-  renderFinance();
-});
-// Finance tabs
-document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(b){
-  b.addEventListener('click', function(){
-    financeCurrentTab = b.getAttribute('data-ftab');
-    document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(x){ x.classList.toggle('active', x===b); });
-    $id('finance-overview-tab').style.display = financeCurrentTab==='overview' ? 'block' : 'none';
-    $id('finance-expenses-tab').style.display = financeCurrentTab==='expenses' ? 'block' : 'none';
-  });
-});
-$id('exp-search').addEventListener('input', renderExpenses);
-$id('exp-filter-cat').addEventListener('change', renderExpenses);
-$id('add-expense-btn').addEventListener('click', function(){ openExpenseEditor(null); });
-if($id('issues-refresh'))$id('issues-refresh').addEventListener('click',loadIssues);
-if($id('issues-search'))$id('issues-search').addEventListener('input',renderIssuesTable);
-if($id('issues-filter-prio'))$id('issues-filter-prio').addEventListener('change',renderIssuesTable);
-if($id('issues-filter-scope'))$id('issues-filter-scope').addEventListener('change',renderIssuesTable);
+  $id('exp-search').addEventListener('input', renderExpenses);
+  $id('exp-filter-cat').addEventListener('change', renderExpenses);
+  $id('add-expense-btn').addEventListener('click', function(){ openExpenseEditor(null); });
+  if($id('issues-refresh'))$id('issues-refresh').addEventListener('click',loadIssues);
+  if($id('issues-search'))$id('issues-search').addEventListener('input',renderIssuesTable);
+  if($id('issues-filter-prio'))$id('issues-filter-prio').addEventListener('change',renderIssuesTable);
+  if($id('issues-filter-scope'))$id('issues-filter-scope').addEventListener('change',renderIssuesTable);
 
-// ═══════════════════ END FINANCE SECTION ═══════════════════════
+  // ═══════════════════ END FINANCE SECTION ═══════════════════════
 
-// ═══════════════════ INFO TOOLTIP (floating, never clipped) ═══════════════
-(function initInfoTooltips(){
-  var tip = document.createElement('div');
-  tip.id = 'sc-floating-tip';
-  document.body.appendChild(tip);
+  // ═══════════════════ INFO TOOLTIP (floating, never clipped) ═══════════════
+  (function initInfoTooltips(){
+    var tip = document.createElement('div');
+    tip.id = 'sc-floating-tip';
+    document.body.appendChild(tip);
 
-  function showTip(icon){
-    var text = icon.getAttribute('data-tip');
-    if(!text) return;
-    tip.textContent = text;
-    tip.classList.add('show');
-    // Measure after content set
-    var r = icon.getBoundingClientRect();
-    var tw = tip.offsetWidth, th = tip.offsetHeight;
-    // Position above the icon, aligned so arrow (right:18px) points near icon
-    var left = r.left + r.width/2 - (tw - 18);
-    var top = r.top - th - 10;
-    // Keep within viewport
-    if(left < 8) left = 8;
-    if(left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
-    if(top < 8){ // not enough room above → show below
-      top = r.bottom + 10;
-      tip.style.setProperty('--arrow-side','top');
+    function showTip(icon){
+      var text = icon.getAttribute('data-tip');
+      if(!text) return;
+      tip.textContent = text;
+      tip.classList.add('show');
+      // Measure after content set
+      var r = icon.getBoundingClientRect();
+      var tw = tip.offsetWidth, th = tip.offsetHeight;
+      // Position above the icon, aligned so arrow (right:18px) points near icon
+      var left = r.left + r.width/2 - (tw - 18);
+      var top = r.top - th - 10;
+      // Keep within viewport
+      if(left < 8) left = 8;
+      if(left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+      if(top < 8){ // not enough room above → show below
+        top = r.bottom + 10;
+        tip.style.setProperty('--arrow-side','top');
+      }
+      tip.style.left = left + 'px';
+      tip.style.top = top + 'px';
     }
-    tip.style.left = left + 'px';
-    tip.style.top = top + 'px';
-  }
-  function hideTip(){ tip.classList.remove('show'); }
+    function hideTip(){ tip.classList.remove('show'); }
 
-  document.addEventListener('mouseover', function(e){
-    var icon = e.target.closest('.sc-info');
-    if(icon) showTip(icon);
-  });
-  document.addEventListener('mouseout', function(e){
-    if(e.target.closest('.sc-info')) hideTip();
-  });
-  // Mobile: tap to toggle
-  document.addEventListener('click', function(e){
-    var icon = e.target.closest('.sc-info');
-    if(icon){
-      if(tip.classList.contains('show')) hideTip();
-      else showTip(icon);
-      e.stopPropagation();
-    } else {
-      hideTip();
-    }
-  });
-})();
+    document.addEventListener('mouseover', function(e){
+      var icon = e.target.closest('.sc-info');
+      if(icon) showTip(icon);
+    });
+    document.addEventListener('mouseout', function(e){
+      if(e.target.closest('.sc-info')) hideTip();
+    });
+    // Mobile: tap to toggle
+    document.addEventListener('click', function(e){
+      var icon = e.target.closest('.sc-info');
+      if(icon){
+        if(tip.classList.contains('show')) hideTip();
+        else showTip(icon);
+        e.stopPropagation();
+      } else {
+        hideTip();
+      }
+    });
+  })();
 
 }
 // Auto-init on page load — no setup screen needed
