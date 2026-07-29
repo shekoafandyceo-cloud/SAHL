@@ -121,8 +121,9 @@ IMPORT_RE = re.compile(
 EXPORT_PATTERNS = [
     re.compile(r"\bexport\s+(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)"),
     re.compile(r"\bexport\s+class\s+([A-Za-z_$][\w$]*)"),
-    re.compile(r"\bexport\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)"),
 ]
+# تصريح واحد ممكن يصدّر أسماء كتير: export var a=[], b=null, c=0;
+EXPORT_DECL_RE = re.compile(r"\bexport\s+(?:const|let|var)\s+(.*)")
 EXPORT_LIST_RE = re.compile(r"\bexport\s*\{([^}]*)\}")
 
 
@@ -131,6 +132,25 @@ def collect_exports(src):
     names = set()
     for pat in EXPORT_PATTERNS:
         names.update(pat.findall(src))
+    for tail in EXPORT_DECL_RE.findall(src):
+        tail = re.sub(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`", "S", tail)
+        tail = re.sub(r"//.*$", "", tail)
+        depth, cur, parts = 0, "", []
+        for ch in tail:
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            if ch == "," and depth == 0:
+                parts.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        parts.append(cur)
+        for p in parts:
+            mm = re.match(r"\s*([A-Za-z_$][\w$]*)", p)
+            if mm:
+                names.add(mm.group(1))
     for block in EXPORT_LIST_RE.findall(src):
         for piece in block.split(","):
             piece = piece.strip()
