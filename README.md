@@ -7,6 +7,8 @@
 | المسار | الوصف |
 |---|---|
 | `app/` | لوحة تحكم التاجر → Cloudflare Pages |
+| `app/index.html` | هيكل + markup بس (58KB) |
+| `app/js/main.js` | كل الجافاسكربت — **ES module** |
 | `app/css/` | 22 ملف CSS — **الترتيب الرقمي ملزم** (شوف تحت) |
 | `app/fonts/` `app/img/` | أصول ثنائية، كانت base64 جوه الـHTML |
 | `admin/` | لوحة السوبر أدمن → Cloudflare Pages (نطاق منفصل) |
@@ -29,6 +31,32 @@
 
 **أي ملف جديد ياخد رقم يحدّد مكانه في الـcascade، والـ`<link>` في
 `index.html` لازم يتحط في نفس الترتيب.**
+
+## ⚠️ ترتيب السكربتات
+
+```html
+<script src="...supabase-js..."></script>   ← كلاسيك، parser-blocking
+<script src="...chart.js..."></script>      ← كلاسيك، parser-blocking
+<script type="module" src="./js/main.js"></script>
+```
+
+`main.js` بيعتمد على `window.supabase` و `Chart` العامّين. الكلاسيكية
+بتتنفّذ **قبل** أي موديول، فدي الضمانة الوحيدة إنهم موجودين.
+
+**متحطّش `defer` ولا `type="module"` على الاتنين الأولانيين ومتنقلهمش
+تحت.** لو عملت كده: `sb` تفضل `null`، والـ110 مرجع بتاعتها تفشل،
+والتاجر يشوف شاشة لوجين واقفة للأبد بخطأ واحد في الكونسول.
+
+## ⚠️ CSP
+
+`script-src` **مافيهاش `'unsafe-inline'`** — يعني أي `<script>` inline
+أو `onclick="..."` جديد **هيترفض من المتصفح في صمت**. الأحداث بتتوصّل
+بـ`data-act` والموزّع في أول `main.js`.
+
+`style-src` لسه فيها `'unsafe-inline'` (مئات الـ`style="..."`).
+متخلطش بين الاتنين.
+
+`check.sh` بيرفض النشر لو رجع inline script والـCSP مش متوافقة معاه.
 
 ## الفحص قبل أي نشر
 
