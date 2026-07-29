@@ -1411,6 +1411,18 @@ body.role-employee .admin-only{display:none !important;}
   var currentTenantId = null; // comes from user_profiles.tenant_id after login
   var currentTenant = null; // safe tenant info from public.tenants
   var phoneCounts = {}; // map: phone => total order count for that customer
+
+  // ── حالة مشتركة عبر أكتر من قسم ──────────────────────────────────
+  // الخمسة دول كانوا متعرّفين على بعد آلاف السطور من أول موضع بيكتب فيهم
+  // (financeExpenses كانت الفجوة 3,600 سطر). شغّال دلوقتي بس لأن var
+  // بتتـhoist — وبيبقى TDZ ReferenceError فوراً لو اتحوّلوا لـlet/const،
+  // حتى من غير أي تقسيم. اتنقلوا لفوق عشان الكتابة تيجي بعد التعريف.
+  var realtimeChannel = null;  // قناة الريل-تايم — بتتصفّر في forceSuspendLogout
+  var pendingBostaByPhone = {};  // فهرس الدمج — loadMergeCandidates بتملاه
+  var stockProducts=[], stockMovements=[], currentStockTab='products';  // المخزون — الجولة بتبدّله بديمو
+  var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
+  var financeExpenses = [];  // المصاريف — الجولة بتبدّلها بديمو
+
   var SL={
     pending:'قيد الانتظار',
     confirmed:'مؤكدة',
@@ -2645,7 +2657,6 @@ body.role-employee .admin-only{display:none !important;}
     try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
   }
 
-  var realtimeChannel = null;
 
   function startRealtime(){
     // Remove any existing channel before creating a new one
@@ -2786,7 +2797,6 @@ body.role-employee .admin-only{display:none !important;}
 
   // Customers with 2+ orders all in "bosta_assigned" status — can be merged into one shipment
   var mergeableCustomers = []; // [{ phone, name, orders: [...] }]
-  var pendingBostaByPhone = {};
 
   function detectMergeable(){
     mergeableCustomers = [];
@@ -4406,7 +4416,6 @@ body.role-employee .admin-only{display:none !important;}
   // ─────────────────────────────────────────────────
   // STOCK MANAGEMENT
   // ─────────────────────────────────────────────────
-  var stockProducts=[], stockMovements=[], currentStockTab='products';
 
   // ===== WhatsApp Inbox (مرحلة 1: استقبال + قراءة) =====
   var waConvos=[], waActiveId=null, waPollTimer=null, waRenderedCount=0;
@@ -4587,7 +4596,6 @@ body.role-employee .admin-only{display:none !important;}
     if(status==='failed') return '<span class="wa-tick fail">!</span>';
     return '<span class="wa-tick">✓</span>'; // sent / غير محدد
   }
-  var waRenderedState=[], waUrlCache={};
   function waResolveUrls(paths, cb){
     var now=Date.now(), need=[];
     for(var i=0;i<paths.length;i++){ var p=paths[i]; if(p){ var c=waUrlCache[p]; if(!c || c.exp<now) need.push(p); } }
@@ -5857,7 +5865,6 @@ body.role-employee .admin-only{display:none !important;}
     var f = parseFloat(o && o.real_shipping_fee);
     return (isFinite(f) && f > 0) ? f : SHIPPING_COST_DEFAULT;
   }
-  var financeExpenses = [];
   var financeCurrentTab = 'overview';
   var financePeriod = { type: 'month', from: null, to: null };
   var financeChartInstance = null;
