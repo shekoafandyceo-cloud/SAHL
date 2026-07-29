@@ -811,6 +811,37 @@
   function swallow(where, err){
     try{ console.warn('[سهل] ' + where, err); }catch(_){}
   }
+
+  // ── توجيه الضغطات بالـdata-act ──────────────────────────────────────
+  // بديل onclick المضمّنة. سببين:
+  //  1. الـCSP محتاجة 'unsafe-inline' في script-src عشانها — وده بيفتح
+  //     الباب لأي سكربت محقون في الصفحة
+  //  2. تحت ES modules الدوال بتبقى في نطاق الموديول مش على window، فأي
+  //     onclick بيشاور على اسم عام بيموت **وقت الضغط** مش وقت التحميل:
+  //     مفيش خطأ في أي مكان لحد ما التاجر يدوس الزرار
+  // الموزّع واحد على document فبيشتغل مع الـmarkup الثابت والمتولّد سوا.
+  var CLICK_ACTIONS = {
+    'reload':      function(){ location.reload(); },
+    'tour-start':  function(){ tourStart(); },
+    'tour-next':   function(){ tourNext(); },
+    'tour-prev':   function(){ tourPrev(); },
+    'tour-finish': function(){ tourFinish(); },
+    'tour-reopen': function(){ tourReopenWelcome(); },
+    'plan-select': function(el){ selectPlan(el.getAttribute('data-plan')); }
+  };
+  function initClickActions(){
+    document.addEventListener('click', function(ev){
+      var t = ev.target;
+      if(!t || !t.closest) return;
+      var el = t.closest('[data-act]');
+      if(!el) return;
+      var name = el.getAttribute('data-act');
+      var fn = CLICK_ACTIONS[name];
+      if(!fn){ swallow('clickActions', new Error('data-act مش معروف: ' + name)); return; }
+      fn(el, ev);
+    });
+  }
+  initClickActions();
   var sb=null, all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
   var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
   var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
@@ -1008,7 +1039,7 @@
       +'<h1 style="color:#fff;font-size:1.7rem;font-weight:900;margin:0 0 14px;">'+title+'</h1>'
       +'<p style="color:#9fb3d1;font-size:1rem;line-height:1.7;font-weight:600;margin:0 0 28px;">'+msg+'</p>'
       +'<a href="'+wa+'" target="_blank" style="display:block;background:linear-gradient(135deg,#2dd4f0,#1d6ef2);color:#fff;font-weight:900;font-size:1.05rem;padding:16px;border-radius:16px;text-decoration:none;box-shadow:0 16px 40px rgba(29,110,242,.4);margin-bottom:12px;">💬 جدّد عن طريق واتساب</a>'
-      +'<button onclick="location.reload()" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fb3d1;font-weight:700;font-size:.9rem;padding:12px;border-radius:14px;cursor:pointer;width:100%;">🔄 جدّدت بالفعل؟ تحديث الصفحة</button>'
+      +'<button data-act="reload" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fb3d1;font-weight:700;font-size:.9rem;padding:12px;border-radius:14px;cursor:pointer;width:100%;">🔄 جدّدت بالفعل؟ تحديث الصفحة</button>'
       +'<div style="margin-top:24px;color:#5b6b85;font-size:.8rem;">سيستم سهل · sahlgedan.com</div>'
       +'</div>';
     document.body.appendChild(d);
@@ -1871,8 +1902,8 @@
           +'<div class="tour-actions">'
           +'<div class="tour-dots">'+dots+'</div>'
           +'<div class="tour-btns">'
-          +(tourStep>0?'<button class="tour-btn prev" onclick="tourPrev()">السابق</button>':'<button class="tour-btn skip" onclick="tourFinish()">تخطّي</button>')
-          +'<button class="tour-btn next" onclick="tourNext()">'+(isLast?'تمام، خلصنا':'التالي')+'</button>'
+          +(tourStep>0?'<button class="tour-btn prev" data-act="tour-prev">السابق</button>':'<button class="tour-btn skip" data-act="tour-finish">تخطّي</button>')
+          +'<button class="tour-btn next" data-act="tour-next">'+(isLast?'تمام، خلصنا':'التالي')+'</button>'
           +'</div></div>';
         tourPositionFor(el, bubble);
       }, 280);
@@ -1918,8 +1949,7 @@
   // reposition on resize while active
   window.addEventListener('resize', function(){ if(tourActive) tourRender(); });
   // expose tour controls for inline onclick handlers (bubble + welcome card)
-  window.tourStart=tourStart; window.tourNext=tourNext; window.tourPrev=tourPrev;
-  window.tourFinish=tourFinish; window.tourReopenWelcome=tourReopenWelcome;
+  // exports الجولة على window اتشالت — الأزرار بقت data-act
 
   // ===== كروت/تنبيهات صفحة الأوردرات من السيرفر (RPC + كويريهات مخصّصة) =====
   // المدة الحالية بتواريخ القاهرة للـ RPC. NULL = كل الفترات.
@@ -5527,7 +5557,7 @@
           + '<div class="plan-name">'+esc(p.name_ar)+'</div>'
           + priceLine
           + fH
-          + '<button class="'+btnCls+'" '+(isCurrent?'disabled':'')+' onclick="window.__selectPlan(\''+esc(p.id)+'\')">'+btnTxt+'</button>'
+          + '<button class="'+btnCls+'" '+(isCurrent?'disabled':'')+' data-act="plan-select" data-plan="'+esc(p.id)+'">'+btnTxt+'</button>'
           + '</div>';
       });
       grid.innerHTML = h;
@@ -5535,7 +5565,7 @@
   }
 
   // Plan selection: PAYG is free to switch to; paid plans need confirmation + sufficient balance.
-  window.__selectPlan = function(planId){
+  var selectPlan = function(planId){
     if(!walletStateCache){ toast('انتظر اكتمال التحميل','er'); return; }
     if(walletStateCache.plan === planId){ return; }
     sb.from('plans').select('*').eq('id', planId).maybeSingle().then(function(r){
@@ -6695,12 +6725,12 @@
     <h1>أهلاً بيك في سهل!</h1>
     <p>إنت دلوقتي أدمن المتجر، فخلّينا ناخدك في جولة سريعة نوريك فيها السيستم كله شغّال — الكروت بتحسب إيه، الأوردرات وحالاتها، البحث، الماليات، المخزون، والـ LOG. الجولة بتشتغل ببيانات تجريبية، فمتقلقش — مفيش حاجة حقيقية هتتغيّر.</p>
     <div class="tw-btns">
-      <button class="tw-start" onclick="tourStart()">يلا نبدأ الجولة 🚀</button>
-      <button class="tw-skip" onclick="tourFinish()">أنا عارف السيستم، تخطّي</button>
+      <button class="tw-start" data-act="tour-start">يلا نبدأ الجولة 🚀</button>
+      <button class="tw-skip" data-act="tour-finish">أنا عارف السيستم، تخطّي</button>
     </div>
   </div>
 </div>
-<button id="tour-fab" class="tour-fab" style="display:none;" onclick="tourReopenWelcome()">🎓 جولة تعريفية</button>
+<button id="tour-fab" class="tour-fab" style="display:none;" data-act="tour-reopen">🎓 جولة تعريفية</button>
 
 </body>
 </html>
