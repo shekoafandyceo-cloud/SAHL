@@ -10,6 +10,12 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
+import { NOTIFY_KEYS, TG_LOCK_DAYS, loadNotifyPrefs, loadSettings, renderSettings, saveBosta, saveIntegrations, saveNotifyPref, saveTelegram, saveWaConfirmToggle, saveWhatsApp, sendTelegramConfirm, setNotifyGate, settingsBotUsername, tgChatLocked, toggleSecretVisibility, wireSettingsEvents } from './settings/settings.js';
+
+import { analyticsCurrentTab, analyticsPeriod, buildProductPerformance, getAnalyticsRange, initAnalyticsTabs, loadAnalytics, renderAnalyticsActive, renderFinancePlatforms } from './analytics/analytics.js';
+
+import { _allIssues, buildIssues, loadIssues, renderIssues, renderIssuesTable } from './issues/issues.js';
+
 import { applyDepletionLock, billingTopupFile, loadBilling, loadMyTopupRequests, loadWalletHistory, loadWalletState, renderPlanCards, selectPlan, submitTopupRequest, switchPlan, updateWalletChip, walletStateCache, wireBillingEvents } from './billing/billing.js';
 
 import { currentStockTab, initStockButtons, initStockTabs, loadStock, openMovementEditor, openProductEditor, openStockProductByName, parseMovementDate, recentQtyOutByProduct, renderMovements, renderProducts, renderSmartStockAlerts, stockForecastRows, stockMovements, stockProducts, stockSetMovements, stockSetProducts, updateStockStats } from './stock/stock.js';
@@ -70,7 +76,7 @@ function realtimeSetChannel(v){ realtimeChannel = v; }
 // بخصايصها مش بالاستبدال. الاستبدال كان في اتنين من التلاتة والتالت لأ، فأي
 // helper مشترك كان هيشتغل مع واحد ويفشل بصمت مع التانيين. وتحت ES modules
 // إسناد لـbinding مستورد بيرمي TypeError صريح.
-function setPeriod(p, type, from, to){
+export function setPeriod(p, type, from, to){
   p.type = type;
   p.from = from || null;
   p.to   = to   || null;
@@ -106,13 +112,13 @@ function initClickActions(){
     fn(el, ev);
   });
 }
-var all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
+export var all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
 var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
 var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
 export var currentRole = null; // 'admin' or 'employee'
-var currentUser = null; // { email, name, role, tenant_id }
+export var currentUser = null; // { email, name, role, tenant_id }
 export var currentTenantId = null; // comes from user_profiles.tenant_id after login
-var currentTenant = null; // safe tenant info from public.tenants
+export var currentTenant = null; // safe tenant info from public.tenants
 var phoneCounts = {}; // map: phone => total order count for that customer
 
 // ── حالة مشتركة عبر أكتر من قسم ──────────────────────────────────
@@ -611,7 +617,7 @@ function orderCostSnapshotValue(o){
   return 0;
 }
 
-function hasCostSnapshot(o){
+export function hasCostSnapshot(o){
   return orderCostSnapshotValue(o)>0;
 }
 
@@ -635,7 +641,7 @@ function orderInventoryCostSource(o){
 }
 
 
-function loadStockProductsForCosts(done){
+export function loadStockProductsForCosts(done){
   if(!isAdmin()){done&&done();return;}
   // Skip the load only if stockProducts is BOTH non-empty AND has wholesale_price
   // populated. Some code paths (order-detail modal) load a narrower projection
@@ -941,7 +947,7 @@ export function loadBostaInventoryCard(){
 }
 
 // تحميل كل الأوردرات للذاكرة عند الحاجة فقط (الماليات/الإحصائيات بتحسب على كل الفترة).
-function ensureAllLoaded(cb){
+export function ensureAllLoaded(cb){
   if(tourActive){ cb&&cb(); return; }            // الجولة: all = بيانات ديمو محمّلة بالفعل
   if(allLoaded){ cb&&cb(); return; }
   if(!sb||!currentTenantId){ cb&&cb(); return; }
@@ -2725,7 +2731,7 @@ export function showPage(page){
 var unmatchedCogsItems = [];
 
 
-function productCostByName(name){
+export function productCostByName(name){
   var raw = normalizeProductName(name);
   var nn  = raw.toLowerCase();
   var nnKey = nameKey(raw);
@@ -2773,47 +2779,6 @@ export function movementWholesalePrice(m){
   }
   return productCostByName(m.product_name);
 }
-function buildProductPerformance(){
-  var map={};
-  ordersInRange(getAnalyticsRange()).forEach(function(o){
-    var items=parseProductItems(o.product_name);
-    var totalQty=items.reduce(function(s,it){return s+(it.qty||1);},0)||1;
-    var isDelivered=statusIn(o.status,DELIVERED_STATUSES);
-    var isReturned=statusIn(o.status,RETURNED_STATUSES);
-    var isFailed=(normStatus(o.status)==='failed');
-    var isPending=statusIn(o.status,['pending']);
-    var isPositive=statusIn(o.status,BOSTA_POSITIVE_STATUSES);
-    items.forEach(function(it){
-      var name=it.name, qty=it.qty||1;
-      if(!map[name])map[name]={name:name,orders:0,processed:0,qty:0,revenue:0,delivered:0,deliveredQty:0,deliveredRevenue:0,confirmed:0,cancelled:0,returned:0,failed:0,paymob:0,cost:0,profit:0};
-      var r=map[name];
-      var share=val(o)*(qty/totalQty);
-      r.orders++;
-      r.qty+=qty;
-      r.revenue+=share;
-      if(!isPending)r.processed++;                                  // اتعامل معاه (خرج من Pending)
-      if(isDelivered){r.delivered++;r.deliveredQty+=qty;r.deliveredRevenue+=share;}
-      if(isPositive)r.confirmed++;                                  // دخل رحلة الشحن
-      if(statusIn(o.status,CANCELLED_STATUSES))r.cancelled++;
-      if(isReturned)r.returned++;
-      if(isFailed)r.failed++;
-      if(o.payment_stage==='paymob')r.paymob++;
-    });
-  });
-  return Object.keys(map).map(function(k){
-    var r=map[k], c=productCostByName(r.name);
-    // الربح على الأوردرات المسلَّمة فقط (محقَّق) — زي منطق الماليات، قبل الشحن والمصاريف
-    r.cost=c*r.deliveredQty;
-    r.profit=c?(r.deliveredRevenue-r.cost):null;
-    // نسبة التأكيد = الإيجابي ÷ اللي اتعامل معاه (يستبعد Pending) — نفس كروت اللوحة
-    r.confirmRate=r.processed?(r.confirmed/r.processed*100):null;
-    // التسليم/المرتجع = المسلَّم ÷ (المسلَّم + المرتجع) — نفس كروت اللوحة. الفاشل مش بيدخل لأنه ما وصلش لمرحلة شحن نهائية
-    var finished=r.delivered+r.returned;
-    r.deliveryRate=finished?(r.delivered/finished*100):null;
-    r.returnRate=finished?(r.returned/finished*100):null;
-    return r;
-  }).sort(function(a,b){return b.revenue-a.revenue;});
-}
 
 export function renderProductPerformance(){
   var q=($id('perf-search')?($id('perf-search').value||'').trim().toLowerCase():'');
@@ -2857,31 +2822,6 @@ export function renderProductPerformance(){
   $id('perf-tbody').innerHTML=h;
 }
 
-// ════════════════ PERFORMANCE ANALYTICS PAGE ════════════════
-var analyticsCurrentTab = 'products';
-var analyticsPeriod = { type:'month', from:null, to:null };
-function getAnalyticsRange(){
-  var now=new Date(), from, to, t=analyticsPeriod.type;
-  if(t==='last3'){ from=new Date(now.getFullYear(),now.getMonth(),now.getDate()-2); to=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1); }
-  else if(t==='last30'){ from=new Date(now.getFullYear(),now.getMonth(),now.getDate()-29); to=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1); }
-  else if(t==='all'){ from=new Date(2020,0,1); to=new Date(now.getFullYear()+1,0,1); }
-  else { from=new Date(now.getFullYear(),now.getMonth(),1); to=new Date(now.getFullYear(),now.getMonth()+1,1); }
-  return { from:from, to:to };
-}
-function renderAnalyticsActive(){
-  if(analyticsCurrentTab==='products') renderProductPerformance();
-  else if(analyticsCurrentTab==='platforms') renderFinancePlatforms();
-  // 'employees' is a static placeholder (under construction)
-}
-function loadAnalytics(){
-  if(!isAdmin()) return;
-  if(tourActive){ renderAnalyticsActive(); return; }
-  if(!ensureTenant()) return;
-  // الإحصائيات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
-  ensureAllLoaded(function(){
-    loadStockProductsForCosts(function(){ renderAnalyticsActive(); });
-  });
-}
 
 
 
@@ -2901,35 +2841,13 @@ function initNav(){
 
 
 
-// تابات وفترات صفحة الأداء
-function initAnalyticsTabs(){
-  // Analytics (performance) sub-tabs
-  document.querySelectorAll('.stock-tab[data-atab]').forEach(function(b){
-    b.addEventListener('click',function(){
-      analyticsCurrentTab=b.getAttribute('data-atab');
-      document.querySelectorAll('.stock-tab[data-atab]').forEach(function(x){x.classList.toggle('active',x===b);});
-      $id('analytics-products-tab').style.display = analyticsCurrentTab==='products'?'block':'none';
-      $id('analytics-platforms-tab').style.display = analyticsCurrentTab==='platforms'?'block':'none';
-      $id('analytics-employees-tab').style.display = analyticsCurrentTab==='employees'?'block':'none';
-      if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = analyticsCurrentTab==='employees'?'none':'';
-      renderAnalyticsActive();
-    });
-  });
-  document.querySelectorAll('.aperiod-btn').forEach(function(b){
-    b.addEventListener('click',function(){
-      setPeriod(analyticsPeriod, b.getAttribute('data-aperiod'));
-      document.querySelectorAll('.aperiod-btn').forEach(function(x){x.classList.toggle('active',x===b);});
-      renderAnalyticsActive();
-    });
-  });
-}
 
 
 
 
 
 
-function loadStockMovementsForOps(done){
+export function loadStockMovementsForOps(done){
   if(stockMovements && stockMovements.length){done&&done();return;}
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(1000).then(function(r){
     if(!r.error && r.data)stockSetMovements(r.data);
@@ -2937,242 +2855,20 @@ function loadStockMovementsForOps(done){
   });
 }
 
-function shippedOrOperational(o){
+export function shippedOrOperational(o){
   return BOSTA_INVENTORY_STATUSES.indexOf(o.status)>=0 || statusIn(o.status,DELIVERED_STATUSES) || statusIn(o.status,RETURNED_STATUSES) || o.status==='failed';
 }
 
-function productExists(name){
+export function productExists(name){
   var nn=normalizeProductName(name).toLowerCase();
   return (stockProducts||[]).some(function(p){return normalizeProductName(p.name).toLowerCase()===nn;});
 }
 
 
-function buildIssues(){
-  var issues=[];
-  function add(prio,type,title,detail,ref,action,scope){
-    issues.push({prio:prio,type:type,title:title,detail:detail,ref:ref,action:action,scope:scope});
-  }
 
-  // الهدف هنا إن شاشة المشاكل تعرض مشاكل قابلة للتصرف، مش تعمل إنذار على كل داتا قديمة.
-  // لذلك: بنجمع المشاكل المتكررة، وبنتجاهل Legacy orders القديمة في Checks الجديدة مثل Snapshot / stock_deducted.
-  var nowMs=Date.now();
-  var OPS_ISSUE_DAYS=21;     // مشاكل التشغيل الحديثة فقط
-  var PRODUCT_ISSUE_DAYS=30; // مشاكل المنتجات من أوردرات آخر شهر
-  var PENDING_OLD_HOURS=24;  // pending بعد يوم كامل، مش 6 ساعات عشان مايبقاش Noise
 
-  function rowAgeDays(o){
-    var raw=o.status_changed_at || o.created_at;
-    var d=new Date(raw||'');
-    if(isNaN(d.getTime()))return null;
-    return (nowMs-d.getTime())/(24*60*60*1000);
-  }
-  function isRecent(o,days){
-    var age=rowAgeDays(o);
-    return age===null || age<=days;
-  }
-  function uidOf(o){return o.order_uid||o.tracking_no||String(o.id||'').slice(0,8);}
-  function bump(map,key,data){
-    if(!key)return;
-    if(!map[key])map[key]=Object.assign({count:0},data||{});
-    map[key].count++;
-  }
 
-  // 1) سعر الجملة صفر — Issue واحدة لكل منتج Active فقط.
-  (stockProducts||[]).forEach(function(p){
-    if(p.active===false)return;
-    if((Number(p.wholesale_price||0)||0)<=0){
-      add('high','بيانات المنتج','سعر الجملة صفر', 'المنتج ده هيخلي الأرباح أعلى من الحقيقة لأنه بيتحسب بتكلفة صفر. افتح المنتج وضيف سعر الجملة.', p.name, {kind:'stock',q:p.name}, 'data');
-    }
-  });
 
-  // 2) نفاد المخزون الذكي — يظهر هنا فقط لو فيه سحب حديث فعلاً.
-  stockForecastRows().filter(function(r){
-    if(r.level==='ok')return false;
-    if(r.product && r.product.active===false)return false;
-    // ما نعتبرش منتج صفر مخزون مشكلة هنا لو مفيش عليه سحب آخر 7 أيام.
-    if((r.sold7||0)<=0)return false;
-    return true;
-  }).forEach(function(r){
-    add(r.level==='critical'?'high':'medium','نفاد مخزون ذكي',r.msg, 'المتاح '+num(r.qty)+' · سحب آخر 7 أيام '+num(r.sold7)+' · متوسط يومي '+(r.avg?r.avg.toFixed(1):'0')+' · متبقي '+(r.daysLeft===null?'غير محسوب':r.daysLeft.toFixed(1)+' يوم'), r.name, {kind:'stock',q:r.name}, 'stock');
-  });
-
-  var missingProductMap={};
-  var zeroCostProductMap={};
-  var noSnapshot=0, noSnapshotExample=null;
-  var noDeduct=0, noDeductExample=null;
-
-  (all||[]).forEach(function(o){
-    var uid=uidOf(o);
-    var ageDays=rowAgeDays(o);
-
-    // 3) Pending قديم — آخر 21 يوم فقط وبعد 24 ساعة.
-    if(o.status==='pending' && isRecent(o,OPS_ISSUE_DAYS)){
-      var d=new Date(o.created_at||'');
-      if(!isNaN(d.getTime()) && nowMs-d.getTime()>PENDING_OLD_HOURS*60*60*1000){
-        add('medium','طلبات معلقة','Pending قديم', 'الأوردر قيد الانتظار من أكتر من '+PENDING_OLD_HOURS+' ساعة ومحتاج متابعة.', '#'+uid, {kind:'order',q:o.order_uid||o.phone||o.id}, 'ops');
-      }
-    }
-
-    // 4) مشاكل تشغيل Bosta الحالية — الحديثة فقط.
-    if(BOSTA_INVENTORY_STATUSES.indexOf(o.status)>=0 && isRecent(o,OPS_ISSUE_DAYS)){
-      if(!o.tracking_no){
-        add('high','بوسطة','شحنة في التشغيل بدون رقم تتبع', 'الأوردر داخل حالات بوسطة التشغيل لكن مفيش tracking_no محفوظ.', '#'+uid, {kind:'order',q:o.order_uid||o.phone||o.id}, 'ops');
-      }
-      if(!o.stock_deducted_at && o.tracking_no){
-        noDeduct++;
-        if(!noDeductExample)noDeductExample=o;
-      }
-    }
-
-    if((o.status==='Exception' || o.status==='exception') && isRecent(o,OPS_ISSUE_DAYS)){
-      add('high','بوسطة','Exception محتاج تدخل', 'الشحنة في حالة Exception ولازم تتراجع مع بوسطة أو العميل.', '#'+uid, {kind:'order',q:o.tracking_no||o.order_uid||o.phone}, 'ops');
-    }
-
-    // 5) مرتجع بدون رجوع مخزون — بس لو أصلاً كان اتخصم.
-    if(statusIn(o.status,RETURNED_STATUSES) && o.stock_deducted_at && !o.stock_returned_at && isRecent(o,PRODUCT_ISSUE_DAYS)){
-      add('high','مخزون','مرتجع بدون رجوع مخزون', 'الأوردر رجع لكن stock_returned_at فاضي. راجع فرع المرتجع في n8n.', '#'+uid, {kind:'order',q:o.tracking_no||o.order_uid||o.phone}, 'stock');
-    }
-
-    // 6) Snapshot missing — Issue واحدة مجمعة فقط، مش صف لكل أوردر.
-    if(shippedOrOperational(o) && !hasCostSnapshot(o) && isRecent(o,OPS_ISSUE_DAYS)){
-      noSnapshot++;
-      if(!noSnapshotExample)noSnapshotExample=o;
-    }
-
-    // 7) مشاكل المنتج داخل الأوردرات — مجمعة بالمنتج، آخر شهر فقط.
-    if(shippedOrOperational(o) && isRecent(o,PRODUCT_ISSUE_DAYS)){
-      parseProductItems(o.product_name||'').forEach(function(it){
-        var name=it.name;
-        if(!productExists(name)){
-          bump(missingProductMap,name,{name:name,example:o});
-        } else if(productCostByName(name)<=0){
-          bump(zeroCostProductMap,name,{name:name,example:o});
-        }
-      });
-    }
-  });
-
-  if(noDeduct>0){
-    add('high','مخزون','شحنات بدون خصم مخزون', 'فيه '+num(noDeduct)+' شحنة حديثة في التشغيل ولها رقم تتبع لكن stock_deducted_at فاضي. راجع n8n خصم المخزون.', noDeductExample?'#'+uidOf(noDeductExample):num(noDeduct), {kind:'order',q:noDeductExample?(noDeductExample.tracking_no||noDeductExample.order_uid||noDeductExample.phone):''}, 'stock');
-  }
-
-  if(noSnapshot>0){
-    add('medium','Snapshot','أوردرات حديثة بدون Snapshot', 'فيه '+num(noSnapshot)+' أوردر حديث اتحرك/اتسلم لكن مفيش تكلفة محفوظة وقت الشحن. ده مش خطر فوري، بس الماليات هتستخدم أسعار المخزون الحالية كـ fallback.', noSnapshotExample?'#'+uidOf(noSnapshotExample):num(noSnapshot), {kind:'order',q:noSnapshotExample?(noSnapshotExample.tracking_no||noSnapshotExample.order_uid||noSnapshotExample.phone):''}, 'data');
-  }
-
-  Object.keys(missingProductMap).forEach(function(k){
-    var r=missingProductMap[k];
-    add('high','تكلفة المنتج','منتج غير موجود في المخزون', 'المنتج ظهر في '+num(r.count)+' أوردر حديث لكنه مش موجود في stock_products. ضيفه أو وحّد الاسم عشان التكلفة تتحسب صح.', r.name, {kind:'order',q:r.example?(r.example.tracking_no||r.example.order_uid||r.example.phone):r.name}, 'data');
-  });
-
-  Object.keys(zeroCostProductMap).forEach(function(k){
-    var r=zeroCostProductMap[k];
-    // لو المنتج نفسه اتسجل فوق كسعر صفر، ما نكررش نفس المشكلة كتير.
-    var alreadyStockIssue=(stockProducts||[]).some(function(p){return normalizeProductName(p.name).toLowerCase()===normalizeProductName(r.name).toLowerCase() && (Number(p.wholesale_price||0)||0)<=0;});
-    if(alreadyStockIssue)return;
-    add('high','تكلفة المنتج','منتج سعره صفر في أوردرات', 'المنتج ظهر في '+num(r.count)+' أوردر حديث وتكلفته محسوبة صفر. ضيف سعر الجملة في المخزون.', r.name, {kind:'stock',q:r.name}, 'data');
-  });
-
-  var pr={high:0,medium:1,low:2};
-  issues.sort(function(a,b){
-    if(pr[a.prio]!==pr[b.prio])return pr[a.prio]-pr[b.prio];
-    return String(a.type).localeCompare(String(b.type),'ar');
-  });
-  return issues;
-}
-
-var _allIssues = []; // cache for filter
-
-function renderIssues(){
-  if(!isAdmin())return;
-  _allIssues = buildIssues();
-  var high=_allIssues.filter(function(i){return i.prio==='high';}).length;
-  var med=_allIssues.filter(function(i){return i.prio==='medium';}).length;
-  var data=_allIssues.filter(function(i){return i.scope==='data';}).length;
-  if($id('iss-high'))$id('iss-high').textContent=num(high);
-  if($id('iss-medium'))$id('iss-medium').textContent=num(med);
-  if($id('iss-data'))$id('iss-data').textContent=num(data);
-  if($id('iss-total'))$id('iss-total').textContent=num(_allIssues.length);
-  renderSmartStockAlerts('issues-stock-alerts',4);
-  renderIssuesTable();
-}
-
-function renderIssuesTable(){
-  var q=($id('issues-search')&&$id('issues-search').value||'').trim().toLowerCase();
-  var prio=($id('issues-filter-prio')&&$id('issues-filter-prio').value)||'';
-  var scope=($id('issues-filter-scope')&&$id('issues-filter-scope').value)||'';
-  var issues=_allIssues.filter(function(i){
-    if(prio && i.prio!==prio)return false;
-    if(scope && i.scope!==scope)return false;
-    if(q){
-      var hay=[i.title,i.type,i.detail,i.ref].filter(Boolean).join(' ').toLowerCase();
-      if(hay.indexOf(q)<0)return false;
-    }
-    return true;
-  });
-  if($id('iss-filtered-count'))$id('iss-filtered-count').textContent=num(issues.length)+' مشكلة';
-
-  var tb=$id('issues-tbody'); if(!tb)return;
-  if(!_allIssues.length){tb.innerHTML='<div class="ldg" style="color:var(--green);padding:28px;">✅ ممتاز — مفيش مشاكل موجودة دلوقتي</div>';return;}
-  if(!issues.length){tb.innerHTML='<div class="ldg">لا توجد مشاكل تطابق الفلتر</div>';return;}
-
-  var prioConfig={
-    high:{label:'🚨 عاجل',cls:'high'},
-    medium:{label:'⚠️ متوسط',cls:'medium'},
-    low:{label:'ℹ️ منخفض',cls:'low'}
-  };
-  var scopeIcon={ops:'⚙️',stock:'📦',data:'📊'};
-  var scopeLabel={ops:'تشغيل',stock:'مخزون',data:'بيانات'};
-
-  var h='<table><thead><tr>'
-    +'<th style="width:90px">الأولوية</th>'
-    +'<th style="width:80px">النوع</th>'
-    +'<th>المشكلة</th>'
-    +'<th>التفاصيل</th>'
-    +'<th style="width:90px">المرجع</th>'
-    +'<th style="width:60px">إجراء</th>'
-    +'</tr></thead><tbody>';
-
-  issues.forEach(function(i,idx){
-    var pc=prioConfig[i.prio]||{label:i.prio,cls:'low'};
-    var sc=scopeIcon[i.scope]||'';
-    var rowBg=i.prio==='high'?'rgba(239,68,68,.04)':i.prio==='medium'?'rgba(249,115,22,.03)':'';
-    h+='<tr style="background:'+rowBg+'">'
-      +'<td><span class="issue-prio '+pc.cls+'">'+pc.label+'</span></td>'
-      +'<td><span style="font-size:.78rem;color:var(--muted)">'+sc+' '+esc(scopeLabel[i.scope]||i.scope||'')+'</span></td>'
-      +'<td class="nm" style="font-weight:800;">'+esc(i.title)+'</td>'
-      +'<td class="pr" style="font-size:.8rem;color:var(--muted2);max-width:340px;" title="'+esc(i.detail)+'">'+esc(short(i.detail,100))+'</td>'
-      +'<td class="mn" style="font-size:.78rem;color:var(--blue);">'+esc(i.ref||'—')+'</td>'
-      +'<td><button class="issue-action-btn" data-issue-idx="'+idx+'">فتح →</button></td>'
-      +'</tr>';
-  });
-  h+='</tbody></table>';
-  tb.innerHTML=h;
-  tb.querySelectorAll('[data-issue-idx]').forEach(function(btn){
-    btn.addEventListener('click',function(){
-      var i=issues[parseInt(btn.getAttribute('data-issue-idx'),10)];
-      if(!i||!i.action)return;
-      if(i.action.kind==='stock')openStockProductByName(i.action.q);
-      else if(i.action.kind==='order'){
-        showPage('orders');
-        $id('qinp').value=i.action.q||'';$id('fst').value='';$id('fpl').value='';$id('fpy').value='';
-        if(window.__syncFilterUI)window.__syncFilterUI();
-        doFilter(); window.scrollTo({top:0,behavior:'smooth'});
-      }
-    });
-  });
-}
-
-function loadIssues(){
-  if(!requireAdmin())return;
-  if(!ensureTenant())return;
-  var tb=$id('issues-tbody'); if(tb)tb.innerHTML='<div class="ldg"><div class="spin"></div>جاري تحليل المشاكل...</div>';
-  loadStockProductsForCosts(function(){
-    loadStockMovementsForOps(function(){
-      renderIssues();
-    });
-  });
-}
 
 // ═══════════════════════════════════════════════════════════════
 // ════════════════ FINANCE SECTION (admin only) ═════════════════
@@ -3187,7 +2883,7 @@ var financeCurrentTab = 'overview';
 var financeChartInstance = null;
 
 
-function ordersInRange(range){
+export function ordersInRange(range){
   return all.filter(function(o){
     var d = new Date(o.created_at);
     return d >= range.from && d < range.to;
@@ -3296,246 +2992,16 @@ export function renderBillingSummary(){
 
 
 
-var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
-var TG_LOCK_DAYS = 7;          // chat id can't be changed for this many days after being set
-var tgChatLocked = false;      // computed in renderSettings, read by saveTelegram
-
-function loadSettings(){
-  if(!isAdmin()) return;
-  if(!ensureTenant()) return;
-  // Pull fresh tenant row + platform settings (bot username) in parallel
-  Promise.all([
-    sb.from('v_my_tenant').select('store_name,webhook_secret,plan,whatsapp_phone_id,whatsapp_token,shipping_api_key,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
-      .eq('id', currentTenantId).maybeSingle(),
-    sb.from('platform_settings').select('key,value').eq('key','telegram_bot_username').maybeSingle()
-  ]).then(function(results){
-    var tRes = results[0], pRes = results[1];
-    if(tRes.error){ toast('خطأ في تحميل الإعدادات: '+tRes.error.message,'er'); return; }
-    var t = tRes.data || {};
-    if(pRes && pRes.data && pRes.data.value){ settingsBotUsername = pRes.data.value; }
-    renderSettings(t);
-    loadNotifyPrefs();
-  });
-}
-
-function renderSettings(t){
-  // Profile section
-  if($id('set-store-name')) $id('set-store-name').textContent = t.store_name || '—';
-  if($id('set-email'))      $id('set-email').textContent = (currentUser && currentUser.email) || '—';
-  var planMap = { payg: 'الدفع مقابل الاستخدام', growth: 'Growth', unlimited: 'Unlimited', lifetime: 'Lifetime ♾️' };
-  var planLabel = planMap[t.plan] || t.plan || '—';
-  if($id('set-plan'))       $id('set-plan').innerHTML = esc(planLabel) + ' <a href="#" id="set-plan-link" style="color:var(--acc);font-weight:700;font-size:.82rem;margin-right:6px;">تغيير</a>';
-  var planLink = $id('set-plan-link');
-  if(planLink) planLink.addEventListener('click', function(e){ e.preventDefault(); showPage('billing'); });
-
-  // Webhook URL — read-only, built from webhook_secret
-  var wh = t.webhook_secret ? (WEBHOOK_BASE_URL + t.webhook_secret) : '';
-  if($id('set-webhook-url')) $id('set-webhook-url').value = wh || 'لم يتم إنشاؤه بعد — تواصل مع الدعم';
-
-  // Bosta
-  if($id('set-bosta-key')) $id('set-bosta-key').value = t.shipping_api_key || '';
-
-  // WhatsApp
-  if($id('set-wa-phone-id')) $id('set-wa-phone-id').value = t.whatsapp_phone_id || '';
-  if($id('set-wa-token'))    $id('set-wa-token').value    = t.whatsapp_token || '';
-  if($id('set-wa-confirm-toggle')) $id('set-wa-confirm-toggle').checked = !!t.whatsapp_confirmation_enabled;
-
-  // Telegram
-  if($id('set-tg-chat'))     $id('set-tg-chat').value     = t.telegram_chat_id || '';
-  if($id('set-tg-err-chat')) $id('set-tg-err-chat').value = t.error_notify_chat || '';
-  // Edit lock: once a chat id is set, it can't be changed for TG_LOCK_DAYS days.
-  (function(){
-    var input = $id('set-tg-chat');
-    var note  = $id('set-tg-lock-note');
-    tgChatLocked = false;
-    var setAt = t.telegram_chat_id_set_at ? new Date(t.telegram_chat_id_set_at).getTime() : 0;
-    var unlockTs = 0;
-    if(t.telegram_chat_id && setAt){
-      unlockTs = setAt + TG_LOCK_DAYS * 24 * 60 * 60 * 1000;
-      if(Date.now() < unlockTs) tgChatLocked = true;
-    }
-    if(input){
-      input.disabled = tgChatLocked;
-      input.style.opacity = tgChatLocked ? '0.6' : '';
-      input.style.cursor  = tgChatLocked ? 'not-allowed' : '';
-    }
-    if(note){
-      if(tgChatLocked){
-        var ds = '';
-        try{
-          ds = new Date(unlockTs).toLocaleDateString('ar-EG-u-nu-latn', { timeZone:'Africa/Cairo', day:'numeric', month:'long', year:'numeric' });
-        }catch(e){ ds = new Date(unlockTs).toLocaleDateString(); }
-        note.innerHTML = '🔒 الـ Chat ID اتقفل للتعديل بعد ما اتحفظ. تقدر تغيّره تاني يوم <strong>' + esc(ds) + '</strong>، أو تتواصل مع خدمة العملاء لو محتاج تغيّره قبل كده.';
-        note.style.display = '';
-      } else {
-        note.style.display = 'none';
-        note.innerHTML = '';
-      }
-    }
-  })();
-  var botLink = $id('set-tg-bot-link');
-  if(botLink){
-    botLink.href = 'https://t.me/' + settingsBotUsername;
-    botLink.textContent = '@' + settingsBotUsername;
-  }
-
-  // بوابة تنبيهات البوت: من غير Chat ID محفوظ الليستة رمادية ومقفولة
-  setNotifyGate(!!(t.telegram_chat_id && String(t.telegram_chat_id).trim()));
-}
-
-function setNotifyGate(hasChat){
-  var block = $id('np-block');
-  if(block) block.classList.toggle('np-off', !hasChat);
-  NOTIFY_KEYS.forEach(function(k){
-    var el = $id('np-'+k);
-    if(el) el.disabled = !hasChat;
-  });
-}
-
-// ---- تفضيلات تنبيهات البوت ----
-var NOTIFY_KEYS = ['staff_activity','confirmations','cancellations','outgoing_today','daily_inventory'];
-function loadNotifyPrefs(){
-  if(!sb) return;
-  sb.rpc('get_notify_prefs').then(function(r){
-    var prefs = (!r.error && r.data) ? r.data : {};
-    NOTIFY_KEYS.forEach(function(k){
-      var el = $id('np-'+k);
-      if(el) el.checked = (prefs[k] === undefined || prefs[k] === null) ? true : !!prefs[k];
-    });
-  });
-}
-function saveNotifyPref(key){
-  var el = $id('np-'+key); if(!el) return;
-  var desired = !!el.checked;
-  el.disabled = true;
-  var payload = {}; payload[key] = desired;
-  sb.rpc('update_notify_prefs', { p_prefs: payload }).then(function(r){
-    el.disabled = false;
-    if(r.error){
-      el.checked = !desired;
-      var m = r.error.message || '';
-      toast(m.indexOf('admin_only')>=0 ? 'الصلاحية دي للأدمن فقط' : ('تعذّر الحفظ: '+m), 'er');
-      return;
-    }
-    toast(desired ? 'التنبيه اتفعّل ✓' : 'التنبيه اتقفل', 'ok');
-  }).catch(function(e){
-    el.disabled = false; el.checked = !desired;
-    toast('خطأ: '+(e.message||e),'er');
-  });
-}
 
 
-// Toggle password→text on secret inputs
-function toggleSecretVisibility(ev){
-  var btn = ev.currentTarget;
-  var targetId = btn.getAttribute('data-target');
-  var input = $id(targetId);
-  if(!input) return;
-  if(input.type === 'password'){
-    input.type = 'text';
-    btn.textContent = '🙈';
-  } else {
-    input.type = 'password';
-    btn.textContent = '👁';
-  }
-}
 
-// Generic save helper — sends only the listed fields, preserving others.
-// onDone (optional) runs after a successful save, with no arguments.
-function saveIntegrations(payload, sectionLabel, btn, onDone){
-  var origText = btn ? btn.textContent : '';
-  if(btn){ btn.disabled = true; btn.textContent = 'جاري الحفظ...'; }
-  sb.rpc('update_tenant_integrations', payload).then(function(r){
-    if(btn){ btn.disabled = false; btn.textContent = origText; }
-    if(r.error){
-      var m = (r.error.message || '') + ' ' + (r.error.details || '');
-      if(m.indexOf('telegram_locked') >= 0){
-        var when = '';
-        var mt = m.match(/telegram_locked:([0-9T:\-Z]+)/);
-        if(mt){ var dl = new Date(mt[1]); if(!isNaN(dl)){ try{ when = dl.toLocaleDateString('ar-EG-u-nu-latn', { timeZone:'Africa/Cairo', day:'numeric', month:'long', year:'numeric' }); }catch(e){ when = dl.toLocaleDateString(); } } }
-        toast(when ? ('مش هينفع تغيّر الـ Chat ID دلوقتي — جرّب تاني يوم ' + when + ' أو اتواصل مع خدمة العملاء.')
-                   : 'مش هينفع تغيّر الـ Chat ID قبل أسبوع من آخر تعديل — اتواصل مع خدمة العملاء.', 'er');
-        return;
-      }
-      if(m.indexOf('duplicate_telegram_chat_id') >= 0 || m.indexOf('telegram_chat_id_unique') >= 0 || r.error.code === '23505'){
-        toast('رقم الـ Chat ID ده متربط بمتجر تاني بالفعل — كل متجر لازم Chat ID مختلف.','er');
-      } else {
-        toast('خطأ في حفظ ' + sectionLabel + ': ' + (r.error.message || ''), 'er');
-      }
-      return;
-    }
-    toast('تم حفظ ' + sectionLabel + ' بنجاح ✓','ok');
-    if(typeof onDone === 'function') onDone();
-  }).catch(function(e){
-    if(btn){ btn.disabled = false; btn.textContent = origText; }
-    toast('خطأ في الحفظ: ' + (e.message || e), 'er');
-  });
-}
 
-function saveBosta(){
-  var btn = $id('set-save-bosta');
-  var key = ($id('set-bosta-key').value || '').trim();
-  saveIntegrations({ p_shipping_api_key: key }, 'بوسطة', btn);
-}
 
-// Auto-save the WhatsApp-confirmation on/off toggle. Reverts visual state on failure.
-function saveWaConfirmToggle(){
-  var el = $id('set-wa-confirm-toggle'); if(!el) return;
-  var desired = !!el.checked;
-  el.disabled = true;
-  sb.rpc('update_tenant_integrations', { p_whatsapp_confirmation_enabled: desired }).then(function(r){
-    el.disabled = false;
-    if(r.error){ el.checked = !desired; toast('متعملش تحديث ميزة الواتساب: ' + (r.error.message || ''), 'er'); return; }
-    toast(desired ? 'اتفعّل تأكيد الواتساب ✓' : 'اتطفّى تأكيد الواتساب', 'ok');
-  }).catch(function(e){ el.disabled = false; el.checked = !desired; toast('خطأ: ' + (e.message || e), 'er'); });
-}
 
-// الحفظ بيمرّ على تحقق حقيقي من ميتا — مش مجرد تخزين نص
-async function saveWhatsApp(){
-  var btn = $id('set-save-wa');
-  var phoneId = ($id('set-wa-phone-id').value || '').trim();
-  var token   = ($id('set-wa-token').value || '').trim();
 
-  if((phoneId && !token) || (!phoneId && token)){
-    toast('لازم تدخل الرقم والتوكن مع بعض — أو تسيب الاتنين فاضيين عشان تستخدم رقم سهل.','er');
-    return;
-  }
-  if(!phoneId && !token){
-    if(!confirm('هتشيل رقمك الخاص وتشتغل على رقم سهل المشترك.\n\nتأكيد؟')) return;
-  }
 
-  var orig = btn ? btn.textContent : '';
-  if(btn){ btn.disabled = true; btn.textContent = phoneId ? 'بنتأكد من ميتا...' : 'جاري الحفظ...'; }
 
-  try{
-    var sess = await sb.auth.getSession();
-    var tk = sess && sess.data && sess.data.session ? sess.data.session.access_token : null;
-    if(!tk) throw new Error('جلسة الدخول انتهت. سجّل دخول تاني.');
 
-    var res = await fetch(SUPABASE_URL + '/functions/v1/wa-verify-number', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization':'Bearer '+tk },
-      body: JSON.stringify({ phone_number_id: phoneId, token: token })
-    });
-    var out = await res.json().catch(function(){ return {}; });
-
-    if(btn){ btn.disabled = false; btn.textContent = orig; }
-
-    if(!res.ok || !out.ok){
-      toast(out.message || 'تعذّر التحقق من البيانات.','er');
-      return;
-    }
-    toast(out.message || 'تم ✓','ok');
-    if(out.verified && out.display_phone_number){
-      toast('الرقم المتحقق منه: ' + out.display_phone_number, 'ok');
-    }
-    loadSettings();
-    refreshInboxGate();
-  }catch(err){
-    if(btn){ btn.disabled = false; btn.textContent = orig; }
-    toast('خطأ: ' + (err.message || err), 'er');
-  }
-}
 
 // ---- بوابة تبويب المحادثات: مفتوح للموثّقين بس ----
 export var inboxVerified = null;
@@ -3562,87 +3028,8 @@ export function renderInboxLocked(){
   if(b) b.addEventListener('click', function(){ showPage('settings'); });
 }
 
-function saveTelegram(){
-  var btn = $id('set-save-tg');
-  var chat = ($id('set-tg-chat').value || '').trim();
-  var err  = ($id('set-tg-err-chat').value || '').trim();
-  // Client-side validation: must be numeric (Telegram chat IDs are integers, can be negative for groups)
-  var isNumericId = function(v){ return v === '' || /^-?\d+$/.test(v); };
-  if(!isNumericId(err)){  toast('Chat ID للأخطاء لازم يكون أرقام بس','er'); return; }
 
-  // If the chat id is locked, only the error-notify field can change.
-  // Omit p_telegram_chat_id entirely (NULL = preserve) and skip the confirm ping.
-  if(tgChatLocked){
-    saveIntegrations({ p_error_notify_chat: err }, 'تلجرام', btn);
-    return;
-  }
 
-  if(!isNumericId(chat)){ toast('Chat ID لازم يكون أرقام بس','er'); return; }
-  saveIntegrations({ p_telegram_chat_id: chat, p_error_notify_chat: err }, 'تلجرام', btn, function(){
-    // After a successful save, ask the bot to send a confirmation message —
-    // only when a chat id is actually set (clearing it shouldn't notify).
-    if(chat) sendTelegramConfirm(chat);
-    // Re-pull so the lock state + note reflect the new set time immediately.
-    loadSettings();
-  });
-}
-
-// Pings the central Telegram bot (n8n webhook) so it sends "تم الربط بنجاح" to the tenant's chat.
-// The webhook holds the bot token. A send failure usually means the user hasn't pressed Start yet.
-function sendTelegramConfirm(chatId){
-  if(!chatId) return;
-  var TG_CONFIRM_WEBHOOK = 'https://play.sheko.tech/webhook/confirmchatid';
-  var payload = {
-    event: 'telegram_linked',
-    tenant_id: currentTenantId,
-    slug: (currentTenant && currentTenant.slug) || null,
-    store_name: (currentTenant && currentTenant.store_name) || null,
-    chat_id: chatId,
-    message: 'تم الربط بنجاح ✅'
-  };
-  fetch(TG_CONFIRM_WEBHOOK, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).then(function(res){
-    return res.text().then(function(txt){
-      var body = null; try{ body = txt ? JSON.parse(txt) : null; }catch(e){ swallow('sendTelegramConfirm/JSON.parse', e); }
-      return { httpOk: res.ok, body: body };
-    });
-  }).then(function(r){
-    if(!r.httpOk){
-      toast('اتحفظ ✓ بس حصلت مشكلة في إرسال رسالة التأكيد.','er');
-      return;
-    }
-    if(r.body && r.body.ok === false){
-      if(r.body.error === 'telegram_send_failed'){
-        toast('اتحفظ ✓ بس البوت مش قادر يبعتلك. افتح البوت ودوس Start وبعدين احفظ تاني.','er');
-      } else {
-        toast('اتحفظ ✓ بس مقدرناش نبعت رسالة التأكيد على تلجرام.','er');
-      }
-      return;
-    }
-    toast('بعتنالك رسالة تأكيد على تلجرام ✓','ok');
-  }).catch(function(){
-    toast('اتحفظ ✓ بس مقدرناش نبعت رسالة التأكيد دلوقتي.','er');
-  });
-}
-
-// Wire all settings buttons on first DOMContentLoaded equivalent (inside IIFE)
-function wireSettingsEvents(){
-  if($id('set-webhook-copy')) $id('set-webhook-copy').addEventListener('click', copyWebhookUrl);
-  if($id('set-save-bosta'))   $id('set-save-bosta').addEventListener('click', saveBosta);
-  if($id('set-save-wa'))      $id('set-save-wa').addEventListener('click', saveWhatsApp);
-  if($id('set-wa-confirm-toggle')) $id('set-wa-confirm-toggle').addEventListener('change', saveWaConfirmToggle);
-  if($id('set-save-tg'))      $id('set-save-tg').addEventListener('click', saveTelegram);
-  document.querySelectorAll('.settings-eye-btn').forEach(function(b){
-    b.addEventListener('click', toggleSecretVisibility);
-  });
-  NOTIFY_KEYS.forEach(function(k){
-    var el = $id('np-'+k);
-    if(el) el.addEventListener('change', function(){ saveNotifyPref(k); });
-  });
-}
 
 function loadFinance(){
   // During the guided tour, keep the injected demo numbers (real COGS from demo
@@ -4057,60 +3444,6 @@ function deleteExpense(id){
   });
 }
 
-// ────────────────── PRODUCT FINANCIAL PERFORMANCE TAB ──────────────────
-function renderFinancePlatforms(){
-  if(!$id('finplat-tbody')) return;
-  var orders = ordersInRange(getAnalyticsRange());
-  var PLAT = { fb:{name:'Facebook',ic:'📘'}, ig:{name:'Instagram',ic:'📸'}, tiktok:{name:'TikTok',ic:'🎵'} };
-  var by = {};
-  orders.forEach(function(o){
-    var key = PLAT[o.platform] ? o.platform : 'other';
-    if(!by[key]) by[key] = { key:key, total:0, processed:0, positive:0, delivered:0, returned:0 };
-    var b = by[key];
-    b.total++;
-    if(!statusIn(o.status, ['pending'])) b.processed++;            // اتعامل معاه (خرج من قيد الانتظار)
-    if(statusIn(o.status, BOSTA_POSITIVE_STATUSES)) b.positive++;  // مؤكَّد / دخل رحلة الشحن
-    if(statusIn(o.status, DELIVERED_STATUSES)) b.delivered++;
-    if(statusIn(o.status, RETURNED_STATUSES)) b.returned++;
-  });
-  var list = Object.keys(by).map(function(k){
-    var b = by[k];
-    b.confRate = b.processed > 0 ? (b.positive / b.processed * 100) : null;   // = نسبة التأكيد (كروت اللوحة)
-    var dd = b.delivered + b.returned;
-    b.delivRate = dd > 0 ? (b.delivered / dd * 100) : null;                   // = نسبة التسليم (كروت اللوحة)
-    var meta = PLAT[k] || { name:'أخرى', ic:'🌐' };
-    b.label = meta.name; b.ic = meta.ic;
-    return b;
-  });
-  list.sort(function(a,b){ return b.total - a.total; });
-
-  if($id('finplat-count')) $id('finplat-count').textContent = num(list.length) + ' منصة';
-  if(!list.length){ $id('finplat-tbody').innerHTML = '<div class="ldg">لا توجد بيانات في الفترة المختارة</div>'; return; }
-
-  function rateColor(p){ if(p==null) return 'var(--muted)'; if(p>=75) return 'var(--green)'; if(p>=70) return 'var(--ora)'; return 'var(--red)'; }
-  function rateTxt(p){ return p==null ? '—' : p.toFixed(1)+'%'; }
-
-  var h = '<table><thead><tr>'
-    + '<th>المنصة</th>'
-    + '<th>إجمالي الطلبات</th>'
-    + '<th>نسبة التأكيد</th>'
-    + '<th>نسبة التسليم</th>'
-    + '<th>تم التسليم</th>'
-    + '<th>مرتجعة</th>'
-    + '</tr></thead><tbody>';
-  list.forEach(function(b){
-    h += '<tr>'
-      + '<td class="nm">'+b.ic+' '+esc(b.label)+'</td>'
-      + '<td class="mn">'+num(b.total)+'</td>'
-      + '<td class="mn" style="color:'+rateColor(b.confRate)+';font-weight:900">'+rateTxt(b.confRate)+'</td>'
-      + '<td class="mn" style="color:'+rateColor(b.delivRate)+';font-weight:900">'+rateTxt(b.delivRate)+'</td>'
-      + '<td class="mn" style="color:var(--green)">'+num(b.delivered)+'</td>'
-      + '<td class="mn" style="color:var(--ora)">'+num(b.returned)+'</td>'
-      + '</tr>';
-  });
-  h += '</tbody></table>';
-  $id('finplat-tbody').innerHTML = h;
-}
 
 
 // ────────────────── FINANCE EVENT WIREUP ──────────────────
