@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8789", "--directory", "admin"],
       "port": 8789
+    },
+    {
+      "name": "baseline",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8790", "--directory", ".baseline"],
+      "port": 8790
     }
   ]
 }
