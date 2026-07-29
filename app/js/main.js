@@ -2964,6 +2964,106 @@ function wireStatusCards(){
   });
 }
 // كروت الحالة وشريط الفترة والدرج والتحديد الجماعي
+// ============================================================================
+// AWB Printing — يطبع بوليصة بوسطة عبر Edge Function `bosta-print-awb`
+// ============================================================================
+function _b64ToBlob(base64, mimeType){
+  var byteChars = atob(base64);
+  var byteArrays = [];
+  var sliceSize = 512;
+  for(var offset = 0; offset < byteChars.length; offset += sliceSize){
+    var slice = byteChars.slice(offset, offset + sliceSize);
+    var byteNumbers = new Array(slice.length);
+    for(var i = 0; i < slice.length; i++) byteNumbers[i] = slice.charCodeAt(i);
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+  return new Blob(byteArrays, {type: mimeType});
+}
+
+async function printAwbForOrders(orderIds, btnEl){
+  if(!orderIds || orderIds.length === 0){ toast('اختار أوردرات الأول','er'); return; }
+  if(tourActive){ toast('الطباعة مش متاحة في جولة التعريف','er'); return; }
+  
+  var origText = '';
+  if(btnEl){ origText = btnEl.textContent; btnEl.disabled = true; btnEl.textContent = '⏳ جاري الطباعة...'; }
+  
+  try {
+    var sessionResp = await sb.auth.getSession();
+    var session = sessionResp && sessionResp.data && sessionResp.data.session;
+    if(!session){ toast('لازم تسجل دخول الأول','er'); return; }
+    
+    var resp = await fetch(SUPABASE_URL + '/functions/v1/bosta-print-awb', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + session.access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({order_ids: orderIds})
+    });
+    
+    var data = await resp.json();
+    
+    if(!resp.ok){
+      var msg = data.message || data.error || 'فشل طباعة البوليصة';
+      if(data.bosta_status === 400 && /final state/i.test(msg)){
+        msg = 'مينفعش تطبع بوالص أوردرات مسلّمة أو ملغية';
+      }
+      toast(msg, 'er');
+      return;
+    }
+    
+    if(!data.pdf_base64){ toast('بوسطة ما رجعتش PDF','er'); return; }
+    
+    var pdfBlob = _b64ToBlob(data.pdf_base64, 'application/pdf');
+    var pdfUrl = URL.createObjectURL(pdfBlob);
+    
+    var win = window.open(pdfUrl, '_blank');
+    if(!win){
+      toast('السماح بفتح نوافذ جديدة في المتصفح الأول','er');
+      // fallback: download
+      var a = document.createElement('a');
+      a.href = pdfUrl;
+      a.download = 'awb-'+Date.now()+'.pdf';
+      a.click();
+      return;
+    }
+    
+    // Auto-trigger print() لما الـ PDF يتحمل
+    win.addEventListener('load', function(){
+      setTimeout(function(){ try{ win.print(); }catch(e){ swallow('printAwbForOrders/win.print', e); } }, 600);
+    });
+    // backup trigger في حالة الـ load event ما اطلقش
+    setTimeout(function(){ try{ win.focus(); win.print(); }catch(e){ swallow('printAwbForOrders/win.focus', e); } }, 1500);
+    
+    if(data.skipped_no_tracking && data.skipped_no_tracking > 0){
+      toast('✅ اتطبع '+data.printed_count+' بوليصة ('+data.skipped_no_tracking+' أوردر مفيش فيهم tracking)','ok');
+    } else {
+      toast('✅ اتطبع '+data.printed_count+' بوليصة','ok');
+    }
+    
+    // امسح الـ blob URL بعد دقيقة (revoke)
+    setTimeout(function(){ URL.revokeObjectURL(pdfUrl); }, 60000);
+    
+    // refresh الأوردرات عشان نشوف awb_printed_at الجديد (لو في UI)
+    if(typeof loadOrders === 'function'){ try{ loadOrders(); }catch(e){ swallow('printAwbForOrders/loadOrders', e); } }
+    
+  } catch(err){
+    console.error('AWB print error:', err);
+    toast('فشل الاتصال بالخادم: '+(err.message||err),'er');
+  } finally {
+    if(btnEl){ btnEl.disabled = false; btnEl.textContent = origText || '🖨️ طبع البوالص'; }
+  }
+}
+
+function printSelectedAwb(){
+  var ids = Array.from(selectedIds || []);
+  if(ids.length === 0){ toast('اختار أوردرات الأول','er'); return; }
+  // مفيش filter محلي — الـ Edge Function بتعمل الفلترة من DB مباشرة
+  // (الفرونت بيستخدم lazy loading، فالأوردرات مش كلها في الذاكرة دايماً)
+  printAwbForOrders(ids, $id('bb-print'));
+}
+// ============================================================================
+
 function initOrdersUI(){
 if($id('fst')) $id('fst').addEventListener('change',reflectStatusCards);
 wireStatusCards();
@@ -2993,105 +3093,6 @@ $id('xcls').addEventListener('click',function(){$id('ovl').classList.remove('ope
 $id('ovl').addEventListener('click',function(e){if(e.target===$id('ovl')){$id('ovl').classList.remove('open');sel=null;}});
 document.addEventListener('keydown',function(e){if(e.key==='Escape'){$id('ovl').classList.remove('open');sel=null;}});
 $id('tdate').textContent=new Date().toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-// ============================================================================
-  // AWB Printing — يطبع بوليصة بوسطة عبر Edge Function `bosta-print-awb`
-  // ============================================================================
-  function _b64ToBlob(base64, mimeType){
-    var byteChars = atob(base64);
-    var byteArrays = [];
-    var sliceSize = 512;
-    for(var offset = 0; offset < byteChars.length; offset += sliceSize){
-      var slice = byteChars.slice(offset, offset + sliceSize);
-      var byteNumbers = new Array(slice.length);
-      for(var i = 0; i < slice.length; i++) byteNumbers[i] = slice.charCodeAt(i);
-      byteArrays.push(new Uint8Array(byteNumbers));
-    }
-    return new Blob(byteArrays, {type: mimeType});
-  }
-
-  async function printAwbForOrders(orderIds, btnEl){
-    if(!orderIds || orderIds.length === 0){ toast('اختار أوردرات الأول','er'); return; }
-    if(tourActive){ toast('الطباعة مش متاحة في جولة التعريف','er'); return; }
-    
-    var origText = '';
-    if(btnEl){ origText = btnEl.textContent; btnEl.disabled = true; btnEl.textContent = '⏳ جاري الطباعة...'; }
-    
-    try {
-      var sessionResp = await sb.auth.getSession();
-      var session = sessionResp && sessionResp.data && sessionResp.data.session;
-      if(!session){ toast('لازم تسجل دخول الأول','er'); return; }
-      
-      var resp = await fetch(SUPABASE_URL + '/functions/v1/bosta-print-awb', {
-        method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + session.access_token,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({order_ids: orderIds})
-      });
-      
-      var data = await resp.json();
-      
-      if(!resp.ok){
-        var msg = data.message || data.error || 'فشل طباعة البوليصة';
-        if(data.bosta_status === 400 && /final state/i.test(msg)){
-          msg = 'مينفعش تطبع بوالص أوردرات مسلّمة أو ملغية';
-        }
-        toast(msg, 'er');
-        return;
-      }
-      
-      if(!data.pdf_base64){ toast('بوسطة ما رجعتش PDF','er'); return; }
-      
-      var pdfBlob = _b64ToBlob(data.pdf_base64, 'application/pdf');
-      var pdfUrl = URL.createObjectURL(pdfBlob);
-      
-      var win = window.open(pdfUrl, '_blank');
-      if(!win){
-        toast('السماح بفتح نوافذ جديدة في المتصفح الأول','er');
-        // fallback: download
-        var a = document.createElement('a');
-        a.href = pdfUrl;
-        a.download = 'awb-'+Date.now()+'.pdf';
-        a.click();
-        return;
-      }
-      
-      // Auto-trigger print() لما الـ PDF يتحمل
-      win.addEventListener('load', function(){
-        setTimeout(function(){ try{ win.print(); }catch(e){ swallow('printAwbForOrders/win.print', e); } }, 600);
-      });
-      // backup trigger في حالة الـ load event ما اطلقش
-      setTimeout(function(){ try{ win.focus(); win.print(); }catch(e){ swallow('printAwbForOrders/win.focus', e); } }, 1500);
-      
-      if(data.skipped_no_tracking && data.skipped_no_tracking > 0){
-        toast('✅ اتطبع '+data.printed_count+' بوليصة ('+data.skipped_no_tracking+' أوردر مفيش فيهم tracking)','ok');
-      } else {
-        toast('✅ اتطبع '+data.printed_count+' بوليصة','ok');
-      }
-      
-      // امسح الـ blob URL بعد دقيقة (revoke)
-      setTimeout(function(){ URL.revokeObjectURL(pdfUrl); }, 60000);
-      
-      // refresh الأوردرات عشان نشوف awb_printed_at الجديد (لو في UI)
-      if(typeof loadOrders === 'function'){ try{ loadOrders(); }catch(e){ swallow('printAwbForOrders/loadOrders', e); } }
-      
-    } catch(err){
-      console.error('AWB print error:', err);
-      toast('فشل الاتصال بالخادم: '+(err.message||err),'er');
-    } finally {
-      if(btnEl){ btnEl.disabled = false; btnEl.textContent = origText || '🖨️ طبع البوالص'; }
-    }
-  }
-
-  function printSelectedAwb(){
-    var ids = Array.from(selectedIds || []);
-    if(ids.length === 0){ toast('اختار أوردرات الأول','er'); return; }
-    // مفيش filter محلي — الـ Edge Function بتعمل الفلترة من DB مباشرة
-    // (الفرونت بيستخدم lazy loading، فالأوردرات مش كلها في الذاكرة دايماً)
-    printAwbForOrders(ids, $id('bb-print'));
-  }
-  // ============================================================================
 
   $id('bb-ok').addEventListener('click',function(){doBulkUpdate('confirmed');});
 $id('bb-bs').addEventListener('click',function(){doBulkUpdate('bosta_assigned');});
