@@ -1570,7 +1570,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     return (list||[]).some(function(x){return normStatus(x)===st;});
   }
   // Operation statuses set (for filter)
-  var OP_STATUSES = BOSTA_OPERATION_STATUSES;
   var CR={no_answer:'لم يرد',busy:'مشغول',refused:'رفض',confirmed:'أكد',callback:'يعاود الاتصال'};
   var selectedIds = new Set();
 
@@ -1581,23 +1580,9 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
   function num(n){return Number(n||0).toLocaleString('ar-EG');}
   function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}):'—';}
   function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';}
-  function fmtDTS(v){return v?new Date(v).toLocaleString('ar-EG',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';}
   function statusClass(s){return String(s||'pending').toLowerCase().replace(/[^a-z0-9_-]+/g,'_').replace(/^_+|_+$/g,'');}
   function statusLabel(s){return SL[s]||SL[statusClass(s)]||s||'—';}
   function pad2(n){return String(n).padStart(2,'0');}
-  function localDateTimeInput(d){
-    d=d||new Date();
-    return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())+'T'+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
-  }
-  // Store as local timestamp string to avoid UTC/date-only conversion turning times into 03:00:00.
-  function localTimestampForDb(inputValue){
-    if(!inputValue)return null;
-    var parts=inputValue.split('T');
-    if(parts.length!==2)return inputValue;
-    var time=parts[1];
-    if(time.split(':').length===2)time+=':00';
-    return parts[0]+' '+time;
-  }
   function fmtStoredDateTime(raw){
     if(!raw)return '—';
     // Supabase stores timestamps in UTC (e.g. "2026-05-30T17:10:30+00").
@@ -1632,7 +1617,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     if(createdAt)return fmtStoredDateTime(createdAt);
     return fmtDateOnly(v);
   }
-  function showErr(m){$id('serr').textContent=m;}
   function toast(msg,type){var t=$id('toast');t.textContent=msg;t.className='toast show '+(type||'ok');clearTimeout(t._t);t._t=setTimeout(function(){t.className='toast';},3000);}
   function hasTenant(){return !!currentTenantId;}
   function ensureTenant(){if(!hasTenant()){toast('حصلت مشكلة في الحساب. تواصل مع الدعم.','er');return false;}return true;}
@@ -2058,16 +2042,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     });
   }
 
-  function currentMonthOrders(){
-    var now=new Date();
-    var start=new Date(now.getFullYear(),now.getMonth(),1,0,0,0,0);
-    var end=new Date(now.getFullYear(),now.getMonth()+1,1,0,0,0,0);
-    return all.filter(function(o){
-      if(!o.created_at)return false;
-      var d=new Date(o.created_at);
-      return d>=start && d<end;
-    });
-  }
 
   // ===== orders-page period scope (controls BOTH the table and the top stat cards) =====
   var ordersPeriod = { type:'all', from:null, to:null };
@@ -2112,12 +2086,10 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     ind.style.height=act.offsetHeight+'px';
     seg.classList.add('has-ind');
   }
-  window.positionPeriodInd=positionPeriodInd;
   function refreshOrdersScope(){
     try{ loadOrdersCards(); }catch(e){}
     try{ doFilter(); }catch(e){}
   }
-  window.setOrdersPeriod=setOrdersPeriod;
 
   // كرت "جاهز للخروج" — اضغط يروح لفلتر بوسطة + scroll للجدول
   (function(){
@@ -2255,27 +2227,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     return hasCostSnapshot(o) ? 'Snapshot محفوظ وقت الشحن' : 'Live من أسعار المخزون الحالية';
   }
 
-  function updateBostaInventoryCard(){
-    var el=$id('rv-bosta-stock');
-    if(!el)return;
-    var sub=$id('rv-bosta-stock-sub');
-    if(!isAdmin()){
-      el.textContent='—';
-      if(sub)sub.textContent='للأدمن فقط';
-      return;
-    }
-    var orders=all.filter(function(o){
-      // Match the OPERATION filter EXACTLY so the count in this card always
-      // equals the count shown when the user clicks "مع بوسطة (في OPERATION)".
-      // Previously this used BOSTA_INVENTORY_STATUSES which also includes
-      // BOSTA2/bosta2 (orders confirmed and packaged but not yet shipped),
-      // causing a count mismatch of 11+ orders depending on the queue.
-      return BOSTA_OPERATION_STATUSES.indexOf(o.status)>=0;
-    });
-    var total=orders.reduce(function(s,o){return s+orderInventoryCost(o);},0);
-    el.textContent=money(total);
-    if(sub)sub.textContent=num(orders.length)+' شحنة في التشغيل حاليًا';
-  }
 
   function loadStockProductsForCosts(done){
     if(!isAdmin()){done&&done();return;}
@@ -2297,7 +2248,7 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
 
   // ===== PRODUCT TOUR (interactive walkthrough with demo data) =====
   var TOUR_KEY='sahl_tour_done_';
-  var tourActive=false, tourStep=0, tourSavedHTML=null, tourPrevPage='orders';
+  var tourActive=false, tourStep=0, tourSavedHTML=null;
 
   function tourDone(){ try{return localStorage.getItem(TOUR_KEY+currentTenantId)==='1';}catch(e){return false;} }
   function markTourDone(){ try{localStorage.setItem(TOUR_KEY+currentTenantId,'1');}catch(e){} }
@@ -2646,7 +2597,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
   // expose tour controls for inline onclick handlers (bubble + welcome card)
   window.tourStart=tourStart; window.tourNext=tourNext; window.tourPrev=tourPrev;
   window.tourFinish=tourFinish; window.tourReopenWelcome=tourReopenWelcome;
-  window.tourMaybeAutoStart=tourMaybeAutoStart;
 
   // ===== كروت/تنبيهات صفحة الأوردرات من السيرفر (RPC + كويريهات مخصّصة) =====
   // المدة الحالية بتواريخ القاهرة للـ RPC. NULL = كل الفترات.
@@ -2999,10 +2949,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     });
   }
 
-  function isReturning(o){
-    var p=normalizePhone(o.phone);
-    return p && phoneCounts[p] > 1;
-  }
   function customerOrderCount(o){
     var p=normalizePhone(o.phone);
     return p ? (phoneCounts[p]||1) : 1;
@@ -5771,14 +5717,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     return (stockProducts||[]).some(function(p){return normalizeProductName(p.name).toLowerCase()===nn;});
   }
 
-  function orderProductProblems(o){
-    var out=[];
-    parseProductItems(o.product_name||'').forEach(function(it){
-      if(!productExists(it.name))out.push('المنتج غير موجود في المخزون: '+it.name);
-      else if(productCostByName(it.name)<=0)out.push('سعر الجملة صفر: '+it.name);
-    });
-    return out;
-  }
 
   function buildIssues(){
     var issues=[];
@@ -6476,7 +6414,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
   //  SETTINGS PAGE — profile, webhook, bosta, whatsapp, telegram
   // ============================================================
   var WEBHOOK_BASE_URL = 'https://play.sheko.tech/webhook/orders?s=';
-  var settingsLoaded = false;
   var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
   var TG_LOCK_DAYS = 7;          // chat id can't be changed for this many days after being set
   var tgChatLocked = false;      // computed in renderSettings, read by saveTelegram
@@ -6496,7 +6433,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
       if(pRes && pRes.data && pRes.data.value){ settingsBotUsername = pRes.data.value; }
       renderSettings(t);
       loadNotifyPrefs();
-      settingsLoaded = true;
     });
   }
 
@@ -7138,9 +7074,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
       || o.status==='exception'
       || o.status==='failed';
   }
-  function isLostOrder(o){
-    return statusIn(o.status, CANCELLED_STATUSES) || statusIn(o.status, RETURNED_STATUSES) || normStatus(o.status)==='failed' || statusIn(o.status, ['Exception']);
-  }
 
   // ────────────────── EXPENSES TAB ──────────────────
   function renderExpenses(){
@@ -7320,176 +7253,6 @@ body.dark .tour-bubble{background:#161b26;border:1px solid #293244;}
     $id('finplat-tbody').innerHTML = h;
   }
 
-  function renderFinanceProducts(){
-    var range = getPeriodRange();
-    var orders = ordersInRange(range);
-    var q = ($id('finprod-search').value || '').trim().toLowerCase();
-
-    // Aggregate by product name
-    var byProduct = {};
-    orders.forEach(function(o){
-      if(!o.product_name) return;
-      var products = parseProducts(o.product_name);
-      products.forEach(function(p){
-        var match = p.match(/^(.+?)\s*\(عدد\s*(\d+)\)\s*$/);
-        var name = match ? match[1].trim() : p.trim();
-        var qty = match ? parseInt(match[2]) : 1;
-        if(!byProduct[name]){
-          byProduct[name] = {
-            name:name,
-            totalOrders:0,    // every order containing this product
-            confirmed:0,       // confirmed-or-beyond (confirmed + bosta + delivered)
-            shipped:0,         // actually shipped (bosta_assigned + everything after)
-            sold:0,            // delivered
-            inTransit:0,
-            revenue:0,
-            expectedRevenue:0,
-            cost:0,
-            returned:0,
-            cancelled:0
-          };
-        }
-        var bp = byProduct[name];
-        bp.totalOrders += 1;
-
-        var totalQty = products.reduce(function(s,pp){var m=pp.match(/\(عدد\s*(\d+)\)/);return s+(m?parseInt(m[1]):1);},0);
-        var itemRevenue = (parseFloat(o.total_cost)||0) * (qty/totalQty);
-        var stockItem = (stockProducts||[]).find(function(s){return s.name===name;});
-        var itemCost = stockItem && stockItem.wholesale_price ? stockItem.wholesale_price * qty : 0;
-
-        // Confirmed = confirmed or shipped/delivered/returned statuses only.
-        // Cancelled is NOT counted as confirmed, otherwise confirmation rate becomes inflated.
-        if(isConfirmedForFinance(o)){
-          bp.confirmed += 1;
-        }
-
-        // Shipped = any order with a tracking that left our hands
-        var shippedStatuses = ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2',
-          'Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs',
-          'Picking up from consignee','Out for exchange','Exception','out_for_delivery',
-          'received_at_warehouse','route_assigned','picked_up','in_transit','exception',
-          'delivered','Delivered','returned','Returned to business','Returned to business2','returned_to_warehouse'];
-        if(shippedStatuses.indexOf(o.status) >= 0){
-          bp.shipped += 1;
-        }
-
-        if(isDeliveredOrder(o)){
-          bp.sold += qty;
-          bp.revenue += itemRevenue;
-          bp.cost += itemCost;
-        } else if(isWithBosta(o)){
-          bp.inTransit += qty;
-          bp.expectedRevenue += itemRevenue;
-        }
-        if(o.status==='returned' || o.status==='Returned to business' || o.status==='Returned to business2'){
-          bp.returned += qty;
-        }
-        if(o.status==='cancelled'){
-          bp.cancelled += qty;
-        }
-      });
-    });
-
-    // Calculate rates and assign performance tier
-    Object.values(byProduct).forEach(function(p){
-      // Confirmation rate = confirmed ÷ (confirmed + cancelled). Excludes pending (no decision yet).
-      var decided = p.confirmed + p.cancelled;
-      p.confirmationRate = decided > 0 ? (p.confirmed / decided * 100) : 0;
-      p.hasConfirmationData = decided >= 3; // need at least 3 decisions for meaningful judgement
-
-      // Delivery success rate = delivered ÷ (delivered + returned). Excludes in-transit.
-      var reachedCustomer = p.sold + p.returned;
-      p.successRate = reachedCustomer > 0 ? (p.sold / reachedCustomer * 100) : 0;
-      p.hasDeliveryData = reachedCustomer >= 2; // need at least 2 deliveries to judge
-
-      p.profit = p.revenue - p.cost;
-      p.margin = p.revenue > 0 ? (p.profit / p.revenue * 100) : 0;
-
-      // Performance tier — only judge when we have BOTH confirmation AND delivery data.
-      // Without delivery data we can't call a product "poor" just because of confirmation.
-      if(!p.hasConfirmationData && !p.hasDeliveryData){
-        p.tier = 'new'; // not enough data anywhere
-      } else if(!p.hasDeliveryData){
-        // Have confirmation data but no deliveries yet — judge on confirmation alone
-        if(p.confirmationRate >= 75) p.tier = 'good';
-        else if(p.confirmationRate >= 70) p.tier = 'ok';
-        else p.tier = 'poor';
-      } else if(!p.hasConfirmationData){
-        // Have delivery data but few confirmations — judge on delivery
-        if(p.successRate >= 75) p.tier = 'good';
-        else if(p.successRate >= 70) p.tier = 'ok';
-        else p.tier = 'poor';
-      } else {
-        // Have both — full judgement
-        if(p.confirmationRate >= 75 && p.successRate >= 75 && p.profit > 0){
-          p.tier = 'star';
-        } else if(p.confirmationRate >= 70 && p.successRate >= 70 && p.profit >= 0){
-          p.tier = 'good';
-        } else if(p.confirmationRate >= 70 && p.successRate >= 70){
-          p.tier = 'ok';
-        } else {
-          p.tier = 'poor';
-        }
-      }
-    });
-
-    var list = Object.values(byProduct).filter(function(p){return !q||p.name.toLowerCase().indexOf(q)>=0;});
-    list.sort(function(a,b){return (b.revenue+b.expectedRevenue) - (a.revenue+a.expectedRevenue);});
-
-    $id('finprod-count').textContent = num(list.length) + ' منتج';
-
-    if(!list.length){ $id('finprod-tbody').innerHTML = '<div class="ldg">لا توجد بيانات</div>'; return; }
-
-    var h = '<table><thead><tr>'
-      + '<th>المنتج</th>'
-      + '<th>إجمالي الطلبات</th>'
-      + '<th>المباع</th>'
-      + '<th>في الطريق</th>'
-      + '<th>نسبة التأكيد</th>'
-      + '<th>نسبة نجاح التسليم</th>'
-      + '<th>الإيرادات</th>'
-      + '<th>المتوقع</th>'
-      + '<th>ربح خام تقديري</th>'
-      + '<th>الهامش</th>'
-      + '<th>المرتجع</th>'
-      + '<th>الملغي</th>'
-      + '</tr></thead><tbody>';
-    list.forEach(function(p){
-      var profitColor = p.profit > 0 ? 'var(--green)' : p.profit < 0 ? 'var(--red)' : 'var(--muted)';
-
-      // Color rate cells based on value — strict thresholds:
-      // ≥75% = excellent (green), 70-74% = warning (orange), <70% = danger (red)
-      function rateColor(pct){
-        if(pct >= 75) return 'var(--green)';
-        if(pct >= 70) return 'var(--ora)';
-        return 'var(--red)';
-      }
-      var confColor = rateColor(p.confirmationRate);
-      var succColor = rateColor(p.successRate);
-
-      // Tier emoji
-      var tierBadge = {
-        star:'🌟', good:'✅', ok:'⚠️', poor:'❌', new:'🆕'
-      }[p.tier] || '';
-
-      h += '<tr class="finprod-tier-'+p.tier+'">'
-        + '<td class="nm">'+tierBadge+' '+esc(p.name)+'</td>'
-        + '<td class="mn">'+num(p.totalOrders)+'</td>'
-        + '<td class="mn" style="color:var(--green)">'+num(p.sold)+'</td>'
-        + '<td class="mn" style="color:var(--blue)">'+num(p.inTransit)+'</td>'
-        + '<td class="mn" style="color:'+confColor+';font-weight:900">'+((p.confirmed+p.cancelled)>0?p.confirmationRate.toFixed(1)+'%':'—')+'</td>'
-        + '<td class="mn" style="color:'+succColor+';font-weight:900">'+((p.sold+p.returned)>0?p.successRate.toFixed(1)+'%':'—')+'</td>'
-        + '<td class="mn">'+num(p.revenue.toFixed(0))+' ج</td>'
-        + '<td class="mn" style="color:var(--muted)">+ '+num(p.expectedRevenue.toFixed(0))+' ج</td>'
-        + '<td class="mn" style="color:'+profitColor+';font-weight:900">'+num(p.profit.toFixed(0))+' ج</td>'
-        + '<td class="mn">'+(p.revenue>0?p.margin.toFixed(1)+'%':'—')+'</td>'
-        + '<td class="mn" style="color:var(--ora)">'+num(p.returned)+'</td>'
-        + '<td class="mn" style="color:var(--red)">'+num(p.cancelled)+'</td>'
-        + '</tr>';
-    });
-    h += '</tbody></table>';
-    $id('finprod-tbody').innerHTML = h;
-  }
 
   // ────────────────── FINANCE EVENT WIREUP ──────────────────
   document.querySelectorAll('.period-btn').forEach(function(b){
