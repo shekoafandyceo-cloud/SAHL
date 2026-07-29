@@ -10,6 +10,14 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
+import { autoChartGran, financePeriod, getPeriodRange, parseLocalYMD } from './finance/period.js';
+
+import { cleanProductName, extractProductQty, nameKey, normalizeProductName, parseProductItems, stripAlPrefix, tokenSortKey } from './analytics/product-match.js';
+
+import { waMsgInner, waTicks, waTimeShort } from './inbox/message-view.js';
+
+import { attachCopyHandlers, copyTextToClipboard, copyable, fallbackCopy } from './ui/clipboard.js';
+
 import { CALL_WAIT_MS, startTimerTick, tickTimers, timerInterval } from './orders/call-timer.js';
 
 import { showModal } from './core/modal.js';
@@ -236,50 +244,9 @@ function loadTenantAndEnter(){
     });
 }
 
-// Build a value with a copy button — used for copyable fields (name, phones, address)
-function copyable(val,label){
-  if(!val||val==='—')return '<span class="dval ar">—</span>';
-  var safe=esc(val);
-  var raw=String(val).replace(/"/g,'&quot;');
-  var copyIco='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-  return '<span class="dval-wrap"><span class="dval ar" style="white-space:normal;max-width:300px">'+safe+'</span>'
-    +'<button class="copy-btn" data-copy="'+raw+'" data-label="'+esc(label||'')+'" title="نسخ">'+copyIco+'</button></span>';
-}
 
-function attachCopyHandlers(){
-  document.querySelectorAll('.copy-btn[data-copy]').forEach(function(btn){
-    btn.addEventListener('click',function(e){
-      e.stopPropagation();
-      var val=btn.getAttribute('data-copy');
-      var label=btn.getAttribute('data-label')||'النص';
-      var ok=function(){
-        btn.classList.add('done');
-        toast('تم نسخ '+label+' ✓','ok');
-        setTimeout(function(){btn.classList.remove('done');},1500);
-      };
-      if(navigator.clipboard&&navigator.clipboard.writeText){
-        navigator.clipboard.writeText(val).then(ok,function(){fallbackCopy(val,ok);});
-      }else{fallbackCopy(val,ok);}
-    });
-  });
-}
 
-function fallbackCopy(text,onDone){
-  var ta=document.createElement('textarea');
-  ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
-  document.body.appendChild(ta);ta.select();
-  try{document.execCommand('copy');onDone&&onDone();}catch(e){toast('فشل النسخ','er');}
-  document.body.removeChild(ta);
-}
 
-// نسخ نص جاهز للحافظة (مع fallback) — يستخدمه زرار نسخ المنتجات
-function copyTextToClipboard(txt,label){
-  if(!txt){toast('لا يوجد شيء للنسخ','er');return;}
-  var done=function(){toast('تم نسخ '+(label||'النص')+' ✓','ok');};
-  if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(done,function(){fallbackCopy(txt,done);});
-  }else{fallbackCopy(txt,done);}
-}
 
 // حقل قابل للتعديل في نافذة التفاصيل (موبايل/عنوان): نسخ + زرار تعديل
 function fieldEditable(val,label,field){
@@ -2904,14 +2871,6 @@ function waInitials(name,phone){
   var p=(phone||'').replace(/\D/g,'');
   return p?p.slice(-2):'؟';
 }
-function waTimeShort(iso){
-  if(!iso) return '';
-  var d=new Date(iso), now=new Date();
-  if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});
-  var y=new Date(now); y.setDate(now.getDate()-1);
-  if(d.toDateString()===y.toDateString()) return 'أمس';
-  return d.toLocaleDateString('ar-EG',{day:'2-digit',month:'2-digit'});
-}
 
 function loadInbox(){
   if(tourActive){ $id('wa-list-body').innerHTML='<div class="wa-empty">التبويب ده بيشتغل بالرسائل الحقيقية بعد ما تخلّص الجولة.</div>'; return; }
@@ -3068,12 +3027,6 @@ function waFetchMessages(convId,scroll,isPoll){
     });
 }
 
-function waTicks(status){
-  if(status==='read') return '<span class="wa-tick read">✓✓</span>';
-  if(status==='delivered') return '<span class="wa-tick">✓✓</span>';
-  if(status==='failed') return '<span class="wa-tick fail">!</span>';
-  return '<span class="wa-tick">✓</span>'; // sent / غير محدد
-}
 function waResolveUrls(paths, cb){
   var now=Date.now(), need=[];
   for(var i=0;i<paths.length;i++){ var p=paths[i]; if(p){ var c=waUrlCache[p]; if(!c || c.exp<now) need.push(p); } }
@@ -3083,27 +3036,6 @@ function waResolveUrls(paths, cb){
     if(res && res.data){ for(var x=0;x<res.data.length;x++){ var it=res.data[x]; if(it && it.signedUrl) waUrlCache[it.path]={url:it.signedUrl, exp:now+3000*1000}; } }
     out();
   }).catch(function(){ out(); });
-}
-function waMsgInner(m, urlMap){
-  var side=m.direction==='out'?'out':'in';
-  var inner='';
-  if(m.media_path && (m.type==='image'||m.type==='sticker')){
-    var u=urlMap[m.media_path];
-    inner+= u?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img class="wa-img" src="'+esc(u)+'" loading="lazy"></a>':'<div class="wa-media-fail">📷 تعذّر تحميل الصورة</div>';
-    if(m.body) inner+='<div class="wa-cap">'+esc(m.body)+'</div>';
-  } else if(m.media_path && (m.type==='voice'||m.type==='audio')){
-    var ua=urlMap[m.media_path];
-    inner+= ua?'<audio class="wa-audio" controls preload="none" src="'+esc(ua)+'"></audio>':'<div class="wa-media-fail">🎤 تعذّر تحميل الصوت</div>';
-  } else if(m.media_path && (m.type==='document'||m.type==='video')){
-    var ud=urlMap[m.media_path];
-    var label=m.media_filename||(m.type==='video'?'فيديو':'ملف');
-    inner+= ud?'<a class="wa-doc" href="'+esc(ud)+'" target="_blank" rel="noopener">📎 '+esc(label)+'</a>':'<div class="wa-media-fail">📎 '+esc(label)+'</div>';
-    if(m.body) inner+='<div class="wa-cap">'+esc(m.body)+'</div>';
-  } else {
-    inner+='<div class="wa-text">'+esc(m.body||'')+'</div>';
-  }
-  inner+='<div class="wa-msg-time">'+esc(waTimeShort(m.wa_timestamp||m.created_at))+(side==='out'?waTicks(m.status):'')+'</div>';
-  return inner;
 }
 function waScrollBottom(box){ box.scrollTop=box.scrollHeight; setTimeout(function(){ if(box) box.scrollTop=box.scrollHeight; }, 250); }
 function renderMessages(msgs,scroll){
@@ -3621,53 +3553,10 @@ function renderMovements(){
 }
 
 
-function normalizeProductName(n){return String(n||'غير محدد').trim()||'غير محدد';}
-function cleanProductName(part){
-  return normalizeProductName(toLatinDigits(part)
-    .replace(/\([^)]*(?:عدد|العدد|qty|quantity|x|×)[^)]*\)/ig,' ')
-    .replace(/\[[^\]]*(?:عدد|العدد|qty|quantity|x|×)[^\]]*\]/ig,' ')
-    .replace(/(?:عدد|العدد|qty|quantity)\s*[:：-]?\s*\d+/ig,' ')
-    .replace(/(?:x|×)\s*\d+/ig,' ')
-    .replace(/\d+\s*(?:قطعة|قطع|pcs?)/ig,' ')
-    .replace(/[()\[\]{}]/g,' ')
-    .replace(/\s{2,}/g,' ')
-    .trim());
-}
-function extractProductQty(part){
-  var t=toLatinDigits(part);
-  var m=t.match(/(?:عدد|العدد|qty|quantity)\s*[:：-]?\s*(\d+)/i) || t.match(/(?:x|×)\s*(\d+)/i) || t.match(/\b(\d+)\s*(?:قطعة|قطع|pcs?)\b/i);
-  var q=m?parseInt(m[1],10):1;
-  return q>0?q:1;
-}
-function parseProductItems(raw){
-  raw=normalizeProductName(raw);
-  var parts=raw.split(/\s*\+\s*|\n|،|,/).map(function(x){return x.trim();}).filter(Boolean);
-  if(!parts.length)parts=[raw];
-  var merged={};
-  parts.forEach(function(part){
-    var qty=extractProductQty(part);
-    var name=cleanProductName(part);
-    if(!name||name==='غير محدد')return;
-    var key=name.toLowerCase();
-    if(!merged[key])merged[key]={name:name,qty:0};
-    merged[key].qty+=qty;
-  });
-  var out=Object.keys(merged).map(function(k){return merged[k];});
-  return out.length?out:[{name:raw,qty:1}];
-}
 // Track items we couldn't match to stock during the last finance render.
 // Used by the UI to show a warning banner with the offending product names.
 var unmatchedCogsItems = [];
 
-// Strip ALL whitespace + lowercase — for substring containment checks
-function nameKey(s){ return String(s||'').replace(/\s+/g,'').toLowerCase(); }
-// Strip Arabic 'ال' definite article prefix from each word — helps match
-// "منظم المطبخ" with "منظم مطبخ" (same product, different grammar)
-function stripAlPrefix(token){ return token.replace(/^ال/,''); }
-// Sort tokens alphabetically (after stripping 'ال') — handles "different word order"
-function tokenSortKey(s){
-  return String(s||'').toLowerCase().split(/\s+/).filter(Boolean).map(stripAlPrefix).sort().join(' ');
-}
 
 function productCostByName(name){
   var raw = normalizeProductName(name);
@@ -4343,41 +4232,8 @@ function orderShippingCost(o){
   return (isFinite(f) && f > 0) ? f : SHIPPING_COST_DEFAULT;
 }
 var financeCurrentTab = 'overview';
-var financePeriod = { type: 'month', from: null, to: null };
 var financeChartInstance = null;
 
-// Get period date range
-function parseLocalYMD(s){ var p=String(s).split('-'); return new Date(+p[0],+p[1]-1,+p[2],0,0,0,0); }
-function getPeriodRange(){
-  var now = new Date();
-  var from, to, t = financePeriod.type;
-  if(t === 'last3'){
-    from = new Date(now.getFullYear(), now.getMonth(), now.getDate()-2);
-    to = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1);
-  } else if(t === 'month'){
-    from = new Date(now.getFullYear(), now.getMonth(), 1);
-    to = new Date(now.getFullYear(), now.getMonth()+1, 1);
-  } else if(t === 'last30'){
-    from = new Date(now.getFullYear(), now.getMonth(), now.getDate()-29);
-    to = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1);
-  } else if(t === 'custom'){
-    from = financePeriod.from ? parseLocalYMD(financePeriod.from) : new Date(2020,0,1);
-    to = financePeriod.to ? new Date(parseLocalYMD(financePeriod.to).getTime() + 86400000) : new Date(now.getFullYear()+1,0,1);
-  } else { // 'all'
-    from = new Date(2020,0,1);
-    to = new Date(now.getFullYear()+1, 0, 1);
-  }
-  return { from: from, to: to };
-}
-// pick a sensible chart granularity that matches the selected finance period
-function autoChartGran(){
-  if(financePeriod.type==='all') return 'monthly';
-  var r=getPeriodRange(), span=Math.max(1,Math.round((new Date(r.to)-new Date(r.from))/86400000));
-  if(span<=31) return 'daily';
-  if(span<=183) return 'weekly';
-  if(span<=730) return 'monthly';
-  return 'yearly';
-}
 
 function ordersInRange(range){
   return all.filter(function(o){
