@@ -20,9 +20,11 @@ import { BOSTA_EXPECTED_STATUSES, BOSTA_INVENTORY_STATUSES, BOSTA_OPERATION_STAT
 
 import { swallow } from './core/log.js';
 
+import { sb, setSb } from './core/supabase.js';
+
 import { $id, esc } from './core/dom.js';
 
-"use strict";
+// (الموديولات strict تلقائياً — التوجيه القديم اتشال)
 
 // ── ملكية الحالة عبر المجالات ────────────────────────────────────────
 // تحت ES modules الـbinding المستورد **للقراءة بس**: أي موديول يقدر يقرا
@@ -78,7 +80,7 @@ function initClickActions(){
     fn(el, ev);
   });
 }
-var sb=null, all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
+var all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
 var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
 var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
 var currentRole = null; // 'admin' or 'employee'
@@ -339,9 +341,9 @@ function attachFieldEditors(){
 
 
 function initApp(){
-  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  setSb(window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storage:window.localStorage, storageKey:'sb-auth'}
-  });
+  }));
   var savedPs=localStorage.getItem('sb_ps');
   if(savedPs){var _ps=parseInt(savedPs); if([25,50,100,200].indexOf(_ps)<0)_ps=50; ordersSetPageSize(_ps); var el=$id('psize'); if(el)el.value=String(_ps);}
   // Check if user already has a valid session
