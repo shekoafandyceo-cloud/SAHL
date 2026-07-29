@@ -10,14 +10,19 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
+import { SUPABASE_ANON_KEY, SUPABASE_URL, WEBHOOK_BASE_URL } from './core/config.js';
+
+import { toast } from './core/toast.js';
+
+import { cairoYMD, firstName, fmt, fmtD, fmtDT, fmtDateOnly, fmtMovementDate, fmtStoredDateTime, money, normalizePhone, num, pad2, short, toLatinDigits, val, ymdAddDays } from './core/format.js';
+
+import { BOSTA_EXPECTED_STATUSES, BOSTA_INVENTORY_STATUSES, BOSTA_OPERATION_STATUSES, BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, CR, DELIVERED_STATUSES, RETURNED_STATUSES, SL, STATUS_OPTIONS, normStatus, statusClass, statusIn, statusLabel } from './core/constants.js';
+
+import { swallow } from './core/log.js';
+
+import { $id, esc } from './core/dom.js';
+
 "use strict";
-// كل catch لازم يسيب أثر. الخروج الصامت هو اللي خبّى مشكلة 3.5 ساعة قبل كده
-// (الدرس 5 و7 في CLAUDE.md). warn مش error عن قصد: كتير من دول فشلهم
-// متوقّع (localStorage في التصفح الخاص، JSON.parse لرد مش JSON)، ولو صرّخنا
-// في كلهم الضوضاء تخلّي الأثر بلا قيمة. المستوى بيتغيّر من هنا لوحده.
-function swallow(where, err){
-  try{ console.warn('[سهل] ' + where, err); }catch(_){}
-}
 
 // ── ملكية الحالة عبر المجالات ────────────────────────────────────────
 // تحت ES modules الـbinding المستورد **للقراءة بس**: أي موديول يقدر يقرا
@@ -93,116 +98,8 @@ var stockProducts=[], stockMovements=[], currentStockTab='products';  // الم�
 var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
 var financeExpenses = [];  // المصاريف — الجولة بتبدّلها بديمو
 
-var SL={
-  pending:'قيد الانتظار',
-  confirmed:'مؤكدة',
-  delivered:'تم التسليم',
-  Delivered:'تم التسليم',
-  cancelled:'ملغية',
-  returned:'مرتجعة',
-  bosta_assigned:'بوسطة',
-  'BOSTA AUTO':'بوسطة اوتوماتيك',
-  BOSTA2:'اوردر اتضرب',
-  bosta_auto:'بوسطة اوتوماتيك',
-  bosta2:'اوردر اتضرب',
-  failed:'فشل',
-  // Official Bosta API statuses — keep these exact strings in database
-  'Exception':'استثناء',
-  'Out for delivery':'في الطريق',
-  'Received at warehouse':'استلام في المخزن',
-  'Route Assigned':'تعيين المسار',
-  'In transit between Hubs':'في النقل بين الفروع',
-  'Picking up from consignee':'استلام من العميل',
-  'Out for exchange':'خارج للاستبدال',
-  'Returned to business':'مرتجع',
-  'Returned to business2':'مرتجع مضروب',
-  // Legacy aliases — for old rows only
-  out_for_delivery:'في الطريق',
-  received_at_warehouse:'استلام في المخزن',
-  route_assigned:'تعيين المسار',
-  in_transit:'في النقل',
-  exception:'استثناء',
-  picked_up:'تم الاستلام'
-};
-var STATUS_OPTIONS = ['pending','confirmed','delivered','cancelled','returned','bosta_assigned','BOSTA AUTO','BOSTA2','Delivered','Exception','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','Returned to business','Returned to business2','failed'];
-var DELIVERED_STATUSES = ['delivered','Delivered'];
-var CANCELLED_STATUSES = ['cancelled'];
-var RETURNED_STATUSES = ['returned','Returned to business','Returned to business2'];
-// Confirmation rate positive statuses:
-// Any status that proves the order left Pending and entered confirmation/shipping journey.
-// Exception / returned Bosta states are intentionally counted as positive for confirmation rate,
-// because they are shipping/delivery outcomes, not confirmation-team failures.
-var BOSTA_POSITIVE_STATUSES = [
-  'confirmed',
-  'bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2',
-  'delivered','Delivered',
-  'Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange',
-  'Exception',
-  'Returned to business','Returned to business2','returned',
-  'out_for_delivery','received_at_warehouse','route_assigned','in_transit','picked_up','exception',
-  'returned_to_business','returned_to_business2'
-];
-// Expected revenue = orders actually shipped or with Bosta (NOT just confirmed — those still may refuse on delivery)
-var BOSTA_EXPECTED_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','Exception','out_for_delivery','received_at_warehouse','route_assigned','picked_up','in_transit','exception'];
-// Inventory card: count products only after the shipment is actually created/inside Bosta operation.
-// Important: bosta_assigned and BOSTA AUTO are intentionally excluded.
-var BOSTA_INVENTORY_STATUSES = ['BOSTA2','bosta2','Exception','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','out_for_delivery','received_at_warehouse','route_assigned','in_transit','exception','picked_up'];
-// OPERATION filter = Bosta API statuses only, excluding Delivered and excluding internal Bosta statuses.
-var BOSTA_OPERATION_STATUSES = ['Exception','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','out_for_delivery','received_at_warehouse','route_assigned','in_transit','exception','picked_up'];
-function normStatus(s){return String(s||'').trim().toLowerCase();}
-function statusIn(status, list){
-  var st=normStatus(status);
-  return (list||[]).some(function(x){return normStatus(x)===st;});
-}
-// Operation statuses set (for filter)
-var CR={no_answer:'لم يرد',busy:'مشغول',refused:'رفض',confirmed:'أكد',callback:'يعاود الاتصال'};
 var selectedIds = new Set();
 
-function $id(id){return document.getElementById(id);}
-function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
-function fmt(v){return v||'—';}
-function short(s,n){s=s||'—';return s.length>n?s.slice(0,n)+'…':s;}
-function num(n){return Number(n||0).toLocaleString('ar-EG');}
-function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}):'—';}
-function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';}
-function statusClass(s){return String(s||'pending').toLowerCase().replace(/[^a-z0-9_-]+/g,'_').replace(/^_+|_+$/g,'');}
-function statusLabel(s){return SL[s]||SL[statusClass(s)]||s||'—';}
-function pad2(n){return String(n).padStart(2,'0');}
-function fmtStoredDateTime(raw){
-  if(!raw)return '—';
-  // Supabase stores timestamps in UTC (e.g. "2026-05-30T17:10:30+00").
-  // We must convert to Cairo (UTC+2/+3) for display, otherwise everything
-  // shows 3 hours earlier than reality. JS Date + toLocaleString with the
-  // timeZone option handles this correctly, including DST transitions.
-  var d=new Date(raw);
-  if(isNaN(d.getTime())){
-    // very rare fallback for malformed strings
-    return String(raw);
-  }
-  return d.toLocaleString('ar-EG',{
-    timeZone:'Africa/Cairo',
-    year:'numeric',month:'2-digit',day:'2-digit',
-    hour:'2-digit',minute:'2-digit',second:'2-digit'
-  });
-}
-function fmtDateOnly(raw){
-  if(!raw)return '—';
-  var s=String(raw).trim();
-  // Date-only strings (YYYY-MM-DD, e.g. movement_date) have no timezone —
-  // parse them as Cairo-local to avoid the "new Date('2026-05-30')" UTC midnight trap.
-  var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if(m){
-    var d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
-    return d.toLocaleDateString('ar-EG',{year:'numeric',month:'2-digit',day:'2-digit'});
-  }
-  return s;
-}
-function fmtMovementDate(v,createdAt){
-  // In movements table we display created_at time; movement_date remains date-only for filtering/grouping.
-  if(createdAt)return fmtStoredDateTime(createdAt);
-  return fmtDateOnly(v);
-}
-function toast(msg,type){var t=$id('toast');t.textContent=msg;t.className='toast show '+(type||'ok');clearTimeout(t._t);t._t=setTimeout(function(){t.className='toast';},3000);}
 function hasTenant(){return !!currentTenantId;}
 function ensureTenant(){if(!hasTenant()){toast('حصلت مشكلة في الحساب. تواصل مع الدعم.','er');return false;}return true;}
 function isAdmin(){return currentRole==='admin';}
@@ -438,22 +335,8 @@ function attachFieldEditors(){
   });
 }
 
-// Phone normalization: removes leading 0, spaces — returns 10-digit number for WhatsApp (prefixed with 20)
-function normalizePhone(p){
-  if(!p)return '';
-  var s=toLatinDigits(p).replace(/\D/g,'').replace(/^20/,'').replace(/^0+/,'');
-  return s;
-}
 
-// First word of customer name (used in WhatsApp message)
-function firstName(n){
-  if(!n)return '';
-  return String(n).trim().split(/\s+/)[0];
-}
 
-// ── SUPABASE CONFIG (hardcoded — anon key is safe to expose, RLS + Auth protect data) ──
-var SUPABASE_URL = 'https://gdphjfhelxaofugyiknb.supabase.co';
-var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkcGhqZmhlbHhhb2Z1Z3lpa25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNjk2MjQsImV4cCI6MjA5Mzc0NTYyNH0.RoMFhaj7zvIxKdds6mgQPv1lmT_rijNKc1lu--0sLQY';
 
 function initApp(){
   sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -630,17 +513,6 @@ function doLogout(){
 
 // ===== orders-page period scope (controls BOTH the table and the top stat cards) =====
 var ordersPeriod = { type:'all', from:null, to:null };
-// Bucket orders by their Cairo calendar day (YYYY-MM-DD) — SAME timezone the table shows (fmtD),
-// so the period filter matches the visible dates exactly (no off-by-a-day from UTC parsing).
-function cairoYMD(v){
-  try{ return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(v)); }
-  catch(e){ var d=new Date(v); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
-}
-function ymdAddDays(ymd, delta){
-  var p=String(ymd).split('-'), dt=new Date(Date.UTC(+p[0],+p[1]-1,+p[2]));
-  dt.setUTCDate(dt.getUTCDate()+delta);
-  return dt.getUTCFullYear()+'-'+('0'+(dt.getUTCMonth()+1)).slice(-2)+'-'+('0'+dt.getUTCDate()).slice(-2);
-}
 function ordersInPeriod(){
   var p=ordersPeriod;
   if(p.type==='all') return all.slice();
@@ -758,8 +630,6 @@ function updateStats(){
   $id('s7').textContent = deliveryDecided > 0 ? ((delivered/deliveryDecided)*100).toFixed(1)+'%' : '—';
 }
 
-function money(v){return num(Math.round(Number(v||0)))+' ج';}
-function val(o){return Number(o.total_cost||o.total||o.amount||0)||0;}
 function updateRevenueStats(){
   var monthOrders=ordersInPeriod();
   var total=monthOrders.reduce(function(s,o){return s+val(o);},0);
@@ -3833,10 +3703,6 @@ function renderMovements(){
 
 
 function normalizeProductName(n){return String(n||'غير محدد').trim()||'غير محدد';}
-function toLatinDigits(v){
-  var map={'٠':'0','١':'1','٢':'2','٣':'3','٤':'4','٥':'5','٦':'6','٧':'7','٨':'8','٩':'9','۰':'0','۱':'1','۲':'2','۳':'3','۴':'4','۵':'5','۶':'6','۷':'7','۸':'8','۹':'9'};
-  return String(v||'').replace(/[٠-٩۰-۹]/g,function(d){return map[d]||d;});
-}
 function cleanProductName(part){
   return normalizeProductName(toLatinDigits(part)
     .replace(/\([^)]*(?:عدد|العدد|qty|quantity|x|×)[^)]*\)/ig,' ')
@@ -5012,10 +4878,6 @@ function wireBillingEvents(){
   if(refreshBtn) refreshBtn.addEventListener('click', function(){ loadBilling(); });
 }
 
-// ============================================================
-//  SETTINGS PAGE — profile, webhook, bosta, whatsapp, telegram
-// ============================================================
-var WEBHOOK_BASE_URL = 'https://play.sheko.tech/webhook/orders?s=';
 var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
 var TG_LOCK_DAYS = 7;          // chat id can't be changed for this many days after being set
 var tgChatLocked = false;      // computed in renderSettings, read by saveTelegram
