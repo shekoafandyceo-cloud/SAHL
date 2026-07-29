@@ -812,6 +812,20 @@
     try{ console.warn('[سهل] ' + where, err); }catch(_){}
   }
 
+  // ── ملكية الحالة عبر المجالات ────────────────────────────────────────
+  // تحت ES modules الـbinding المستورد **للقراءة بس**: أي موديول يقدر يقرا
+  // `all` عادي، إنما `all = [...]` من موديول تاني بترمي TypeError وقت الربط،
+  // والخطأ ده بيقتل جراف الموديولات كله قبل ما ينفّذ سطر واحد.
+  // فكل حالة ليها مالك واحد بيصدّر setter، وأي كاتب من بره بينادي الـsetter.
+  // القراءة سايبة زي ما هي — الـlive bindings بتشتغل صح.
+  function ordersSetAll(v){ all = v || []; }
+  function ordersSetSelected(v){ sel = v; }
+  function ordersSetPageSize(v){ PS = v; }
+  function stockSetProducts(v){ stockProducts = v || []; }
+  function stockSetMovements(v){ stockMovements = v || []; }
+  function financeSetExpenses(v){ financeExpenses = v || []; }
+  function realtimeSetChannel(v){ realtimeChannel = v; }
+
   // كل كائنات الفترة (ordersPeriod / analyticsPeriod / financePeriod) بتتعدّل
   // بخصايصها مش بالاستبدال. الاستبدال كان في اتنين من التلاتة والتالت لأ، فأي
   // helper مشترك كان هيشتغل مع واحد ويفشل بصمت مع التانيين. وتحت ES modules
@@ -1239,7 +1253,7 @@
       auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:false, storage:window.localStorage, storageKey:'sb-auth'}
     });
     var savedPs=localStorage.getItem('sb_ps');
-    if(savedPs){var _ps=parseInt(savedPs); if([25,50,100,200].indexOf(_ps)<0)_ps=50; PS=_ps; var el=$id('psize'); if(el)el.value=String(_ps);}
+    if(savedPs){var _ps=parseInt(savedPs); if([25,50,100,200].indexOf(_ps)<0)_ps=50; ordersSetPageSize(_ps); var el=$id('psize'); if(el)el.value=String(_ps);}
     // Check if user already has a valid session
     sb.auth.getSession().then(function(res){
       if(res.data && res.data.session){
@@ -1364,7 +1378,7 @@
   function forceSuspendLogout(){
     if(_suspending) return;
     _suspending = true;
-    try{ if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; } }catch(e){ swallow('forceSuspendLogout/sb.removeChannel', e); }
+    try{ if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeSetChannel(null); } }catch(e){ swallow('forceSuspendLogout/sb.removeChannel', e); }
     sb.auth.signOut().then(function(){
       currentUser = null;
       currentRole = null;
@@ -1608,7 +1622,7 @@
       .eq('tenant_id',currentTenantId)
       .eq('active',true)
       .then(function(r){
-        if(!r.error && r.data)stockProducts=r.data||[];
+        if(!r.error && r.data)stockSetProducts(r.data);
         done&&done();
       });
   }
@@ -1718,10 +1732,10 @@
     window.__tourRealStock = (typeof stockProducts!=='undefined') ? stockProducts : null;
     window.__tourRealMov = (typeof stockMovements!=='undefined') ? stockMovements : null;
     window.__tourRealExp = (typeof financeExpenses!=='undefined') ? financeExpenses : null;
-    all = tourDemoOrders();
-    stockProducts = tourDemoStock();
-    stockMovements = tourDemoMovements();
-    try{ financeExpenses = tourDemoExpenses(); }catch(e){ swallow('tourBackupAndInject/tourDemoExpenses', e); }
+    ordersSetAll(tourDemoOrders());
+    stockSetProducts(tourDemoStock());
+    stockSetMovements(tourDemoMovements());
+    try{ financeSetExpenses(tourDemoExpenses()); }catch(e){ swallow('tourBackupAndInject/tourDemoExpenses', e); }
     try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourBackupAndInject/buildIndexes', e); }
     try{ updateStats && updateStats(); }catch(e){ swallow('tourBackupAndInject/updateStats', e); }
     try{ updateRevenueStats && updateRevenueStats(); }catch(e){ swallow('tourBackupAndInject/updateRevenueStats', e); }
@@ -1732,10 +1746,10 @@
     try{ doFilter && doFilter(); }catch(e){ swallow('tourBackupAndInject/doFilter', e); }
   }
   function tourRestore(){
-    if(window.__tourRealAll){ all=window.__tourRealAll; window.__tourRealAll=null; }
-    if(typeof window.__tourRealStock!=='undefined'){ try{ stockProducts=window.__tourRealStock||[]; }catch(e){ swallow('tourRestore/stockProducts', e); } window.__tourRealStock=undefined; }
-    if(typeof window.__tourRealMov!=='undefined'){ try{ stockMovements=window.__tourRealMov||[]; }catch(e){ swallow('tourRestore/stockMovements', e); } window.__tourRealMov=undefined; }
-    if(typeof window.__tourRealExp!=='undefined'){ try{ financeExpenses=window.__tourRealExp||[]; }catch(e){ swallow('tourRestore/financeExpenses', e); } window.__tourRealExp=undefined; }
+    if(window.__tourRealAll){ ordersSetAll(window.__tourRealAll); window.__tourRealAll=null; }
+    if(typeof window.__tourRealStock!=='undefined'){ try{ stockSetProducts(window.__tourRealStock); }catch(e){ swallow('tourRestore/stockProducts', e); } window.__tourRealStock=undefined; }
+    if(typeof window.__tourRealMov!=='undefined'){ try{ stockSetMovements(window.__tourRealMov); }catch(e){ swallow('tourRestore/stockMovements', e); } window.__tourRealMov=undefined; }
+    if(typeof window.__tourRealExp!=='undefined'){ try{ financeSetExpenses(window.__tourRealExp); }catch(e){ swallow('tourRestore/financeExpenses', e); } window.__tourRealExp=undefined; }
     // بعد الجولة: all الحقيقي بقى فاضي (مش بيتحمّل عند البداية) — فنرجّع صفحة الأوردرات
     // الحقيقية من السيرفر بدل ما نحسبها من الذاكرة الفاضية.
     try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)
@@ -1881,11 +1895,11 @@
       try{
         // seed demo stock so openDetail skips its DB query during the tour
         if(!stockProducts || !stockProducts.length){
-          stockProducts=[{id:'d1',name:'تيربو بريمو ٥ دور',current_qty:12,unit_price:1290},
+          stockSetProducts([{id:'d1',name:'تيربو بريمو ٥ دور',current_qty:12,unit_price:1290},
                          {id:'d2',name:'مطبقية ريكي ٢ دور',current_qty:8,unit_price:980},
                          {id:'d3',name:'استاند أمريكانا',current_qty:5,unit_price:1150},
                          {id:'d4',name:'ترابيزة IKEA',current_qty:3,unit_price:1420},
-                         {id:'d5',name:'ترولي خشب ايكيا',current_qty:0,unit_price:870}];
+                         {id:'d5',name:'ترولي خشب ايكيا',current_qty:0,unit_price:870}]);
         }
         openDetail(s.openOrder);
       }catch(e){ swallow('tourRender', e); }
@@ -2158,7 +2172,7 @@
       }, function(payload){
         // Add new movement to in-memory list and re-render if stock page open
         if(payload.new){
-          if(!stockMovements) stockMovements = [];
+          if(!stockMovements) stockSetMovements([]);
           stockMovements.unshift(payload.new);
           if($id('page-stock').style.display !== 'none') renderMovements();
         }
@@ -2213,9 +2227,9 @@
       if(allLoaded){
         for(var i=0;i<all.length;i++){ if(all[i].id === row.id){ all[i] = row; break; } }
       }
-      if(sel && sel.id === row.id){ sel = row; }
+      if(sel && sel.id === row.id){ ordersSetSelected(row); }
     } else if(ev === 'DELETE'){
-      if(allLoaded) all = all.filter(function(o){ return o.id !== oldRow.id; });
+      if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
     }
 
     if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
@@ -3106,7 +3120,7 @@
     // because wholesale_price is undefined on these rows.
     if(!stockProducts || !stockProducts.length){
       sb.from('v_stock_products').select('id,name,current_qty,unit_price,wholesale_price').eq('tenant_id',currentTenantId).eq('active',true).order('current_qty',{ascending:false}).then(function(r){
-        if(!r.error && r.data) stockProducts=r.data;
+        if(!r.error && r.data) stockSetProducts(r.data);
         renderProductsEditor(o.product_name||'');
       });
     } else {
@@ -5084,7 +5098,7 @@
   function loadStockMovementsForOps(done){
     if(stockMovements && stockMovements.length){done&&done();return;}
     sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(1000).then(function(r){
-      if(!r.error && r.data)stockMovements=r.data||[];
+      if(!r.error && r.data)stockSetMovements(r.data);
       done&&done();
     });
   }
@@ -6169,7 +6183,7 @@
     // stock + demo expenses) instead of fetching the empty real tenant data.
     if(tourActive){
       if(!isAdmin())return;
-      if(!stockProducts || !stockProducts.length) stockProducts = tourDemoStock();
+      if(!stockProducts || !stockProducts.length) stockSetProducts(tourDemoStock());
       if(!financeExpenses || !financeExpenses.length) financeExpenses = tourDemoExpenses();
       renderFinance();
       return;
