@@ -1395,6 +1395,7 @@ body.role-employee .admin-only{display:none !important;}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script>
 (function(){
+  "use strict";
   var sb=null, all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
   var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
   var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
