@@ -1,0 +1,10 @@
+/* تعديلات على كل كروت الإحصاء — لازم بعد 06 */
+/* ===== card tweaks for ALL stat cards (orders + stock + finance + revenue) ===== */
+/* 1: no blob behind the number */
+.sc::before,.rev-card::before{display:none !important;}
+/* 2: kill any free-floating top line, use a real top border that can't escape the rounded corners */
+.sc::after{display:none !important;}
+.sc{border-top:3px solid var(--vc,var(--blue));transition:transform .18s ease, box-shadow .18s ease;}
+.rev-card{border-top:3px solid var(--rv,var(--blue));transition:transform .18s ease, box-shadow .18s ease;}
+/* 3: hover lift */
+.sc:hover,.rev-card:hover{transform:translateY(-5px);box-shadow:0 14px 34px rgba(15,23,42,.13);}

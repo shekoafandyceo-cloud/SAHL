@@ -1,0 +1,97 @@
+/* المحفظة والباقات والشحن والسجل */
+/* ========== BILLING / WALLET ========== */
+/* Topbar wallet chip — compact, single-row layout */
+.wallet-chip{display:inline-flex;align-items:stretch;background:#fff;border:1px solid var(--brd);border-radius:12px;cursor:pointer;transition:all .18s ease;box-shadow:0 2px 6px rgba(15,23,42,.04);overflow:hidden;height:38px;}
+.wallet-chip:hover{border-color:#a5bdfd;box-shadow:0 6px 14px rgba(99,102,241,.12);transform:translateY(-1px);}
+.wallet-chip .wseg{display:flex;align-items:center;gap:7px;padding:0 14px;font-size:.83rem;font-weight:800;color:var(--txt);white-space:nowrap;}
+.wallet-chip .wseg .wval{font-family:'JetBrains Mono',monospace;font-weight:900;letter-spacing:-.02em;color:#0f172a;}
+.wallet-chip .wseg.wbalance{background:linear-gradient(180deg,#f0f7ff,#e0ecff);}
+.wallet-chip .wseg.wbalance .wval{color:#1d4ed8;}
+.wallet-chip .wseg.wbalance.warn{background:linear-gradient(180deg,#fff7ed,#fed7aa);}
+.wallet-chip .wseg.wbalance.warn .wval{color:#c2410c;}
+.wallet-chip .wseg.wbalance.danger{background:linear-gradient(180deg,#fee2e2,#fecaca);}
+.wallet-chip .wseg.wbalance.danger .wval{color:#b91c1c;animation:wpulse 1.6s ease-in-out infinite;}
+.wallet-chip .wsep{width:1px;background:var(--brd);}
+.wallet-chip .wseg.wplan .wval{color:var(--acc);font-family:'Cairo',sans-serif;font-weight:900;font-size:.78rem;letter-spacing:.02em;}
+.wallet-chip .wseg.wplan .wsub{color:var(--muted);font-weight:700;font-size:.72rem;}
+@keyframes wpulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+
+/* Plan cards */
+.plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px;margin-top:16px;}
+.plan-card{background:#fff;border:2px solid var(--brd);border-radius:18px;padding:24px;position:relative;transition:all .22s ease;display:flex;flex-direction:column;}
+.plan-card:hover{transform:translateY(-3px);box-shadow:0 14px 32px rgba(15,23,42,.1);}
+.plan-card.current{border-color:var(--acc);background:linear-gradient(135deg,#fff,#fff7ed);box-shadow:0 12px 28px rgba(255,159,28,.18);}
+.plan-card.popular{border-color:#1d6ef2;background:linear-gradient(135deg,#fff,#f0f7ff);}
+.plan-card.lifetime{border-color:#9333ea;background:linear-gradient(135deg,#fff,#faf5ff);}
+.plan-badge{position:absolute;top:-10px;right:18px;padding:4px 12px;border-radius:999px;font-size:.72rem;font-weight:900;color:#fff;letter-spacing:.02em;}
+.plan-badge.current{background:var(--acc);}
+.plan-badge.popular{background:#1d6ef2;}
+.plan-badge.lifetime{background:linear-gradient(135deg,#9333ea,#c026d3);}
+.plan-name{font-size:1.15rem;font-weight:900;color:var(--txt);margin-bottom:4px;}
+.plan-price{font-family:'JetBrains Mono',monospace;font-size:2rem;font-weight:900;color:var(--txt);letter-spacing:-.04em;margin:8px 0;}
+.plan-price small{font-size:.85rem;color:var(--muted);font-weight:700;}
+.plan-features{list-style:none;padding:0;margin:14px 0;flex:1;}
+.plan-features li{padding:7px 0;font-size:.86rem;color:var(--txt);display:flex;align-items:flex-start;gap:8px;font-weight:600;}
+.plan-features li::before{content:"✓";color:#10b981;font-weight:900;flex-shrink:0;}
+.plan-btn{padding:11px 18px;border-radius:12px;border:none;background:var(--acc);color:#fff;font-weight:900;cursor:pointer;font-size:.92rem;transition:all .18s ease;font-family:inherit;}
+.plan-btn:hover:not(:disabled){background:#e88a14;transform:translateY(-1px);}
+.plan-btn:disabled{background:#e5e7eb;color:#9ca3af;cursor:not-allowed;}
+.plan-btn.current{background:#10b981;}
+
+/* Wallet summary card */
+.wallet-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:22px;}
+.wstat{background:#fff;border:1px solid var(--brd);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow2);position:relative;overflow:hidden;}
+.wstat::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;background:var(--c,#1d6ef2);}
+.wstat .wsl{color:var(--muted);font-size:.82rem;font-weight:800;margin-bottom:6px;}
+.wstat .wsv{font-family:'JetBrains Mono',monospace;font-size:1.85rem;font-weight:900;color:var(--c,#0f172a);letter-spacing:-.04em;}
+.wstat .wsh{font-size:.78rem;color:var(--muted);margin-top:4px;font-weight:700;}
+
+/* Topup section */
+.topup-box{background:linear-gradient(135deg,#fff,#fefce8);border:2px solid #fcd34d;border-radius:18px;padding:22px;margin-top:20px;}
+.topup-box h3{margin:0 0 12px;font-size:1.05rem;font-weight:900;color:#92400e;}
+.vfcash-info{background:#fff;border:1px dashed #fcd34d;border-radius:12px;padding:14px 18px;margin-bottom:16px;}
+.vfcash-info .vfp{font-family:'JetBrains Mono',monospace;font-size:1.35rem;font-weight:900;color:#92400e;letter-spacing:.04em;}
+.topup-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.topup-form label{display:block;font-size:.82rem;font-weight:800;color:var(--txt);margin-bottom:5px;}
+.topup-form input,.topup-form .file-wrap{width:100%;padding:10px 12px;border:1px solid var(--brd);border-radius:10px;font-family:inherit;font-size:.9rem;background:#fff;box-sizing:border-box;}
+.topup-form .full{grid-column:1 / -1;}
+.topup-form button{padding:12px 22px;border-radius:12px;border:none;background:#0a1124;color:#fff;font-weight:900;cursor:pointer;font-family:inherit;font-size:.95rem;}
+.topup-form button:hover{background:#1e293b;}
+.topup-form button:disabled{background:#94a3b8;cursor:not-allowed;}
+.file-wrap{display:flex;align-items:center;gap:10px;cursor:pointer;}
+.file-wrap input[type=file]{display:none;}
+.file-wrap .file-btn{background:#f1f5f9;border:1px dashed #cbd5e1;padding:8px 14px;border-radius:8px;font-size:.85rem;color:var(--muted);font-weight:700;cursor:pointer;}
+.file-wrap .file-name{color:var(--txt);font-weight:700;font-size:.85rem;flex:1;}
+
+/* Wallet history table */
+.history-table{width:100%;border-collapse:collapse;font-size:.86rem;}
+.history-table th{text-align:right;padding:12px 14px;background:#f8fafc;color:var(--muted);font-weight:800;font-size:.78rem;border-bottom:1px solid var(--brd);}
+.history-table td{padding:12px 14px;border-bottom:1px solid #f1f5f9;}
+.history-table tr:hover td{background:#fafbff;}
+.htx-type{display:inline-block;padding:3px 10px;border-radius:8px;font-size:.74rem;font-weight:800;}
+.htx-type.topup{background:#dcfce7;color:#166534;}
+.htx-type.order_charge{background:#fef3c7;color:#92400e;}
+.htx-type.plan_charge{background:#dbeafe;color:#1e40af;}
+.htx-type.signup_bonus{background:#f3e8ff;color:#6b21a8;}
+.htx-type.adjustment{background:#fee2e2;color:#991b1b;}
+.htx-amount{font-family:'JetBrains Mono',monospace;font-weight:900;letter-spacing:-.02em;}
+.htx-amount.pos{color:#10b981;}
+.htx-amount.neg{color:#dc2626;}
+
+/* Topup status badges */
+.tup-status{padding:4px 12px;border-radius:8px;font-size:.74rem;font-weight:800;display:inline-block;}
+.tup-status.pending{background:#fef3c7;color:#92400e;}
+.tup-status.approved{background:#dcfce7;color:#166534;}
+.tup-status.rejected{background:#fee2e2;color:#991b1b;}
+
+/* Encrypted/locked order cell when wallet depleted */
+.locked-cell{display:inline-block;color:#cbd5e1;letter-spacing:.15em;font-family:'JetBrains Mono',monospace;user-select:none;font-weight:700;}
+
+.lock-banner{background:linear-gradient(135deg,#fee2e2,#fef3c7);border:2px solid #f59e0b;border-radius:14px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+.lock-banner .lbtxt{font-weight:900;color:#991b1b;font-size:.95rem;}
+.lock-banner .lbtxt small{display:block;color:#7c2d12;font-weight:700;font-size:.82rem;margin-top:4px;}
+.lock-banner button{padding:10px 18px;border-radius:10px;border:none;background:#dc2626;color:#fff;font-weight:900;cursor:pointer;font-family:inherit;}
+.lock-banner button:hover{background:#991b1b;}
+
+@media(max-width:1200px){.sgrid{grid-template-columns:repeat(4,1fr);}.topbar{height:auto;min-height:70px;padding:12px 16px;gap:12px;flex-wrap:wrap}.tnav{margin-right:14px}.main{padding:18px;}}
+@media(max-width:760px){html{font-size:13px}.sgrid{grid-template-columns:repeat(2,1fr)}.main{padding:12px}.topbar>div:first-child{width:100%;justify-content:space-between}.tnav{margin-right:0}.tright{width:100%;justify-content:space-between}.fbar{align-items:stretch}.fbar>*{width:100%}.fcnt{margin-right:0}.dacts{flex-direction:column}.dpan{padding:18px;border-radius:22px}.sbox{padding:30px;width:100%;}}

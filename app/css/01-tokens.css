@@ -1,0 +1,8 @@
+/* متغيّرات التصميم (:root) */
+:root{
+  --bg:#f7f8fc;--bg2:#eef4ff;--sur:rgba(255,255,255,.86);--card:rgba(255,255,255,.94);
+  --brd:#e5e9f4;--brd2:#d7deee;--txt:#111827;--muted:#64748b;--muted2:#94a3b8;
+  --acc:#ff9f1c;--acc2:#ffbf69;--blue:#2563eb;--green:#10b981;--red:#ef4444;--ora:#f97316;
+  --pur:#7c3aed;--teal:#14b8a6;--wa:#25d366;--shadow:0 18px 45px rgba(15,23,42,.08);
+  --shadow2:0 10px 24px rgba(15,23,42,.07);--r:20px;
+}
