@@ -841,7 +841,6 @@
       fn(el, ev);
     });
   }
-  initClickActions();
   var sb=null, all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
   var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
   var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
@@ -1446,6 +1445,8 @@
   }
 
   // كرت "جاهز للخروج" — اضغط يروح لفلتر بوسطة + scroll للجدول
+  // كارت الجاهزية فوق جدول الأوردرات
+  function initReadyCard(){
   (function(){
     var c = document.getElementById('card-ready');
     if(!c) return;
@@ -1483,6 +1484,7 @@
       else { toast('كل الأوردرات في القايمة دي اتطبعت بالفعل','er'); }
     });
   })();
+  }
 
 
 
@@ -1947,12 +1949,15 @@
     if(center) center.style.display='flex';
   }
   // reposition on resize while active
+  // إعادة رسم الجولة عند تغيير المقاس
+  function initTourResize(){
   window.addEventListener('resize', function(){ if(tourActive) tourRender(); });
   // expose tour controls for inline onclick handlers (bubble + welcome card)
   // exports الجولة على window اتشالت — الأزرار بقت data-act
 
   // ===== كروت/تنبيهات صفحة الأوردرات من السيرفر (RPC + كويريهات مخصّصة) =====
   // المدة الحالية بتواريخ القاهرة للـ RPC. NULL = كل الفترات.
+  }
   function ordersPeriodCairoDates(){
     var p=ordersPeriod;
     if(p.type==='all') return null;
@@ -3447,6 +3452,8 @@
   }
 
   // Login wireup
+  // نموذج الدخول والخروج
+  function initLoginForm(){
   $id('login-btn').addEventListener('click', doLogin);
   $id('login-pass').addEventListener('keydown', function(e){ if(e.key === 'Enter') doLogin(); });
   $id('login-user').addEventListener('keydown', function(e){ if(e.key === 'Enter') $id('login-pass').focus(); });
@@ -3455,6 +3462,7 @@
   // =====================================================
   //  SIGNUP — view switching + handler
   // =====================================================
+  }
   function showAuthView(name){
     // hide all sboxes inside #login
     var login = document.querySelector('#login .sbox:not(#signup-view):not(#check-email-view)');
@@ -3465,6 +3473,8 @@
     if(checkEmail) checkEmail.style.display = (name === 'check-email') ? '' : 'none';
   }
 
+  // التسجيل وتبديل شاشات المصادقة
+  function initSignupForm(){
   $id('show-signup-btn').addEventListener('click', function(){
     $id('signup-err').textContent = '';
     showAuthView('signup');
@@ -3487,6 +3497,7 @@
   $id('signup-phone').addEventListener('input', function(){
     this.value = (this.value || '').replace(/\D/g, '').slice(0, 11);
   });
+  }
 
   function doSignup(){
     var store = ($id('signup-store').value || '').trim();
@@ -3616,6 +3627,8 @@
     });
   }
 
+  // زرار التحديث + بحث وفلاتر الأوردرات
+  function initRefreshAndSearch(){
   $id('rbtn').addEventListener('click', function(){
     // Refresh whichever page is currently visible (not just orders).
     // Wallet is refreshed for everyone (admin + employee) because the depletion lock applies to both.
@@ -3644,6 +3657,7 @@
   $id('fpy').addEventListener('change',doFilter);
 
   // ---- custom animated filter dropdowns: native <select>s stay as the source of truth ----
+  }
   function fdropCloseAll(except){
     document.querySelectorAll('.fdrop.open').forEach(function(w){ if(w!==except) w.classList.remove('open'); });
   }
@@ -3681,6 +3695,8 @@
       sel.__fsync=sync; sync();
     });
   }
+  // القوايم المنسدلة + شريط طلبات الإلغاء
+  function initFilterDropdowns(){
   document.addEventListener('click',function(){ fdropCloseAll(); });
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') fdropCloseAll(); });
   window.__syncFilterUI=function(){ ['fst','fpl','fpy'].forEach(function(id){ var s=$id(id); if(s&&s.__fsync)s.__fsync(); }); reflectStatusCards(); };
@@ -3690,6 +3706,7 @@
   wireBillingEvents();
 
   // ---- clickable status cards: tap a card to filter orders by that status (no-op during the demo/tour) ----
+  }
   function reflectStatusCards(){
     var v=$id('fst')?$id('fst').value:'';
     var map={pending:'s1',confirmed:'s2',delivered:'s3',cancelled:'s4',returned:'s5'};
@@ -3714,6 +3731,8 @@
       });
     });
   }
+  // كروت الحالة وشريط الفترة والدرج والتحديد الجماعي
+  function initOrdersUI(){
   if($id('fst')) $id('fst').addEventListener('change',reflectStatusCards);
   wireStatusCards();
 
@@ -3856,6 +3875,7 @@
   // ─────────────────────────────────────────────────
 
   // ===== WhatsApp Inbox (مرحلة 1: استقبال + قراءة) =====
+  }
   var waConvos=[], waActiveId=null, waPollTimer=null, waRenderedCount=0;
 
   function waInitials(name,phone){
@@ -4905,6 +4925,8 @@
   }
 
   // Stock event wireup
+  // التنقّل بين الصفحات وتابات المخزون والتحليلات
+  function initNavAndStock(){
   $id('nav-orders').addEventListener('click',function(){showPage('orders');});
   $id('nav-stock').addEventListener('click',function(){showPage('stock');});
   if($id('nav-issues'))$id('nav-issues').addEventListener('click',function(){showPage('issues');});
@@ -4968,6 +4990,7 @@
   // ─────────────────────────────────────────────────
   // SMART STOCK ALERTS + ISSUES CENTER
   // ─────────────────────────────────────────────────
+  }
   function parseMovementDate(m){
     var raw=m.created_at || m.movement_date;
     if(!raw)return null;
@@ -6131,7 +6154,6 @@
       if(el) el.addEventListener('change', function(){ saveNotifyPref(k); });
     });
   }
-  wireSettingsEvents();
 
   function loadFinance(){
     // During the guided tour, keep the injected demo numbers (real COGS from demo
@@ -6603,6 +6625,8 @@
 
 
   // ────────────────── FINANCE EVENT WIREUP ──────────────────
+  // الفاينانس والمصاريف والمشاكل والتلميحات
+  function initFinanceAndIssues(){
   document.querySelectorAll('.period-btn').forEach(function(b){
     b.addEventListener('click', function(){
       var type = b.getAttribute('data-period');
@@ -6705,7 +6729,24 @@
     });
   })();
 
+  }
   // Auto-init on page load — no setup screen needed
+  // ── ترتيب التشغيل ────────────────────────────────────────────────
+  // كان ضمنياً بترتيب السطور في الملف: أي نقل نود أو تقسيم لموديولات
+  // كان بيغيّره في صمت. بقى صريح ومقصود. الترتيب هنا = الترتيب اللي
+  // كان بيحصل فعلاً قبل التغيير.
+  initClickActions();
+  initReadyCard();
+  initTourResize();
+  initLoginForm();
+  initSignupForm();
+  initRefreshAndSearch();
+  initFilterDropdowns();
+  initOrdersUI();
+  initNavAndStock();
+  wireSettingsEvents();
+  initFinanceAndIssues();
+
   initApp();
 })();
 </script>
