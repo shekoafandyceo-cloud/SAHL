@@ -218,6 +218,66 @@ def check_module_graph(js_files, base_dir):
                 err("%s: بيستورد default من %s — مفيش export default" % (rel_from, target))
 
 
+# ----------------------------------------------- إسناد لـbinding مستورد
+
+def check_import_writes(path, rel):
+    """
+    الإسناد لاسم مستورد بيرمي TypeError: Assignment to constant variable.
+
+    ده أخطر شكل في التقسيم: بيحصل لما دالة تتنقل لموديول والحالة اللي
+    بتكتب فيها تفضل مكانها. بيفشل **وقت التشغيل** ساعة ما الدالة تتنادى —
+    يعني ممكن يعدّي من كل فحص تحميل ومن كل اختبار مش بيوصل للمسار ده.
+    (حصل فعلاً: tour.js اتنقلت وهي بتكتب tourActive، والاختبار عدّى لأن
+    tourStart بترجع بدري لما المستخدم مش أدمن.)
+    """
+    src = read(path)
+    code = js_strip(src)
+    imported = set()
+    for m in IMPORT_RE.finditer(src):
+        if not m.group("clause"):
+            continue
+        named, _d, _ns = parse_import_bindings(m.group("clause"))
+        imported.update(named)
+        for mm in re.finditer(r"\bas\s+([A-Za-z_$][\w$]*)", m.group("clause")):
+            imported.add(mm.group(1))
+    if not imported:
+        return True
+    # اسم مستورد وكمان متصرّح محلياً في أي نطاق: التصريح المحلي بيحجب
+    # المستورد، فالإسناد قانوني. مش هنقدر نفرّق النطاقات بدقة فبنستثنيه.
+    shadowed = set()
+    for pat in (r"\b(?:var|let|const)\s+([A-Za-z_$][\w$]*)",
+                r"\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)",
+                r"\bcatch\s*\(\s*([A-Za-z_$][\w$]*)"):
+        shadowed.update(re.findall(pat, code))
+    for m in re.finditer(r"function\s*\*?\s*[A-Za-z_$]*\s*\(([^)]*)\)|\(([^()]*)\)\s*=>", code):
+        for g in m.groups():
+            if not g:
+                continue
+            for p in g.split(","):
+                p = p.strip().split("=")[0].strip()
+                if re.fullmatch(r"[A-Za-z_$][\w$]*", p):
+                    shadowed.add(p)
+    # التصريحات المتعددة كمان: var a=1, b=2
+    for m in re.finditer(r"\b(?:var|let|const)\s+([^;\n]*)", code):
+        for p in m.group(1).split(","):
+            mm = re.match(r"\s*([A-Za-z_$][\w$]*)", p)
+            if mm:
+                shadowed.add(mm.group(1))
+
+    bad = {}
+    for name in imported - shadowed:
+        for m in re.finditer(r"(?<![.\w$])" + re.escape(name)
+                             + r"\s*(?:=(?![=>])|\+\+|--|\+=|-=|\*=|/=|\|\|=|&&=|\?\?=)", code):
+            pre = code[max(0, m.start() - 16):m.start()]
+            if re.search(r"(var|let|const|function|case|import)\s*$", pre):
+                continue
+            bad.setdefault(name, []).append(code[:m.start()].count("\n") + 1)
+    for name, lns in sorted(bad.items()):
+        err("%s: بيكتب في `%s` وهي مستوردة — TypeError وقت التشغيل (سطور %s)"
+            % (rel, name, lns[:6]))
+    return not bad
+
+
 # ------------------------------------------- أسماء مستخدمة من غير ما تتعرّف
 
 JS_GLOBALS = set("""
@@ -397,8 +457,11 @@ def check_free_identifiers(path, rel):
         if before.endswith(".") or before.endswith("?."):
             continue                      # خاصية مش اسم
         after = code[m.end():].lstrip()
-        if after.startswith(":"):
-            continue                      # مفتاح في object literal أو label
+        # `X:` عادةً مفتاح object literal أو label — إلا لو قبله `?` فده
+        # فرع ternary والاسم قيمة حقيقية. غير الاستثناء ده كان بيخبّي
+        # مرجع حر جوه `cond ? name : null`.
+        if after.startswith(":") and not before.endswith("?"):
+            continue
         if before.endswith("{") or before.endswith(","):
             if after.startswith(("}", ",")):
                 continue                  # اختصار object literal
@@ -595,6 +658,13 @@ def check_html(rel_path):
         check_free_identifiers(p, os.path.relpath(p, ROOT).replace("\\", "/"))
     if js_paths and len(errors) == before:
         ok("كل اسم مستخدم متعرّف أو مستورد")
+
+    # إسناد لـbinding مستورد
+    before = len(errors)
+    for p in js_paths:
+        check_import_writes(p, os.path.relpath(p, ROOT).replace("\\", "/"))
+    if js_paths and len(errors) == before:
+        ok("مفيش إسناد لأي binding مستورد")
 
     # --- 2. وجود كل مسار محلي ---
     missing = []

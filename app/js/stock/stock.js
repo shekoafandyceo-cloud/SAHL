@@ -8,7 +8,9 @@ import { toast } from '../core/toast.js';
 import { tourDemoMovements, tourDemoStock } from '../tour/demo-data.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { currentRole, currentTenantId, ensureTenant, isAdmin, loadBostaInventoryCard, movementWholesalePrice, renderProductPerformance, requireAdmin, showPage, tourActive } from '../main.js';
+import { ensureTenant, isAdmin, loadBostaInventoryCard, movementWholesalePrice, renderProductPerformance, requireAdmin, showPage } from '../main.js';
+import { currentRole, currentTenantId } from '../auth/auth.js';
+import { tourActive } from '../tour/tour.js';
 
 export function stockSetProducts(v){ stockProducts = v || []; }
 

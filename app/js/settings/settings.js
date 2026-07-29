@@ -6,10 +6,11 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { currentTenant, currentTenantId, currentUser, ensureTenant, isAdmin, refreshInboxGate, showPage } from '../main.js';
+import { ensureTenant, isAdmin, refreshInboxGate, showPage } from '../main.js';
 import { WEBHOOK_BASE_URL } from '../core/config.js';
 import { swallow } from '../core/log.js';
 import { copyWebhookUrl } from './webhook.js';
+import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
 
 export var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
 

@@ -10,6 +10,12 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
+import { _suspending, applyTenantBranding, bootstrapTenantIfNeeded, currentRole, currentTenant, currentTenantId, currentUser, doLogin, doLogout, doSignup, fetchProfileAndEnter, forceSuspendLogout, hasTenant, initLoginForm, initSignupForm, loadTenantAndEnter, loginErrorMessage, resetTenantBranding, showAuthView, showSubscriptionLock, signupErrorMessage, tenantDisplayName } from './auth/auth.js';
+
+import { TOUR_KEY, initTourResize, markTourDone, tourActive, tourBackupAndInject, tourDone, tourFinish, tourMaybeAutoStart, tourNext, tourPrev, tourRender, tourReopenWelcome, tourRestore, tourSavedHTML, tourStart, tourStep, tourSteps } from './tour/tour.js';
+
+import { SHIPPING_COST_DEFAULT, deleteExpense, expensesInRange, financeChartInstance, financeChartManual, financeChartPeriod, financeCurrentTab, financeExpenses, financeSetExpenses, fmtMoney, initFinanceAndIssues, isConfirmedForFinance, loadFinance, openExpenseEditor, orderShippingCost, pRange, renderExpenses, renderFinance, renderFinanceChart, renderFinanceOverview, unmatchedCogsItems } from './finance/finance.js';
+
 import { NOTIFY_KEYS, TG_LOCK_DAYS, loadNotifyPrefs, loadSettings, renderSettings, saveBosta, saveIntegrations, saveNotifyPref, saveTelegram, saveWaConfirmToggle, saveWhatsApp, sendTelegramConfirm, setNotifyGate, settingsBotUsername, tgChatLocked, toggleSecretVisibility, wireSettingsEvents } from './settings/settings.js';
 
 import { analyticsCurrentTab, analyticsPeriod, buildProductPerformance, getAnalyticsRange, initAnalyticsTabs, loadAnalytics, renderAnalyticsActive, renderFinancePlatforms } from './analytics/analytics.js';
@@ -66,11 +72,10 @@ import { $id, esc } from './core/dom.js';
 // والخطأ ده بيقتل جراف الموديولات كله قبل ما ينفّذ سطر واحد.
 // فكل حالة ليها مالك واحد بيصدّر setter، وأي كاتب من بره بينادي الـsetter.
 // القراءة سايبة زي ما هي — الـlive bindings بتشتغل صح.
-function ordersSetAll(v){ all = v || []; }
+export function ordersSetAll(v){ all = v || []; }
 function ordersSetSelected(v){ sel = v; }
 function ordersSetPageSize(v){ PS = v; }
-function financeSetExpenses(v){ financeExpenses = v || []; }
-function realtimeSetChannel(v){ realtimeChannel = v; }
+export function realtimeSetChannel(v){ realtimeChannel = v; }
 
 // كل كائنات الفترة (ordersPeriod / analyticsPeriod / financePeriod) بتتعدّل
 // بخصايصها مش بالاستبدال. الاستبدال كان في اتنين من التلاتة والتالت لأ، فأي
@@ -115,10 +120,6 @@ function initClickActions(){
 export var all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
 var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
 var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
-export var currentRole = null; // 'admin' or 'employee'
-export var currentUser = null; // { email, name, role, tenant_id }
-export var currentTenantId = null; // comes from user_profiles.tenant_id after login
-export var currentTenant = null; // safe tenant info from public.tenants
 var phoneCounts = {}; // map: phone => total order count for that customer
 
 // ── حالة مشتركة عبر أكتر من قسم ──────────────────────────────────
@@ -126,105 +127,19 @@ var phoneCounts = {}; // map: phone => total order count for that customer
 // (financeExpenses كانت الفجوة 3,600 سطر). شغّال دلوقتي بس لأن var
 // بتتـhoist — وبيبقى TDZ ReferenceError فوراً لو اتحوّلوا لـlet/const،
 // حتى من غير أي تقسيم. اتنقلوا لفوق عشان الكتابة تيجي بعد التعريف.
-var realtimeChannel = null;  // قناة الريل-تايم — بتتصفّر في forceSuspendLogout
+export var realtimeChannel = null;  // قناة الريل-تايم — بتتصفّر في forceSuspendLogout
 var pendingBostaByPhone = {};  // فهرس الدمج — loadMergeCandidates بتملاه
-var financeExpenses = [];  // المصاريف — الجولة بتبدّلها بديمو
 
 var selectedIds = new Set();
 
-function hasTenant(){return !!currentTenantId;}
 export function ensureTenant(){if(!hasTenant()){toast('حصلت مشكلة في الحساب. تواصل مع الدعم.','er');return false;}return true;}
 export function isAdmin(){return currentRole==='admin';}
 export function requireAdmin(){if(!isAdmin()){toast('الصلاحية دي للأدمن فقط','er');return false;}return true;}
 
-function tenantDisplayName(){
-  if(currentTenant && (currentTenant.store_name || currentTenant.slug)){
-    return currentTenant.store_name || currentTenant.slug;
-  }
-  return 'سهل';
-}
 
-function applyTenantBranding(){
-  var name = tenantDisplayName();
-  if($id('brand-logo'))$id('brand-logo').textContent = name;
-  if($id('login-logo'))$id('login-logo').textContent = '🔐 ' + name;
-  if($id('setup-logo'))$id('setup-logo').textContent = '🗂 ' + name;
-  document.title = name + ' — لوحة الطلبات';
-}
 
-function resetTenantBranding(){
-  currentTenant = null;
-  if($id('brand-logo'))$id('brand-logo').textContent = 'سهل';
-  if($id('login-logo'))$id('login-logo').textContent = '🔐 سهل';
-  if($id('setup-logo'))$id('setup-logo').textContent = '🗂 سهل';
-  document.title = 'سهل — لوحة الطلبات';
-}
 
-function showSubscriptionLock(t, reason){
-  currentTenant = null;
-  try{ sb.auth.signOut(); }catch(e){ swallow('showSubscriptionLock/sb.auth.signOut', e); }
-  $id('login').style.display = 'none';
-  $id('app').style.display = 'none';
-  var existing = document.getElementById('sub-lock');
-  if(existing) existing.remove();
-  var store = (t && (t.store_name || t.slug)) || 'متجرك';
-  var title, msg, icon;
-  if(reason === 'suspended'){
-    icon='⛔'; title='تم إيقاف الحساب';
-    msg='تم إيقاف حساب <b>'+store+'</b> من قبل الإدارة. تواصل مع الدعم لإعادة التفعيل.';
-  } else {
-    icon='⏰'; title='انتهى اشتراكك';
-    msg='اشتراك <b>'+store+'</b> خلص. جدّد دلوقتي عشان ترجع تستخدم النظام وكل بياناتك زي ما هي في أمان.';
-  }
-  var wa='https://wa.me/201201399800?text='+encodeURIComponent('عايز أجدّد اشتراك '+store+' في سهل');
-  var d=document.createElement('div');
-  d.id='sub-lock';
-  d.style.cssText='position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(ellipse 90% 60% at 50% 0%,#13284a,#0a1124);font-family:Cairo,sans-serif;';
-  d.innerHTML=
-    '<div style="max-width:460px;width:100%;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:28px;padding:40px 32px;text-align:center;box-shadow:0 40px 100px rgba(0,0,0,.4);">'
-    +'<div style="font-size:64px;margin-bottom:18px;">'+icon+'</div>'
-    +'<h1 style="color:#fff;font-size:1.7rem;font-weight:900;margin:0 0 14px;">'+title+'</h1>'
-    +'<p style="color:#9fb3d1;font-size:1rem;line-height:1.7;font-weight:600;margin:0 0 28px;">'+msg+'</p>'
-    +'<a href="'+wa+'" target="_blank" style="display:block;background:linear-gradient(135deg,#2dd4f0,#1d6ef2);color:#fff;font-weight:900;font-size:1.05rem;padding:16px;border-radius:16px;text-decoration:none;box-shadow:0 16px 40px rgba(29,110,242,.4);margin-bottom:12px;">💬 جدّد عن طريق واتساب</a>'
-    +'<button data-act="reload" style="background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fb3d1;font-weight:700;font-size:.9rem;padding:12px;border-radius:14px;cursor:pointer;width:100%;">🔄 جدّدت بالفعل؟ تحديث الصفحة</button>'
-    +'<div style="margin-top:24px;color:#5b6b85;font-size:.8rem;">سيستم سهل · sahlgedan.com</div>'
-    +'</div>';
-  document.body.appendChild(d);
-}
 
-function loadTenantAndEnter(){
-  if(!ensureTenant())return;
-  // v_my_tenant: الـ view بيفلتر بالتاجر جواه وبيحجب المفاتيح عن غير الأدمن.
-  sb.from('v_my_tenant')
-    .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price')
-    .eq('id', currentTenantId)
-    .single()
-    .then(function(r){
-      if(r.error || !r.data){
-        $id('login-err').textContent = 'حصلت مشكلة في تحميل بيانات الحساب. تواصل مع الدعم.';
-        $id('login').style.display = 'flex';
-        $id('app').style.display = 'none';
-        currentTenant = null;
-        return;
-      }
-      if(r.data.active === false){
-        showSubscriptionLock(r.data, 'suspended');
-        return;
-      }
-      var lockState = subscriptionLockState(r.data);
-      if(lockState === 'expired'){
-        showSubscriptionLock(r.data, 'expired');
-        return;
-      }
-      currentTenant = r.data;
-      applyTenantBranding();
-      $id('login').style.display = 'none';
-      $id('app').style.cssText = 'display:flex;flex-direction:column;min-height:100vh;';
-      maybeShowExpiryBanner(r.data, lockState);
-      loadAll();
-      loadWalletState();  // load for everyone (admin + employee) — needed for depletion lock
-    });
-}
 
 
 
@@ -309,161 +224,10 @@ function initApp(){
   });
 }
 
-function fetchProfileAndEnter(authUser){
-  // Look up user_profiles by auth user id to get role + tenant_id.
-  // In SaaS mode, tenant_id MUST come from the profile, never from hardcoded frontend code.
-  sb.from('user_profiles').select('*').eq('id', authUser.id).maybeSingle().then(function(r){
-    if(r.error){
-      $id('login-err').textContent = 'حصلت مشكلة في الدخول. تواصل مع الدعم.';
-      $id('login').style.display = 'flex';
-      sb.auth.signOut();
-      return;
-    }
-    if(!r.data){
-      // No profile yet — could be a freshly-verified signup user.
-      // Try to auto-bootstrap their tenant from auth metadata.
-      bootstrapTenantIfNeeded(authUser, function(err){
-        if(err){
-          console.error('Tenant bootstrap failed:', err);
-          if(err.message === 'no_pending_signup'){
-            $id('login-err').textContent = 'حصلت مشكلة. حاول تخرج وتدخل تاني، ولو المشكلة استمرت تواصل مع الدعم.';
-          } else {
-            $id('login-err').textContent = 'حصلت مشكلة في إنشاء المتجر: ' + (err.message || 'حاول مرة تانية');
-          }
-          $id('login').style.display = 'flex';
-          sb.auth.signOut();
-          return;
-        }
-        // Tenant created — retry fetching profile (should now exist)
-        fetchProfileAndEnter(authUser);
-      });
-      return;
-    }
-    var profile = r.data;
-    if(!profile.active){
-      $id('login-err').textContent = 'الحساب موقوف حاليًا. تواصل مع الدعم.';
-      $id('login').style.display = 'flex';
-      sb.auth.signOut();
-      return;
-    }
-    if(!profile.tenant_id){
-      $id('login-err').textContent = 'حصلت مشكلة في الدخول. تواصل مع الدعم.';
-      $id('login').style.display = 'flex';
-      currentTenantId = null;
-      currentTenant = null;
-      resetTenantBranding();
-      sb.auth.signOut();
-      return;
-    }
-    currentTenantId = profile.tenant_id;
-    currentUser = {
-      email: authUser.email,
-      name: profile.full_name || authUser.email,
-      role: profile.role,
-      tenant_id: profile.tenant_id,
-      id: authUser.id
-    };
-    currentRole = profile.role;
-    // Apply role class
-    document.body.classList.remove('role-admin', 'role-employee');
-    document.body.classList.add('role-' + profile.role);
-    // Update user badge
-    var badge = $id('user-badge');
-    badge.className = 'user-badge ' + profile.role;
-    badge.textContent = (profile.role === 'admin' ? '👑 ' : '👤 ') + currentUser.name;
-    // Load safe tenant info and enter the dashboard.
-    loadTenantAndEnter();
-  });
-}
 
-function loginErrorMessage(error){
-  var raw = (error && error.message) ? String(error.message) : '';
-  var msg = raw.toLowerCase();
-  console.error('LOGIN ERROR:', error);
 
-  if(msg.indexOf('email not confirmed') >= 0 || msg.indexOf('not confirmed') >= 0){
-    return 'الحساب لسه مش مفعّل. تواصل مع الدعم لتفعيله.';
-  }
-  if(msg.indexOf('invalid login credentials') >= 0 || msg.indexOf('invalid credentials') >= 0){
-    return 'الإيميل أو كلمة المرور غير صحيحة.';
-  }
-  if(msg.indexOf('too many requests') >= 0 || msg.indexOf('rate limit') >= 0){
-    return 'محاولات تسجيل دخول كتير. استنى شوية وجرّب تاني.';
-  }
-  if(msg.indexOf('user not found') >= 0){
-    return 'الإيميل أو كلمة المرور غير صحيحة.';
-  }
-  return 'تعذّر تسجيل الدخول. حاول تاني أو تواصل مع الدعم.';
-}
 
-function doLogin(){
-  var email = $id('login-user').value.trim();
-  var pass = $id('login-pass').value;
-  $id('login-err').textContent = '';
-  if(!email || !pass){
-    $id('login-err').textContent = 'يرجى إدخال البريد وكلمة المرور';
-    return;
-  }
-  $id('login-err').textContent = 'جاري التحقق...';
-  sb.auth.signInWithPassword({ email: email, password: pass }).then(function(r){
-    if(r.error){
-      $id('login-err').textContent = loginErrorMessage(r.error);
-      return;
-    }
-    $id('login-err').textContent = '';
-    fetchProfileAndEnter(r.data.user);
-  }).catch(function(e){
-    $id('login-err').textContent = loginErrorMessage(e);
-  });
-}
 
-// Instant force-logout when the tenant is suspended by the super admin.
-// No confirmation — kicks the user out immediately.
-var _suspending = false;
-function forceSuspendLogout(){
-  if(_suspending) return;
-  _suspending = true;
-  try{ if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeSetChannel(null); } }catch(e){ swallow('forceSuspendLogout/sb.removeChannel', e); }
-  sb.auth.signOut().then(function(){
-    currentUser = null;
-    currentRole = null;
-    currentTenantId = null;
-    currentTenant = null;
-    try{ resetTenantBranding(); }catch(e){ swallow('forceSuspendLogout/resetTenantBranding', e); }
-    document.body.classList.remove('role-admin', 'role-employee');
-    $id('app').style.display = 'none';
-    $id('login-user').value = '';
-    $id('login-pass').value = '';
-    $id('login-err').textContent = '⚠️ تم إيقاف الاشتراك. تواصل مع الدعم لإعادة التفعيل.';
-    $id('login').style.display = 'flex';
-    _suspending = false;
-  });
-}
-
-function doLogout(){
-  showModal({
-    icon:'🚪',
-    title:'تسجيل الخروج',
-    sub:'هتخرج من الحساب دلوقتي.\nمتأكد؟',
-    okLabel:'خروج',
-    okColor:'linear-gradient(135deg,#ef4444,#dc2626)',
-    onOk:function(){
-      sb.auth.signOut().then(function(){
-        currentUser = null;
-        currentRole = null;
-        currentTenantId = null;
-        currentTenant = null;
-        resetTenantBranding();
-        document.body.classList.remove('role-admin', 'role-employee');
-        $id('app').style.display = 'none';
-        $id('login-user').value = '';
-        $id('login-pass').value = '';
-        $id('login-err').textContent = '';
-        $id('login').style.display = 'flex';
-      });
-    }
-  });
-}
 
 
 // ===== orders-page period scope (controls BOTH the table and the top stat cards) =====
@@ -547,7 +311,7 @@ function initReadyCard(){
 
 
 
-function updateStats(){
+export function updateStats(){
   var monthOrders=ordersInPeriod();
 
   $id('s0').textContent=num(monthOrders.length);
@@ -585,7 +349,7 @@ function updateStats(){
   $id('s7').textContent = deliveryDecided > 0 ? ((delivered/deliveryDecided)*100).toFixed(1)+'%' : '—';
 }
 
-function updateRevenueStats(){
+export function updateRevenueStats(){
   var monthOrders=ordersInPeriod();
   var total=monthOrders.reduce(function(s,o){return s+val(o);},0);
   var collected=monthOrders.filter(function(o){return statusIn(o.status,DELIVERED_STATUSES);}).reduce(function(s,o){return s+val(o);},0);
@@ -628,7 +392,7 @@ function orderLiveInventoryCost(o){
   },0);
 }
 
-function orderInventoryCost(o){
+export function orderInventoryCost(o){
   // Prefer locked snapshot if workflow stored it at shipping time.
   // Fallback to live stock_products.wholesale_price × qty for backward compatibility.
   var snap=orderCostSnapshotValue(o);
@@ -659,205 +423,16 @@ export function loadStockProductsForCosts(done){
     });
 }
 
-// ===== PRODUCT TOUR (interactive walkthrough with demo data) =====
-var TOUR_KEY='sahl_tour_done_';
-export var tourActive=false, tourStep=0, tourSavedHTML=null;
-
-function tourDone(){ try{return localStorage.getItem(TOUR_KEY+currentTenantId)==='1';}catch(e){return false;} }
-function markTourDone(){ try{localStorage.setItem(TOUR_KEY+currentTenantId,'1');}catch(e){ swallow('markTourDone/localStorage.setItem', e); } }
 
 
 
-function tourBackupAndInject(){
-  // remember current table + stats; swap in demo data
-  tourSavedHTML = $id('tbody') ? $id('tbody').innerHTML : null;
-  window.__tourRealAll = (typeof all!=='undefined') ? all : null;
-  window.__tourRealStock = (typeof stockProducts!=='undefined') ? stockProducts : null;
-  window.__tourRealMov = (typeof stockMovements!=='undefined') ? stockMovements : null;
-  window.__tourRealExp = (typeof financeExpenses!=='undefined') ? financeExpenses : null;
-  ordersSetAll(tourDemoOrders());
-  stockSetProducts(tourDemoStock());
-  stockSetMovements(tourDemoMovements());
-  try{ financeSetExpenses(tourDemoExpenses()); }catch(e){ swallow('tourBackupAndInject/tourDemoExpenses', e); }
-  try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourBackupAndInject/buildIndexes', e); }
-  try{ updateStats && updateStats(); }catch(e){ swallow('tourBackupAndInject/updateStats', e); }
-  try{ updateRevenueStats && updateRevenueStats(); }catch(e){ swallow('tourBackupAndInject/updateRevenueStats', e); }
-  try{ renderFinanceOverview && renderFinanceOverview(); }catch(e){ swallow('tourBackupAndInject/renderFinanceOverview', e); }
-  try{ updateStockStats && updateStockStats(); }catch(e){ swallow('tourBackupAndInject/updateStockStats', e); }
-  try{ renderProducts && renderProducts(); }catch(e){ swallow('tourBackupAndInject/renderProducts', e); }
-  try{ renderMovements && renderMovements(); }catch(e){ swallow('tourBackupAndInject/renderMovements', e); }
-  try{ doFilter && doFilter(); }catch(e){ swallow('tourBackupAndInject/doFilter', e); }
-}
-function tourRestore(){
-  if(window.__tourRealAll){ ordersSetAll(window.__tourRealAll); window.__tourRealAll=null; }
-  if(typeof window.__tourRealStock!=='undefined'){ try{ stockSetProducts(window.__tourRealStock); }catch(e){ swallow('tourRestore/stockProducts', e); } window.__tourRealStock=undefined; }
-  if(typeof window.__tourRealMov!=='undefined'){ try{ stockSetMovements(window.__tourRealMov); }catch(e){ swallow('tourRestore/stockMovements', e); } window.__tourRealMov=undefined; }
-  if(typeof window.__tourRealExp!=='undefined'){ try{ financeSetExpenses(window.__tourRealExp); }catch(e){ swallow('tourRestore/financeExpenses', e); } window.__tourRealExp=undefined; }
-  // بعد الجولة: all الحقيقي بقى فاضي (مش بيتحمّل عند البداية) — فنرجّع صفحة الأوردرات
-  // الحقيقية من السيرفر بدل ما نحسبها من الذاكرة الفاضية.
-  try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)
-  try{ loadOrdersCards(); }catch(e){ swallow('tourRestore/loadOrdersCards', e); }                 // الكروت + الإيرادات من الـ RPC
-  try{ loadMergeCandidates(); }catch(e){ swallow('tourRestore/loadMergeCandidates', e); }
-  try{ loadBostaInventoryCard(); }catch(e){ swallow('tourRestore/loadBostaInventoryCard', e); }
-  try{ doFilter(); }catch(e){ swallow('tourRestore/doFilter', e); }                        // الجدول: صفحة من السيرفر
-}
-
-// ---- the steps ----
-function tourSteps(){
-  return [
-    {sel:'#s0', page:'orders', title:'كارت إجمالي الطلبات',
-     text:'ده بيجمّع كل الأوردرات اللي نزلت الشهر الحالي بكل حالاتها — مؤكدة، ملغية، مرتجعة، تحت التسليم.. كله. الرقم ده نبضة المتجر.'},
-    {sel:'#s1', page:'orders', title:'قيد الانتظار',
-     text:'الأوردرات اللي لسه محتاجة تأكيد من العميل ومتاخدش فيها أي إجراء. دي أهم خانة لفريق التأكيد — كل ما تقل، كل ما الشغل ماشي.'},
-    {sel:'#s2', page:'orders', title:'مؤكدة',
-     text:'العميل أكّد الأوردر وجاهز يتشحن (لسه متبعتش لبوسطة). من هنا بيروح للتغليف والشحن.'},
-    {sel:'#s3', page:'orders', title:'تم التسليم',
-     text:'الأوردرات اللي وصلت العميل فعلاً (Delivered). دي الفلوس اللي اتحصّلت بجد.'},
-    {sel:'#s4', page:'orders', title:'ملغية',
-     text:'اتلغت سواء من العميل أو منك. بنتتبّعها عشان نعرف نسبة الإلغاء وأسبابها.'},
-    {sel:'#s5', page:'orders', title:'مرتجعة',
-     text:'رجعت بعد ما اتشحنت (مرتجع). دي بتكلّفك فلوس شحن — لو وفّرتها هتزوّد معدّل ربحك بشكل كبير.'},
-    {sel:'#s6', page:'orders', title:'نسبة التأكيد',
-     text:'= المؤكدة ÷ (المؤكدة + الملغية). بتقيس شطارة فريق التأكيد. الأوردرات قيد الانتظار مش بتدخل الحسبة.'},
-    {sel:'#s7', page:'orders', title:'نسبة التسليم',
-     text:'= المسلَّمة ÷ (المسلَّمة + المرتجعة). بتقيس نجاحك في توصيل اللي اتشحن فعلاً — مش من إجمالي الأوردرات.'},
-    {sel:'#qinp', page:'orders', title:'البحث الذكي',
-     text:'دوّر بأي حاجة: اسم المنتج، رقم العميل، رقم الطلب، رقم التتبع (البوليصة)، أو حتى بعنوان العميل. اكتب أي جزء وهيرشّحلك على طول.'},
-    {sel:'#fst-wrap', page:'orders', title:'فلتر الحالات',
-     text:'صفّي الأوردرات حسب الحالة: قيد الانتظار، مؤكدة، مع بوسطة دلوقتي، تم التسليم، ملغية، مرتجعة... عشان تركّز على اللي مهم.'},
-    {sel:'#fpl-wrap', page:'orders', title:'فلتر المنصة وطريقة الدفع',
-     text:'اعرف كل أوردر جه منين — فيسبوك، إنستجرام، تيك توك — وطريقة الدفع (كاش عند الاستلام أو Paymob). مفيد جداً لتقييم إعلاناتك.'},
-    {sel:'#dcnt .log-list, #dcnt', page:'orders', title:'تفاصيل كل أوردر + الـ LOG',
-     text:'لما تضغط على أي أوردر بيفتحلك تفاصيله كاملة زي ما إنت شايف دلوقتي. أهم حاجة: الـ LOG تحت — تاريخ كامل لكل حاجة حصلت: مين أكّد الأوردر وامتى، مين سجّل خروجه من المخزن لما ضرب البوليصة، ومين لغاه وإيه السبب. كل حركة باسم صاحبها ووقتها.',
-     openOrder:'demo-1039', exact:true},
-    {sel:'.timer-cell[data-deadline]:not([data-deadline=""])', page:'orders', title:'مواعيد الاتصال (تايمر ساعة ونص)',
-     text:'لما الموظف يعمل محاولة اتصال والعميل مايردش، النظام بيبدأ تايمر تنازلي ساعة ونص جنب الأوردر (شوف العمود ده). كده الموظف يعرف بالظبط هيكلّم العميل تاني امتى — من غير ما يفتكر أو يكلّمه بدري ويزهّقه.',
-     closeOrder:true, exact:true},
-    {sel:'#nav-stock', page:'orders', title:'المخزون',
-     text:'تعالى نشوف المخزون.', click:true},
-    {sel:'#stock-cards-row', page:'stock', exact:true, title:'كروت المخزون',
-     text:'هنا بتشوف عدد المنتجات، إجمالي القطع في المخزن، والمنتجات اللي خلصت. كل ده بيتحدّث أوتوماتيك مع كل بيع أو إرجاع.'},
-    {sel:'#page-stock .stock-tabs', page:'stock', title:'حركات المخزون',
-     text:'فيه تبويب "حركات المخزون" بيسجّل كل دخول وخروج: خروج لما الأوردر يضرب البوليصة، ودخول لما يرجع. كل حركة بكميتها ووقتها — فمتعرفش تتلغبط في المخزن أبداً.'},
-    {sel:'#nav-finance', page:'stock', title:'الماليات',
-     text:'دلوقتي أهم جزء — الماليات.', click:true},
-    {sel:'#fin-revenue', page:'finance', title:'الماليات — قيمة الطلبات',
-     text:'إجمالي قيمة كل الأوردرات في الفترة (بكل الحالات). ده حجم شغلك، مش الفلوس المحصّلة فعلاً.'},
-    {sel:'#fin-collected', page:'finance', title:'المتحصّل فعلاً',
-     text:'الفلوس اللي دخلت جيبك بجد من الأوردرات المسلَّمة. ده الرقم اللي بيهمك.'},
-    {sel:'#fin-net-profit', page:'finance', title:'صافي الربح',
-     text:'= المتحصّل − (تكلفة البضاعة + الشحن + التغليف + المصاريف). ده اللي كسبته صح بعد خصم كل حاجة.'},
-    {sel:'#fin-cost-section', page:'finance', exact:true, title:'تفكيك التكاليف',
-     text:'بنفصّلك فلوسك راحت فين بالظبط: بضاعة، شحن، إعلانات، مرتبات، تغليف... كل بند ونسبته من الإيراد. كدا تعرف فلوسك بتتهدر على إيه وتظبط الأمور أكثر.'}
-  ];
-}
 
 
-function tourRender(){
-  var steps=tourSteps();
-  var s=steps[tourStep];
-  if(!s){ tourFinish(); return; }
-  // close the order overlay unless this step wants it open
-  if(!s.openOrder){ try{ if($id('ovl')) $id('ovl').classList.remove('open'); }catch(e){ swallow('tourRender/$id', e); } }
-  // switch page if needed
-  if(s.page && typeof showPage==='function'){
-    var cur=document.querySelector('.tnav-btn.active');
-    var curPage=cur?cur.getAttribute('data-page'):'orders';
-    if(curPage!==s.page){ showPage(s.page); }
-  }
-  // open the order detail for steps that need it (e.g. the LOG step)
-  if(s.openOrder){
-    try{
-      // seed demo stock so openDetail skips its DB query during the tour
-      if(!stockProducts || !stockProducts.length){
-        stockSetProducts([{id:'d1',name:'تيربو بريمو ٥ دور',current_qty:12,unit_price:1290},
-                       {id:'d2',name:'مطبقية ريكي ٢ دور',current_qty:8,unit_price:980},
-                       {id:'d3',name:'استاند أمريكانا',current_qty:5,unit_price:1150},
-                       {id:'d4',name:'ترابيزة IKEA',current_qty:3,unit_price:1420},
-                       {id:'d5',name:'ترولي خشب ايكيا',current_qty:0,unit_price:870}]);
-      }
-      openDetail(s.openOrder);
-    }catch(e){ swallow('tourRender', e); }
-  }
-  var settleDelay = s.openOrder ? 260 : (s.page?380:60);
-  setTimeout(function(){
-    var el=document.querySelector(s.sel);
-    if(!el){ // fallback: skip missing target
-      tourStep++; if(tourStep>=steps.length){tourFinish();return;} tourRender(); return;
-    }
-    // highlight the whole card if the target is a value inside a stat card
-    if(!s.exact){
-      var card=el.closest('.sc, .rev-card, tr');
-      if(card) el=card;
-    }
-    el.scrollIntoView({behavior:'smooth',block:'center'});
-    // give smooth-scroll a moment (esp. inside the order overlay) before positioning
-    setTimeout(function(){
-      var bubble=document.getElementById('tour-bubble');
-      // dots
-      var dots=''; for(var i=0;i<steps.length;i++){ dots+='<span class="tour-dot'+(i===tourStep?' active':'')+'"></span>'; }
-      var isLast=tourStep===steps.length-1;
-      bubble.innerHTML=
-        '<div class="tour-step-n">خطوة '+(tourStep+1)+' من '+steps.length+'</div>'
-        +'<div class="tour-title">'+s.title+'</div>'
-        +'<div class="tour-text">'+s.text+'</div>'
-        +'<div class="tour-actions">'
-        +'<div class="tour-dots">'+dots+'</div>'
-        +'<div class="tour-btns">'
-        +(tourStep>0?'<button class="tour-btn prev" data-act="tour-prev">السابق</button>':'<button class="tour-btn skip" data-act="tour-finish">تخطّي</button>')
-        +'<button class="tour-btn next" data-act="tour-next">'+(isLast?'تمام، خلصنا':'التالي')+'</button>'
-        +'</div></div>';
-      tourPositionFor(el, bubble);
-    }, 280);
-  }, settleDelay);
-}
 
-function tourNext(){ var steps=tourSteps(); tourStep++; if(tourStep>=steps.length){tourFinish();return;} tourRender(); }
-function tourPrev(){ if(tourStep>0){tourStep--; tourRender();} }
 
-function tourStart(){
-  if(typeof isAdmin==='function' && !isAdmin()) return;
-  tourActive=true; tourStep=0;
-  var center=document.getElementById('tour-center'); if(center)center.style.display='none';
-  var ov=document.getElementById('tour-overlay'); ov.classList.add('active');
-  tourBackupAndInject();
-  tourRender();
-}
-function tourFinish(){
-  tourActive=false;
-  try{ $id('ovl').classList.remove('open'); }catch(e){ swallow('tourFinish/$id', e); }
-  var ov=document.getElementById('tour-overlay'); ov.classList.remove('active');
-  // BUGFIX: hide the welcome card too — if the user clicked "Skip" before starting,
-  // tourStart() never ran and the welcome modal would stay visible forever.
-  var center=document.getElementById('tour-center'); if(center) center.style.display='none';
-  markTourDone();
-  tourRestore();
-  if(typeof showPage==='function') showPage('orders');
-  var fab=document.getElementById('tour-fab'); if(fab)fab.style.display='flex';
-}
-function tourReopenWelcome(){
-  var center=document.getElementById('tour-center');
-  if(center) center.style.display='flex';
-}
 
-function tourMaybeAutoStart(){
-  if(typeof isAdmin==='function' && !isAdmin()) return;
-  // always show the FAB for admins
-  var fab=document.getElementById('tour-fab'); if(fab)fab.style.display='flex';
-  if(tourDone()) return;
-  var center=document.getElementById('tour-center');
-  if(center) center.style.display='flex';
-}
-// reposition on resize while active
-// إعادة رسم الجولة عند تغيير المقاس
-function initTourResize(){
-  window.addEventListener('resize', function(){ if(tourActive) tourRender(); });
-  // expose tour controls for inline onclick handlers (bubble + welcome card)
-  // exports الجولة على window اتشالت — الأزرار بقت data-act
 
-  // ===== كروت/تنبيهات صفحة الأوردرات من السيرفر (RPC + كويريهات مخصّصة) =====
-  // المدة الحالية بتواريخ القاهرة للـ RPC. NULL = كل الفترات.
-}
+
 function ordersPeriodCairoDates(){
   var p=ordersPeriod;
   if(p.type==='all') return null;
@@ -896,7 +471,7 @@ function applyOrdersStats(s){
 }
 
 // كروت الأوردرات (s0..s7 + الإيرادات + عدّاد المدة) في نداء RPC واحد
-function loadOrdersCards(){
+export function loadOrdersCards(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
   var d=ordersPeriodCairoDates();
@@ -909,7 +484,7 @@ function loadOrdersCards(){
 
 // تنبيه الدمج: عملاء معاهم أوردرين+ جاهزين للشحن — كويري مخصّص بدل المصفوفة الكاملة
 var MERGE_QUERY_STATUSES = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'];
-function loadMergeCandidates(){
+export function loadMergeCandidates(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
   sb.from('orders').select('order_uid,tracking_no,customer_name,city,phone,total_cost,status')
@@ -984,7 +559,7 @@ function fetchPhoneCounts(rawPhones, cb){
   });
 }
 
-function loadAll(){
+export function loadAll(){
   if(!ensureTenant())return;
   selectedIds.clear();updateBulkBar();
   // مش بنحمّل كل الأوردرات عند البداية — صفحة الأوردرات كلها من السيرفر.
@@ -1116,7 +691,7 @@ function handleRealtimeChange(payload){
   if(ev !== 'DELETE') loadWalletState();
 }
 
-function buildIndexes(){
+export function buildIndexes(){
   phoneCounts={};
   pendingBostaByPhone={};
   var MERGE_STATUSES = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'];
@@ -1602,12 +1177,6 @@ function updateUnprintedBtn(){
   }
 }
 
-function pRange(c,t){
-  if(t<=7)return Array.from({length:t},function(_,i){return i+1;});
-  if(c<=4)return[1,2,3,4,5,'…',t];
-  if(c>=t-3)return[1,'…',t-4,t-3,t-2,t-1,t];
-  return[1,'…',c-1,c,c+1,'…',t];
-}
 function goPage(p){var tp=Math.max(1,Math.ceil(totalCount/PS));if(p<1||p>tp)return;cur=p;if(tourActive){renderTable();}else{fetchOrdersPage();}window.scrollTo({top:0,behavior:'smooth'});}
 
 function buildWaUrl(o){
@@ -2252,181 +1821,10 @@ function doBulkUpdate(ns){
   }); // end showModal
 }
 
-// Login wireup
-// نموذج الدخول والخروج
-function initLoginForm(){
-  $id('login-btn').addEventListener('click', doLogin);
-  $id('login-pass').addEventListener('keydown', function(e){ if(e.key === 'Enter') doLogin(); });
-  $id('login-user').addEventListener('keydown', function(e){ if(e.key === 'Enter') $id('login-pass').focus(); });
-  $id('logout-btn').addEventListener('click', doLogout);
 
-  // =====================================================
-  //  SIGNUP — view switching + handler
-  // =====================================================
-}
-function showAuthView(name){
-  // hide all sboxes inside #login
-  var login = document.querySelector('#login .sbox:not(#signup-view):not(#check-email-view)');
-  var signup = $id('signup-view');
-  var checkEmail = $id('check-email-view');
-  if(login)      login.style.display      = (name === 'login')       ? '' : 'none';
-  if(signup)     signup.style.display     = (name === 'signup')      ? '' : 'none';
-  if(checkEmail) checkEmail.style.display = (name === 'check-email') ? '' : 'none';
-}
 
-// التسجيل وتبديل شاشات المصادقة
-function initSignupForm(){
-  $id('show-signup-btn').addEventListener('click', function(){
-    $id('signup-err').textContent = '';
-    showAuthView('signup');
-  });
-  $id('back-to-login-btn').addEventListener('click', function(){
-    $id('login-err').textContent = '';
-    showAuthView('login');
-  });
-  $id('back-from-check-btn').addEventListener('click', function(){
-    showAuthView('login');
-  });
-  $id('signup-btn').addEventListener('click', doSignup);
-  // Enter-to-submit on signup form
-  ['signup-store','signup-email','signup-phone','signup-pass'].forEach(function(id){
-    var el = $id(id);
-    if(!el) return;
-    el.addEventListener('keydown', function(e){ if(e.key === 'Enter') doSignup(); });
-  });
-  // Restrict phone field to digits
-  $id('signup-phone').addEventListener('input', function(){
-    this.value = (this.value || '').replace(/\D/g, '').slice(0, 11);
-  });
-}
 
-function doSignup(){
-  var store = ($id('signup-store').value || '').trim();
-  var email = ($id('signup-email').value || '').trim();
-  var phone = ($id('signup-phone').value || '').replace(/\D/g, '');
-  var pass  = ($id('signup-pass').value  || '');
-  var errEl = $id('signup-err');
-  errEl.style.color = '#dc2626';
-  errEl.textContent = '';
 
-  // Client-side validation
-  if(!store || store.length < 2){ errEl.textContent = 'اكتب اسم متجرك'; return; }
-  if(store.length > 80){ errEl.textContent = 'اسم المتجر طويل جداً'; return; }
-  if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ errEl.textContent = 'البريد الإلكتروني غير صحيح'; return; }
-  if(!phone || phone.length !== 11 || phone.substring(0,2) !== '01'){ errEl.textContent = 'الموبايل لازم ١١ رقم يبدأ بـ 01'; return; }
-  if(!pass || pass.length < 6){ errEl.textContent = 'كلمة المرور لازم ٦ أحرف على الأقل'; return; }
-
-  var btn = $id('signup-btn');
-  btn.disabled = true;
-  btn.textContent = 'جاري الإنشاء...';
-  errEl.style.color = '#64748b';
-  errEl.textContent = 'بنبعتلك إيميل تأكيد...';
-
-  // Stash store_name + phone in auth metadata so we can read them
-  // back after email verification (used by bootstrapTenantIfNeeded).
-  sb.auth.signUp({
-    email: email,
-    password: pass,
-    options: {
-      data: {
-        full_name: store + ' Admin',
-        pending_store_name: store,
-        pending_phone: phone
-      },
-      emailRedirectTo: window.location.origin + window.location.pathname
-    }
-  }).then(function(r){
-    btn.disabled = false;
-    btn.textContent = 'إنشاء الحساب';
-    if(r.error){
-      errEl.style.color = '#dc2626';
-      errEl.textContent = signupErrorMessage(r.error);
-      return;
-    }
-    // Two cases:
-    //  (a) Email confirmation enabled (default): r.data.session is null → show check-email screen
-    //  (b) Email confirmation disabled: r.data.session is present → enter dashboard directly
-    if(r.data && r.data.session && r.data.user){
-      // already signed-in (no email-verification step) → bootstrap straight away
-      errEl.textContent = '';
-      fetchProfileAndEnter(r.data.user);
-    } else {
-      $id('check-email-addr').textContent = email;
-      showAuthView('check-email');
-    }
-  }).catch(function(e){
-    btn.disabled = false;
-    btn.textContent = 'إنشاء الحساب';
-    errEl.style.color = '#dc2626';
-    errEl.textContent = signupErrorMessage(e);
-  });
-}
-
-function signupErrorMessage(err){
-  var msg = (err && (err.message || err.error_description || err.error)) || '';
-  msg = String(msg).toLowerCase();
-  if(msg.indexOf('already') >= 0 || msg.indexOf('registered') >= 0 || msg.indexOf('exists') >= 0){
-    return 'البريد ده مسجل بالفعل. سجّل دخول أو استخدم بريد تاني.';
-  }
-  if(msg.indexOf('rate') >= 0 || msg.indexOf('too many') >= 0){
-    return 'محاولات كتير في وقت قصير. استنى دقيقة وحاول تاني.';
-  }
-  if(msg.indexOf('password') >= 0){
-    return 'كلمة المرور ضعيفة. ٦ أحرف على الأقل.';
-  }
-  if(msg.indexOf('email') >= 0){
-    return 'البريد الإلكتروني غير صحيح.';
-  }
-  return 'حصلت مشكلة في إنشاء الحساب. حاول تاني أو تواصل مع الدعم.';
-}
-
-// =====================================================
-//  Bootstrap tenant on first login after email verification
-//  Called when fetchProfileAndEnter finds no user_profiles row.
-// =====================================================
-function bootstrapTenantIfNeeded(authUser, onDone){
-  // Pull a *fresh* user object from the server — the session user we got from
-  // getSession()/signInWithPassword() can have stale user_metadata immediately
-  // after email verification, so we re-fetch from the auth API to be safe.
-  sb.auth.getUser().then(function(ur){
-    var freshUser = (ur && ur.data && ur.data.user) || authUser || {};
-    var meta = freshUser.user_metadata || (authUser && authUser.user_metadata) || {};
-    var storeName = meta.pending_store_name;
-    var phone     = meta.pending_phone;
-    if(!storeName || !phone){
-      // Surface a more diagnostic message — likely a legacy auth user with
-      // no signup metadata (e.g. created manually via Supabase dashboard).
-      console.warn('bootstrap: missing pending metadata', { meta: meta });
-      onDone(new Error('no_pending_signup'));
-      return;
-    }
-    sb.rpc('signup_create_tenant', {
-      p_store_name: storeName,
-      p_phone:      phone
-    }).then(function(r){
-      if(r.error){
-        console.error('signup_create_tenant RPC error:', r.error);
-        onDone(r.error);
-        return;
-      }
-      onDone(null);
-    }).catch(function(e){
-      console.error('signup_create_tenant call failed:', e);
-      onDone(e);
-    });
-  }).catch(function(e){
-    console.error('getUser() failed during bootstrap:', e);
-    // fall back to the stale user as a last resort
-    var meta = (authUser && authUser.user_metadata) || {};
-    var storeName = meta.pending_store_name;
-    var phone     = meta.pending_phone;
-    if(!storeName || !phone){ onDone(new Error('no_pending_signup')); return; }
-    sb.rpc('signup_create_tenant', { p_store_name: storeName, p_phone: phone }).then(function(r){
-      if(r.error){ onDone(r.error); return; }
-      onDone(null);
-    });
-  });
-}
 
 // زرار التحديث + بحث وفلاتر الأوردرات
 function initRefreshAndSearch(){
@@ -2726,9 +2124,6 @@ export function showPage(page){
 
 
 
-// Track items we couldn't match to stock during the last finance render.
-// Used by the UI to show a warning banner with the offending product names.
-var unmatchedCogsItems = [];
 
 
 export function productCostByName(name){
@@ -2870,17 +2265,6 @@ export function productExists(name){
 
 
 
-// ═══════════════════════════════════════════════════════════════
-// ════════════════ FINANCE SECTION (admin only) ═════════════════
-// ═══════════════════════════════════════════════════════════════
-var SHIPPING_COST_DEFAULT = 85;
-// سعر الشحن الحقيقي من Bosta (شامل VAT) لو اتسجّل، وإلا الافتراضي 85
-function orderShippingCost(o){
-  var f = parseFloat(o && o.real_shipping_fee);
-  return (isFinite(f) && f > 0) ? f : SHIPPING_COST_DEFAULT;
-}
-var financeCurrentTab = 'overview';
-var financeChartInstance = null;
 
 
 export function ordersInRange(range){
@@ -2890,12 +2274,6 @@ export function ordersInRange(range){
   });
 }
 
-function expensesInRange(range){
-  return financeExpenses.filter(function(e){
-    var d = new Date(e.expense_date);
-    return d >= range.from && d < range.to;
-  });
-}
 
 // ============================================================
 // BILLING / WALLET MODULE
@@ -2913,10 +2291,6 @@ export function loadVfcashNumber(){
 }
 
 
-function fmtMoney(n){
-  var v = parseFloat(n) || 0;
-  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + 'ج';
-}
 export function fmtMoneyShort(n){
   var v = parseFloat(n) || 0;
   return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG', {maximumFractionDigits: 2}) + 'ج';
@@ -3031,527 +2405,24 @@ export function renderInboxLocked(){
 
 
 
-function loadFinance(){
-  // During the guided tour, keep the injected demo numbers (real COGS from demo
-  // stock + demo expenses) instead of fetching the empty real tenant data.
-  if(tourActive){
-    if(!isAdmin())return;
-    if(!stockProducts || !stockProducts.length) stockSetProducts(tourDemoStock());
-    if(!financeExpenses || !financeExpenses.length) financeExpenses = tourDemoExpenses();
-    renderFinance();
-    return;
-  }
-  if(!requireAdmin())return;
-  if(!ensureTenant())return;
-  // الماليات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
-  ensureAllLoaded(function(){
-    // Finance depends on wholesale_price from stock_products, so load stock first.
-    loadStockProductsForCosts(function(){
-      sb.from('expenses').select('*').eq('tenant_id', currentTenantId).order('expense_date', {ascending:false}).then(function(r){
-        if(r.error){ console.error(r.error); toast('خطأ في تحميل المصاريف','er'); return; }
-        financeExpenses = r.data || [];
-        renderFinance();
-      });
-    });
-  });
-}
 
-function renderFinance(){
-  if(!isAdmin())return;
-  renderFinanceOverview();
-  renderExpenses();
-}
 
-function renderFinanceOverview(){
-  var range = getPeriodRange();
-  var orders = ordersInRange(range);
-  var expenses = expensesInRange(range);
 
-  // Reset diagnostics — productCostByName() will repopulate this as it processes items
-  unmatchedCogsItems = [];
 
-  // Revenue calculations — use SAME status lists as orders page for consistency
-  var totalRevenue = orders.reduce(function(s,o){ return s + (parseFloat(o.total_cost)||0); }, 0);
-  var collected = orders.filter(function(o){return statusIn(o.status, DELIVERED_STATUSES);}).reduce(function(s,o){ return s + (parseFloat(o.total_cost)||0); }, 0);
-  var expected = orders.filter(function(o){return statusIn(o.status, BOSTA_EXPECTED_STATUSES);}).reduce(function(s,o){ return s + (parseFloat(o.total_cost)||0); }, 0);
-  var lost = orders.filter(function(o){return statusIn(o.status, CANCELLED_STATUSES) || statusIn(o.status, RETURNED_STATUSES) || o.status==='failed';}).reduce(function(s,o){ return s + (parseFloat(o.total_cost)||0); }, 0);
-
-  // Cost calculations — for DELIVERED orders only (those we paid costs on)
-  var deliveredOrders = orders.filter(function(o){return statusIn(o.status, DELIVERED_STATUSES);});
-  var manufacturerCost = deliveredOrders.reduce(function(s,o){ return s + orderInventoryCost(o); }, 0);
-  var shippingCost = deliveredOrders.reduce(function(s,o){ return s + orderShippingCost(o); }, 0);
-  var packagingCost = deliveredOrders.reduce(function(s,o){ return s + (parseFloat(o.packaging_cost)||0); }, 0);
-
-  // ALSO charge shipping for orders that bounced/returned (we paid Bosta anyway)
-  // الشحن بيتخصم لما الأوردر يتسلّم أو يرجع مرتجع فقط — دول الحالتين اللي
-  // بوسطة بتحاسب عليهم فعلاً. الملغي والفاشل و Exception (تأجيل/رفض مؤقت)
-  // لسه ماتحسمتش، ولما تحسم هتبقى إما تسليم أو مرتجع ويتخصم وقتها.
-  var lostOrdersShipping = orders.filter(function(o){
-    return statusIn(o.status, RETURNED_STATUSES);
-  }).reduce(function(s,o){ return s + orderShippingCost(o); }, 0);
-  shippingCost += lostOrdersShipping;
-
-  // Manual expenses by category
-  var expSalaries  = expenses.filter(function(e){return e.category==='مرتبات';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var expAds       = expenses.filter(function(e){return e.category==='إعلانات فيسبوك';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var expPackaging = expenses.filter(function(e){return e.category==='تغليف';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var expBills     = expenses.filter(function(e){return e.category==='فواتير';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var expWarehouse = expenses.filter(function(e){return e.category==='مخزن';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var expOther     = expenses.filter(function(e){return e.category==='متفرقات';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var totalManualExpenses = expSalaries + expAds + expPackaging + expBills + expWarehouse + expOther;
-
-  var totalCosts = manufacturerCost + shippingCost + packagingCost + totalManualExpenses;
-  var netProfit = collected - totalCosts;
-  var marginPct = collected > 0 ? (netProfit/collected*100) : 0;
-  var aov = deliveredOrders.length > 0 ? (collected/deliveredOrders.length) : 0;
-
-  // Render top cards
-  $id('fin-revenue').textContent = num(totalRevenue.toFixed(0))+' ج';
-  $id('fin-collected').textContent = num(collected.toFixed(0))+' ج';
-  $id('fin-expected').textContent = num(expected.toFixed(0))+' ج';
-  $id('fin-lost').textContent = num(lost.toFixed(0))+' ج';
-
-  // Net profit: green if profit, red if loss, white/default if zero
-  var npEl = $id('fin-net-profit');
-  npEl.textContent = num(netProfit.toFixed(0))+' ج';
-  npEl.classList.remove('profit-positive','profit-negative','profit-zero');
-  var profitCard = npEl.closest('.sc');
-  if(profitCard){
-    profitCard.classList.remove('profit-positive-card','profit-negative-card','profit-zero-card');
-    profitCard.style.borderColor = '';
-    profitCard.style.background = '';
-  }
-  if(netProfit > 0){
-    npEl.classList.add('profit-positive');
-    if(profitCard){
-      profitCard.style.borderColor = 'rgba(16,185,129,.45)';
-      profitCard.style.background = 'rgba(16,185,129,.06)';
-    }
-  } else if(netProfit < 0){
-    npEl.classList.add('profit-negative');
-    if(profitCard){
-      profitCard.style.borderColor = 'rgba(239,68,68,.45)';
-      profitCard.style.background = 'rgba(239,68,68,.06)';
-    }
-  } else {
-    npEl.classList.add('profit-zero');
-  }
-
-  $id('fin-margin-pct').textContent = marginPct.toFixed(1)+'%';
-  $id('fin-total-costs').textContent = num(totalCosts.toFixed(0))+' ج';
-  $id('fin-aov').textContent = num(aov.toFixed(0))+' ج';
-
-  // Cost breakdown
-  var costRows = [
-    {label:'💰 المتحصل (إيرادات فعلية)', value:collected, isRevenue:true, tip:'إجمالي قيمة الأوردرات Delivered فقط في الفترة المختارة.'},
-    {label:'🏭 تكلفة المنتجات (جملة)', value:-manufacturerCost, alwaysShow:true, tip:'الأولوية للـ Snapshot المحفوظ وقت الشحن. لو مش موجود، بيتحسب Live من سعر الجملة الحالي في المخزون × الكمية.'},
-    {label:'🚚 تكلفة الشحن الحقيقية (شامل المرتجع)', value:-shippingCost, tip:'سعر الشحن الحقيقي من Bosta (شامل VAT) لكل أوردر اتسلّم، وللي لسه ماجبناش سعره الحقيقي بنحسبه 85 جنيه. وبيتحسب كمان لكل أوردر مرتجع أو فاشل عنده رقم تتبع لأن الشحنة خرجت فعلاً.'},
-    {label:'📦 تكلفة التغليف', value:-packagingCost, tip:'تكلفة التغليف المسجلة على الأوردرات المسلمة من عمود packaging_cost لو موجود.'},
-    {label:'👤 مرتبات', value:-expSalaries, tip:'مصاريف فئة المرتبات المسجلة يدويًا في الفترة.'},
-    {label:'📱 إعلانات فيسبوك', value:-expAds, tip:'مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة.'},
-    {label:'📦 تغليف (مصاريف يدوية)', value:-expPackaging, tip:'مصاريف تغليف عامة أضفتها يدويًا في تبويب المصاريف.'},
-    {label:'🧾 فواتير', value:-expBills, tip:'إجمالي الفواتير المسجلة يدويًا في الفترة.'},
-    {label:'🏭 مخزن', value:-expWarehouse, tip:'مصاريف المخزن المسجلة يدويًا في الفترة.'},
-    {label:'🔧 متفرقات', value:-expOther, tip:'أي مصاريف أخرى مسجلة يدويًا في الفترة.'},
-    {label:'💎 صافي الربح', value:netProfit, isProfit:true, tip:'صافي الربح النهائي بعد خصم كل التكاليف والمصاريف من المتحصل فعلاً.'}
-  ];
-  var html = '';
-
-  // Warning banner — show ABOVE the breakdown if any products couldn't be matched to stock
-  if(unmatchedCogsItems.length > 0){
-    var sample = unmatchedCogsItems.slice(0,5).map(function(n){return '<li style="margin:2px 0;">'+esc(n)+'</li>';}).join('');
-    var more = unmatchedCogsItems.length > 5 ? '<li style="margin:2px 0;color:var(--muted);">… و '+(unmatchedCogsItems.length-5)+' غيرها</li>' : '';
-    html += '<div style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px dashed rgba(234,88,12,.5);border-radius:14px;padding:14px 18px;margin-bottom:14px;">'
-      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'
-      +'<span style="font-size:1.2rem;">⚠️</span>'
-      +'<b style="color:#9a3412;font-size:.95rem;">'+unmatchedCogsItems.length+' منتج في الأوردرات مش لاقي ليه match في المخزون</b>'
-      +'</div>'
-      +'<p style="margin:0 0 8px;color:#7c2d12;font-size:.82rem;font-weight:600;line-height:1.7;">تكلفة المنتجات دي محسوبة بصفر (مش بتتخصم من الربح). راجع أسماء المنتجات في الأوردرات أو ضيفهم للمخزون عشان الحسابات تطلع صح.</p>'
-      +'<ul style="margin:0;padding-right:18px;font-size:.78rem;color:#7c2d12;font-family:\'JetBrains Mono\',monospace;">'+sample+more+'</ul>'
-      +'</div>';
-  }
-
-  costRows.forEach(function(r){
-    if(r.value === 0 && !r.isRevenue && !r.isProfit && !r.alwaysShow) return;
-    var pct = collected > 0 ? (Math.abs(r.value)/collected*100).toFixed(1) : 0;
-    var cls = 'cost-row';
-    var sign = '';
-    var color = 'var(--red)';
-    if(r.isRevenue){
-      sign = '';
-      color = 'var(--blue)';
-    } else if(r.isProfit){
-      if(r.value > 0){ cls = 'cost-row profit'; color = 'var(--green)'; sign = '+'; }
-      else if(r.value < 0){ cls = 'cost-row profit-negative'; color = 'var(--red)'; sign = '-'; }
-      else { cls = 'cost-row profit-zero'; color = 'var(--txt)'; sign = ''; }
-    } else {
-      sign = r.value < 0 ? '-' : '+';
-    }
-    html += '<div class="'+cls+'">'
-      + '<span class="info-i" tabindex="0" title="'+esc(r.tip||r.label)+'" data-tip="'+esc(r.tip||r.label)+'">i</span>'
-      + '<div class="cost-row-label">'+r.label+'</div>'
-      + '<div class="cost-row-value" style="color:'+color+'">'+sign+num(Math.abs(r.value).toFixed(0))+' ج</div>'
-      + '<div class="cost-row-pct">'+pct+'% من الإيرادات</div>'
-      + '</div>';
-  });
-  $id('fin-cost-breakdown').innerHTML = html;
-
-  renderFinanceChart();
-}
-
-var financeChartPeriod = 'monthly';
-var financeChartManual = false;   // true once the user picks a granularity manually
-
-function renderFinanceChart(){
-  var canvas = $id('fin-chart');
-  if(!canvas || typeof Chart === 'undefined') return;
-
-  var now = new Date();
-  var labels = [], revData = [], profData = [];
-
-  function calcPeriod(from, to){
-    var orders = all.filter(function(o){ var d=new Date(o.created_at); return d>=from && d<to; });
-    var exps = financeExpenses.filter(function(e){ var d=new Date(e.expense_date); return d>=from && d<to; });
-    var rev = orders.filter(isDeliveredOrder).reduce(function(s,o){return s+(parseFloat(o.total_cost)||0);},0);
-    var costs = orders.filter(isDeliveredOrder).reduce(function(s,o){return s+orderInventoryCost(o);},0)
-      + orders.filter(function(o){return isDeliveredOrder(o)||statusIn(o.status,RETURNED_STATUSES);}).reduce(function(s,o){return s+orderShippingCost(o);},0)
-      + orders.filter(isDeliveredOrder).reduce(function(s,o){return s+(parseFloat(o.packaging_cost)||0);},0)
-      + exps.reduce(function(s,e){return s+parseFloat(e.amount);},0);
-    return { rev: Math.round(rev), profit: Math.round(rev - costs) };
-  }
-
-  // Chart window follows the SELECTED finance period exactly.
-  var range = getPeriodRange();
-  var from = new Date(range.from), to = new Date(range.to);
-  if(financePeriod.type === 'all'){
-    // span the actual data: earliest order → end of current month
-    var minD = null;
-    all.forEach(function(o){ var d=new Date(o.created_at); if(!isNaN(d) && (!minD || d<minD)) minD=d; });
-    from = minD ? new Date(minD.getFullYear(), minD.getMonth(), 1) : new Date(now.getFullYear(), 0, 1);
-    to = new Date(now.getFullYear(), now.getMonth()+1, 1);
-  }
-  var spanDays = Math.max(1, Math.round((to - from)/86400000));
-  if(!financeChartManual) financeChartPeriod = autoChartGran();   // follow the period by default
-  var gran = financeChartPeriod;
-  // safety clamps so the bucket count stays sane
-  if(spanDays <= 3 && gran!=='daily') gran='daily';
-  if(gran==='daily' && spanDays > 92) gran='weekly';
-  if(gran==='weekly' && spanDays > 2*366) gran='monthly';
-  financeChartPeriod = gran;
-  document.querySelectorAll('.chart-period-btn').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-cp')===gran); });
-
-  if(gran === 'daily'){
-    var d0 = new Date(from.getFullYear(), from.getMonth(), from.getDate());
-    while(d0 < to){
-      var d1 = new Date(d0.getTime() + 86400000);
-      var rD = calcPeriod(d0, d1 > to ? to : d1);
-      labels.push(d0.toLocaleDateString('ar-EG',{day:'numeric',month:'short'}));
-      revData.push(rD.rev); profData.push(rD.profit);
-      d0 = d1;
-    }
-  } else if(gran === 'weekly'){
-    var w0 = new Date(from), wi = 1;
-    while(w0 < to){
-      var w1 = new Date(w0.getTime() + 7*86400000);
-      var rW = calcPeriod(w0, w1 > to ? to : w1);
-      labels.push('أسبوع '+(wi++));
-      revData.push(rW.rev); profData.push(rW.profit);
-      w0 = w1;
-    }
-  } else if(gran === 'yearly'){
-    var lastY = new Date(to.getTime()-1).getFullYear();
-    for(var y = from.getFullYear(); y <= lastY; y++){
-      var rY = calcPeriod(new Date(y,0,1), new Date(y+1,0,1));
-      labels.push(String(y));
-      revData.push(rY.rev); profData.push(rY.profit);
-    }
-  } else {
-    // monthly
-    var m0 = new Date(from.getFullYear(), from.getMonth(), 1);
-    while(m0 < to){
-      var m1 = new Date(m0.getFullYear(), m0.getMonth()+1, 1);
-      var rM = calcPeriod(m0, m1 > to ? to : m1);
-      labels.push(m0.toLocaleDateString('ar-EG',{month:'short',year:'2-digit'}));
-      revData.push(rM.rev); profData.push(rM.profit);
-      m0 = m1;
-    }
-  }
-
-  if(financeChartInstance){ financeChartInstance.destroy(); }
-  financeChartInstance = new Chart(canvas, {
-    type:'line',
-    data:{
-      labels:labels,
-      datasets:[
-        {label:'الإيرادات', data:revData, borderColor:'rgba(59,130,246,1)', backgroundColor:'rgba(59,130,246,.1)', fill:true, tension:.35, pointRadius:3, pointHoverRadius:6},
-        {label:'صافي الربح', data:profData, borderColor:'rgba(16,185,129,1)', backgroundColor:'rgba(16,185,129,.1)', fill:true, tension:.35, pointRadius:3, pointHoverRadius:6}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      interaction:{mode:'index', intersect:false},
-      plugins:{
-        legend:{position:'top',labels:{font:{family:'Cairo',weight:'700'},padding:16}},
-        tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+ctx.parsed.y.toLocaleString('ar-EG')+' ج';}}}
-      },
-      scales:{
-        y:{beginAtZero:true, ticks:{font:{family:'JetBrains Mono'}, callback:function(v){return v.toLocaleString('ar-EG');}}},
-        x:{ticks:{font:{family:'Cairo',size:financeChartPeriod==='daily'?9:11}}}
-      }
-    }
-  });
-}
 
 // Status category helpers
-function isDeliveredOrder(o){ return o.status === 'delivered' || o.status === 'Delivered'; }
+export function isDeliveredOrder(o){ return o.status === 'delivered' || o.status === 'Delivered'; }
 function isWithBosta(o){
   return ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2',
     'Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs',
     'Picking up from consignee','Out for exchange'].indexOf(o.status) >= 0;
 }
-function isConfirmedForFinance(o){
-  // Explicitly exclude pending/cancelled from confirmation calculations.
-  if(!o || o.status==='pending' || o.status==='cancelled') return false;
-  return o.status==='confirmed'
-    || statusIn(o.status, BOSTA_POSITIVE_STATUSES)
-    || statusIn(o.status, DELIVERED_STATUSES)
-    || statusIn(o.status, RETURNED_STATUSES)
-    || o.status==='Exception'
-    || o.status==='exception'
-    || o.status==='failed';
-}
-
-// ────────────────── EXPENSES TAB ──────────────────
-function renderExpenses(){
-  var q = ($id('exp-search').value || '').trim().toLowerCase();
-  var cat = $id('exp-filter-cat').value;
-  var range = getPeriodRange();
-  var list = financeExpenses.filter(function(e){
-    var d = new Date(e.expense_date);
-    if(d < range.from || d >= range.to) return false;
-    if(cat && e.category !== cat) return false;
-    if(q && (e.note||'').toLowerCase().indexOf(q) < 0 && e.category.toLowerCase().indexOf(q) < 0) return false;
-    return true;
-  });
-  $id('exp-count').textContent = num(list.length) + ' مصروف';
-
-  // Update category summary cards
-  function sumCat(c){ return list.filter(function(e){return e.category===c;}).reduce(function(s,e){return s+parseFloat(e.amount);},0); }
-  $id('exp-sum-salaries').textContent = num(sumCat('مرتبات').toFixed(0))+' ج';
-  $id('exp-sum-ads').textContent = num(sumCat('إعلانات فيسبوك').toFixed(0))+' ج';
-  $id('exp-sum-packaging').textContent = num(sumCat('تغليف').toFixed(0))+' ج';
-  $id('exp-sum-bills').textContent = num(sumCat('فواتير').toFixed(0))+' ج';
-  $id('exp-sum-warehouse').textContent = num(sumCat('مخزن').toFixed(0))+' ج';
-  $id('exp-sum-other').textContent = num(sumCat('متفرقات').toFixed(0))+' ج';
-
-  if(!list.length){ $id('exp-tbody').innerHTML = '<div class="ldg">لا توجد مصاريف</div>'; return; }
-
-  var h = '<table><thead><tr>'
-    + '<th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>ملاحظة</th><th></th>'
-    + '</tr></thead><tbody>';
-  list.forEach(function(e){
-    var catSafe = e.category.replace(' ','-').replace('فيسبوك','');
-    h += '<tr>'
-      + '<td class="mn">'+fmtD(e.expense_date)+'</td>'
-      + '<td><span class="exp-cat-badge exp-cat-'+e.category.split(' ')[0]+'">'+esc(e.category)+'</span></td>'
-      + '<td class="mn" style="font-weight:900;color:var(--red);">'+num(e.amount)+' ج</td>'
-      + '<td>'+esc(e.note||'')+'</td>'
-      + '<td><div class="exp-row-actions">'
-      +   '<button class="exp-edit-btn" data-id="'+e.id+'">✏️</button>'
-      +   '<button class="exp-del-btn" data-id="'+e.id+'">🗑️</button>'
-      +   '</div></td>'
-      + '</tr>';
-  });
-  h += '</tbody></table>';
-  $id('exp-tbody').innerHTML = h;
-
-  $id('exp-tbody').querySelectorAll('.exp-edit-btn').forEach(function(b){
-    b.addEventListener('click', function(){ openExpenseEditor(b.getAttribute('data-id')); });
-  });
-  $id('exp-tbody').querySelectorAll('.exp-del-btn').forEach(function(b){
-    b.addEventListener('click', function(){ deleteExpense(b.getAttribute('data-id')); });
-  });
-}
-
-function openExpenseEditor(id){
-  var exp = null;
-  if(id){
-    for(var i=0;i<financeExpenses.length;i++){ if(financeExpenses[i].id === id){ exp = financeExpenses[i]; break; } }
-  }
-  var isNew = !exp;
-  // Build today's date in Cairo timezone (local), NOT UTC.
-  // toISOString().slice(0,10) returns the UTC date which can be off-by-one
-  // for users in Cairo between 22:00-23:59 (summer) or 21:00-23:59 (winter).
-  var _t = new Date();
-  var todayLocal = _t.getFullYear()+'-'+pad2(_t.getMonth()+1)+'-'+pad2(_t.getDate());
-  exp = exp || { category:'إعلانات فيسبوك', amount:0, expense_date:todayLocal, note:'' };
-
-  $id('dtit').textContent = isNew ? 'إضافة مصروف' : 'تعديل مصروف';
-  $id('dcnt').innerHTML = '<div class="dsec">'
-    + '<label class="slbl" style="text-align:right;display:block">الفئة</label>'
-    + '<select class="fsel" id="exp-cat" style="width:100%">'
-    +   ['مرتبات','إعلانات فيسبوك','تغليف','فواتير','مخزن','متفرقات'].map(function(c){
-          return '<option value="'+c+'" '+(c===exp.category?'selected':'')+'>'+c+'</option>';
-        }).join('')
-    + '</select>'
-    + '<label class="slbl" style="text-align:right;display:block;margin-top:10px">المبلغ (جنيه)</label>'
-    + '<input class="sinp" id="exp-amount" type="number" step="0.01" value="'+exp.amount+'">'
-    + '<label class="slbl" style="text-align:right;display:block;margin-top:10px">التاريخ</label>'
-    + '<input class="sinp" id="exp-date" type="date" value="'+(exp.expense_date||'').slice(0,10)+'">'
-    + '<label class="slbl" style="text-align:right;display:block;margin-top:10px">ملاحظة</label>'
-    + '<input class="sinp" id="exp-note" type="text" value="'+esc(exp.note||'')+'" style="direction:rtl;text-align:right">'
-    + '</div>'
-    + '<div class="dacts">'
-    +   (isNew ? '' : '<button class="abtn cn" id="exp-del">🗑️ حذف</button>')
-    +   '<button class="abtn ok" id="exp-save">💾 حفظ</button>'
-    + '</div>';
-
-  $id('exp-save').addEventListener('click', function(){
-    var data = {
-      tenant_id: currentTenantId,
-      category: $id('exp-cat').value,
-      amount: parseFloat($id('exp-amount').value) || 0,
-      expense_date: $id('exp-date').value,
-      note: $id('exp-note').value.trim() || null,
-      created_by: currentUser ? currentUser.id : null
-    };
-    if(data.amount <= 0){ toast('المبلغ لازم يكون أكبر من صفر','er'); return; }
-    var op = isNew
-      ? sb.from('expenses').insert(data)
-      : sb.from('expenses').update({category:data.category, amount:data.amount, expense_date:data.expense_date, note:data.note}).eq('id', exp.id).eq('tenant_id', currentTenantId);
-    op.then(function(r){
-      if(r.error){ toast('خطأ: '+r.error.message,'er'); return; }
-      toast(isNew ? 'تم إضافة المصروف ✓' : 'تم التحديث ✓','ok');
-      $id('ovl').classList.remove('open');
-      loadFinance();
-    });
-  });
-
-  if(!isNew){
-    $id('exp-del').addEventListener('click', function(){ deleteExpense(exp.id); });
-  }
-
-  $id('ovl').classList.add('open');
-}
-
-function deleteExpense(id){
-  if(!confirm('حذف المصروف؟')) return;
-  sb.from('expenses').delete().eq('id', id).eq('tenant_id', currentTenantId).then(function(r){
-    if(r.error){ toast('خطأ: '+r.error.message,'er'); return; }
-    toast('تم الحذف','ok');
-    $id('ovl').classList.remove('open');
-    loadFinance();
-  });
-}
 
 
 
-// ────────────────── FINANCE EVENT WIREUP ──────────────────
-// الفاينانس والمصاريف والمشاكل والتلميحات
-function initFinanceAndIssues(){
-  document.querySelectorAll('.period-btn').forEach(function(b){
-    b.addEventListener('click', function(){
-      var type = b.getAttribute('data-period');
-      document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
-      var crow = $id('fin-custom-row');
-      if(type === 'custom'){ if(crow) crow.style.display='flex'; return; }  // wait for طبّق
-      if(crow) crow.style.display='none';
-      setPeriod(financePeriod, type);
-      financeChartManual = false;             // chart auto-follows the new period
-      financeChartPeriod = autoChartGran();
-      renderFinance();
-    });
-  });
 
-  // Chart period toggle (daily/weekly/monthly/yearly)
-  document.querySelectorAll('.chart-period-btn').forEach(function(b){
-    b.addEventListener('click', function(){
-      financeChartManual = true;   // user override — stops auto-following the period
-      financeChartPeriod = b.getAttribute('data-cp');
-      document.querySelectorAll('.chart-period-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
-      renderFinanceChart();
-    });
-  });
-  $id('fin-custom-apply').addEventListener('click', function(){
-    var from = $id('fin-from').value;
-    var to = $id('fin-to').value;
-    if(!from || !to){ toast('اختر التاريخين','er'); return; }
-    if(from > to){ var sw=from; from=to; to=sw; }
-    setPeriod(financePeriod, 'custom', from, to);
-    document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-period')==='custom'); });
-    financeChartManual = false;
-    financeChartPeriod = autoChartGran();   // chart follows the custom range
-    renderFinance();
-  });
-  // Finance tabs
-  document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(b){
-    b.addEventListener('click', function(){
-      financeCurrentTab = b.getAttribute('data-ftab');
-      document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(x){ x.classList.toggle('active', x===b); });
-      $id('finance-overview-tab').style.display = financeCurrentTab==='overview' ? 'block' : 'none';
-      $id('finance-expenses-tab').style.display = financeCurrentTab==='expenses' ? 'block' : 'none';
-    });
-  });
-  $id('exp-search').addEventListener('input', renderExpenses);
-  $id('exp-filter-cat').addEventListener('change', renderExpenses);
-  $id('add-expense-btn').addEventListener('click', function(){ openExpenseEditor(null); });
-  if($id('issues-refresh'))$id('issues-refresh').addEventListener('click',loadIssues);
-  if($id('issues-search'))$id('issues-search').addEventListener('input',renderIssuesTable);
-  if($id('issues-filter-prio'))$id('issues-filter-prio').addEventListener('change',renderIssuesTable);
-  if($id('issues-filter-scope'))$id('issues-filter-scope').addEventListener('change',renderIssuesTable);
 
-  // ═══════════════════ END FINANCE SECTION ═══════════════════════
 
-  // ═══════════════════ INFO TOOLTIP (floating, never clipped) ═══════════════
-  (function initInfoTooltips(){
-    var tip = document.createElement('div');
-    tip.id = 'sc-floating-tip';
-    document.body.appendChild(tip);
-
-    function showTip(icon){
-      var text = icon.getAttribute('data-tip');
-      if(!text) return;
-      tip.textContent = text;
-      tip.classList.add('show');
-      // Measure after content set
-      var r = icon.getBoundingClientRect();
-      var tw = tip.offsetWidth, th = tip.offsetHeight;
-      // Position above the icon, aligned so arrow (right:18px) points near icon
-      var left = r.left + r.width/2 - (tw - 18);
-      var top = r.top - th - 10;
-      // Keep within viewport
-      if(left < 8) left = 8;
-      if(left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
-      if(top < 8){ // not enough room above → show below
-        top = r.bottom + 10;
-        tip.style.setProperty('--arrow-side','top');
-      }
-      tip.style.left = left + 'px';
-      tip.style.top = top + 'px';
-    }
-    function hideTip(){ tip.classList.remove('show'); }
-
-    document.addEventListener('mouseover', function(e){
-      var icon = e.target.closest('.sc-info');
-      if(icon) showTip(icon);
-    });
-    document.addEventListener('mouseout', function(e){
-      if(e.target.closest('.sc-info')) hideTip();
-    });
-    // Mobile: tap to toggle
-    document.addEventListener('click', function(e){
-      var icon = e.target.closest('.sc-info');
-      if(icon){
-        if(tip.classList.contains('show')) hideTip();
-        else showTip(icon);
-        e.stopPropagation();
-      } else {
-        hideTip();
-      }
-    });
-  })();
-
-}
 // Auto-init on page load — no setup screen needed
 // ── ترتيب التشغيل ────────────────────────────────────────────────
 // كان ضمنياً بترتيب السطور في الملف: أي نقل نود أو تقسيم لموديولات
