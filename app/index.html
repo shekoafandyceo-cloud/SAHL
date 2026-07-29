@@ -1396,6 +1396,13 @@ body.role-employee .admin-only{display:none !important;}
 <script>
 (function(){
   "use strict";
+  // كل catch لازم يسيب أثر. الخروج الصامت هو اللي خبّى مشكلة 3.5 ساعة قبل كده
+  // (الدرس 5 و7 في CLAUDE.md). warn مش error عن قصد: كتير من دول فشلهم
+  // متوقّع (localStorage في التصفح الخاص، JSON.parse لرد مش JSON)، ولو صرّخنا
+  // في كلهم الضوضاء تخلّي الأثر بلا قيمة. المستوى بيتغيّر من هنا لوحده.
+  function swallow(where, err){
+    try{ console.warn('[سهل] ' + where, err); }catch(_){}
+  }
   var sb=null, all=[], fil=[], cur=1, PS=50, sel=null, stm=null, intNotesTimer=null;
   var allLoaded=false;           // هل تم تحميل كل الأوردرات للذاكرة؟ (يتحمّل lazily للماليات/الإحصائيات فقط)
   var detailHistory=null;        // ملخّص طلبات العميل لشاشة التفاصيل (من كويري بالتليفون)
@@ -1557,7 +1564,7 @@ body.role-employee .admin-only{display:none !important;}
   }
   function showSubscriptionLock(t, reason){
     currentTenant = null;
-    try{ sb.auth.signOut(); }catch(e){}
+    try{ sb.auth.signOut(); }catch(e){ swallow('showSubscriptionLock/sb.auth.signOut', e); }
     $id('login').style.display = 'none';
     $id('app').style.display = 'none';
     var existing = document.getElementById('sub-lock');
@@ -1720,7 +1727,7 @@ body.role-employee .admin-only{display:none !important;}
           +'<button class="fld-edit-cancel">إلغاء</button>'
           +'<span class="fld-edit-status"></span>';
         var input=wrap.querySelector('.fld-edit-input');
-        input.focus(); try{input.setSelectionRange(input.value.length,input.value.length);}catch(e2){}
+        input.focus(); try{input.setSelectionRange(input.value.length,input.value.length);}catch(e2){ swallow('attachFieldEditors/input.setSelectionRange', e2); }
         wrap.querySelector('.fld-edit-cancel').addEventListener('click',function(){ renderDetail(); });
         function save(){
           var val=input.value.trim();
@@ -1736,7 +1743,7 @@ body.role-employee .admin-only{display:none !important;}
             if(r.error){ if(stt)stt.textContent=''; toast('خطأ في الحفظ: '+r.error.message,'er'); return; }
             patchOrderField(sel.id,upd);
             toast('تم تعديل '+(field==='phone'?'الموبايل':(field==='address'?'العنوان':'البيانات'))+' ✓','ok');
-            try{renderTable();}catch(e3){}
+            try{renderTable();}catch(e3){ swallow('save/renderTable', e3); }
             renderDetail();
           });
         }
@@ -1896,13 +1903,13 @@ body.role-employee .admin-only{display:none !important;}
   function forceSuspendLogout(){
     if(_suspending) return;
     _suspending = true;
-    try{ if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; } }catch(e){}
+    try{ if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; } }catch(e){ swallow('forceSuspendLogout/sb.removeChannel', e); }
     sb.auth.signOut().then(function(){
       currentUser = null;
       currentRole = null;
       currentTenantId = null;
       currentTenant = null;
-      try{ resetTenantBranding(); }catch(e){}
+      try{ resetTenantBranding(); }catch(e){ swallow('forceSuspendLogout/resetTenantBranding', e); }
       document.body.classList.remove('role-admin', 'role-employee');
       $id('app').style.display = 'none';
       $id('login-user').value = '';
@@ -1983,8 +1990,8 @@ body.role-employee .admin-only{display:none !important;}
     seg.classList.add('has-ind');
   }
   function refreshOrdersScope(){
-    try{ loadOrdersCards(); }catch(e){}
-    try{ doFilter(); }catch(e){}
+    try{ loadOrdersCards(); }catch(e){ swallow('refreshOrdersScope/loadOrdersCards', e); }
+    try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
   }
 
   // كرت "جاهز للخروج" — اضغط يروح لفلتر بوسطة + scroll للجدول
@@ -1995,7 +2002,7 @@ body.role-employee .admin-only{display:none !important;}
       var fst = $id('fst');
       if(fst){ fst.value = 'bosta_assigned'; }
       if(window.__syncFilterUI) window.__syncFilterUI();
-      try{ doFilter(); }catch(e){}
+      try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
       window.scrollTo({ top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth' });
     });
   })();
@@ -2147,7 +2154,7 @@ body.role-employee .admin-only{display:none !important;}
   var tourActive=false, tourStep=0, tourSavedHTML=null;
 
   function tourDone(){ try{return localStorage.getItem(TOUR_KEY+currentTenantId)==='1';}catch(e){return false;} }
-  function markTourDone(){ try{localStorage.setItem(TOUR_KEY+currentTenantId,'1');}catch(e){} }
+  function markTourDone(){ try{localStorage.setItem(TOUR_KEY+currentTenantId,'1');}catch(e){ swallow('markTourDone/localStorage.setItem', e); } }
 
   // ---- demo orders shown only during the tour ----
   function tourDemoOrders(){
@@ -2250,28 +2257,28 @@ body.role-employee .admin-only{display:none !important;}
     all = tourDemoOrders();
     stockProducts = tourDemoStock();
     stockMovements = tourDemoMovements();
-    try{ financeExpenses = tourDemoExpenses(); }catch(e){}
-    try{ buildIndexes && buildIndexes(); }catch(e){}
-    try{ updateStats && updateStats(); }catch(e){}
-    try{ updateRevenueStats && updateRevenueStats(); }catch(e){}
-    try{ renderFinanceOverview && renderFinanceOverview(); }catch(e){}
-    try{ updateStockStats && updateStockStats(); }catch(e){}
-    try{ renderProducts && renderProducts(); }catch(e){}
-    try{ renderMovements && renderMovements(); }catch(e){}
-    try{ doFilter && doFilter(); }catch(e){}
+    try{ financeExpenses = tourDemoExpenses(); }catch(e){ swallow('tourBackupAndInject/tourDemoExpenses', e); }
+    try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourBackupAndInject/buildIndexes', e); }
+    try{ updateStats && updateStats(); }catch(e){ swallow('tourBackupAndInject/updateStats', e); }
+    try{ updateRevenueStats && updateRevenueStats(); }catch(e){ swallow('tourBackupAndInject/updateRevenueStats', e); }
+    try{ renderFinanceOverview && renderFinanceOverview(); }catch(e){ swallow('tourBackupAndInject/renderFinanceOverview', e); }
+    try{ updateStockStats && updateStockStats(); }catch(e){ swallow('tourBackupAndInject/updateStockStats', e); }
+    try{ renderProducts && renderProducts(); }catch(e){ swallow('tourBackupAndInject/renderProducts', e); }
+    try{ renderMovements && renderMovements(); }catch(e){ swallow('tourBackupAndInject/renderMovements', e); }
+    try{ doFilter && doFilter(); }catch(e){ swallow('tourBackupAndInject/doFilter', e); }
   }
   function tourRestore(){
     if(window.__tourRealAll){ all=window.__tourRealAll; window.__tourRealAll=null; }
-    if(typeof window.__tourRealStock!=='undefined'){ try{ stockProducts=window.__tourRealStock||[]; }catch(e){} window.__tourRealStock=undefined; }
-    if(typeof window.__tourRealMov!=='undefined'){ try{ stockMovements=window.__tourRealMov||[]; }catch(e){} window.__tourRealMov=undefined; }
-    if(typeof window.__tourRealExp!=='undefined'){ try{ financeExpenses=window.__tourRealExp||[]; }catch(e){} window.__tourRealExp=undefined; }
+    if(typeof window.__tourRealStock!=='undefined'){ try{ stockProducts=window.__tourRealStock||[]; }catch(e){ swallow('tourRestore/stockProducts', e); } window.__tourRealStock=undefined; }
+    if(typeof window.__tourRealMov!=='undefined'){ try{ stockMovements=window.__tourRealMov||[]; }catch(e){ swallow('tourRestore/stockMovements', e); } window.__tourRealMov=undefined; }
+    if(typeof window.__tourRealExp!=='undefined'){ try{ financeExpenses=window.__tourRealExp||[]; }catch(e){ swallow('tourRestore/financeExpenses', e); } window.__tourRealExp=undefined; }
     // بعد الجولة: all الحقيقي بقى فاضي (مش بيتحمّل عند البداية) — فنرجّع صفحة الأوردرات
     // الحقيقية من السيرفر بدل ما نحسبها من الذاكرة الفاضية.
-    try{ buildIndexes && buildIndexes(); }catch(e){}   // يصفّر phoneCounts (all فاضي)
-    try{ loadOrdersCards(); }catch(e){}                 // الكروت + الإيرادات من الـ RPC
-    try{ loadMergeCandidates(); }catch(e){}
-    try{ loadBostaInventoryCard(); }catch(e){}
-    try{ doFilter(); }catch(e){}                        // الجدول: صفحة من السيرفر
+    try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)
+    try{ loadOrdersCards(); }catch(e){ swallow('tourRestore/loadOrdersCards', e); }                 // الكروت + الإيرادات من الـ RPC
+    try{ loadMergeCandidates(); }catch(e){ swallow('tourRestore/loadMergeCandidates', e); }
+    try{ loadBostaInventoryCard(); }catch(e){ swallow('tourRestore/loadBostaInventoryCard', e); }
+    try{ doFilter(); }catch(e){ swallow('tourRestore/doFilter', e); }                        // الجدول: صفحة من السيرفر
   }
 
   // ---- the steps ----
@@ -2398,7 +2405,7 @@ body.role-employee .admin-only{display:none !important;}
     var s=steps[tourStep];
     if(!s){ tourFinish(); return; }
     // close the order overlay unless this step wants it open
-    if(!s.openOrder){ try{ if($id('ovl')) $id('ovl').classList.remove('open'); }catch(e){} }
+    if(!s.openOrder){ try{ if($id('ovl')) $id('ovl').classList.remove('open'); }catch(e){ swallow('tourRender/$id', e); } }
     // switch page if needed
     if(s.page && typeof showPage==='function'){
       var cur=document.querySelector('.tnav-btn.active');
@@ -2417,7 +2424,7 @@ body.role-employee .admin-only{display:none !important;}
                          {id:'d5',name:'ترولي خشب ايكيا',current_qty:0,unit_price:870}];
         }
         openDetail(s.openOrder);
-      }catch(e){}
+      }catch(e){ swallow('tourRender', e); }
     }
     var settleDelay = s.openOrder ? 260 : (s.page?380:60);
     setTimeout(function(){
@@ -2465,7 +2472,7 @@ body.role-employee .admin-only{display:none !important;}
   }
   function tourFinish(){
     tourActive=false;
-    try{ $id('ovl').classList.remove('open'); }catch(e){}
+    try{ $id('ovl').classList.remove('open'); }catch(e){ swallow('tourFinish/$id', e); }
     var ov=document.getElementById('tour-overlay'); ov.classList.remove('active');
     // BUGFIX: hide the welcome card too — if the user clicked "Skip" before starting,
     // tourStart() never ran and the welcome modal would stay visible forever.
@@ -2603,7 +2610,7 @@ body.role-employee .admin-only{display:none !important;}
           acc = acc.concat(got);
           if(got.length === CHUNK && acc.length < MAXROWS){ fromIdx += CHUNK; pull(); return; }
           all = acc; allLoaded = true;
-          try{ buildIndexes(); }catch(e){}           // phoneCounts كامل
+          try{ buildIndexes(); }catch(e){ swallow('pull/buildIndexes', e); }           // phoneCounts كامل
           cb&&cb();
         });
     })();
@@ -2635,7 +2642,7 @@ body.role-employee .admin-only{display:none !important;}
     startRealtime();
     waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
     loadWalletState();         // للجميع (أدمن + موظف) — للقفل عند نفاد الرصيد
-    try{ tourMaybeAutoStart(); }catch(e){}
+    try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
   }
 
   var realtimeChannel = null;
@@ -2746,7 +2753,7 @@ body.role-employee .admin-only{display:none !important;}
       if(allLoaded) all = all.filter(function(o){ return o.id !== oldRow.id; });
     }
 
-    if(allLoaded){ try{ buildIndexes(); }catch(e){} }
+    if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
     loadOrdersCards();
     loadMergeCandidates();
     loadBostaInventoryCard();
@@ -2963,7 +2970,7 @@ body.role-employee .admin-only{display:none !important;}
       totalCount=(typeof r.count==='number')?r.count:fil.length;
       var hasFilter=!!(st||pl||py||q);
       $id('fcnt').textContent=num(totalCount)+(hasFilter?' نتيجة':' طلب');
-      try{ updateUnprintedBtn(); }catch(e){}
+      try{ updateUnprintedBtn(); }catch(e){ swallow('fetchOrdersPage/updateUnprintedBtn', e); }
       renderTable();
       // شارة العميل المتكرر: عدّ طلبات تليفونات الصفحة من كويري صغير ثم إعادة عرض
       var phs=[], seen={};
@@ -3349,7 +3356,7 @@ body.role-employee .admin-only{display:none !important;}
     // Guard: when the wallet is depleted, sensitive data is locked across the app.
     if(walletStateCache && walletStateCache.is_depleted && !tourActive){
       toast('بياناتك مقفلة لحد ما تشحن المحفظة','er');
-      try{ showPage('billing'); }catch(e){}
+      try{ showPage('billing'); }catch(e){ swallow('openDetail/showPage', e); }
       return;
     }
     if(tourActive){
@@ -4355,10 +4362,10 @@ body.role-employee .admin-only{display:none !important;}
         
         // Auto-trigger print() لما الـ PDF يتحمل
         win.addEventListener('load', function(){
-          setTimeout(function(){ try{ win.print(); }catch(e){} }, 600);
+          setTimeout(function(){ try{ win.print(); }catch(e){ swallow('printAwbForOrders/win.print', e); } }, 600);
         });
         // backup trigger في حالة الـ load event ما اطلقش
-        setTimeout(function(){ try{ win.focus(); win.print(); }catch(e){} }, 1500);
+        setTimeout(function(){ try{ win.focus(); win.print(); }catch(e){ swallow('printAwbForOrders/win.focus', e); } }, 1500);
         
         if(data.skipped_no_tracking && data.skipped_no_tracking > 0){
           toast('✅ اتطبع '+data.printed_count+' بوليصة ('+data.skipped_no_tracking+' أوردر مفيش فيهم tracking)','ok');
@@ -4370,7 +4377,7 @@ body.role-employee .admin-only{display:none !important;}
         setTimeout(function(){ URL.revokeObjectURL(pdfUrl); }, 60000);
         
         // refresh الأوردرات عشان نشوف awb_printed_at الجديد (لو في UI)
-        if(typeof loadOrders === 'function'){ try{ loadOrders(); }catch(e){} }
+        if(typeof loadOrders === 'function'){ try{ loadOrders(); }catch(e){ swallow('printAwbForOrders/loadOrders', e); } }
         
       } catch(err){
         console.error('AWB print error:', err);
@@ -4790,7 +4797,7 @@ body.role-employee .admin-only{display:none !important;}
   }
   function waEnsureNotifyPermission(){
     if(!('Notification' in window)) return;
-    if(Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(e){} }
+    if(Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(e){ swallow('waEnsureNotifyPermission/Notification.requestPermission', e); } }
   }
   function waNotify(m){
     if(!('Notification' in window) || Notification.permission!=='granted') return;
@@ -4802,8 +4809,8 @@ body.role-employee .admin-only{display:none !important;}
     var preview = m.body || (m.type==='image'?'📷 صورة':((m.type==='voice'||m.type==='audio')?'🎤 رسالة صوتية':(m.type==='document'?'📎 ملف':'رسالة جديدة')));
     try{
       var n=new Notification('💬 رسالة من '+who, { body: preview, tag: m.conversation_id });
-      n.onclick=function(){ try{ window.focus(); showPage('inbox'); if(m.conversation_id) openConversation(m.conversation_id); }catch(e){} n.close(); };
-    }catch(e){}
+      n.onclick=function(){ try{ window.focus(); showPage('inbox'); if(m.conversation_id) openConversation(m.conversation_id); }catch(e){ swallow('waNotify/window.focus', e); } n.close(); };
+    }catch(e){ swallow('waNotify', e); }
   }
 
   // ----- ردود جاهزة -----
@@ -5996,7 +6003,7 @@ body.role-employee .admin-only{display:none !important;}
       banner.remove();
     }
     // Re-render table to apply locked cells if currently on orders page
-    if(locked && typeof doFilter === 'function'){ try{ doFilter(); }catch(e){} }
+    if(locked && typeof doFilter === 'function'){ try{ doFilter(); }catch(e){ swallow('applyDepletionLock/doFilter', e); } }
   }
 
   // helper used inside the row renderer (defined in the existing table code)
@@ -6642,7 +6649,7 @@ body.role-employee .admin-only{display:none !important;}
       body: JSON.stringify(payload)
     }).then(function(res){
       return res.text().then(function(txt){
-        var body = null; try{ body = txt ? JSON.parse(txt) : null; }catch(e){}
+        var body = null; try{ body = txt ? JSON.parse(txt) : null; }catch(e){ swallow('sendTelegramConfirm/JSON.parse', e); }
         return { httpOk: res.ok, body: body };
       });
     }).then(function(r){
