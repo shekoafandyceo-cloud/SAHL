@@ -10,6 +10,10 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
+import { CALL_WAIT_MS, startTimerTick, tickTimers, timerInterval } from './orders/call-timer.js';
+
+import { showModal } from './core/modal.js';
+
 import { SUPABASE_ANON_KEY, SUPABASE_URL, WEBHOOK_BASE_URL } from './core/config.js';
 
 import { toast } from './core/toast.js';
@@ -1566,58 +1570,6 @@ function doFilter(){
   fetchOrdersPage();
 }
 
-// ── Custom Modal (replaces browser confirm/prompt) ──────────────
-function showModal(opts){
-  // opts: { icon, title, sub, okLabel, okColor, input, placeholder, onOk }
-  var bd=$id('cmodal-backdrop');
-  var box=$id('cmodal-box');
-  $id('cmodal-icon').textContent=opts.icon||'';
-  $id('cmodal-title').textContent=opts.title||'';
-  $id('cmodal-sub').textContent=opts.sub||'';
-  var inputWrap=$id('cmodal-input-wrap');
-  var inp=$id('cmodal-input');
-  if(opts.input){
-    inputWrap.style.display='block';
-    inp.placeholder=opts.placeholder||'';
-    inp.value='';
-    setTimeout(function(){inp.focus();},120);
-  } else {
-    inputWrap.style.display='none';
-  }
-  var okBtn=$id('cmodal-ok');
-  okBtn.textContent=opts.okLabel||'تأكيد';
-  okBtn.style.background=opts.okColor||'linear-gradient(135deg,var(--acc),var(--acc2))';
-  okBtn.style.color=opts.okColor&&opts.okColor.indexOf('red')>=0?'#fff':'#211300';
-  bd.style.display='flex';
-  // Re-trigger animation
-  box.style.animation='none';
-  requestAnimationFrame(function(){box.style.animation='';});
-
-  function close(){ bd.style.display='none'; }
-
-  var okHandler=function(){
-    if(opts.input){
-      var val=inp.value.trim();
-      if(!val){inp.style.borderColor='var(--red)';inp.focus();return;}
-      close(); opts.onOk&&opts.onOk(val);
-    } else {
-      close(); opts.onOk&&opts.onOk();
-    }
-  };
-  var cancelHandler=function(){ close(); };
-
-  // Re-wire buttons (remove old listeners)
-  var newOk=okBtn.cloneNode(true); okBtn.parentNode.replaceChild(newOk,okBtn);
-  var newCancel=$id('cmodal-cancel').cloneNode(true); $id('cmodal-cancel').parentNode.replaceChild(newCancel,$id('cmodal-cancel'));
-  $id('cmodal-ok').addEventListener('click',okHandler);
-  $id('cmodal-cancel').addEventListener('click',cancelHandler);
-  bd.addEventListener('click',function(e){ if(e.target===bd)cancelHandler(); },{once:true});
-  // Enter key submits
-  inp&&inp.addEventListener('keydown',function(e){ if(e.key==='Enter')okHandler(); });
-}
-// ── End Custom Modal ─────────────────────────────────────────────
-var CALL_WAIT_MS = 90 * 60 * 1000; // 90 minutes in ms
-var timerInterval = null;
 
 // Get deadline ISO string ONLY if order is pending and has call attempts
 // Returns '' if order is not pending, or has no calls, or deadline already passed long ago
@@ -1645,42 +1597,7 @@ function getCallDeadline(o){
   return deadline.toISOString();
 }
 
-function startTimerTick(){
-  if(timerInterval) clearInterval(timerInterval);
-  timerInterval = setInterval(tickTimers, 1000);
-  tickTimers();
-}
 
-function tickTimers(){
-  var cells = document.querySelectorAll('.timer-cell[data-deadline]');
-  var now = Date.now();
-  cells.forEach(function(cell){
-    var deadline = cell.getAttribute('data-deadline');
-    var row = cell.closest('tr');
-    if(!deadline){
-      cell.innerHTML = '';
-      if(row) row.classList.remove('call-due-row');
-      return;
-    }
-    var remaining = new Date(deadline).getTime() - now;
-    if(remaining <= 0){
-      // Timer expired — alert the employee to call
-      cell.innerHTML = '<span class="call-due">📞 اتصل الآن!</span>';
-      if(row) row.classList.add('call-due-row');
-    } else {
-      // Show countdown — remaining is POSITIVE = time left before next call
-      var totalSec = Math.ceil(remaining / 1000);
-      var mins = Math.floor(totalSec / 60);
-      var secs = totalSec % 60;
-      var pct = remaining / CALL_WAIT_MS; // 1.0 = just started, 0.0 = expired
-      var color = pct > 0.5 ? 'var(--green)' : pct > 0.2 ? 'var(--ora)' : 'var(--red)';
-      cell.innerHTML = '<span class="call-timer" style="color:'+color+'">'
-        + mins+'د '+ (secs<10?'0':'')+secs+'ث'
-        + '</span>';
-      if(row) row.classList.remove('call-due-row');
-    }
-  });
-}
 // ── END CALL TIMER ENGINE ────────────────────────────
 
 function renderTable(){
