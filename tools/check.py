@@ -198,6 +198,81 @@ def check_module_graph(js_files, base_dir):
                 err("%s: بيستورد default من %s — مفيش export default" % (rel_from, target))
 
 
+# --------------------------------------------- دوال محبوسة جوه نطاق أضيق
+
+FN_DECL = re.compile(r"^(?P<ind>[ \t]*)(?:async\s+)?function\s+(?P<name>[A-Za-z_$][\w$]*)\s*\(")
+
+
+def check_trapped_functions(path):
+    """
+    دالة معرّفة جوه دالة تانية، وبتتنادى من برّه المدى بتاعها.
+
+    الباج ده حصل فعلاً: كتلة طباعة البوليصة كانت مزوّدة مستوى indentation،
+    فأداة لفّ الـwiring حسبتها جزء من المنطقة وحبستها جوه initOrdersUI.
+    النداء من صف الجدول محمي بـ`typeof X === 'function'` فبقى يفشل **في
+    صمت** — الزرار مايعملش حاجة ومفيش أي خطأ في أي مكان.
+
+    مافيش أداة تانية بتمسك ده: `node --check` بيشوف الصياغة بس، والمتصفح
+    مش بيشتكي لأن الحارس بيبلع الفشل.
+    """
+    src = read(path)
+    lines = src.split("\n")
+    stripped = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+    stripped = re.sub(r"//[^\n]*", " ", stripped)
+    stripped = re.sub(r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"|`(?:\\.|[^`\\])*`", "S", stripped)
+    slines = stripped.split("\n")
+
+    # دوال المستوى الأعلى ومداها: من سطر التعريف لحد أول سطر لاحق مسافته صفر
+    tops = []
+    for i, l in enumerate(lines):
+        m = FN_DECL.match(l)
+        if m and m.group("ind") == "":
+            j = i + 1
+            while j < len(lines) and (not lines[j].strip() or lines[j].startswith((" ", "\t", "}"))):
+                j += 1
+            tops.append({"name": m.group("name"), "start": i, "end": j - 1})
+
+    # أسماء بتتكرر في نطاقات مختلفة أو بتيجي كباراميتر مش بتتحكم عليها:
+    # المرجع من برّه ساعتها ممكن يكون لتصريح تاني خالص.
+    decl_count = {}
+    for l in slines:
+        m = FN_DECL.match(l)
+        if m:
+            decl_count[m.group("name")] = decl_count.get(m.group("name"), 0) + 1
+    params = set()
+    for m in re.finditer(r"function\s*[A-Za-z_$][\w$]*\s*\(([^)]*)\)|function\s*\(([^)]*)\)"
+                         r"|\(([^()]*)\)\s*=>", stripped):
+        for g in m.groups():
+            if g:
+                for p in g.split(","):
+                    p = p.strip().split("=")[0].strip()
+                    if re.fullmatch(r"[A-Za-z_$][\w$]*", p):
+                        params.add(p)
+    locals_ = set(re.findall(r"(?:^|[;{}\s])(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=[^=]", stripped))
+
+    # دوال متداخلة (مسافة > 0) جوه كل واحدة
+    for t in tops:
+        for i in range(t["start"] + 1, t["end"] + 1):
+            m = FN_DECL.match(lines[i])
+            if not m or m.group("ind") == "":
+                continue
+            name = m.group("name")
+            # الاسم لازم يكون فريد: تصريح واحد، ومش باراميتر ولا متغيّر محلي
+            # في أي مكان تاني — وإلا المرجع من برّه ممكن يبقى لحاجة تانية
+            if decl_count.get(name, 0) != 1 or name in params or name in locals_:
+                continue
+            outside = []
+            for k, sl in enumerate(slines):
+                if t["start"] <= k <= t["end"]:
+                    continue
+                if re.search(r"(?<![.\w$])" + re.escape(name) + r"(?![\w$])", sl):
+                    outside.append(k + 1)
+            if outside:
+                err("%s: %s() معرّفة جوه %s() (سطر %d) وبتتنادى من برّه — سطور %s"
+                    % (os.path.relpath(path, ROOT).replace("\\", "/"), name,
+                       t["name"], i + 1, outside[:5]))
+
+
 # ------------------------------------------------------------ بوابة أمان CSP
 
 def check_csp(html_path, has_inline_script):
@@ -285,6 +360,13 @@ def check_html(rel_path):
 
     # فحص جراف الموديولات — تحليل نصي، مش محتاج node
     check_module_graph(js_paths, base)
+
+    # دوال محبوسة جوه نطاق أضيق من اللي بتتنادى منه
+    before = len(errors)
+    for p in js_paths:
+        check_trapped_functions(p)
+    if js_paths and len(errors) == before:
+        ok("مفيش دوال محبوسة جوه نطاق أضيق")
 
     # --- 2. وجود كل مسار محلي ---
     missing = []
