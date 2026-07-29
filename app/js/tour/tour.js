@@ -8,8 +8,9 @@ import { tourDemoExpenses, tourDemoMovements, tourDemoOrders, tourDemoStock } fr
 import { tourPositionFor } from './position.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { all, buildIndexes, doFilter, isAdmin, loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, openDetail, ordersSetAll, showPage, updateRevenueStats, updateStats } from '../main.js';
+import { showPage } from '../main.js';
 import { currentTenantId } from '../auth/auth.js';
+import { all, buildIndexes, doFilter, isAdmin, loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, openDetail, ordersSetAll, updateRevenueStats, updateStats } from '../orders/orders.js';
 
 export var tourActive=false, tourStep=0, tourSavedHTML=null;
 

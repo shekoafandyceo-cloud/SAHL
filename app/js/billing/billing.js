@@ -5,11 +5,12 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { doFilter, ensureTenant, fmtDateTime, fmtMoneyShort, isAdmin, loadVfcashNumber, renderBillingSummary, showPage } from '../main.js';
+import { showPage } from '../main.js';
 import { esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
+import { doFilter, ensureTenant, fmtDateTime, fmtMoneyShort, isAdmin, loadVfcashNumber, renderBillingSummary } from '../orders/orders.js';
 
 export var walletStateCache = null; // {wallet_balance, overdraft_limit, available, orders_used_cycle, max_orders, orders_remaining, overage_debt, plan, plan_name, monthly_price, per_order_price, pricing_type, subscription_status, cycle_started_at, cycle_ends_at, is_lifetime, is_depleted}
 

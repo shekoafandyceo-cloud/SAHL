@@ -6,8 +6,9 @@ import { $id, esc } from '../core/dom.js';
 import { num, val } from '../core/format.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { ensureAllLoaded, ensureTenant, isAdmin, loadStockProductsForCosts, ordersInRange, productCostByName, renderProductPerformance, setPeriod } from '../main.js';
+import { setPeriod } from '../main.js';
 import { tourActive } from '../tour/tour.js';
+import { ensureAllLoaded, ensureTenant, isAdmin, loadStockProductsForCosts, ordersInRange, productCostByName, renderProductPerformance } from '../orders/orders.js';
 
 export function buildProductPerformance(){
   var map={};

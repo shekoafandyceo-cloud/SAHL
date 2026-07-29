@@ -9,9 +9,10 @@ import { toast } from '../core/toast.js';
 import { waMsgInner, waTicks, waTimeShort } from './message-view.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { ensureTenant, inboxVerified, openDetail, refreshInboxGate, renderInboxLocked, showPage } from '../main.js';
+import { showPage } from '../main.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
+import { ensureTenant, inboxVerified, openDetail, refreshInboxGate, renderInboxLocked } from '../orders/orders.js';
 
 export var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
 

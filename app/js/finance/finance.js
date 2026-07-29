@@ -6,7 +6,7 @@ import { fmtD, num } from '../core/format.js';
 import { autoChartGran, financePeriod, getPeriodRange } from './period.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { all, ensureAllLoaded, ensureTenant, isAdmin, isDeliveredOrder, loadStockProductsForCosts, orderInventoryCost, ordersInRange, requireAdmin, setPeriod } from '../main.js';
+import { setPeriod } from '../main.js';
 import { BOSTA_EXPECTED_STATUSES, CANCELLED_STATUSES } from '../core/constants.js';
 import { pad2 } from '../core/format.js';
 import { sb } from '../core/supabase.js';
@@ -16,6 +16,7 @@ import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { tourDemoExpenses, tourDemoStock } from '../tour/demo-data.js';
 import { currentTenantId, currentUser } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
+import { all, ensureAllLoaded, ensureTenant, isAdmin, isDeliveredOrder, loadStockProductsForCosts, orderInventoryCost, ordersInRange, requireAdmin } from '../orders/orders.js';
 
 export function financeSetExpenses(v){ financeExpenses = v || []; }
 
