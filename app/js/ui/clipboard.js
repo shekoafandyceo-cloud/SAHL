@@ -1,6 +1,7 @@
 // نسخ للحافظة مع بديل للمتصفحات القديمة
 
 import { esc } from '../core/dom.js';
+import { toast } from '../core/toast.js';
 
 // Build a value with a copy button — used for copyable fields (name, phones, address)
 export function copyable(val,label){

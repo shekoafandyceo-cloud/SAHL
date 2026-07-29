@@ -2605,8 +2605,8 @@ async function printAwbForOrders(orderIds, btnEl){
     // امسح الـ blob URL بعد دقيقة (revoke)
     setTimeout(function(){ URL.revokeObjectURL(pdfUrl); }, 60000);
     
-    // refresh الأوردرات عشان نشوف awb_printed_at الجديد (لو في UI)
-    if(typeof loadOrders === 'function'){ try{ loadOrders(); }catch(e){ swallow('printAwbForOrders/loadOrders', e); } }
+    // مفيش تحديث للأوردرات بعد الطباعة: الحارس القديم كان بينادي loadOrders وهي
+    // مش موجودة في المشروع خالص — كان كود ميت من قبل الريفاكتور.
     
   } catch(err){
     console.error('AWB print error:', err);

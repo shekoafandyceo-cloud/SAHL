@@ -198,6 +198,207 @@ def check_module_graph(js_files, base_dir):
                 err("%s: بيستورد default من %s — مفيش export default" % (rel_from, target))
 
 
+# ------------------------------------------- أسماء مستخدمة من غير ما تتعرّف
+
+JS_GLOBALS = set("""
+window document console navigator location history screen localStorage sessionStorage
+Math JSON Date Array Object String Number Boolean RegExp Function Symbol BigInt Proxy Reflect
+Error TypeError RangeError SyntaxError ReferenceError EvalError URIError AggregateError
+Promise Set Map WeakMap WeakSet WeakRef FinalizationRegistry Intl
+parseInt parseFloat isNaN isFinite encodeURIComponent decodeURIComponent encodeURI decodeURI
+setTimeout clearTimeout setInterval clearInterval queueMicrotask requestAnimationFrame
+cancelAnimationFrame requestIdleCallback structuredClone reportError
+alert confirm prompt fetch Headers Request Response FormData URL URLSearchParams
+Blob File FileReader AbortController AbortSignal TextEncoder TextDecoder
+Image Audio Option Event CustomEvent MouseEvent KeyboardEvent EventTarget Node Element
+HTMLElement DocumentFragment MutationObserver IntersectionObserver ResizeObserver
+Notification crypto atob btoa performance matchMedia getComputedStyle
+Uint8Array Uint16Array Uint32Array Int8Array Int16Array Int32Array Float32Array Float64Array
+ArrayBuffer DataView
+undefined NaN Infinity globalThis arguments this null true false
+supabase Chart
+""".split())
+
+# كلمات مفتاحية مش أسماء
+JS_KEYWORDS = set("""
+var let const function class return if else for while do switch case break continue
+new delete typeof instanceof in of void throw try catch finally yield await async
+export import from as default extends super static get set
+""".split())
+
+
+def js_strip(src):
+    """يشيل الكومنتات والسترينجات والـregex literals، ويحافظ على عدد الأسطر."""
+    out = []
+    i, n = 0, len(src)
+    prev = ""
+    while i < n:
+        c = src[i]
+        nxt = src[i + 1] if i + 1 < n else ""
+        if c == "/" and nxt == "/":
+            j = src.find("\n", i)
+            j = n if j < 0 else j
+            out.append(" " * (j - i))
+            i = j
+            continue
+        if c == "/" and nxt == "*":
+            j = src.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            out.append(re.sub(r"[^\n]", " ", src[i:j]))
+            i = j
+            continue
+        if c in "'\"`":
+            q, j = c, i + 1
+            while j < n:
+                if src[j] == "\\":
+                    j += 2
+                    continue
+                if src[j] == q:
+                    break
+                j += 1
+            out.append(re.sub(r"[^\n]", " ", src[i:min(j + 1, n)]))
+            i = j + 1
+            prev = "val"
+            continue
+        if c == "/" and prev in ("", "op"):
+            j, ok = i + 1, False
+            while j < n and src[j] != "\n":
+                if src[j] == "\\":
+                    j += 2
+                    continue
+                if src[j] == "/":
+                    ok = True
+                    break
+                j += 1
+            if ok:
+                # كل الرايات بعد القفلة كمان (g, i, m, s, u, y, d) — من غيرها
+                # بتتقري كأنها أسماء
+                k = j + 1
+                while k < n and src[k] in "gimsuyd":
+                    k += 1
+                out.append(" " * (k - i))
+                i = k
+                prev = "val"
+                continue
+        out.append(c)
+        if not c.isspace():
+            prev = "op" if c in "=(,{[;:!&|?+-*%<>~^" else "val"
+        i += 1
+    return "".join(out)
+
+
+def check_free_identifiers(path, rel):
+    """
+    اسم بيتستخدم في موديول من غير ما يكون متعرّف فيه ولا مستورد ولا global.
+
+    ده اللي حصل مع ui/clipboard.js: اتنقلت من main.js وهي بتنادي toast()،
+    والـimport ما اتنقلش معاها. `node --check` مابيشوفوش (الصياغة سليمة)،
+    وفحص الـimport→export مابيشوفوش (بيتأكد من الموجود مش الناقص).
+    الفشل بيحصل **وقت الضغط**: نسخ من شاشة تفاصيل الأوردر بيرمي
+    ReferenceError جوه then() فبيطلع unhandled rejection في الكونسول بس.
+    """
+    src = read(path)
+    code = js_strip(src)
+
+    declared = set(JS_KEYWORDS)
+    for m in IMPORT_RE.finditer(src):
+        if m.group("clause"):
+            named, _d, _ns = parse_import_bindings(m.group("clause"))
+            declared.update(named)
+            for mm in re.finditer(r"\bas\s+([A-Za-z_$][\w$]*)", m.group("clause")):
+                declared.add(mm.group(1))
+            mm = re.match(r"\s*([A-Za-z_$][\w$]*)", m.group("clause"))
+            if mm:
+                declared.add(mm.group(1))
+
+    # تصريحات var/let/const — لازم تتفك بالكامل: تصريح واحد ممكن يشيل
+    # أسماء كتير (var all=[], fil=[], cur=1, PS=50, ...) وأخد الأول بس
+    # بيدي إيجابيات كاذبة بالجملة
+    for m in re.finditer(r"\b(?:var|let|const)\s", code):
+        i, depth = m.end(), 0
+        seg = ""
+        while i < len(code):
+            c = code[i]
+            if c in "([{":
+                depth += 1
+            elif c in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif c == ";" and depth == 0:
+                break
+            elif c == "\n" and depth == 0 and re.match(r"\s*(?:var|let|const|function|if|for|while|return)\b",
+                                                       code[i:i + 40]):
+                break
+            seg += c
+            i += 1
+        d, cur = 0, ""
+        parts = []
+        for c in seg:
+            if c in "([{":
+                d += 1
+            elif c in ")]}":
+                d -= 1
+            if c == "," and d == 0:
+                parts.append(cur)
+                cur = ""
+            else:
+                cur += c
+        parts.append(cur)
+        for p in parts:
+            lhs = p.split("=")[0]
+            for nm in re.findall(r"[A-Za-z_$][\w$]*", lhs):
+                declared.add(nm)
+
+    for pat in (r"\b(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)",
+                r"\bclass\s+([A-Za-z_$][\w$]*)",
+                r"\bcatch\s*\(\s*([A-Za-z_$][\w$]*)",
+                r"\bfor\s*\(\s*([A-Za-z_$][\w$]*)\s+(?:in|of)\b"):
+        declared.update(re.findall(pat, code))
+    # باراميترات
+    for m in re.finditer(r"function\s*\*?\s*[A-Za-z_$][\w$]*\s*\(([^)]*)\)"
+                         r"|function\s*\(([^)]*)\)"
+                         r"|\(([^()]*)\)\s*=>"
+                         r"|([A-Za-z_$][\w$]*)\s*=>", code):
+        for g in m.groups():
+            if not g:
+                continue
+            for p in g.split(","):
+                p = p.strip().split("=")[0].strip().lstrip(".")
+                if re.fullmatch(r"[A-Za-z_$][\w$]*", p):
+                    declared.add(p)
+
+    free, typeof_only = {}, {}
+    for m in re.finditer(r"([A-Za-z_$][\w$]*)", code):
+        name = m.group(1)
+        if name in declared or name in JS_GLOBALS:
+            continue
+        before = code[:m.start()].rstrip()
+        if before.endswith(".") or before.endswith("?."):
+            continue                      # خاصية مش اسم
+        after = code[m.end():].lstrip()
+        if after.startswith(":"):
+            continue                      # مفتاح في object literal أو label
+        if before.endswith("{") or before.endswith(","):
+            if after.startswith(("}", ",")):
+                continue                  # اختصار object literal
+        ln = code[:m.start()].count("\n") + 1
+        # `typeof X` قانوني على اسم غير معرّف ومابيرميش — بس بيفضل رائحة
+        if re.search(r"\btypeof\s*$", before):
+            typeof_only.setdefault(name, []).append(ln)
+            continue
+        free.setdefault(name, []).append(ln)
+
+    for name, lns in sorted(free.items()):
+        err("%s: بيستخدم `%s` من غير تعريف ولا import — سطور %s"
+            % (rel, name, lns[:6]))
+    for name, lns in sorted(typeof_only.items()):
+        if name not in free:
+            warn("%s: `typeof %s` واسم %s مش موجود في المشروع — الحارس دايماً false (سطور %s)"
+                 % (rel, name, name, lns[:4]))
+    return not free
+
+
 # --------------------------------------------- دوال محبوسة جوه نطاق أضيق
 
 FN_DECL = re.compile(r"^(?P<ind>[ \t]*)(?:async\s+)?function\s+(?P<name>[A-Za-z_$][\w$]*)\s*\(")
@@ -367,6 +568,13 @@ def check_html(rel_path):
         check_trapped_functions(p)
     if js_paths and len(errors) == before:
         ok("مفيش دوال محبوسة جوه نطاق أضيق")
+
+    # أسماء مستخدمة من غير تعريف ولا import
+    before = len(errors)
+    for p in js_paths:
+        check_free_identifiers(p, os.path.relpath(p, ROOT).replace("\\", "/"))
+    if js_paths and len(errors) == before:
+        ok("كل اسم مستخدم متعرّف أو مستورد")
 
     # --- 2. وجود كل مسار محلي ---
     missing = []
