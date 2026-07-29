@@ -812,6 +812,17 @@
     try{ console.warn('[سهل] ' + where, err); }catch(_){}
   }
 
+  // كل كائنات الفترة (ordersPeriod / analyticsPeriod / financePeriod) بتتعدّل
+  // بخصايصها مش بالاستبدال. الاستبدال كان في اتنين من التلاتة والتالت لأ، فأي
+  // helper مشترك كان هيشتغل مع واحد ويفشل بصمت مع التانيين. وتحت ES modules
+  // إسناد لـbinding مستورد بيرمي TypeError صريح.
+  function setPeriod(p, type, from, to){
+    p.type = type;
+    p.from = from || null;
+    p.to   = to   || null;
+    return p;
+  }
+
   // ── توجيه الضغطات بالـdata-act ──────────────────────────────────────
   // بديل onclick المضمّنة. سببين:
   //  1. الـCSP محتاجة 'unsafe-inline' في script-src عشانها — وده بيفتح
@@ -3745,9 +3756,7 @@
     var ap=$id('op-apply');
     if(ap) ap.addEventListener('click',function(){
       if(tourActive)return;
-      ordersPeriod.from=$id('op-from').value||null;
-      ordersPeriod.to=$id('op-to').value||null;
-      ordersPeriod.type='custom';
+      setPeriod(ordersPeriod, 'custom', $id('op-from').value, $id('op-to').value);
       refreshOrdersScope();
     });
     // keep the sliding pill aligned: on resize, when the bar becomes visible (after login), and once now
@@ -4978,7 +4987,7 @@
   });
   document.querySelectorAll('.aperiod-btn').forEach(function(b){
     b.addEventListener('click',function(){
-      analyticsPeriod={type:b.getAttribute('data-aperiod'),from:null,to:null};
+      setPeriod(analyticsPeriod, b.getAttribute('data-aperiod'));
       document.querySelectorAll('.aperiod-btn').forEach(function(x){x.classList.toggle('active',x===b);});
       renderAnalyticsActive();
     });
@@ -6634,7 +6643,7 @@
       var crow = $id('fin-custom-row');
       if(type === 'custom'){ if(crow) crow.style.display='flex'; return; }  // wait for طبّق
       if(crow) crow.style.display='none';
-      financePeriod = { type:type, from:null, to:null };
+      setPeriod(financePeriod, type);
       financeChartManual = false;             // chart auto-follows the new period
       financeChartPeriod = autoChartGran();
       renderFinance();
@@ -6655,7 +6664,7 @@
     var to = $id('fin-to').value;
     if(!from || !to){ toast('اختر التاريخين','er'); return; }
     if(from > to){ var sw=from; from=to; to=sw; }
-    financePeriod = { type:'custom', from:from, to:to };
+    setPeriod(financePeriod, 'custom', from, to);
     document.querySelectorAll('.period-btn').forEach(function(x){ x.classList.toggle('active', x.getAttribute('data-period')==='custom'); });
     financeChartManual = false;
     financeChartPeriod = autoChartGran();   // chart follows the custom range
