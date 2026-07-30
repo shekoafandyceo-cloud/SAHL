@@ -367,6 +367,160 @@ def js_strip(src):
     return "".join(out)
 
 
+def collect_declared(code, params=True):
+    """كل اسم بيتعرّف في القطعة دي — var/let/const مفكوكة بالكامل + دوال
+    + كلاسات + catch + for-in/of + (اختيارياً) باراميترات.
+
+    `params=False` ضروري لنطاق الموديول: سطر تعريف الدالة نفسه عمقه صفر،
+    فلو جمعنا الباراميترات هناك بيبقى `function f(val)` كأنه معرّف `val`
+    على مستوى الموديول — وده بالظبط العمى اللي خلّى باج val يعدّي."""
+    declared = set()
+    for m in re.finditer(r"\b(?:var|let|const)\s", code):
+        i, depth = m.end(), 0
+        seg = ""
+        while i < len(code):
+            c = code[i]
+            if c in "([{":
+                depth += 1
+            elif c in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif c == ";" and depth == 0:
+                break
+            elif c == "\n" and depth == 0 and re.match(
+                    r"\s*(?:var|let|const|function|if|for|while|return)\b", code[i:i + 40]):
+                break
+            seg += c
+            i += 1
+        d, cur = 0, ""
+        parts = []
+        for c in seg:
+            if c in "([{":
+                d += 1
+            elif c in ")]}":
+                d -= 1
+            if c == "," and d == 0:
+                parts.append(cur)
+                cur = ""
+            else:
+                cur += c
+        parts.append(cur)
+        for p in parts:
+            for nm in re.findall(r"[A-Za-z_$][\w$]*", p.split("=")[0]):
+                declared.add(nm)
+
+    for pat in (r"\b(?:async\s+)?function\s*\*?\s*([A-Za-z_$][\w$]*)",
+                r"\bclass\s+([A-Za-z_$][\w$]*)",
+                r"\bcatch\s*\(\s*([A-Za-z_$][\w$]*)",
+                r"\bfor\s*\(\s*([A-Za-z_$][\w$]*)\s+(?:in|of)\b"):
+        declared.update(re.findall(pat, code))
+
+    if params:
+        for m in re.finditer(r"function\s*\*?\s*[A-Za-z_$][\w$]*\s*\(([^)]*)\)"
+                             r"|function\s*\(([^)]*)\)"
+                             r"|\(([^()]*)\)\s*=>"
+                             r"|([A-Za-z_$][\w$]*)\s*=>", code):
+            for g in m.groups():
+                if not g:
+                    continue
+                for p in g.split(","):
+                    p = p.strip().split("=")[0].strip().lstrip(".")
+                    if re.fullmatch(r"[A-Za-z_$][\w$]*", p):
+                        declared.add(p)
+    return declared
+
+
+def iter_identifiers(code):
+    """الأسماء المستخدمة فعلاً — من غير الخصائص ومفاتيح الـobject literal."""
+    for m in re.finditer(r"([A-Za-z_$][\w$]*)", code):
+        before = code[:m.start()].rstrip()
+        if before.endswith(".") or before.endswith("?."):
+            continue
+        after = code[m.end():].lstrip()
+        if after.startswith(":") and not before.endswith("?"):
+            continue
+        if (before.endswith("{") or before.endswith(",")) and after.startswith(("}", ",")):
+            continue
+        yield m.group(1), m.start()
+
+
+def top_level_functions(code):
+    """(اسم, نص الجسم) لكل دالة معرّفة في العمود صفر. عدّ الأقواس هنا آمن
+    لأن الكود متنضّف من السترينجات والكومنتات الأول."""
+    out = []
+    for m in re.finditer(r"^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(",
+                         code, re.M):
+        i = code.find("{", m.end() - 1)
+        if i < 0:
+            continue
+        depth, j = 0, i
+        while j < len(code):
+            if code[j] == "{":
+                depth += 1
+            elif code[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        out.append((m.group(1), m.start(), code[m.start():j + 1]))
+    return out
+
+
+def check_scoped_free_names(path, rel):
+    """
+    اسم بيتستخدم جوّه دالة وهو **مش في نطاقها** — حتى لو موجود في مكان
+    تاني في نفس الملف كباراميتر أو متغيّر داخلي.
+
+    `check_free_identifiers` بيبني مجموعة تعريفات **مسطّحة** للملف كله،
+    فأي اسم موجود كباراميتر في أي دالة بيغطّي على نداء حر في دالة تانية.
+    ده اللي خلّى `val` تعدّي: مكانتش مستوردة خالص في orders.js، بس موجودة
+    كباراميتر في fieldEditable و parseStatusLog — و updateRevenueStats
+    بتناديها 5 مرات وبترمي ReferenceError. النداء الوحيد ليها متلفوف
+    بـswallow فالخطأ كان بيتبلع من غير أي أثر.
+
+    التقدير محافظ عمداً: تعريفات الدوال المتداخلة بتتحسب كلها على الدالة
+    الأب (superset) — يعني ممكن نفوّت حالة، بس مش هنطلع إيجابية كاذبة.
+    """
+    src = read(path)
+    code = js_strip(src)
+
+    module_names = set(JS_KEYWORDS)
+    for m in IMPORT_RE.finditer(src):
+        if m.group("clause"):
+            named, _d, _ns = parse_import_bindings(m.group("clause"))
+            module_names.update(named)
+            for mm in re.finditer(r"\bas\s+([A-Za-z_$][\w$]*)", m.group("clause")):
+                module_names.add(mm.group(1))
+            mm = re.match(r"\s*([A-Za-z_$][\w$]*)", m.group("clause"))
+            if mm:
+                module_names.add(mm.group(1))
+
+    # الكود على مستوى الموديول بس — أسطر عمقها صفر
+    top, depth = [], 0
+    for line in code.split("\n"):
+        top.append(line if depth == 0 else "")
+        depth += line.count("{") - line.count("}")
+    module_names |= collect_declared("\n".join(top), params=False)
+
+    free = {}
+    for name, start, body in top_level_functions(code):
+        local = collect_declared(body)
+        for ident, off in iter_identifiers(body):
+            if ident in module_names or ident in local or ident in JS_GLOBALS:
+                continue
+            if re.search(r"\btypeof\s*$", body[:off].rstrip()):
+                continue
+            ln = code[:start].count("\n") + body[:off].count("\n") + 1
+            free.setdefault((ident, name), []).append(ln)
+
+    for (ident, fn), lns in sorted(free.items()):
+        err("%s: `%s` مستخدم جوّه %s() وهو مش في نطاقها — موجود في الملف "
+            "كباراميتر/متغيّر داخلي بس، فبيرمي ReferenceError (سطور %s)"
+            % (rel, ident, fn, lns[:6]))
+    return not free
+
+
 def check_free_identifiers(path, rel):
     """
     اسم بيتستخدم في موديول من غير ما يكون متعرّف فيه ولا مستورد ولا global.
@@ -721,6 +875,13 @@ def check_html(rel_path):
         check_free_identifiers(p, os.path.relpath(p, ROOT).replace("\\", "/"))
     if js_paths and len(errors) == before:
         ok("كل اسم مستخدم متعرّف أو مستورد")
+
+    # اسم مستخدم جوّه دالة وهو مش في نطاقها (الفحص اللي فوق مسطّح فبيفوّتها)
+    before = len(errors)
+    for p in js_paths:
+        check_scoped_free_names(p, os.path.relpath(p, ROOT).replace("\\", "/"))
+    if js_paths and len(errors) == before:
+        ok("كل اسم مستخدم في نطاق بيشوفه")
 
     # إسناد لـbinding مستورد
     before = len(errors)
