@@ -722,7 +722,44 @@
       </div>
     </section>
 
-    <!-- 5) تلجرام + تنبيهات البوت -->
+    <!-- 5) ربط واتساب بميتا -->
+    <section class="settings-card" data-tone="green">
+      <div class="sc-head">
+        <div class="sc-ico">🔌</div>
+        <div class="sc-titles">
+          <h3>ربط واتساب بميتا</h3>
+          <p>عشان ردود العملاء على أزرار التأكيد ورسايلهم توصلك</p>
+        </div>
+      </div>
+      <div class="sc-body">
+        <ol class="settings-steps">
+          <li>افتح <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta App Dashboard</a> ← WhatsApp ← Configuration</li>
+          <li>في خانة <b>Callback URL</b> حط الرابط اللي تحت</li>
+          <li>في خانة <b>Verify Token</b> حط التوكن اللي تحت</li>
+          <li>دوس <b>Verify and Save</b></li>
+          <li>من <b>Webhook fields</b> فعّل <code>messages</code></li>
+        </ol>
+        <div class="settings-grid">
+          <div class="settings-row">
+            <label>Callback URL</label>
+            <div class="settings-readonly-wrap">
+              <input class="sinp settings-readonly mono" id="set-wa-callback-url" type="text" readonly>
+              <button class="settings-copy-btn" id="set-wa-callback-copy" type="button">📋 نسخ</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>Verify Token</label>
+            <div class="settings-readonly-wrap">
+              <input class="sinp settings-readonly mono" id="set-wa-verify-token" type="text" readonly>
+              <button class="settings-copy-btn" id="set-wa-verify-copy" type="button">📋 نسخ</button>
+            </div>
+          </div>
+        </div>
+        <p class="sc-hint">🔒 الرابط والتوكن دول سريين ومخصوصين لمتجرك — متشاركهمش مع حد.</p>
+      </div>
+    </section>
+
+    <!-- 6) تلجرام + تنبيهات البوت -->
     <section class="settings-card" data-tone="sky">
       <div class="sc-head">
         <div class="sc-ico">📱</div>

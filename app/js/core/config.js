@@ -9,3 +9,10 @@ export var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ
 //  SETTINGS PAGE — profile, webhook, bosta, whatsapp, telegram
 // ============================================================
 export var WEBHOOK_BASE_URL = 'https://play.sheko.tech/webhook/orders?s=';
+
+// Callback URL بتاع ويبهوك واتساب في Meta App Dashboard
+export var WA_WEBHOOK_BASE_URL = 'https://play.sheko.tech/webhook/wa?s=';
+
+// النص اللي بيتعرض في خانة للقراءة بس لما السر لسه مااتولّدش.
+// مشترك عشان زرار النسخ يعرف يفرّق بينه وبين قيمة حقيقية وماينسخهوش.
+export var SECRET_NOT_READY = 'لم يتم إنشاؤه بعد — تواصل مع الدعم';
