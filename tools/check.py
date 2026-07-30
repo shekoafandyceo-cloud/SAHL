@@ -581,6 +581,69 @@ def check_csp(html_path, has_inline_script):
              "(سيبها في style-src)")
 
 
+# ------------------------------------------------- تثبيت سكربتات الـCDN + SRI
+
+CDN_SCRIPT_RE = re.compile(
+    r"""<script\b([^>]*\bsrc\s*=\s*["'](https?://[^"']+)["'][^>]*)>""", re.I)
+# النسخة بتيجي بعد اسم الحزمة بـ@ وبتبدأ برقم. الـ@ بتاعة الـscope (@supabase/…)
+# بتبدأ بحرف فمابتتلقطش.
+VERSION_RE = re.compile(r"@(\d[^/]*)")
+SRI_RE = re.compile(r"""\bintegrity\s*=\s*["']\s*sha(256|384|512)-[A-Za-z0-9+/=]+\s*["']""", re.I)
+CROSSORIGIN_RE = re.compile(r"""\bcrossorigin\b""", re.I)
+
+
+def check_cdn_pinning(html_path, html):
+    """
+    كل سكربت خارجي من CDN لازم: نسخة مثبّتة كاملة + integrity + crossorigin،
+    ولازم يبقى مذكور بمساره الكامل في script-src.
+
+    التاج العائم (@2) بينزّل أي minor جديد تلقائياً على سطح بيحرّك فلوس.
+    و integrity من غير crossorigin بيتجاهله المتصفح **في صمت** على الطلبات
+    العابرة للأصول — يعني الحماية تبان موجودة وهي مش شغّالة.
+    """
+    rel = os.path.relpath(html_path, ROOT).replace("\\", "/")
+    headers_path = os.path.join(os.path.dirname(html_path), "_headers")
+    directive = ""
+    if os.path.isfile(headers_path):
+        m = re.search(r"script-src([^;]*)", read(headers_path))
+        if m:
+            directive = m.group(1)
+
+    before = len(errors)
+    found = []
+    for m in CDN_SCRIPT_RE.finditer(html):
+        attrs, url = m.group(1), m.group(2)
+        found.append(url)
+
+        ver = VERSION_RE.search(url.split("://", 1)[-1])
+        if not ver:
+            err("%s: %s — مفيش نسخة في المسار خالص" % (rel, url))
+        elif not re.fullmatch(r"\d+\.\d+\.\d+", ver.group(1)):
+            err("%s: نسخة عائمة (@%s) — ثبّتها كاملة (major.minor.patch): %s"
+                % (rel, ver.group(1), url))
+
+        if not SRI_RE.search(attrs):
+            err("%s: مفيش integrity على %s — أي تغيير في الـCDN بينفّذ عندنا"
+                % (rel, url))
+        elif not CROSSORIGIN_RE.search(attrs):
+            err("%s: فيه integrity من غير crossorigin على %s — المتصفح بيتجاهل "
+                "الـintegrity في صمت" % (rel, url))
+
+        if directive and url not in directive:
+            err("%s: %s مش مذكور بمساره الكامل في script-src — لو الـdirective "
+                "بتسمح بالهوست كله فأي ملف تاني عليه ينفّذ" % (rel, url))
+
+    # مسار مثبّت في الـCSP وماحدش بيستخدمه = بقايا نسخة قديمة
+    for tok in directive.split():
+        if tok.startswith(("http://", "https://")) and "/" in tok.split("://", 1)[1]:
+            if tok not in found:
+                warn("_headers: script-src فيها %s ومفيش <script> بيناديه — "
+                     "بقايا نسخة قديمة" % tok)
+
+    if found and len(errors) == before:
+        ok("سكربتات الـCDN مثبّتة بنسخة كاملة + integrity + crossorigin (%d)" % len(found))
+
+
 # --------------------------------------------------------------- فحص ملف واحد
 
 def check_html(rel_path):
@@ -703,6 +766,9 @@ def check_html(rel_path):
 
     # --- 5. بوابة CSP ---
     check_csp(path, has_inline_script=bool(inline_blocks))
+
+    # --- 6. تثبيت سكربتات الـCDN + SRI ---
+    check_cdn_pinning(path, html)
 
 
 # ---------------------------------------------------------------------- main
