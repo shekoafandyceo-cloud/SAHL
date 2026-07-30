@@ -7,6 +7,9 @@ Thumbs.db
 .idea/
 *.swp
 
+# إعدادات محلية للجهاز — launch.json بيتشارك، ده لأ
+.claude/settings.local.json
+
 # مؤقتات
 *.tmp
 *.bak
@@ -19,3 +22,10 @@ node_modules/
 *secret*
 *.key
 *credentials*
+
+# نسخة أساس محلية للمقارنة البصرية أثناء الريفاكتور
+.baseline/
+
+# مؤقتات بايثون
+__pycache__/
+*.pyc

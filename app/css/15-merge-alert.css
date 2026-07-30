@@ -1,0 +1,48 @@
+/* بانر دمج أوردرات نفس العميل */
+/* MERGE ALERT — flashing banner for customers with 2+ bosta_assigned orders */
+.merge-alert{
+  background:linear-gradient(135deg,#fde68a 0%,#fcd34d 50%,#fbbf24 100%);
+  border:3px solid #d97706;
+  border-radius:18px;
+  padding:18px 22px;
+  margin-bottom:18px;
+  box-shadow:0 10px 30px rgba(217,119,6,.35),0 0 0 6px rgba(252,211,77,.25);
+  position:relative;
+  overflow:hidden;
+  animation: mergePulse 2s ease-in-out infinite;
+}
+@keyframes mergePulse{
+  0%,100%{box-shadow:0 10px 30px rgba(217,119,6,.35),0 0 0 6px rgba(252,211,77,.25);}
+  50%{box-shadow:0 14px 40px rgba(217,119,6,.55),0 0 0 10px rgba(252,211,77,.40);}
+}
+.merge-alert::before{
+  content:'';
+  position:absolute;
+  top:-50%;left:-30%;
+  width:60%;height:200%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);
+  transform:skewX(-25deg);
+  animation:shine 3s linear infinite;
+}
+@keyframes shine{0%{left:-30%}100%{left:130%}}
+.merge-alert-header{display:flex;align-items:center;gap:12px;margin-bottom:12px;position:relative;z-index:2;}
+.merge-alert-icon{font-size:2rem;animation:wiggle 1s ease-in-out infinite;}
+@keyframes wiggle{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+.merge-alert-title{font-size:1.15rem;font-weight:900;color:#7c2d12;letter-spacing:-.02em;}
+.merge-alert-count{margin-right:auto;background:#7c2d12;color:#fef3c7;padding:4px 12px;border-radius:999px;font-size:.85rem;font-weight:900;font-family:'JetBrains Mono',monospace;}
+.merge-customer{
+  background:rgba(255,255,255,.7);
+  border:1.5px solid rgba(124,45,18,.25);
+  border-radius:12px;
+  padding:12px 14px;
+  margin-top:10px;
+  display:flex;align-items:center;gap:14px;
+  position:relative;z-index:2;
+}
+.merge-cust-name{font-weight:900;color:#7c2d12;font-size:.95rem;flex:1;}
+.merge-cust-meta{font-size:.78rem;color:#92400e;font-family:'JetBrains Mono',monospace;}
+.merge-cust-orders{display:flex;gap:6px;flex-wrap:wrap;}
+.merge-order-chip{background:#7c2d12;color:#fef3c7;padding:4px 10px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:.78rem;font-weight:700;}
+.merge-show-btn{background:#7c2d12;color:#fef3c7;border:none;border-radius:9px;padding:8px 14px;font-family:'Cairo',sans-serif;font-size:.83rem;font-weight:800;cursor:pointer;white-space:nowrap;}
+.merge-show-btn:hover{filter:brightness(1.15);}
+.merge-savings{margin-top:10px;font-size:.85rem;color:#7c2d12;font-weight:800;position:relative;z-index:2;}

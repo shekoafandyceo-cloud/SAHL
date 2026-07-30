@@ -1,0 +1,17 @@
+# core.autocrlf=true على الجهاز ده. من غير القواعد دي، git بيحوّل check.sh
+# لـCRLF عند أي checkout، وbash بيقع بـ  $'\r': command not found
+
+*.sh   text eol=lf
+*.py   text eol=lf
+
+# ملفات الفرونت — سيبها زي ما هي بالظبط. أي تحويل سطور على ملف 576KB
+# بيعمل diff ضخم كاذب وبيخفي التعديل الحقيقي
+*.html -text
+*.css  -text
+*.js   -text
+_headers -text
+
+# أصول ثنائية
+*.png  binary
+*.woff2 binary
+*.ico  binary

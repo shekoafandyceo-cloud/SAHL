@@ -1,0 +1,21 @@
+/* شارة المستخدم ونقطة الريل-تايم وإخفاء الأدمن */
+/* Role toggle in login */
+.role-toggle{display:flex;gap:8px;margin-bottom:20px;background:var(--sur);padding:5px;border-radius:12px;border:1px solid var(--brd2);}
+.role-btn{flex:1;background:transparent;border:none;padding:10px;border-radius:9px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:.88rem;font-weight:700;color:var(--muted);transition:all .15s;}
+.role-btn.active{background:var(--acc);color:#000;}
+
+/* User indicator in topbar */
+.user-badge{display:flex;align-items:center;gap:6px;background:var(--sur);border:1px solid var(--brd2);border-radius:10px;padding:6px 12px;font-size:.82rem;font-weight:700;}
+.user-badge.admin{background:rgba(245,158,11,.12);color:var(--acc);border-color:rgba(245,158,11,.3);}
+.user-badge.employee{background:rgba(59,130,246,.12);color:var(--blue);border-color:rgba(59,130,246,.3);}
+.logout-btn{background:transparent;border:1px solid var(--brd2);border-radius:8px;color:var(--muted);padding:6px 12px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:.82rem;font-weight:700;transition:all .15s;}
+.chart-period-btn{padding:5px 12px;background:var(--sur);border:1px solid var(--brd);border-radius:8px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:.8rem;font-weight:700;color:var(--muted);transition:all .15s;}
+.chart-period-btn:hover{color:var(--txt);border-color:var(--acc);}
+.chart-period-btn.active{background:var(--acc);color:#000;border-color:var(--acc);}
+.realtime-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0;cursor:default;transition:background .3s;}
+.realtime-dot.on{background:var(--green);box-shadow:0 0 0 3px rgba(16,185,129,.25);animation:rtPulse 2s ease-in-out infinite;}
+.realtime-dot.off{background:#94a3b8;}
+@keyframes rtPulse{0%,100%{box-shadow:0 0 0 3px rgba(16,185,129,.25);}50%{box-shadow:0 0 0 6px rgba(16,185,129,.08);}}
+
+/* Role-based visibility — hide for employee */
+body.role-employee .admin-only{display:none !important;}

@@ -1,34 +1,40 @@
 #!/usr/bin/env bash
-# فحص صحة الجافاسكربت + تكرار الـ IDs قبل أي نشر
-set -e
-fail=0
+# فحص ما قبل النشر — المنطق كله في tools/check.py
+#
+# بيدوّر على مفسّر بايثون شغّال (على ويندوز `python3` غالباً stub بتاع
+# Microsoft Store فبيلزم نجرّب `python` كمان)، وبيثبّت ترميز الخرج على UTF-8
+# عشان الكونسول الويندوز (cp1252) مايقعش على العربي.
 
-for f in app/index.html admin/index.html; do
-  echo "── $f"
+set -u
 
-  python3 - "$f" <<'PY'
-import re, sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
-blocks = re.findall(r'<script(?![^>]*src=)[^>]*>(.*?)</script>', s, re.S)
-open('/tmp/_chk.js', 'w', encoding='utf-8').write('\n;\n'.join(blocks))
-dups = {}
-for m in re.finditer(r'\sid="([^"]+)"', s):
-    dups[m.group(1)] = dups.get(m.group(1), 0) + 1
-bad = {k: v for k, v in dups.items() if v > 1}
-if bad:
-    print("   ⚠️  IDs مكررة:", bad)
-else:
-    print("   ✓ مفيش IDs مكررة")
-PY
-
-  if node --check /tmp/_chk.js 2>/dev/null; then
-    echo "   ✓ الجافاسكربت سليم"
-  else
-    echo "   ✗ خطأ في الجافاسكربت"
-    node --check /tmp/_chk.js || true
-    fail=1
+# --- إيجاد بايثون شغّال فعلاً (مش الـstub) ---
+PY=""
+for cand in python3 python py; do
+  if command -v "$cand" >/dev/null 2>&1; then
+    if "$cand" -c "import sys" >/dev/null 2>&1; then
+      PY="$cand"
+      break
+    fi
   fi
 done
 
-[ $fail -eq 0 ] && echo && echo "✅ كله تمام — جاهز للنشر" || { echo; echo "❌ فيه مشاكل — ماتنشرش"; exit 1; }
+if [ -z "$PY" ]; then
+  echo "✗ مفيش بايثون شغّال. ثبّت Python 3.8+ وجرّب تاني."
+  exit 2
+fi
+
+# --- التأكد إن node في الـPATH (winget مبيحدّثش الجلسة الحالية) ---
+if ! command -v node >/dev/null 2>&1; then
+  for guess in "/c/Program Files/nodejs" "/c/Program Files (x86)/nodejs" "${LOCALAPPDATA:-}/Programs/nodejs"; do
+    if [ -x "$guess/node.exe" ]; then
+      PATH="$guess:$PATH"
+      export PATH
+      break
+    fi
+  done
+fi
+
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
+exec "$PY" "$(dirname "$0")/tools/check.py" "$@"

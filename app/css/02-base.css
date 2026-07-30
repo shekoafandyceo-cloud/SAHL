@@ -1,0 +1,17 @@
+/* reset + html/body + عناصر النماذج الأساسية */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{font-size:14px;scroll-behavior:smooth;}
+body{
+  color:var(--txt);font-family:'Cairo',sans-serif;font-weight:700;min-height:100vh;direction:rtl;
+  background:
+    radial-gradient(circle at top right,rgba(255,159,28,.20),transparent 33%),
+    radial-gradient(circle at 15% 10%,rgba(37,99,235,.14),transparent 30%),
+    linear-gradient(135deg,#fff9ec 0%,#f7f8fc 38%,#eef6ff 100%);
+  background-attachment:fixed;overflow-x:hidden;
+}
+/* squared grid background removed for a cleaner, calmer look */
+button,input,select,textarea,th,td,div,span,a,label,p,h1,h2,h3,h4,h5,h6{font-weight:700 !important;}
+button,select,input,textarea{font-family:'Cairo',sans-serif;}
+button{transition:transform .16s ease,box-shadow .16s ease,filter .16s ease,background .16s ease,border-color .16s ease;}
+button:hover{transform:translateY(-1px);}button:active{transform:translateY(0) scale(.98);}
+.bdot,.col-resize,.col-resize::before{font-weight:normal !important;}

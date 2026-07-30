@@ -1,0 +1,68 @@
+/* الفاينانس والتكاليف وتصنيفات المصاريف */
+/* Finance section */
+.period-btn{padding:7px 14px;background:#fff;border:1px solid var(--brd);border-radius:10px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:.85rem;font-weight:700;color:var(--txt);transition:all .15s;}
+.period-btn:hover{border-color:var(--acc);}
+.period-btn.active{background:var(--acc);color:#000;border-color:var(--acc);}
+.aperiod-btn{padding:7px 14px;background:#fff;border:1px solid var(--brd);border-radius:10px;cursor:pointer;font-family:'Cairo',sans-serif;font-size:.85rem;font-weight:700;color:var(--txt);transition:all .15s;}.aperiod-btn:hover{border-color:var(--acc);}.aperiod-btn.active{background:var(--acc);color:#000;border-color:var(--acc);}
+
+.finance-tabs{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+
+#page-finance .sc,#page-finance .cost-row{overflow:visible;position:relative;}
+.info-i{position:absolute;top:9px;left:9px;width:22px;height:22px;border-radius:999px;border:1px solid rgba(100,116,139,.35);background:rgba(255,255,255,.92);color:#334155;display:inline-flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:900!important;cursor:help;z-index:20;box-shadow:0 6px 16px rgba(15,23,42,.10);}
+.info-i:hover,.info-i:focus{background:#111827;color:#fff;border-color:#111827;outline:none;}
+.info-i::after{content:attr(data-tip);position:absolute;top:28px;left:0;width:min(310px,calc(100vw - 40px));background:#111827;color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:11px 13px;line-height:1.65;font-family:'Cairo',sans-serif;font-size:.78rem;font-weight:700!important;text-align:right;direction:rtl;white-space:normal;opacity:0;visibility:hidden;transform:translateY(-4px);transition:opacity .14s ease,transform .14s ease,visibility .14s;box-shadow:0 18px 45px rgba(15,23,42,.25);pointer-events:none;z-index:500;}
+.info-i:hover::after,.info-i:focus::after{opacity:1;visibility:visible;transform:translateY(0);}
+.smart-alert-card{background:var(--card);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:15px 16px;box-shadow:var(--shadow2);position:relative;overflow:hidden;}
+.smart-alert-card::before{content:'';position:absolute;inset:auto -30px -44px auto;width:120px;height:120px;border-radius:999px;background:var(--al,var(--ora));opacity:.10;}
+.smart-alert-card.critical{--al:var(--red);border-color:rgba(239,68,68,.32);}
+.smart-alert-card.warn{--al:var(--ora);border-color:rgba(249,115,22,.28);}
+.smart-alert-card.info{--al:var(--blue);border-color:rgba(37,99,235,.22);}
+.alert-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;position:relative;z-index:2;}.alert-title{font-weight:900;color:var(--txt);font-size:.92rem;}.alert-badge{margin-right:auto;border-radius:999px;padding:3px 8px;font-size:.72rem;font-family:'JetBrains Mono',monospace;background:#f8fafc;border:1px solid var(--brd);color:var(--muted);}
+.alert-main{font-size:1.25rem;font-family:'JetBrains Mono',monospace;font-weight:900;letter-spacing:-.04em;color:var(--al,var(--txt));position:relative;z-index:2;}.alert-sub{font-size:.78rem;color:var(--muted);line-height:1.65;margin-top:6px;position:relative;z-index:2;}.alert-actions{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;position:relative;z-index:2;}.alert-action{border:1px solid var(--brd);background:#fff;border-radius:10px;padding:6px 10px;font-size:.76rem;color:var(--txt);cursor:pointer;}.issue-prio{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 9px;font-size:.72rem;border:1px solid transparent;white-space:nowrap;}.issue-prio.high{background:#fef2f2;color:#b91c1c;border-color:#fecaca}.issue-prio.medium{background:#fff7ed;color:#c2410c;border-color:#fed7aa}.issue-prio.low{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.issue-action-btn{background:#fff;border:1px solid var(--brd);border-radius:9px;color:var(--txt);padding:5px 9px;font-size:.74rem;cursor:pointer;}.issue-action-btn:hover{border-color:var(--acc);color:#b45309;background:#fff7ed;}
+.movement-cost{font-family:'JetBrains Mono',monospace;font-weight:900;}
+.movement-cost.zero{color:var(--red);background:rgba(239,68,68,.10);border:1px solid rgba(239,68,68,.25);border-radius:999px;padding:3px 8px;display:inline-flex;align-items:center;gap:4px;}
+.movement-cost.ok{color:var(--green);}
+
+.cost-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+.cost-row{background:var(--sur);border:1px solid var(--brd);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;}
+.cost-row-label{font-size:.85rem;color:var(--muted);font-weight:700;}
+.cost-row-value{font-size:1.5rem;font-weight:900;font-family:'JetBrains Mono',monospace;letter-spacing:-.02em;}
+.cost-row-pct{font-size:.78rem;color:var(--muted);font-weight:700;}
+.cost-row.profit{border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.05);}
+.cost-row.profit .cost-row-value{color:var(--green);}
+
+/* Bigger, bolder finance stat values */
+#page-finance .sval{font-size:2.1rem !important;font-weight:900 !important;letter-spacing:-.04em;}
+#page-finance .slb{font-size:.88rem !important;font-weight:800 !important;}
+#page-finance .sdelta{font-size:.92rem;font-weight:800;}
+
+/* Finance platform performance table — bigger numbers */
+#finplat-tbody td.mn{font-size:1.12rem;font-weight:900;}
+#finplat-tbody td.nm{font-size:1rem;font-weight:900;}
+#finplat-tbody th{font-size:.85rem;font-weight:800;}
+
+/* Expense table — bigger */
+#exp-tbody td{font-size:.95rem;font-weight:700;}
+#exp-tbody th{font-size:.85rem;font-weight:800;}
+
+/* Net profit color states */
+.profit-positive{color:var(--green) !important;}
+.profit-negative{color:var(--red) !important;}
+.profit-zero{color:var(--txt) !important;}
+.cost-row.profit-negative{border-color:rgba(239,68,68,.4) !important;background:rgba(239,68,68,.07) !important;}
+.cost-row.profit-negative .cost-row-value{color:var(--red) !important;}
+.cost-row.profit-zero{border-color:var(--brd) !important;background:var(--sur) !important;}
+.cost-row.profit-zero .cost-row-value{color:var(--txt) !important;}
+
+.exp-row-actions{display:flex;gap:6px;}
+.exp-edit-btn,.exp-del-btn{background:transparent;border:1px solid var(--brd2);border-radius:6px;padding:4px 9px;font-size:.74rem;cursor:pointer;font-family:'Cairo',sans-serif;font-weight:700;}
+.exp-edit-btn:hover{color:var(--acc);border-color:var(--acc);}
+.exp-del-btn:hover{color:var(--red);border-color:var(--red);}
+
+.exp-cat-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:.72rem;font-weight:700;}
+.exp-cat-مرتبات{background:#fef3c7;color:#92400e;}
+.exp-cat-إعلانات{background:#dbeafe;color:#1e40af;}
+.exp-cat-تغليف{background:#f5f3ff;color:#6d28d9;}
+.exp-cat-فواتير{background:#fee2e2;color:#991b1b;}
+.exp-cat-مخزن{background:#d1fae5;color:#065f46;}
+.exp-cat-متفرقات{background:#f3f4f6;color:#374151;}

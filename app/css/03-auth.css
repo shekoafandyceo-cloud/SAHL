@@ -1,0 +1,30 @@
+/* شاشات الدخول والتسجيل وتأكيد الإيميل */
+#setup{display:flex;align-items:center;justify-content:center;min-height:100vh;background:radial-gradient(circle at 50% 0%,rgba(255,159,28,.28),transparent 35%),linear-gradient(135deg,#fff7e6,#eef6ff);padding:20px;}
+.sbox{background:rgba(255,255,255,.92);border:1px solid #e5e9f4;border-radius:30px;padding:46px;width:480px;text-align:center;box-shadow:0 30px 90px rgba(29,110,242,.12);backdrop-filter:blur(18px);}
+.login-brand{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:10px;}
+.login-wordmark{text-align:right;}
+.lw-name{font-size:2.5rem;font-weight:900;letter-spacing:1px;line-height:1;color:#0f172a;}
+.lw-tag{font-size:.74rem;font-weight:700;color:#2bb3a3;margin-top:4px;letter-spacing:.3px;}
+.slogo{font-size:2.55rem;font-weight:900;background:linear-gradient(135deg,#2dd4f0,#1d6ef2);-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px;}
+.ssub{color:#64748b;font-size:.98rem;margin-bottom:32px;}
+.slbl{display:block;text-align:right;font-size:.82rem;color:#64748b;margin-bottom:7px;}
+.sinp{width:100%;padding:14px 16px;background:#fff;border:1px solid #d7deee;border-radius:14px;color:#111827;font-family:'JetBrains Mono',monospace;font-size:.82rem;direction:ltr;text-align:left;margin-bottom:18px;outline:none;transition:border-color .15s,box-shadow .15s;}
+.sinp:focus{border-color:#2dd4f0;box-shadow:0 0 0 4px rgba(45,212,240,.15);}
+.sbtn{width:100%;padding:15px;background:linear-gradient(135deg,#2dd4f0,#1d6ef2);color:#fff;border:none;border-radius:15px;font-size:1rem;font-weight:800;cursor:pointer;box-shadow:0 14px 30px rgba(29,110,242,.28);transition:transform .15s,box-shadow .15s;}
+.sbtn:hover{transform:translateY(-2px);box-shadow:0 18px 40px rgba(29,110,242,.38);}
+.serr{color:#dc2626;font-size:.85rem;margin-top:12px;min-height:20px;}
+/* ============== Auth view switcher (signup + check-email) ============== */
+.auth-switch{margin-top:18px;font-size:.86rem;color:#64748b;text-align:center;}
+.auth-switch a,.auth-switch button{color:#1d6ef2;font-weight:800;text-decoration:none;cursor:pointer;background:none;border:none;font:inherit;padding:0;}
+.auth-switch a:hover,.auth-switch button:hover{text-decoration:underline;}
+.auth-secondary-btn{width:100%;padding:13px;background:#fff;color:#1d6ef2;border:1.5px solid #d7deee;border-radius:14px;font-size:.92rem;font-weight:800;cursor:pointer;margin-top:10px;transition:border-color .15s,background .15s;}
+.auth-secondary-btn:hover{border-color:#1d6ef2;background:#f4f8ff;}
+.signup-bonus-card{background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1.5px dashed rgba(16,185,129,.4);border-radius:14px;padding:13px 14px;margin-bottom:20px;text-align:center;}
+.signup-bonus-card .sb-num{font-family:'JetBrains Mono',monospace;font-weight:900;color:#047857;font-size:1.3rem;line-height:1.1;display:block;}
+.signup-bonus-card .sb-lbl{font-size:.78rem;color:#065f46;font-weight:800;margin-top:3px;}
+.signup-bonus-card .sb-sub{font-size:.7rem;color:#64748b;font-weight:700;margin-top:3px;}
+.check-email-icon{font-size:60px;margin-bottom:16px;animation:checkBounce 2.4s ease-in-out infinite;}
+@keyframes checkBounce{0%,100%{transform:translateY(0);}50%{transform:translateY(-6px);}}
+.check-email-body{color:#64748b;font-size:.92rem;line-height:1.7;margin-bottom:24px;}
+.check-email-body strong{color:#0f172a;display:block;margin-top:6px;direction:ltr;font-family:'JetBrains Mono',monospace;font-size:.88rem;}
+.signup-hint{font-size:.74rem;color:#94a3b8;text-align:right;margin-top:-12px;margin-bottom:14px;line-height:1.5;}

@@ -1,0 +1,17 @@
+/* تلميحات كروت الإحصاء والكروت القابلة للضغط */
+/* ── Info tooltip on stat cards ── */
+.sc{position:relative;}
+.sc-info{position:absolute;top:8px;left:8px;width:18px;height:18px;border-radius:50%;background:rgba(100,116,139,.18);color:#64748b;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:help;font-style:italic;font-family:Georgia,serif;transition:all .15s;z-index:3;}
+.sc-info:hover{background:var(--acc);color:#fff;transform:scale(1.15);}
+/* ---- clickable status cards (orders page) ---- */
+.sc-clickable{cursor:pointer;transition:transform .16s cubic-bezier(.4,0,.2,1),box-shadow .2s ease;}
+.sc-clickable:hover{transform:translateY(-4px);box-shadow:0 16px 32px rgba(10,17,36,.14);}
+.sc-clickable:active{transform:translateY(-1px) scale(.99);}
+.sc-clickable::after{content:'';position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 2px transparent;transition:box-shadow .2s ease;pointer-events:none;}
+.sc-clickable.sc-on::after{box-shadow:inset 0 0 0 2.5px var(--vc);}
+.sc-clickable.sc-on{box-shadow:0 14px 30px rgba(10,17,36,.16);}
+/* Tooltip floats via fixed positioning — never clipped by card overflow */
+#sc-floating-tip{position:fixed;width:230px;background:#0f172a;color:#f1f5f9;font-size:.76rem;font-weight:600;line-height:1.6;padding:12px 14px;border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.35);opacity:0;visibility:hidden;transform:translateY(-6px);transition:opacity .18s,transform .18s;z-index:9999;pointer-events:none;text-align:right;direction:rtl;}
+#sc-floating-tip.show{opacity:1;visibility:visible;transform:translateY(0);}
+#sc-floating-tip::before{content:'';position:absolute;bottom:-6px;right:18px;width:11px;height:11px;background:#0f172a;transform:rotate(45deg);}
+@media(max-width:640px){#sc-floating-tip{width:190px;font-size:.72rem;}}
