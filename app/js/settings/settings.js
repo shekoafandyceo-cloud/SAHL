@@ -11,7 +11,8 @@ import { WEBHOOK_BASE_URL } from '../core/config.js';
 import { swallow } from '../core/log.js';
 import { copyWebhookUrl } from './webhook.js';
 import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
-import { ensureTenant, isAdmin, refreshInboxGate } from '../orders/orders.js';
+import { refreshInboxGate } from '../orders/billing-summary.js';
+import { ensureTenant, isAdmin } from '../orders/guards.js';
 
 export var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
 

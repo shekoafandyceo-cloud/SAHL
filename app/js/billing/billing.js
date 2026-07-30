@@ -10,7 +10,9 @@ import { esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { doFilter, ensureTenant, fmtDateTime, fmtMoneyShort, isAdmin, loadVfcashNumber, renderBillingSummary } from '../orders/orders.js';
+import { doFilter } from '../orders/orders.js';
+import { fmtDateTime, fmtMoneyShort, loadVfcashNumber, renderBillingSummary } from '../orders/billing-summary.js';
+import { ensureTenant, isAdmin } from '../orders/guards.js';
 
 export var walletStateCache = null; // {wallet_balance, overdraft_limit, available, orders_used_cycle, max_orders, orders_remaining, overage_debt, plan, plan_name, monthly_price, per_order_price, pricing_type, subscription_status, cycle_started_at, cycle_ends_at, is_lifetime, is_depleted}
 

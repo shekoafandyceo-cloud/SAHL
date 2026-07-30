@@ -12,7 +12,9 @@ import { waMsgInner, waTicks, waTimeShort } from './message-view.js';
 import { showPage } from '../main.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { ensureTenant, inboxVerified, openDetail, refreshInboxGate, renderInboxLocked } from '../orders/orders.js';
+import { inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
+import { openDetail } from '../orders/detail.js';
+import { ensureTenant } from '../orders/guards.js';
 
 export var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
 

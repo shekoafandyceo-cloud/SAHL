@@ -11,7 +11,9 @@ import { tourDemoMovements, tourDemoStock } from '../tour/demo-data.js';
 import { showPage } from '../main.js';
 import { currentRole, currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { ensureTenant, isAdmin, loadBostaInventoryCard, movementWholesalePrice, renderProductPerformance, requireAdmin } from '../orders/orders.js';
+import { loadBostaInventoryCard } from '../orders/cards.js';
+import { movementWholesalePrice, renderProductPerformance } from '../orders/costs.js';
+import { ensureTenant, isAdmin, requireAdmin } from '../orders/guards.js';
 
 export function stockSetProducts(v){ stockProducts = v || []; }
 

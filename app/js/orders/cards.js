@@ -1,0 +1,203 @@
+// كروت الإحصاء والإيرادات فوق جدول الأوردرات
+
+import { currentTenantId } from '../auth/auth.js';
+import { BOSTA_EXPECTED_STATUSES, BOSTA_OPERATION_STATUSES, BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
+import { $id } from '../core/dom.js';
+// `val` كانت ناقصة من الاستوردات في الملف الضخم قبل التفكيك — updateRevenueStats
+// كانت بترمي ReferenceError، والنداء الوحيد ليها (في الجولة) متلفوف بـswallow
+// فالخطأ كان بيتبلع وكروت الإيرادات في الجولة تفضل فاضية من غير أي أثر.
+import { cairoYMD, money, normalizePhone, num, val, ymdAddDays } from '../core/format.js';
+import { swallow } from '../core/log.js';
+import { sb } from '../core/supabase.js';
+import { toast } from '../core/toast.js';
+import { tourActive } from '../tour/tour.js';
+import { loadStockProductsForCosts, orderInventoryCost } from './costs.js';
+import { isAdmin } from './guards.js';
+import { detectMergeable } from './merge.js';
+import { doFilter, ordersInPeriod } from './orders.js';
+import { fil, ordersPeriod, ordersSetPendingBosta, pendingBostaByPhone, selectedIds } from './state.js';
+import { updateBulkBar, updateMasterCb } from './table.js';
+
+// كرت "جاهز للخروج" — اضغط يروح لفلتر بوسطة + scroll للجدول
+// كارت الجاهزية فوق جدول الأوردرات
+export function initReadyCard(){
+  (function(){
+    var c = document.getElementById('card-ready');
+    if(!c) return;
+    c.addEventListener('click', function(){
+      var fst = $id('fst');
+      if(fst){ fst.value = 'bosta_assigned'; }
+      if(window.__syncFilterUI) window.__syncFilterUI();
+      try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
+      window.scrollTo({ top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth' });
+    });
+  })();
+
+  // زرار "حدد غير المطبوع" — يحدّد كل الأوردرات اللي لسه ماتطبعش في القايمة الحالية
+  (function(){
+    var btn = document.getElementById('bb-sel-unprinted');
+    if(!btn) return;
+    btn.addEventListener('click', function(){
+      var added = 0;
+      (fil||[]).forEach(function(o){
+        if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
+          selectedIds.add(o.id);
+          added++;
+        }
+      });
+      // علّم الـ checkboxes الظاهرة في الجدول
+      $id('tbody').querySelectorAll('.cb-row').forEach(function(cb){
+        var id = cb.getAttribute('data-id');
+        if(selectedIds.has(id)){
+          cb.checked = true;
+          var tr = cb.closest('tr'); if(tr) tr.classList.add('sel');
+        }
+      });
+      updateBulkBar(); updateMasterCb();
+      if(added > 0){ toast('تم تحديد '+num(added)+' أوردر غير مطبوع — دوس "🖨️ طبع البوالص"','ok'); }
+      else { toast('كل الأوردرات في القايمة دي اتطبعت بالفعل','er'); }
+    });
+  })();
+}
+
+export function updateStats(){
+  var monthOrders=ordersInPeriod();
+
+  $id('s0').textContent=num(monthOrders.length);
+  $id('s1').textContent=num(monthOrders.filter(function(o){return statusIn(o.status,['pending']);}).length);
+
+  var confirmed=monthOrders.filter(function(o){return statusIn(o.status,['confirmed']);}).length;
+  var delivered=monthOrders.filter(function(o){return statusIn(o.status,DELIVERED_STATUSES);}).length;
+  var cancelled=monthOrders.filter(function(o){return statusIn(o.status,CANCELLED_STATUSES);}).length;
+  var returned=monthOrders.filter(function(o){return statusIn(o.status,RETURNED_STATUSES);}).length;
+
+  $id('s2').textContent=num(confirmed);
+  $id('s3').textContent=num(delivered);
+  $id('s4').textContent=num(cancelled);
+  $id('s5').textContent=num(returned);
+  
+  // كرت "جاهز للخروج" (حساب من الـ cache كـ fallback؛ المصدر الأساسي هو applyOrdersStats من السيرفر)
+  var bostaReadyN = monthOrders.filter(function(o){return statusIn(o.status, ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2']);}).length;
+  var sRdyEl = $id('s-ready'); if(sRdyEl) sRdyEl.textContent = num(bostaReadyN);
+
+  // نسبة التأكيد = كل الأوردرات التي اتأكدت أو دخلت رحلة بوسطة ÷ كل الأوردرات التي خرجت من Pending.
+  // حالات الشحن اللاحقة مثل Delivered / Exception / Returned to business لا تنزل النسبة.
+  var processed=monthOrders.filter(function(o){
+    return !statusIn(o.status,['pending']);
+  }).length;
+
+  var positive=monthOrders.filter(function(o){
+    return statusIn(o.status,BOSTA_POSITIVE_STATUSES);
+  }).length;
+
+  $id('s6').textContent=processed>0?((positive/processed)*100).toFixed(1)+'%':'—';
+
+  // نسبة التسليم = الطلبات المُسلّمة ÷ الطلبات التي أنهت رحلة الشحن (تسليم + مرتجع).
+  // تقيس نجاح التوصيل من الأوردرات التي اتشحنت فعلاً، وليس من إجمالي الأوردرات.
+  var deliveryDecided = delivered + returned;
+  $id('s7').textContent = deliveryDecided > 0 ? ((delivered/deliveryDecided)*100).toFixed(1)+'%' : '—';
+}
+
+export function updateRevenueStats(){
+  var monthOrders=ordersInPeriod();
+  var total=monthOrders.reduce(function(s,o){return s+val(o);},0);
+  var collected=monthOrders.filter(function(o){return statusIn(o.status,DELIVERED_STATUSES);}).reduce(function(s,o){return s+val(o);},0);
+  var expected=monthOrders.filter(function(o){return statusIn(o.status,BOSTA_EXPECTED_STATUSES);}).reduce(function(s,o){return s+val(o);},0);
+  var lost=monthOrders.filter(function(o){return statusIn(o.status,CANCELLED_STATUSES) || statusIn(o.status,RETURNED_STATUSES) || o.status==='failed';}).reduce(function(s,o){return s+val(o);},0);
+  var paymob=monthOrders.filter(function(o){return o.payment_stage==='paymob';}).reduce(function(s,o){return s+val(o);},0);
+  $id('rv-total').textContent=money(total);
+  $id('rv-collected').textContent=money(collected);
+  $id('rv-expected').textContent=money(expected);
+  $id('rv-lost').textContent=money(lost);
+  $id('rv-aov').textContent=monthOrders.length?money(total/monthOrders.length):'—';
+  $id('rv-paymob').textContent=money(paymob);
+}
+
+export function ordersPeriodCairoDates(){
+  var p=ordersPeriod;
+  if(p.type==='all') return null;
+  var today=cairoYMD(new Date());
+  if(p.type==='last3')  return { from: ymdAddDays(today,-2),  to: today };
+  if(p.type==='last30') return { from: ymdAddDays(today,-29), to: today };
+  if(p.type==='month'){
+    var y=+today.slice(0,4), m=+today.slice(5,7), last=new Date(y,m,0).getDate();
+    return { from: today.slice(0,7)+'-01', to: today.slice(0,7)+'-'+('0'+last).slice(-2) };
+  }
+  if(p.type==='custom'){ var f=p.from||'2000-01-01', t=p.to||'2999-12-31'; if(f>t){var x=f;f=t;t=x;} return { from:f, to:t }; }
+  return null;
+}
+
+// يطبّق ناتج RPC على كروت الإحصائيات والإيرادات (بنفس معادلات updateStats/updateRevenueStats بالظبط)
+export function applyOrdersStats(s){
+  if(tourActive || !s) return;   // لو وصل متأخر أثناء الجولة → ماتلمسش الديمو
+  $id('s0').textContent=num(s.total_count);
+  $id('s1').textContent=num(s.pending);
+  $id('s2').textContent=num(s.confirmed);
+  $id('s3').textContent=num(s.delivered);
+  $id('s4').textContent=num(s.cancelled);
+  $id('s5').textContent=num(s.returned);
+  $id('s-ready').textContent=num(s.bosta_ready);
+  $id('s6').textContent = s.processed>0 ? ((s.positive/s.processed)*100).toFixed(1)+'%' : '—';
+  var dd=(s.delivered||0)+(s.returned||0);
+  $id('s7').textContent = dd>0 ? ((s.delivered/dd)*100).toFixed(1)+'%' : '—';
+  $id('rv-total').textContent=money(s.sum_total);
+  $id('rv-collected').textContent=money(s.sum_collected);
+  $id('rv-expected').textContent=money(s.sum_expected);
+  $id('rv-lost').textContent=money(s.sum_lost);
+  $id('rv-aov').textContent = s.total_count ? money(s.sum_total/s.total_count) : '—';
+  $id('rv-paymob').textContent=money(s.sum_paymob);
+  var pc=$id('orders-period-cnt');
+  if(pc) pc.textContent = ordersPeriod.type==='all' ? num(s.total_count)+' طلب (كل الفترات)' : num(s.total_count)+' طلب في المدة';
+}
+
+// كروت الأوردرات (s0..s7 + الإيرادات + عدّاد المدة) في نداء RPC واحد
+export function loadOrdersCards(){
+  if(tourActive) return;
+  if(!sb||!currentTenantId) return;
+  var d=ordersPeriodCairoDates();
+  sb.rpc('sahl_orders_stats',{ p_tenant: currentTenantId, p_from: d?d.from:null, p_to: d?d.to:null }).then(function(r){
+    if(tourActive) return;
+    if(r.error || !r.data){ if(r.error&&r.error.message) console.warn('stats RPC:',r.error.message); return; }
+    applyOrdersStats(r.data);
+  });
+}
+
+// تنبيه الدمج: عملاء معاهم أوردرين+ جاهزين للشحن — كويري مخصّص بدل المصفوفة الكاملة
+export var MERGE_QUERY_STATUSES = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'];
+
+export function loadMergeCandidates(){
+  if(tourActive) return;
+  if(!sb||!currentTenantId) return;
+  sb.from('orders').select('order_uid,tracking_no,customer_name,city,phone,total_cost,status')
+    .eq('tenant_id',currentTenantId).in('status',MERGE_QUERY_STATUSES).then(function(r){
+      if(tourActive) return;
+      if(r.error) return;
+      ordersSetPendingBosta({});
+      (r.data||[]).forEach(function(o){
+        var p=normalizePhone(o.phone); if(!p)return;
+        if(!pendingBostaByPhone[p]) pendingBostaByPhone[p]=[];
+        pendingBostaByPhone[p].push(o);
+      });
+      detectMergeable();
+    });
+}
+
+// كارت "بضاعة مع بوسطة": تكلفة بضاعة الأوردرات في تشغيل بوسطة — كويري مخصّص
+export function loadBostaInventoryCard(){
+  var el=$id('rv-bosta-stock'); if(!el) return;
+  var sub=$id('rv-bosta-stock-sub');
+  if(!isAdmin()){ el.textContent='—'; if(sub)sub.textContent='للأدمن فقط'; return; }
+  if(tourActive) return;
+  if(!sb||!currentTenantId) return;
+  loadStockProductsForCosts(function(){
+    sb.from('orders').select('product_name,inventory_cost_snapshot,inventory_value_snapshot,inventory_value_at_bosta,status')
+      .eq('tenant_id',currentTenantId).in('status',BOSTA_OPERATION_STATUSES).then(function(r){
+        if(tourActive) return;
+        if(r.error) return;
+        var orders=r.data||[];
+        var total=orders.reduce(function(s,o){return s+orderInventoryCost(o);},0);
+        el.textContent=money(total);
+        if(sub)sub.textContent=num(orders.length)+' شحنة في التشغيل حاليًا';
+      });
+  });
+}

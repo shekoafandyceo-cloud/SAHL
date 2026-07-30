@@ -8,7 +8,9 @@ import { num, val } from '../core/format.js';
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { setPeriod } from '../main.js';
 import { tourActive } from '../tour/tour.js';
-import { ensureAllLoaded, ensureTenant, isAdmin, loadStockProductsForCosts, ordersInRange, productCostByName, renderProductPerformance } from '../orders/orders.js';
+import { ensureAllLoaded } from '../orders/orders.js';
+import { loadStockProductsForCosts, ordersInRange, productCostByName, renderProductPerformance } from '../orders/costs.js';
+import { ensureTenant, isAdmin } from '../orders/guards.js';
 
 export function buildProductPerformance(){
   var map={};

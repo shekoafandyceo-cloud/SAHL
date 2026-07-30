@@ -10,7 +10,11 @@ import { tourPositionFor } from './position.js';
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
 import { currentTenantId } from '../auth/auth.js';
-import { all, buildIndexes, doFilter, isAdmin, loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, openDetail, ordersSetAll, updateRevenueStats, updateStats } from '../orders/orders.js';
+import { buildIndexes, doFilter } from '../orders/orders.js';
+import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, updateRevenueStats, updateStats } from '../orders/cards.js';
+import { openDetail } from '../orders/detail.js';
+import { isAdmin } from '../orders/guards.js';
+import { all, ordersSetAll } from '../orders/state.js';
 
 export var tourActive=false, tourStep=0, tourSavedHTML=null;
 

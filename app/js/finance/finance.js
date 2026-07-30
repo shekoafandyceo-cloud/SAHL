@@ -16,7 +16,10 @@ import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { tourDemoExpenses, tourDemoStock } from '../tour/demo-data.js';
 import { currentTenantId, currentUser } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { all, ensureAllLoaded, ensureTenant, isAdmin, isDeliveredOrder, loadStockProductsForCosts, orderInventoryCost, ordersInRange, requireAdmin } from '../orders/orders.js';
+import { ensureAllLoaded } from '../orders/orders.js';
+import { isDeliveredOrder, loadStockProductsForCosts, orderInventoryCost, ordersInRange } from '../orders/costs.js';
+import { ensureTenant, isAdmin, requireAdmin } from '../orders/guards.js';
+import { all } from '../orders/state.js';
 
 export function financeSetExpenses(v){ financeExpenses = v || []; }
 

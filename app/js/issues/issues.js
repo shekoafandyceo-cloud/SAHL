@@ -8,7 +8,10 @@ import { openStockProductByName, renderSmartStockAlerts, stockForecastRows, stoc
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
-import { all, doFilter, ensureTenant, hasCostSnapshot, isAdmin, loadStockMovementsForOps, loadStockProductsForCosts, productCostByName, productExists, requireAdmin, shippedOrOperational } from '../orders/orders.js';
+import { doFilter } from '../orders/orders.js';
+import { hasCostSnapshot, loadStockMovementsForOps, loadStockProductsForCosts, productCostByName, productExists, shippedOrOperational } from '../orders/costs.js';
+import { ensureTenant, isAdmin, requireAdmin } from '../orders/guards.js';
+import { all } from '../orders/state.js';
 
 export function buildIssues(){
   var issues=[];

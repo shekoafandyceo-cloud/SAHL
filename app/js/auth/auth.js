@@ -6,7 +6,9 @@ import { $id } from '../core/dom.js';
 import { swallow } from '../core/log.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
-import { ensureTenant, loadAll, realtimeChannel, realtimeSetChannel } from '../orders/orders.js';
+import { loadAll } from '../orders/orders.js';
+import { ensureTenant } from '../orders/guards.js';
+import { realtimeChannel, realtimeSetChannel } from '../orders/state.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 
