@@ -14,7 +14,8 @@ import { BOSTA_FILTER_STATUSES, buildIndexes, doFilter, ensureAllLoaded, fetchOr
 import { _b64ToBlob, printAwbForOrders, printSelectedAwb } from './orders/awb.js';
 import { fmtDate, fmtDateTime, fmtMoneyShort, inboxVerified, loadVfcashNumber, lockMaybe, refreshInboxGate, renderBillingSummary, renderInboxLocked, VFCASH_NUMBER } from './orders/billing-summary.js';
 import { applyOrdersStats, initReadyCard, loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, MERGE_QUERY_STATUSES, ordersPeriodCairoDates, updateRevenueStats, updateStats } from './orders/cards.js';
-import { hasCostSnapshot, isDeliveredOrder, isWithBosta, loadStockMovementsForOps, loadStockProductsForCosts, movementWholesalePrice, orderCostSnapshotValue, orderInventoryCost, orderInventoryCostSource, orderLiveInventoryCost, ordersInRange, productCostByName, productExists, renderProductPerformance, shippedOrOperational } from './orders/costs.js';
+import { hasCostSnapshot, isDeliveredOrder, isWithBosta, loadStockMovementsForOps, loadStockProductsForCosts, movementWholesalePrice, orderCostSnapshotValue, orderInventoryCost, orderInventoryCostSource, orderLiveInventoryCost, ordersInRange, perfSortBy, productCostByName, productExists, renderProductPerformance, shippedOrOperational } from './orders/costs.js';
+import { daysShift, daysToday, renderDaysCalendar } from './analytics/days.js';
 import { attachFieldEditors, buildWaUrl, computeHistoryFromAll, detailHistory, fieldEditable, intNotesTimer, loadDetailHistory, openDetail, patchOrderField, renderDetail } from './orders/detail.js';
 import { enhanceFilters, fdropCloseAll, initFilterDropdowns, initRefreshAndSearch, reflectStatusCards, wireStatusCards } from './orders/filters-ui.js';
 import { ensureTenant, isAdmin, requireAdmin } from './orders/guards.js';
@@ -116,7 +117,14 @@ var CLICK_ACTIONS = {
   'setup-dismiss': function(){ setupDismiss(); },
   'add-product':   function(){ var b=$id('add-product-btn'); if(b)b.click(); },
   'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); },
-  'side-toggle':   function(){ sideToggle(); }
+  'side-toggle':   function(){ sideToggle(); },
+  // فرز جدول أداء المنتجات بالضغط على عنوان العمود
+  'perf-sort':     function(el){ perfSortBy(el.getAttribute('data-key')); },
+  // كالندر أداء الأيام
+  'days-prev':     function(){ daysShift(-1); },
+  'days-next':     function(){ daysShift(1); },
+  'days-today':    function(){ daysToday(); },
+  'dark-toggle':   function(){ darkToggle(); }
 };
 function initClickActions(){
   document.addEventListener('click', function(ev){
@@ -145,6 +153,26 @@ function initSideCollapse(){
       var sn = $id('sidenav'); if(sn) sn.classList.add('collapsed');
     }
   }catch(e){}
+}
+
+// ── الوضع الليلي ────────────────────────────────────────────────────
+// الكلاس على <html> عشان 22-dark.css يمسك كل حاجة، والتفضيل محفوظ.
+// ألوان Chart.js مش CSS فبتتظبط هنا — الرسم البياني بيترندر من جديد
+// مع كل فتح لصفحة الماليات فبياخد القيم الجديدة.
+function applyDark(on){
+  document.documentElement.classList.toggle('dark', on);
+  if(window.Chart){
+    window.Chart.defaults.color = on ? '#9aa7bd' : '#666';
+    window.Chart.defaults.borderColor = on ? 'rgba(154,167,189,.14)' : 'rgba(0,0,0,.1)';
+  }
+}
+function darkToggle(){
+  var on = !document.documentElement.classList.contains('dark');
+  applyDark(on);
+  try{ localStorage.setItem('sahl_dark', on ? '1' : '0'); }catch(e){}
+}
+function initDarkMode(){
+  try{ if(localStorage.getItem('sahl_dark') === '1') applyDark(true); }catch(e){}
 }
 
 
@@ -402,6 +430,7 @@ export function showPage(page){
 // كان بيحصل فعلاً قبل التغيير.
 initClickActions();
 initSideCollapse();
+initDarkMode();
 initReadyCard();
 initTourResize();
 initLoginForm();

@@ -30,6 +30,7 @@
 <link rel="stylesheet" href="./css/19-mobile.css">
 <link rel="stylesheet" href="./css/20-orders-extras.css">
 <link rel="stylesheet" href="./css/21-inbox.css">
+<link rel="stylesheet" href="./css/22-dark.css">
 </head>
 <body>
 
@@ -142,6 +143,7 @@
       <div class="tdate" id="tdate"></div>
       <span id="realtime-dot" class="realtime-dot off" title="جاري الاتصال..."></span>
       <div class="user-badge" id="user-badge"></div>
+      <button class="rbtn dark-btn" data-act="dark-toggle" title="الوضع الليلي / النهاري" aria-label="الوضع الليلي / النهاري"><svg class="dk-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><svg class="dk-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg></button>
       <button class="rbtn" id="rbtn">↻ <span class="tb-txt">تحديث</span></button>
       <button class="logout-btn" id="logout-btn">خروج</button>
     </div>
@@ -474,6 +476,7 @@
     <div class="stock-tabs">
       <button class="stock-tab active" data-atab="products">📈 أداء المنتجات</button>
       <button class="stock-tab" data-atab="platforms">📣 أداء المنصات</button>
+      <button class="stock-tab" data-atab="days">📅 أداء الأيام</button>
       <button class="stock-tab" data-atab="employees">👥 أداء الموظفين</button>
     </div>
 
@@ -513,6 +516,14 @@
       <div class="twrap">
         <div class="thscroll" id="finplat-tbody"><div class="ldg">جاري التحميل...</div></div>
       </div>
+    </div>
+
+    <!-- SUB-TAB: DAY-BY-DAY PERFORMANCE CALENDAR -->
+    <div id="analytics-days-tab" style="display:none">
+      <div style="background:var(--sur);border:1px solid var(--brd);border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:.84rem;color:var(--muted);line-height:1.7;">
+        كل يوم مربع بيتلوّن حسب جودته — <b style="color:var(--txt)">نسبة التأكيد</b> و<b style="color:var(--txt)">نسبة التسليم</b> بنفس حساب كروت اللوحة. الأيام القريبة نسبة التسليم فيها بتظهر «—» لحد ما شحناتها تخلص، ووقتها اللون بيتحسب من التأكيد لوحده.
+      </div>
+      <div class="dcal-wrap" id="dcal"><div class="ldg">جاري التحميل...</div></div>
     </div>
 
     <!-- SUB-TAB: EMPLOYEE PERFORMANCE (under construction) -->

@@ -2,6 +2,7 @@
 
 import { emptyState } from '../core/empty.js';
 import { buildProductPerformance } from '../analytics/analytics.js';
+import { ratePill } from '../analytics/rate.js';
 import { nameKey, normalizeProductName, parseProductItems, tokenSortKey } from '../analytics/product-match.js';
 import { currentTenantId } from '../auth/auth.js';
 import { BOSTA_INVENTORY_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
@@ -120,10 +121,22 @@ export function movementWholesalePrice(m){
   return productCostByName(m.product_name);
 }
 
+// فرز جدول أداء المنتجات — ضغطة على عنوان العمود بتقلب الاتجاه.
+// الحالة هنا لأن الرندر هنا (كل حالة ليها كاتب واحد). الافتراضي زي
+// ما كان دايماً: الأعلى Revenue الأول.
+export var perfSort = { key:'revenue', dir:'desc' };
+
+export function perfSortBy(key){
+  if(perfSort.key === key){ perfSort.dir = perfSort.dir === 'desc' ? 'asc' : 'desc'; }
+  else { perfSort.key = key; perfSort.dir = 'desc'; }
+  renderProductPerformance();
+}
+
 export function renderProductPerformance(){
   var q=($id('perf-search')?($id('perf-search').value||'').trim().toLowerCase():'');
   var data=buildProductPerformance();
   var list=data.filter(function(p){return !q||p.name.toLowerCase().indexOf(q)>=0;});
+  // الكروت الأربعة فوق ثابتة على معاييرها مهما اتغيّر فرز الجدول
   $id('pf-products').textContent=num(data.length);
   $id('pf-top-rev').textContent=data[0]?short(data[0].name,18):'—';
   var bestDel=data.slice().sort(function(a,b){return b.deliveryRate-a.deliveryRate||b.orders-a.orders;})[0];
@@ -135,16 +148,30 @@ export function renderProductPerformance(){
       title:'مفيش أداء منتجات لسه',
       sub:'أول ما توصل أوردرات بأسماء منتجاتك هتشوف هنا أنهي منتج بيكسب وأنهي بيخسر.'});return;}
   var adminView = isAdmin();
-  function pct(x){return x==null?'—':x.toFixed(0)+'%';}
+  // الفرز: null دايماً في الآخر مهما كان الاتجاه — عشان منتج من غير
+  // شحنات مكتملة مايطلعش "أحسن منتج تسليم" بالصدفة
+  var sk=perfSort.key, sd=perfSort.dir==='asc'?1:-1;
+  list=list.slice().sort(function(a,b){
+    var av=a[sk], bv=b[sk];
+    var an=(av==null||isNaN(av)), bn=(bv==null||isNaN(bv));
+    if(an&&bn)return 0; if(an)return 1; if(bn)return -1;
+    return (av-bv)*sd || b.orders-a.orders;
+  });
+  function th(key,label,title){
+    var on=perfSort.key===key;
+    return '<th class="psort'+(on?' on':'')+'" data-act="perf-sort" data-key="'+key+'"'
+      +(title?' title="'+title+'"':'')+'>'+label
+      +'<span class="psort-ar">'+(on?(perfSort.dir==='desc'?'▼':'▲'):'⇅')+'</span></th>';
+  }
   var h='<table><thead><tr>'
-    +'<th>المنتج</th><th>طلبات</th><th>قطع</th>'
-    +'<th title="قيمة كل الأوردرات في الفترة بأي حالة — مش المتحصل فعلاً">Revenue تقديري</th>'
-    +'<th title="نسبة التأكيد = اللي دخل رحلة الشحن ÷ اللي اتعامل معاه (يستبعد Pending) — نفس كروت اللوحة">مؤكد/شحن</th>'
-    +'<th title="نسبة التسليم = المسلَّم ÷ (المسلَّم + المرتجع) — نفس كروت اللوحة. الفاشل مش بيدخل لأنه ما وصلش لمرحلة شحن نهائية">تسليم</th>'
-    +'<th>إلغاء</th>'
-    +'<th title="نسبة المرتجع = المرتجع ÷ (المسلَّم + المرتجع). الفاشل مش بيدخل لأنه ما وصلش لمرحلة شحن نهائية">مرتجع/فشل</th>'
-    +'<th>Paymob</th>'
-    +(adminView?'<th title="ربح تقديري على الأوردرات المسلَّمة فقط (إيراد المسلَّم − تكلفة القطع المسلَّمة)، قبل الشحن والمصاريف">ربح المنتج</th>':'')
+    +'<th>المنتج</th>'+th('orders','طلبات')+th('qty','قطع')
+    +th('revenue','Revenue تقديري','قيمة كل الأوردرات في الفترة بأي حالة — مش المتحصل فعلاً')
+    +th('confirmRate','مؤكد/شحن','نسبة التأكيد = اللي دخل رحلة الشحن ÷ اللي اتعامل معاه (يستبعد Pending) — نفس كروت اللوحة. اضغط للفرز')
+    +th('deliveryRate','تسليم','نسبة التسليم = المسلَّم ÷ (المسلَّم + المرتجع) — نفس كروت اللوحة. اضغط للفرز')
+    +th('cancelled','إلغاء')
+    +th('returnRate','مرتجع/فشل','نسبة المرتجع = المرتجع ÷ (المسلَّم + المرتجع). اضغط للفرز')
+    +th('paymob','Paymob')
+    +(adminView?th('profit','ربح المنتج','ربح تقديري على الأوردرات المسلَّمة فقط (إيراد المسلَّم − تكلفة القطع المسلَّمة)، قبل الشحن والمصاريف'):'')
     +'</tr></thead><tbody>';
   list.forEach(function(p){
     h+='<tr>'
@@ -152,10 +179,10 @@ export function renderProductPerformance(){
       +'<td class="mn">'+num(p.orders)+'</td>'
       +'<td class="mn">'+num(p.qty)+'</td>'
       +'<td class="price-cell">'+money(p.revenue)+'</td>'
-      +'<td><span class="badge confirmed"><span class="bdot"></span>'+pct(p.confirmRate)+'</span></td>'
-      +'<td><span class="badge delivered"><span class="bdot"></span>'+pct(p.deliveryRate)+'</span></td>'
+      +'<td>'+ratePill(p.confirmRate)+'</td>'
+      +'<td>'+ratePill(p.deliveryRate)+'</td>'
       +'<td class="mn">'+num(p.cancelled)+'</td>'
-      +'<td><span class="badge returned"><span class="bdot"></span>'+pct(p.returnRate)+'</span></td>'
+      +'<td>'+ratePill(p.returnRate,true)+'</td>'
       +'<td class="mn">'+num(p.paymob)+'</td>'
       +(adminView?'<td class="price-cell">'+(p.profit===null?'—':money(p.profit))+'</td>':'')
       +'</tr>';

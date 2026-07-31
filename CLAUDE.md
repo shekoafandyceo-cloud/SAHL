@@ -75,12 +75,12 @@ sahl/
 ├── app/               ← لوحة التاجر → Cloudflare Pages
 │   ├── index.html     ← markup بس (58KB)
 │   ├── _headers       ← CSP مشدّدة
-│   ├── js/            ← 44 موديول ES
+│   ├── js/            ← 46 موديول ES
 │   │   ├── main.js    ← 420 سطر: initApp + موزّع data-act + قايمة التشغيل
 │   │   ├── core/      ← dom · log · toast · constants · format · config · supabase · modal
 │   │   ├── orders/    ← 15 موديول · state.js هو المالك الوحيد للحالة المشتركة
 │   │   └── auth/ inbox/ stock/ finance/ billing/ analytics/ settings/ issues/ tour/ ui/
-│   ├── css/           ← 22 ملف — الترتيب الرقمي ملزم
+│   ├── css/           ← 23 ملف — الترتيب الرقمي ملزم (22-dark آخرهم عمداً: تجاوزات الليلي لازم تكسب)
 │   └── fonts/ img/
 └── admin/             ← لوحة السوبر أدمن (نطاق منفصل)
     ├── index.html     ← لسه ملف واحد بجافاسكربت متضغوط — قرار متعمد
@@ -88,7 +88,7 @@ sahl/
     └── img/
 ```
 
-**مفاتيح localStorage في لوحة التاجر:** `sb-auth` (جلسة Supabase) · `sb_ps` (حجم صفحة الجدول) · `sb_cols2` (مقاسات الأعمدة — `sb_cols` القديمة بتتطنش وتتمسح) · `sahl_setup_done_<tenantId>` (إقفال checklist الإعداد) · `sahl_side_collapsed` (طيّ السايدبار لأيقونات بس — ديسكتوب بس) · `sahl_tour_done_<uid>` (الجولة).
+**مفاتيح localStorage في لوحة التاجر:** `sb-auth` (جلسة Supabase) · `sb_ps` (حجم صفحة الجدول) · `sb_cols2` (مقاسات الأعمدة — `sb_cols` القديمة بتتطنش وتتمسح) · `sahl_setup_done_<tenantId>` (إقفال checklist الإعداد) · `sahl_side_collapsed` (طيّ السايدبار لأيقونات بس — ديسكتوب بس) · `sahl_dark` (الوضع الليلي — كلاس `dark` على `<html>` وتجاوزاته في `22-dark.css`، وألوان Chart.js بتتظبط من `applyDark` في main.js) · `sahl_tour_done_<uid>` (الجولة).
 
 **شكل الشِل (1 أغسطس):** سايدبار يمين 236px فيه أقسام معنونة (التشغيل / الأعمال / النظام — الأخيرتين `admin-only`)، أيقونات SVG line icons بـ`stroke:currentColor` (مش إيموجي)، وكارت المستخدم مثبّت تحت (`sn-user` بيتعبّى في `auth.js` جنب `user-badge`). زرار الطيّ دايرة راكبة على حافة القايمة زي بوسطة — **أخو الـ`aside` في الـDOM مش جواه** (الـ`overflow-y:auto` كان هيقصّه) بـ`position:fixed` وبيتحرك مع الطيّ بمحدد `#sidenav.collapsed + .side-toggle`. شارة المستخدم في التوب بار مخفية على الديسكتوب ومرجوعة على الموبايل (≤768 السايدبار بيبقى شريط أفقي من غير عناوين ولا كارت ولا زرار طيّ).
 

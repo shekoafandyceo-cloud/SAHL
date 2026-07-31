@@ -1,0 +1,183 @@
+/* الوضع الليلي — بيتفعّل بكلاس .dark على <html> (main.js: darkToggle/initDarkMode،
+   التفضيل في localStorage[sahl_dark]).
+   الملف ده آخر الترتيب الرقمي عمداً: كل قاعدة هنا لازم تكسب اللي قبلها.
+   الاستراتيجية: قلب المتغيرات بيمسك كل القواعد المبنية عليها تلقائياً،
+   والباقي تجاوزات مستهدفة للألوان الثابتة (خلفيات بيضا/نصوص غامقة/شيبس فاتحة). */
+
+html.dark{
+  color-scheme:dark;
+  --bg:#0d1220;--bg2:#111a2e;--sur:rgba(24,31,48,.88);--card:rgba(27,35,54,.96);
+  --brd:#273047;--brd2:#344059;--txt:#e6ebf5;--muted:#9aa7bd;--muted2:#6b7890;
+  --shadow:0 18px 45px rgba(0,0,0,.5);--shadow2:0 10px 24px rgba(0,0,0,.38);
+}
+html.dark body{
+  color:var(--txt);
+  background:
+    radial-gradient(circle at top right,rgba(255,159,28,.09),transparent 33%),
+    radial-gradient(circle at 15% 10%,rgba(37,99,235,.08),transparent 30%),
+    linear-gradient(135deg,#141829 0%,#0d1220 38%,#0e1526 100%);
+}
+
+/* ── زرار التبديل نفسه: قمر في النهاري، شمس في الليلي ── */
+.dark-btn svg{width:16px;height:16px;display:block;}
+.dark-btn .dk-sun{display:none;}
+html.dark .dark-btn .dk-moon{display:none;}
+html.dark .dark-btn .dk-sun{display:block;}
+
+/* ── الشِل: توب بار وسايدبار ── */
+html.dark .topbar{background:rgba(17,23,38,.82);border-bottom-color:var(--brd);box-shadow:0 8px 24px rgba(0,0,0,.35);}
+html.dark .sidenav{background:rgba(17,23,38,.88);}
+html.dark .tlogo{background:linear-gradient(135deg,#232b40,#33405c);box-shadow:0 10px 22px rgba(0,0,0,.4);}
+html.dark .sidenav .tnav-btn:hover{background:rgba(255,255,255,.05);}
+html.dark .sidenav .tnav-btn.active{color:#f3f6fc;}
+html.dark .sidenav .tnav-btn.active .nv-ico{color:var(--acc);}
+html.dark .tdate,html.dark .rbtn,html.dark .side-toggle{background:#1a2233;border-color:var(--brd);color:var(--muted);}
+html.dark .rbtn{color:var(--txt);}
+html.dark .rbtn:hover,html.dark .side-toggle:hover{border-color:var(--acc);color:var(--acc);background:#212b42;box-shadow:0 10px 24px rgba(255,159,28,.10);}
+html.dark .logout-btn{background:#1a2233;border-color:var(--brd);color:var(--txt);}
+html.dark .tnav{background:#161d2e;border-color:var(--brd);}
+html.dark .tnav-btn:hover{background:#1f2839;color:var(--txt);box-shadow:none;}
+html.dark .tnav-btn.active{background:#243048;border-color:#243048;color:var(--txt);}
+
+/* ── مدخلات عامة: أي input/select/textarea في أي مكان ── */
+html.dark input:not([type=checkbox]):not([type=radio]):not([type=file]),
+html.dark select,html.dark textarea{background:#131b2d;color:var(--txt);border-color:var(--brd);}
+html.dark input::placeholder,html.dark textarea::placeholder{color:var(--muted2);}
+
+/* ── الأزرار/الشيبس البيضا المتكررة ── */
+html.dark .bbtn,html.dark .pbtn,html.dark .abtn,html.dark .period-btn,html.dark .aperiod-btn,
+html.dark .stock-tab,html.dark .fdrop-btn,html.dark .prod-edit-btn,html.dark .exp-edit-btn,
+html.dark .exp-del-btn,html.dark .issue-action-btn,html.dark .alert-action,html.dark .copy-btn,
+html.dark .prod-del,html.dark .xcls,html.dark .auth-secondary-btn,html.dark .file-wrap .file-btn,
+html.dark .vip-show-btn2,html.dark .merge-show-btn2{background:#1a2233;border-color:var(--brd);color:var(--txt);}
+html.dark .stock-tab{color:var(--muted);}
+html.dark .stock-tab.active{background:#e6ebf5;color:#0d1220;border-color:#e6ebf5;}
+html.dark .period-btn.active,html.dark .aperiod-btn.active{background:var(--acc);color:#000;border-color:var(--acc);}
+html.dark .prod-add-btn{background:#151d30;border-color:#3a4763;color:var(--muted);}
+html.dark .prod-add-btn:hover,html.dark .prod-edit-btn:hover,html.dark .issue-action-btn:hover{color:var(--acc);border-color:var(--acc);background:rgba(255,159,28,.08);}
+html.dark .fbar,html.dark .bulkbar{background:var(--card);}
+html.dark .fcnt,html.dark .pcnt,html.dark .pdate,html.dark .bcnt{background:#1a2233;border-color:var(--brd);color:var(--muted);}
+html.dark .bcnt{color:var(--acc);background:rgba(255,159,28,.10);border-color:rgba(255,159,28,.30);}
+html.dark .fdrop-panel{background:#161e30;border-color:var(--brd);box-shadow:var(--shadow);}
+html.dark .pbar{background:var(--card);}
+html.dark .pseg{background:#141b2b;border-color:var(--brd);box-shadow:inset 0 1px 3px rgba(0,0,0,.35);}
+
+/* ── الجداول ── */
+html.dark .twrap{background:rgba(22,29,46,.92);border-color:var(--brd);}
+html.dark thead{background:linear-gradient(180deg,#1b2337,#161d2e);}
+html.dark th{color:var(--muted);border-bottom-color:var(--brd);}
+html.dark td{border-bottom-color:#20283c;}
+html.dark tbody tr:nth-child(even){background:rgba(255,255,255,.025);}
+html.dark tbody tr:hover{background:rgba(255,159,28,.07);}
+html.dark tbody tr.sel,html.dark tbody tr.has-int-note{background:rgba(255,159,28,.09);}
+html.dark td.id{color:#dbe3f0;}
+html.dark td.nm{color:#eef2fa;}
+html.dark td.pr{color:#a8b4c8;}
+html.dark td.addr{color:var(--muted);}
+html.dark .history-table th{background:#1b2337;}
+html.dark .dsec{background:#151d30;border-color:var(--brd);}
+html.dark .dpan{background:rgba(22,29,46,.98);border-color:var(--brd);}
+html.dark .dtit{color:var(--txt);}
+html.dark .notes-box,html.dark .int-notes{background:#131b2d;border-color:var(--brd);color:var(--txt);}
+html.dark .call-item,html.dark .log-item{background:#151d30;border-color:var(--brd);}
+html.dark .call-time,html.dark .log-time{color:#a8b4c8;}
+html.dark .psize select,html.dark .pag{background:#1a2233;border-color:var(--brd);color:var(--txt);}
+html.dark .cb{background:#131b2d;border-color:var(--brd2);}
+
+/* ── شارات الحالة: نفس الدرجات بس معتمة وشفافة بدل الباستيل الفاتح ── */
+html.dark .badge.pending,html.dark .badge.picked_up,html.dark .badge.picking_up_from_consignee{background:rgba(245,158,11,.13);color:#fbbf24;border-color:rgba(245,158,11,.35);}
+html.dark .badge.confirmed{background:rgba(16,185,129,.13);color:#34d399;border-color:rgba(16,185,129,.35);}
+html.dark .badge.delivered,html.dark .badge.in_transit,html.dark .badge.in_transit_between_hubs{background:rgba(20,184,166,.13);color:#2dd4bf;border-color:rgba(20,184,166,.35);}
+html.dark .badge.cancelled,html.dark .badge.failed{background:rgba(239,68,68,.13);color:#f87171;border-color:rgba(239,68,68,.38);}
+html.dark .badge.returned,html.dark .badge.returned_to_business,html.dark .badge.returned_to_business2,html.dark .badge.exception{background:rgba(249,115,22,.13);color:#fb923c;border-color:rgba(249,115,22,.38);}
+html.dark .badge.bosta_assigned,html.dark .badge.bosta_auto,html.dark .badge.received_at_warehouse{background:rgba(59,130,246,.13);color:#60a5fa;border-color:rgba(59,130,246,.38);}
+html.dark .badge.out_for_delivery,html.dark .badge.out_for_exchange,html.dark .badge.route_assigned{background:rgba(124,58,237,.15);color:#a78bfa;border-color:rgba(124,58,237,.40);}
+html.dark .pay-badge{background:rgba(16,185,129,.12);}
+html.dark .pay-cod{background:rgba(148,163,184,.12);color:#a8b4c8;}
+html.dark .vip-badge{background:rgba(245,158,11,.14);color:#fbbf24;border-color:rgba(245,158,11,.35);}
+html.dark .call-res.no_answer,html.dark .call-res.busy{background:rgba(245,158,11,.13);color:#fbbf24;}
+html.dark .call-res.refused{background:rgba(239,68,68,.13);color:#f87171;}
+html.dark .call-res.confirmed{background:rgba(16,185,129,.13);color:#34d399;}
+html.dark .call-res.callback{background:rgba(59,130,246,.13);color:#60a5fa;}
+html.dark .rpill.good{color:#34d399;}
+html.dark .rpill.mid{color:#fbbf24;}
+html.dark .rpill.bad{color:#f87171;}
+html.dark th.psort.on{color:var(--acc);}
+html.dark .bbtn.ok{background:rgba(16,185,129,.12);color:#34d399;border-color:rgba(16,185,129,.35);}
+html.dark .bbtn.bs{background:rgba(59,130,246,.12);color:#60a5fa;border-color:rgba(59,130,246,.35);}
+html.dark .bbtn.cn{background:rgba(239,68,68,.12);color:#f87171;border-color:rgba(239,68,68,.35);}
+html.dark .abtn.ok{background:rgba(16,185,129,.12);color:#34d399;border-color:rgba(16,185,129,.35);}
+html.dark .abtn.bs{background:rgba(59,130,246,.12);color:#60a5fa;border-color:rgba(59,130,246,.35);}
+html.dark .abtn.cn{background:rgba(239,68,68,.12);color:#f87171;border-color:rgba(239,68,68,.35);}
+html.dark .issue-prio.high{background:rgba(239,68,68,.13);color:#f87171;border-color:rgba(239,68,68,.35);}
+html.dark .issue-prio.medium{background:rgba(249,115,22,.13);color:#fb923c;border-color:rgba(249,115,22,.35);}
+html.dark .issue-prio.low{background:rgba(59,130,246,.13);color:#60a5fa;border-color:rgba(59,130,246,.35);}
+html.dark .exp-cat-مرتبات{background:rgba(245,158,11,.14);color:#fbbf24;}
+html.dark .exp-cat-إعلانات{background:rgba(59,130,246,.14);color:#60a5fa;}
+html.dark .exp-cat-تغليف{background:rgba(124,58,237,.16);color:#a78bfa;}
+html.dark .exp-cat-فواتير{background:rgba(239,68,68,.14);color:#f87171;}
+html.dark .exp-cat-مخزن{background:rgba(16,185,129,.14);color:#34d399;}
+html.dark .exp-cat-متفرقات{background:rgba(148,163,184,.14);color:#a8b4c8;}
+html.dark .wa-verify-badge.ok{background:rgba(16,185,129,.13);color:#34d399;border-color:rgba(16,185,129,.35);}
+html.dark .wa-verify-badge.warn{background:rgba(245,158,11,.13);color:#fbbf24;border-color:rgba(245,158,11,.35);}
+html.dark .wa-verify-badge.bad{background:rgba(239,68,68,.13);color:#f87171;border-color:rgba(239,68,68,.38);}
+
+/* ── الماليات والتنبيهات ── */
+html.dark .info-i{background:#1a2233;border-color:var(--brd2);color:var(--muted);}
+html.dark .alert-badge{background:#1a2233;border-color:var(--brd);}
+html.dark .cost-row.profit{background:rgba(16,185,129,.07);}
+html.dark .movement-cost.zero{background:rgba(239,68,68,.12);}
+
+/* ── المحفظة والباقات ── */
+html.dark .wallet-chip{background:#1a2233;border-color:var(--brd);}
+html.dark .wallet-chip .wseg .wval{color:var(--txt);}
+html.dark .wallet-chip .wseg.wbalance.warn{background:rgba(239,68,68,.12);}
+html.dark .plan-card{background:var(--card);border-color:var(--brd);}
+html.dark .plan-card.current{background:rgba(16,185,129,.08);}
+html.dark .plan-card.popular{background:rgba(255,159,28,.08);}
+html.dark .plan-card.lifetime{background:rgba(124,58,237,.10);}
+html.dark .wstat,html.dark .topup-box,html.dark .vfcash-info{background:#161e30;border-color:var(--brd);}
+html.dark .topup-form input,html.dark .topup-form .file-wrap{background:#131b2d;border-color:var(--brd);}
+
+/* ── تنبيه الدمج وطلبات الإلغاء ── */
+html.dark .merge-alert::before{background:#161e30;}
+html.dark .merge-customer{background:#1a2233;border-color:var(--brd);}
+html.dark tr.cancel-req{background:rgba(239,68,68,.07);}
+html.dark .cxbar,html.dark .cx-banner{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.30);}
+
+/* ── الإعدادات ── */
+html.dark #page-settings .settings-card,html.dark .settings-card{background:var(--card);border-color:var(--brd);}
+html.dark .inbox-lock{background:#161e30;border-color:var(--brd);}
+html.dark .fld-edit-input{background:#131b2d;border-color:var(--brd);color:var(--txt);}
+
+/* ── الجولة ── */
+html.dark .tour-bubble{background:#1b2337;border-color:var(--brd2);color:var(--txt);}
+
+/* ── الأوث (اللوجين) ── */
+html.dark #setup{background:transparent;}
+html.dark .sbox,html.dark .signup-bonus-card{background:var(--card);border-color:var(--brd);}
+html.dark .lw-name{color:var(--txt);}
+html.dark .sinp{background:#131b2d;color:var(--txt);border-color:var(--brd);}
+
+/* ── الهياكل (skeletons) ── */
+html.dark .skel-bar,html.dark .skel-circle{background:linear-gradient(90deg,#20283c 25%,#2a344c 50%,#20283c 75%);background-size:200% 100%;}
+
+/* ── صندوق المحادثات ── */
+html.dark .wa-list{background:#141b2b;}
+html.dark .wa-search:focus{background:#131b2d;}
+html.dark .wa-filter{background:#1a2233;border-color:var(--brd);color:var(--muted);}
+html.dark .wa-conv:hover{background:#1b2337;}
+html.dark .wa-chat-head,html.dark .wa-compose{background:#141b2b;border-color:var(--brd);}
+html.dark .wa-msg.in{background:#1e2740;border-color:#2b3652;color:var(--txt);}
+html.dark .wa-msg.out{background:#0b4f3f;color:#e7fff5;}
+html.dark .wa-qr,html.dark .wa-qr-add{background:#1a2233;border-color:var(--brd);color:var(--txt);}
+html.dark .wa-cmeta,html.dark .wa-lp,html.dark .wa-order{background:#161e30;border-color:var(--brd);}
+html.dark .wa-window-closed{background:rgba(245,158,11,.10);}
+html.dark .wa-attach{background:#1a2233;border-color:var(--brd);}
+
+/* ── كالندر أداء الأيام: نفس التدرجات بس أعمق شوية عشان تبان على الغامق ── */
+html.dark .dcal-day.q-good{background:rgba(16,185,129,.26);border-color:rgba(16,185,129,.55);}
+html.dark .dcal-day.q-ok{background:rgba(16,185,129,.14);border-color:rgba(16,185,129,.38);}
+html.dark .dcal-day.q-mid{background:rgba(245,158,11,.17);border-color:rgba(245,158,11,.45);}
+html.dark .dcal-day.q-weak{background:rgba(249,115,22,.17);border-color:rgba(249,115,22,.48);}
+html.dark .dcal-day.q-bad{background:rgba(239,68,68,.19);border-color:rgba(239,68,68,.50);}

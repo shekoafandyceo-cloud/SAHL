@@ -45,6 +45,66 @@
 #perf-tbody td.mn{font-size:1.02rem;font-weight:900;}
 #perf-tbody th{font-size:.85rem;font-weight:800;}
 
+/* حبّة النسبة الموحّدة — لونها من جودة الرقم (analytics/rate.js):
+   أخضر كويس · أصفر متوسط · أحمر وحش · رمادي مفيش بيانات */
+.rpill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-family:'JetBrains Mono',monospace;font-size:.82rem;font-weight:900;border:1px solid transparent;white-space:nowrap;}
+.rpill .bdot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block;}
+.rpill.good{background:rgba(16,185,129,.12);color:#047857;border-color:rgba(16,185,129,.30);}
+.rpill.mid{background:rgba(245,158,11,.13);color:#b45309;border-color:rgba(245,158,11,.32);}
+.rpill.bad{background:rgba(239,68,68,.12);color:#b91c1c;border-color:rgba(239,68,68,.30);}
+.rpill.none{background:transparent;color:var(--muted2);border-color:var(--brd);}
+
+/* عناوين الفرز في جدول أداء المنتجات */
+th.psort{cursor:pointer;transition:color .12s;}
+th.psort:hover{color:var(--txt);}
+th.psort.on{color:#b45309;}
+.psort-ar{margin-inline-start:4px;font-size:.68rem;opacity:.55;}
+th.psort.on .psort-ar{opacity:1;}
+
+/* ═══ كالندر أداء الأيام ═══ */
+.dcal-wrap{background:var(--card);border:1px solid var(--brd);border-radius:20px;padding:18px;box-shadow:var(--shadow2);}
+.dcal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+.dcal-title{font-size:1.15rem;font-weight:900;color:var(--txt);display:flex;align-items:center;gap:8px;}
+.dcal-year{font-family:'JetBrains Mono',monospace;color:var(--muted);font-size:1rem;}
+.dcal-nav{width:38px;height:38px;border-radius:12px;border:1px solid var(--brd);background:var(--sur);color:var(--txt);font-size:1.2rem;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;}
+.dcal-nav:hover{border-color:var(--acc);color:#b45309;}
+.dcal-today{border:1px solid var(--brd);background:var(--sur);color:var(--muted);border-radius:999px;padding:4px 12px;font-size:.74rem;font-family:'Cairo',sans-serif;cursor:pointer;}
+.dcal-today:hover{border-color:var(--acc);color:#b45309;}
+.dcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
+.dcal-wd{text-align:center;font-size:.74rem;font-weight:800;color:var(--muted);padding:4px 0 8px;}
+.dcal-day{min-height:86px;border-radius:14px;border:1px solid var(--brd);padding:8px 9px;display:flex;flex-direction:column;gap:2px;background:var(--sur);transition:transform .12s,box-shadow .12s;}
+.dcal-day:not(.q-empty):not(.q-future):hover{transform:translateY(-2px);box-shadow:var(--shadow2);}
+.dcal-num{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:900;color:var(--txt);}
+.dcal-cnt{font-size:.68rem;font-weight:700;color:var(--muted);}
+.dcal-rate{font-size:.7rem;font-weight:800;color:var(--txt);white-space:nowrap;}
+.dcal-day.today{outline:2px solid var(--acc);outline-offset:2px;}
+/* تدرج الجودة — الخلفية والحدود بيتقلوا مع الجودة */
+.dcal-day.q-good{background:rgba(16,185,129,.20);border-color:rgba(16,185,129,.45);}
+.dcal-day.q-ok{background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.30);}
+.dcal-day.q-mid{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.38);}
+.dcal-day.q-weak{background:rgba(249,115,22,.14);border-color:rgba(249,115,22,.40);}
+.dcal-day.q-bad{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.42);}
+.dcal-day.q-none{opacity:.75;}
+.dcal-day.q-empty{border:none;background:transparent;}
+.dcal-day.q-future{background:transparent;border-style:dashed;opacity:.45;}
+.dcal-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--brd);}
+.dcal-sum{font-size:.84rem;color:var(--muted);}
+.dcal-sum b{color:var(--txt);font-family:'JetBrains Mono',monospace;}
+.dcal-legend{display:flex;gap:6px;flex-wrap:wrap;}
+.dcal-lg{font-size:.68rem;font-weight:800;padding:3px 9px;border-radius:999px;border:1px solid var(--brd);color:var(--txt);}
+.dcal-lg.q-good{background:rgba(16,185,129,.20);border-color:rgba(16,185,129,.45);}
+.dcal-lg.q-ok{background:rgba(16,185,129,.10);border-color:rgba(16,185,129,.30);}
+.dcal-lg.q-mid{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.38);}
+.dcal-lg.q-weak{background:rgba(249,115,22,.14);border-color:rgba(249,115,22,.40);}
+.dcal-lg.q-bad{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.42);}
+.dcal-lg.q-none{color:var(--muted);}
+/* موبايل: الكالندر بيضيّق — نخفي تفاصيل النسب ونسيب الرقم واللون */
+@media(max-width:768px){
+  .dcal-day{min-height:56px;padding:5px 6px;}
+  .dcal-rate,.dcal-cnt{display:none;}
+  .dcal-grid{gap:4px;}
+}
+
 /* Expense table — bigger */
 #exp-tbody td{font-size:.95rem;font-weight:700;}
 #exp-tbody th{font-size:.85rem;font-weight:800;}

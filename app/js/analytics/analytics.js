@@ -1,6 +1,8 @@
 // صفحة إحصائيات الأداء — المنتجات والمنصات
 
 import { emptyState } from '../core/empty.js';
+import { ratePill } from './rate.js';
+import { renderDaysCalendar } from './days.js';
 import { veilDone } from '../core/veil.js';
 import { parseProductItems } from './product-match.js';
 import { BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, normStatus, statusIn } from '../core/constants.js';
@@ -73,6 +75,7 @@ export function getAnalyticsRange(){
 export function renderAnalyticsActive(){
   if(analyticsCurrentTab==='products') renderProductPerformance();
   else if(analyticsCurrentTab==='platforms') renderFinancePlatforms();
+  else if(analyticsCurrentTab==='days') renderDaysCalendar();
   // 'employees' is a static placeholder (under construction)
 }
 
@@ -95,8 +98,10 @@ export function initAnalyticsTabs(){
       document.querySelectorAll('.stock-tab[data-atab]').forEach(function(x){x.classList.toggle('active',x===b);});
       $id('analytics-products-tab').style.display = analyticsCurrentTab==='products'?'block':'none';
       $id('analytics-platforms-tab').style.display = analyticsCurrentTab==='platforms'?'block':'none';
+      if($id('analytics-days-tab'))$id('analytics-days-tab').style.display = analyticsCurrentTab==='days'?'block':'none';
       $id('analytics-employees-tab').style.display = analyticsCurrentTab==='employees'?'block':'none';
-      if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = analyticsCurrentTab==='employees'?'none':'';
+      // شريط المدة مالوش لازمة في الكالندر (ليه تنقّل شهور خاص) ولا الموظفين
+      if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = (analyticsCurrentTab==='employees'||analyticsCurrentTab==='days')?'none':'';
       renderAnalyticsActive();
     });
   });
@@ -141,9 +146,6 @@ export function renderFinancePlatforms(){
       title:'مفيش بيانات في المدة دي',
       sub:'الأرقام بتتبني من أوردراتك — جرّب مدة أطول أو استنى أوردرات جديدة.'}); return; }
 
-  function rateColor(p){ if(p==null) return 'var(--muted)'; if(p>=75) return 'var(--green)'; if(p>=70) return 'var(--ora)'; return 'var(--red)'; }
-  function rateTxt(p){ return p==null ? '—' : p.toFixed(1)+'%'; }
-
   var h = '<table><thead><tr>'
     + '<th>المنصة</th>'
     + '<th>إجمالي الطلبات</th>'
@@ -156,8 +158,8 @@ export function renderFinancePlatforms(){
     h += '<tr>'
       + '<td class="nm">'+b.ic+' '+esc(b.label)+'</td>'
       + '<td class="mn">'+num(b.total)+'</td>'
-      + '<td class="mn" style="color:'+rateColor(b.confRate)+';font-weight:900">'+rateTxt(b.confRate)+'</td>'
-      + '<td class="mn" style="color:'+rateColor(b.delivRate)+';font-weight:900">'+rateTxt(b.delivRate)+'</td>'
+      + '<td>'+ratePill(b.confRate)+'</td>'
+      + '<td>'+ratePill(b.delivRate)+'</td>'
       + '<td class="mn" style="color:var(--green)">'+num(b.delivered)+'</td>'
       + '<td class="mn" style="color:var(--ora)">'+num(b.returned)+'</td>'
       + '</tr>';
