@@ -22,6 +22,7 @@ import { customerOrderCount, detectMergeable, mergeableCustomers, renderMergeAle
 import { addCallAttempt, deleteCallAttempt, doBulkUpdate, doUpdate, saveInternalNotes } from './orders/mutations.js';
 import { addEmptyProductRow, buildProductOptions, collectProducts, parseProducts, renderProductsEditor, saveProducts } from './orders/products-editor.js';
 import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetPageSize, ordersSetSelected, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, stm, totalCount } from './orders/state.js';
+import { veilBegin } from './core/veil.js';
 import { getCallDeadline, goPage, parseStatusLog, RANK_GOOD, RANK_MID, renderTable, updateBulkBar, updateMasterCb, updateUnprintedBtn } from './orders/table.js';
 
 import { _suspending, applyTenantBranding, bootstrapTenantIfNeeded, currentRole, currentTenant, currentTenantId, currentUser, doLogin, doLogout, doSignup, fetchProfileAndEnter, forceSuspendLogout, hasTenant, initLoginForm, initSignupForm, loadTenantAndEnter, loginErrorMessage, resetTenantBranding, showAuthView, showSubscriptionLock, signupErrorMessage, tenantDisplayName } from './auth/auth.js';
@@ -282,13 +283,15 @@ export function showPage(page){
   document.querySelectorAll('.tnav-btn').forEach(function(b){
     b.classList.toggle('active', b.getAttribute('data-page')===page);
   });
-  if(page==='stock')loadStock();
-  if(page==='finance')loadFinance();
-  if(page==='billing')loadBilling();
-  if(page==='settings')loadSettings();
-  if(page==='issues')loadIssues();
-  if(page==='analytics')loadAnalytics();
-  if(page==='inbox')loadInbox();
+  // أول دخول للتاب في الجلسة: حجاب تحميل بدل الأصفار الكدابة —
+  // كل loader بيشيله بـveilDone لما بياناته الأساسية توصل (core/veil.js)
+  if(page==='stock'){veilBegin('stock');loadStock();}
+  if(page==='finance'){veilBegin('finance');loadFinance();}
+  if(page==='billing'){veilBegin('billing');loadBilling();}
+  if(page==='settings'){veilBegin('settings');loadSettings();}
+  if(page==='issues'){veilBegin('issues');loadIssues();}
+  if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
+  if(page==='inbox'){veilBegin('inbox');loadInbox();}
 }
 
 

@@ -1,5 +1,6 @@
 // صندوق محادثات الواتساب — الحالة والتحميل والرسم والإرسال والتسميات
 
+import { veilDone } from '../core/veil.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
 import { normalizePhone } from '../core/format.js';
@@ -28,11 +29,13 @@ export function waInitials(name,phone){
 }
 
 export function loadInbox(){
-  if(tourActive){ $id('wa-list-body').innerHTML='<div class="wa-empty">التبويب ده بيشتغل بالرسائل الحقيقية بعد ما تخلّص الجولة.</div>'; return; }
-  if(!ensureTenant()) return;
-  if(inboxVerified === false){ renderInboxLocked(); return; }
+  // wa-list-body ممكن تكون مش موجودة لو renderInboxLocked استبدلت الصفحة —
+  // حارس بدل ما نقع (الهشاشة دي اتكشفت في اختبار الحجاب)
+  if(tourActive){ var wlb=$id('wa-list-body'); if(wlb)wlb.innerHTML='<div class="wa-empty">التبويب ده بيشتغل بالرسائل الحقيقية بعد ما تخلّص الجولة.</div>'; return; }
+  if(!ensureTenant()){veilDone('inbox');return;}
+  if(inboxVerified === false){ renderInboxLocked(); veilDone('inbox'); return; }
   if(inboxVerified === null){
-    refreshInboxGate().then(function(ok){ if(!ok){ renderInboxLocked(); } else { loadInbox(); } });
+    refreshInboxGate().then(function(ok){ if(!ok){ renderInboxLocked(); veilDone('inbox'); } else { loadInbox(); } });
     return;
   }
   waEnsureNotifyPermission();
@@ -53,9 +56,10 @@ export function waFetchConvos(showLoading){
   if(showLoading) $id('wa-list-body').innerHTML='<div class="wa-empty">جاري التحميل…</div>';
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
-      if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">تعذّر تحميل المحادثات</div>'; return; }
+      if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">تعذّر تحميل المحادثات</div>'; veilDone('inbox'); return; }
       waConvos=r.data||[];
       renderConvos();
+      veilDone('inbox');
     });
 }
 

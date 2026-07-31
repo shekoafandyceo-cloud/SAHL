@@ -15,3 +15,14 @@ button,select,input,textarea{font-family:'Cairo',sans-serif;}
 button{transition:transform .16s ease,box-shadow .16s ease,filter .16s ease,background .16s ease,border-color .16s ease;}
 button:hover{transform:translateY(-1px);}button:active{transform:translateY(0) scale(.98);}
 .bdot,.col-resize,.col-resize::before{font-weight:normal !important;}
+/* حجاب التحميل عند أول دخول تاب (core/veil.js) — المحتوى القديم/الأصفار
+   بيتغبّش ويظهر مؤشر تحميل لحد ما البيانات الحقيقية توصل */
+.pg-busy{position:relative;}
+.pg-busy>*:not(.pg-veil){filter:blur(5px) saturate(.75);opacity:.6;pointer-events:none;user-select:none;}
+.pg-veil{display:none;}
+.pg-busy>.pg-veil{display:flex;position:absolute;inset:0;z-index:40;align-items:flex-start;justify-content:center;padding-top:16vh;animation:pgVeilIn .18s ease;}
+.pg-veil-box{display:flex;flex-direction:column;align-items:center;gap:12px;background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:22px 36px;box-shadow:var(--shadow2);}
+.pg-veil-spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--brd2);border-top-color:var(--acc);animation:pgSpin .8s linear infinite;}
+.pg-veil-txt{font-size:.88rem;font-weight:800;color:var(--muted);}
+@keyframes pgSpin{to{transform:rotate(360deg)}}
+@keyframes pgVeilIn{from{opacity:0}to{opacity:1}}

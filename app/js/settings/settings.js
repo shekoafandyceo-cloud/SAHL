@@ -1,5 +1,6 @@
 // صفحة الإعدادات والتكاملات وتفضيلات الإشعارات
 
+import { veilDone } from '../core/veil.js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../core/config.js';
 import { $id, esc } from '../core/dom.js';
 import { sb } from '../core/supabase.js';
@@ -21,8 +22,8 @@ export var TG_LOCK_DAYS = 7;          // chat id can't be changed for this many 
 export var tgChatLocked = false;      // computed in renderSettings, read by saveTelegram
 
 export function loadSettings(){
-  if(!isAdmin()) return;
-  if(!ensureTenant()) return;
+  if(!isAdmin()){veilDone('settings');return;}
+  if(!ensureTenant()){veilDone('settings');return;}
   // Pull fresh tenant row + platform settings (bot username) in parallel
   Promise.all([
     sb.from('v_my_tenant').select('store_name,webhook_secret,wa_webhook_secret,plan,whatsapp_phone_id,whatsapp_token,shipping_api_key,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
@@ -33,11 +34,12 @@ export function loadSettings(){
     sb.rpc('wa_inbox_status')
   ]).then(function(results){
     var tRes = results[0], pRes = results[1], wRes = results[2];
-    if(tRes.error){ toast('خطأ في تحميل الإعدادات: '+tRes.error.message,'er'); return; }
+    if(tRes.error){ toast('خطأ في تحميل الإعدادات: '+tRes.error.message,'er'); veilDone('settings'); return; }
     var t = tRes.data || {};
     if(pRes && pRes.data && pRes.data.value){ settingsBotUsername = pRes.data.value; }
     renderSettings(t);
     renderWaVerifyBadge((wRes && !wRes.error) ? wRes.data : null);
+    veilDone('settings');
     loadNotifyPrefs();
   });
 }

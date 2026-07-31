@@ -1,5 +1,6 @@
 // المحفظة والباقات والشحن وقفل نفاد الرصيد
 
+import { veilDone } from '../core/veil.js';
 import { $id } from '../core/dom.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -89,12 +90,13 @@ export function applyDepletionLock(){
 
 // ---------- Open billing page ----------
 export function loadBilling(){
-  if(!isAdmin()) return;
-  if(!ensureTenant()) return;
+  if(!isAdmin()){veilDone('billing');return;}
+  if(!ensureTenant()){veilDone('billing');return;}
   loadVfcashNumber(); // always fetch the latest number
   loadWalletState(function(){
     renderBillingSummary();
     renderPlanCards();
+    veilDone('billing');
     loadWalletHistory();
     loadMyTopupRequests();
   });

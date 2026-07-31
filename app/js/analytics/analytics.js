@@ -1,5 +1,6 @@
 // صفحة إحصائيات الأداء — المنتجات والمنصات
 
+import { veilDone } from '../core/veil.js';
 import { parseProductItems } from './product-match.js';
 import { BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, normStatus, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
@@ -75,12 +76,12 @@ export function renderAnalyticsActive(){
 }
 
 export function loadAnalytics(){
-  if(!isAdmin()) return;
+  if(!isAdmin()){veilDone('analytics');return;}
   if(tourActive){ renderAnalyticsActive(); return; }
-  if(!ensureTenant()) return;
+  if(!ensureTenant()){veilDone('analytics');return;}
   // الإحصائيات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
   ensureAllLoaded(function(){
-    loadStockProductsForCosts(function(){ renderAnalyticsActive(); });
+    loadStockProductsForCosts(function(){ renderAnalyticsActive(); veilDone('analytics'); });
   });
 }
 

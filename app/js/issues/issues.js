@@ -1,5 +1,6 @@
 // مركز المشاكل — قواعد الكشف والعرض
 
+import { veilDone } from '../core/veil.js';
 import { normalizeProductName, parseProductItems } from '../analytics/product-match.js';
 import { BOSTA_INVENTORY_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
@@ -230,12 +231,13 @@ export function renderIssuesTable(){
 }
 
 export function loadIssues(){
-  if(!requireAdmin())return;
-  if(!ensureTenant())return;
+  if(!requireAdmin()){veilDone('issues');return;}
+  if(!ensureTenant()){veilDone('issues');return;}
   var tb=$id('issues-tbody'); if(tb)tb.innerHTML='<div class="ldg"><div class="spin"></div>جاري تحليل المشاكل...</div>';
   loadStockProductsForCosts(function(){
     loadStockMovementsForOps(function(){
       renderIssues();
+      veilDone('issues');
     });
   });
 }

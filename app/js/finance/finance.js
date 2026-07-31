@@ -1,5 +1,6 @@
 // الماليات — التكاليف والأرباح والمصاريف والرسم البياني
 
+import { veilDone } from '../core/veil.js';
 import { BOSTA_POSITIVE_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
 import { fmtD, num } from '../core/format.js';
@@ -73,16 +74,17 @@ export function loadFinance(){
     renderFinance();
     return;
   }
-  if(!requireAdmin())return;
-  if(!ensureTenant())return;
+  if(!requireAdmin()){veilDone('finance');return;}
+  if(!ensureTenant()){veilDone('finance');return;}
   // الماليات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
   ensureAllLoaded(function(){
     // Finance depends on wholesale_price from stock_products, so load stock first.
     loadStockProductsForCosts(function(){
       sb.from('expenses').select('*').eq('tenant_id', currentTenantId).order('expense_date', {ascending:false}).then(function(r){
-        if(r.error){ console.error(r.error); toast('خطأ في تحميل المصاريف','er'); return; }
+        if(r.error){ console.error(r.error); toast('خطأ في تحميل المصاريف','er'); veilDone('finance'); return; }
         financeExpenses = r.data || [];
         renderFinance();
+        veilDone('finance');
       });
     });
   });

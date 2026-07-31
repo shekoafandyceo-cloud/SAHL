@@ -1,5 +1,6 @@
 // المخزون — الحالة والتحميل والرسم والمحرّرات والتنبيهات
 
+import { veilDone } from '../core/veil.js';
 import { normalizeProductName } from '../analytics/product-match.js';
 import { $id, esc } from '../core/dom.js';
 import { fmt, fmtMovementDate, num, pad2, short } from '../core/format.js';
@@ -32,18 +33,19 @@ export function loadStock(){
     renderMovements();
     return;
   }
-  if(!ensureTenant())return;
+  if(!ensureTenant()){veilDone('stock');return;}
   $id('prod-tbody').innerHTML='<div class="ldg"><div class="spin"></div>جاري تحميل المنتجات...</div>';
   $id('mov-tbody').innerHTML='<div class="ldg"><div class="spin"></div>جاري تحميل الحركات...</div>';
 
   // v_stock_products بيحجب wholesale_price عن غير الأدمن على مستوى السيرفر —
   // مش محتاجين نفلتر الأعمدة من هنا تاني.
   sb.from('v_stock_products').select('*').eq('tenant_id',currentTenantId).order('current_qty',{ascending:false}).then(function(r){
-    if(r.error){toast('خطأ في المنتجات: '+r.error.message,'er');return;}
+    if(r.error){toast('خطأ في المنتجات: '+r.error.message,'er');veilDone('stock');return;}
     stockProducts=r.data||[];
     updateStockStats();
     loadBostaInventoryCard();
     renderProducts();
+    veilDone('stock');
     if(stockMovements && stockMovements.length)renderMovements();
   });
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(500).then(function(r){
