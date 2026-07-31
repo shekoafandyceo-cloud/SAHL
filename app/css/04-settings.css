@@ -11,13 +11,16 @@
 .settings-val.mono{font-family:'JetBrains Mono',monospace;direction:ltr;text-align:left;}
 .settings-readonly-wrap{display:flex;gap:8px;align-items:stretch;}
 .settings-readonly{flex:1;background:var(--sur)!important;cursor:text;font-size:.78rem!important;}
-.settings-copy-btn{padding:0 18px;background:var(--acc);color:#fff;border:none;border-radius:11px;font-family:'Cairo',sans-serif;font-size:.86rem;font-weight:900;cursor:pointer;white-space:nowrap;transition:background .15s;}
-.settings-copy-btn:hover{background:#e88e0a;}
-.settings-copy-btn.copied{background:var(--green);}
-.settings-secret-wrap{position:relative;display:flex;}
-.settings-secret-wrap .sinp{flex:1;padding-left:42px;}
-.settings-eye-btn{position:absolute;left:6px;top:50%;transform:translateY(-50%);width:32px;height:32px;background:transparent;border:none;cursor:pointer;font-size:1rem;color:var(--muted);border-radius:8px;display:flex;align-items:center;justify-content:center;transition:background .15s;}
-.settings-eye-btn:hover{background:var(--sur);}
+/* زرار النسخ: الشكل الأساسي (شبح بحدود) جاي من 20-orders-extras بـ#page-settings.
+   الجيل القديم هنا كان بيسيب color:#fff يتسرّب على خلفية فاتحة = نص غير مقروء.
+   اللون بيتحدد هنا بنفس مستوى الـID عشان مفيش قاعدة تانية تكسبه. */
+#page-settings .settings-copy-btn{color:var(--txt);}
+#page-settings .settings-copy-btn:hover{color:var(--acc);}
+/* زرار العين: صندوق عادي جنب الحقل (نموذج 20-orders-extras) — مش عائم جوّاه.
+   الجيل القديم كان position:absolute جوه الحقل، والخلط بينهم كان بيرندر
+   صندوق عائم نص جوه نص بره على طرف الحقل. */
+.settings-secret-wrap{display:flex;}
+#page-settings .settings-eye-btn{position:static;transform:none;height:auto;display:flex;align-items:center;justify-content:center;color:var(--muted);}
 .settings-actions{margin-top:18px;display:flex;justify-content:flex-end;}
 .settings-save-btn{width:auto!important;min-width:200px;padding:11px 24px!important;font-size:.9rem!important;}
 .settings-steps{margin:6px 0 18px 0;padding-right:20px;color:var(--muted);font-size:.86rem;font-weight:600;line-height:2;}
@@ -33,3 +36,9 @@
 .wa-verify-badge.off{background:var(--sur);color:var(--muted);border-color:var(--brd);}
 .wa-verify-badge .wvb-when{font-weight:600;opacity:.85;}
 .wa-verify-badge.bad{background:#fef2f2;color:#b91c1c;border-color:#fecaca;}
+
+/* أي كود جوه خطوات الشرح لازم يترندر LTR معزول — من غير كده
+   "/start" بتظهر "start/" و"@SahlOpsBot" بتظهر "SahlOpsBot@" */
+.settings-steps code,#set-tg-bot-link{direction:ltr;unicode-bidi:isolate;display:inline-block;}
+/* الروابط والتوكنات الطويلة تاخد الصف كله — في العمود الضيق كانت بتتقص 45% */
+#page-settings .settings-grid .sg-full{grid-column:1/-1;}
