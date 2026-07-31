@@ -68,7 +68,11 @@ export function renderTable(){
 // بايناً على 1440px+ (والتاجر لسه يقدر يوسّع أي عمود بالسحب)
 var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,addr:138,prod:146,pay:92,status:118,timer:104,date:94};
   var widths;
-  try{ widths = JSON.parse(localStorage.getItem('sb_cols')||'null'); }catch(e){ widths = null; }
+  // sb_cols2: ترقية مرة واحدة — المفتاح القديم sb_cols فيه مقاسات من عهد
+  // ما كان fixed layout معطّل (width:auto)، فكانت شكلية مش فعلية. النسخة
+  // الجديدة بتبدأ الكل من الافتراضيات المتوزنة، وأي تعديل يدوي بيتحفظ عادي.
+  try{ widths = JSON.parse(localStorage.getItem('sb_cols2')||'null'); }catch(e){ widths = null; }
+  try{ localStorage.removeItem('sb_cols'); }catch(e){}
   if(!widths) widths = Object.assign({},DEFAULT_WIDTHS);
   if(!widths.pay)widths.pay=75;
   if(!widths.timer)widths.timer=90;
@@ -228,7 +232,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
         document.removeEventListener('mousemove',onMove);
         document.removeEventListener('mouseup',onUp);
         handle.classList.remove('dragging');
-        localStorage.setItem('sb_cols',JSON.stringify(widths));
+        localStorage.setItem('sb_cols2',JSON.stringify(widths));
       }
       document.addEventListener('mousemove',onMove);
       document.addEventListener('mouseup',onUp);
