@@ -43,7 +43,8 @@ export function loadSettings(){
 }
 
 // شارة حالة توثيق رقم الواتساب فوق خانات Phone Number ID والتوكن.
-// المصدر: RPC `wa_inbox_status` → { verified, verified_at, has_number, has_token }
+// المصدر: RPC `wa_inbox_status` →
+//   { verified, verified_at, has_number, has_token, sahl_ready, wa_enabled }
 export function renderWaVerifyBadge(st){
   var el = $id('set-wa-verify-badge');
   if(!el) return;
@@ -69,9 +70,18 @@ export function renderWaVerifyBadge(st){
     // توكن أو العكس) اللي الحفظ بيمنعها بس الداتابيز ممكن تكون فيها من تعديل أدمن
     tone = 'warn';
     html = '⚠️ البيانات محفوظة بس مش متحقق منها — احفظ تاني عشان نتأكد من ميتا';
-  } else {
+  } else if(st.sahl_ready){
     tone = 'off';
     html = 'شغّال على رقم سهل المشترك';
+  } else if(st.wa_enabled){
+    // مفيش رقم خاص ورقم سهل نفسه مش متظبط على مستوى المنصة — يعني
+    // `wa_should_send` هترجّع sahl_number_not_configured وأي أوردر جديد
+    // هيعدّي **من غير أي رسالة تأكيد**. قول الحقيقة بدل "شغّال على رقم سهل".
+    tone = 'bad';
+    html = '🚫 تأكيد الواتساب مفعّل بس مش هيشتغل — مفيش رقم خاص بيك ورقم سهل المشترك لسه مش جاهز';
+  } else {
+    tone = 'off';
+    html = 'تأكيد الواتساب متقفل';
   }
 
   el.className = 'wa-verify-badge ' + tone;
