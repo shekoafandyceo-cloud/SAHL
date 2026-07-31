@@ -27,15 +27,56 @@ export function loadSettings(){
   Promise.all([
     sb.from('v_my_tenant').select('store_name,webhook_secret,wa_webhook_secret,plan,whatsapp_phone_id,whatsapp_token,shipping_api_key,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
       .eq('id', currentTenantId).maybeSingle(),
-    sb.from('platform_settings').select('key,value').eq('key','telegram_bot_username').maybeSingle()
+    sb.from('platform_settings').select('key,value').eq('key','telegram_bot_username').maybeSingle(),
+    // حالة توثيق رقم الواتساب. بتتحمّل هنا عشان saveWhatsApp بتنادي
+    // loadSettings بعد الحفظ الناجح — فالشارة بتتحدّث من غير أي refresh.
+    sb.rpc('wa_inbox_status')
   ]).then(function(results){
-    var tRes = results[0], pRes = results[1];
+    var tRes = results[0], pRes = results[1], wRes = results[2];
     if(tRes.error){ toast('خطأ في تحميل الإعدادات: '+tRes.error.message,'er'); return; }
     var t = tRes.data || {};
     if(pRes && pRes.data && pRes.data.value){ settingsBotUsername = pRes.data.value; }
     renderSettings(t);
+    renderWaVerifyBadge((wRes && !wRes.error) ? wRes.data : null);
     loadNotifyPrefs();
   });
+}
+
+// شارة حالة توثيق رقم الواتساب فوق خانات Phone Number ID والتوكن.
+// المصدر: RPC `wa_inbox_status` → { verified, verified_at, has_number, has_token }
+export function renderWaVerifyBadge(st){
+  var el = $id('set-wa-verify-badge');
+  if(!el) return;
+
+  // الـRPC بترجّع NULL لو مفيش صف تاجر. ساعتها إحنا **مش عارفين** الحالة،
+  // وإظهار "شغّال على رقم سهل" وقتها ممكن يكون كذب على التاجر — فنخفيها.
+  if(!st){ el.style.display = 'none'; el.className = 'wa-verify-badge off'; el.textContent = ''; return; }
+
+  var tone, html;
+  if(st.verified){
+    var when = '';
+    if(st.verified_at){
+      var d = new Date(st.verified_at);
+      if(!isNaN(d)){
+        try{ when = d.toLocaleDateString('ar-EG-u-nu-latn', { timeZone:'Africa/Cairo', day:'numeric', month:'long', year:'numeric' }); }
+        catch(e){ when = d.toLocaleDateString(); }
+      }
+    }
+    tone = 'ok';
+    html = '✅ الرقم متحقق منه' + (when ? ' <span class="wvb-when">— اتوثّق يوم ' + esc(when) + '</span>' : '');
+  } else if(st.has_number || st.has_token){
+    // أي بيانات محفوظة من غير توثيق — بما فيها الحالة الناقصة (رقم من غير
+    // توكن أو العكس) اللي الحفظ بيمنعها بس الداتابيز ممكن تكون فيها من تعديل أدمن
+    tone = 'warn';
+    html = '⚠️ البيانات محفوظة بس مش متحقق منها — احفظ تاني عشان نتأكد من ميتا';
+  } else {
+    tone = 'off';
+    html = 'شغّال على رقم سهل المشترك';
+  }
+
+  el.className = 'wa-verify-badge ' + tone;
+  el.innerHTML = html;
+  el.style.display = '';
 }
 
 export function renderSettings(t){
