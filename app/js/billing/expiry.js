@@ -36,6 +36,9 @@ export function maybeShowExpiryBanner(t, state){
   b.id='expiry-banner';
   b.style.cssText='background:'+bg+';border-bottom:1px solid rgba(0,0,0,.06);padding:10px 16px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:.85rem;font-weight:700;color:#92400e;flex-wrap:wrap;';
   b.innerHTML=text+' <a href="'+wa+'" target="_blank" style="background:#1d6ef2;color:#fff;padding:6px 14px;border-radius:999px;text-decoration:none;font-weight:800;">جدّد الآن</a>';
-  var appEl=$id('app');
-  if(appEl) appEl.insertBefore(b, appEl.firstChild);
+  // جوه عمود المحتوى فوق التوب بار — مش جوه #app مباشرة: #app بقى صف
+  // (flex-direction:row مع السايدبار) فأي ابن مباشر ليه بيترسم عمود جنب
+  // القايمة. وممنوع الحقن بين الـaside والزرار — يكسر #sidenav.collapsed + .side-toggle
+  var col=document.querySelector('#app .appcol');
+  if(col) col.insertBefore(b, col.firstChild);
 }
