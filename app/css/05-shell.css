@@ -46,12 +46,15 @@
 /* ═══ طيّ السايدبار — زرار في راس القايمة، أيقونات بس، والتفضيل محفوظ ═══
    الكلاس بيتقلب من data-act="side-toggle" (main.js) والحالة في
    localStorage[sahl_side_collapsed]. ديسكتوب بس — الموبايل شريط أفقي. */
-.side-toggle{display:none;position:absolute;inset-inline-start:0;top:0;width:28px;height:28px;border-radius:10px;border:1px solid var(--brd);background:#fff;color:var(--muted);cursor:pointer;font-size:.68rem;align-items:center;justify-content:center;box-shadow:var(--shadow2);padding:0;}
+.side-toggle{display:none;position:absolute;inset-inline-start:0;top:6px;width:28px;height:28px;border-radius:10px;border:1px solid var(--brd);background:#fff;color:var(--muted);cursor:pointer;font-size:.68rem;align-items:center;justify-content:center;box-shadow:var(--shadow2);padding:0;z-index:3;}
 .side-toggle:hover{color:#b45309;border-color:var(--acc);background:#fff7ed;}
 .side-toggle::before{content:'❯';}
 @media(min-width:769px){
   .sn-brand{position:relative;}
   .side-toggle{display:inline-flex;}
+  /* اللوجو positioned وجاي بعد الزرار في الـDOM فبيرسم فوقه — نحجز
+     للزرار خانة على يمين البراند بدل التراكب (درس 31) */
+  .sn-brand .tlogo{margin-inline-start:36px;}
   .sidenav.collapsed{flex:0 0 76px;padding-inline:10px;}
   .sidenav.collapsed .side-toggle{position:static;margin:0 auto;}
   .sidenav.collapsed .side-toggle::before{content:'❮';}
