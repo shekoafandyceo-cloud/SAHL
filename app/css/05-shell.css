@@ -43,3 +43,24 @@
 .sn-uinfo{min-width:0;}
 .sn-uinfo b{display:block;font-size:.82rem;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sn-uinfo small{display:block;color:var(--muted);font-size:.68rem;font-weight:700;margin-top:1px;}
+/* ═══ طيّ السايدبار — زرار في راس القايمة، أيقونات بس، والتفضيل محفوظ ═══
+   الكلاس بيتقلب من data-act="side-toggle" (main.js) والحالة في
+   localStorage[sahl_side_collapsed]. ديسكتوب بس — الموبايل شريط أفقي. */
+.side-toggle{display:none;position:absolute;inset-inline-start:0;top:0;width:28px;height:28px;border-radius:10px;border:1px solid var(--brd);background:#fff;color:var(--muted);cursor:pointer;font-size:.68rem;align-items:center;justify-content:center;box-shadow:var(--shadow2);padding:0;}
+.side-toggle:hover{color:#b45309;border-color:var(--acc);background:#fff7ed;}
+.side-toggle::before{content:'❯';}
+@media(min-width:769px){
+  .sn-brand{position:relative;}
+  .side-toggle{display:inline-flex;}
+  .sidenav.collapsed{flex:0 0 76px;padding-inline:10px;}
+  .sidenav.collapsed .side-toggle{position:static;margin:0 auto;}
+  .sidenav.collapsed .side-toggle::before{content:'❮';}
+  .sidenav.collapsed .tlogo,.sidenav.collapsed .sn-tag,.sidenav.collapsed .sn-label,
+  .sidenav.collapsed .nv-txt,.sidenav.collapsed .sn-uinfo{display:none;}
+  .sidenav.collapsed .tnav{gap:6px;}
+  .sidenav.collapsed .tnav-btn{justify-content:center;padding:11px 0;gap:0;}
+  .sidenav.collapsed .tnav-btn .nv-ico{flex:0 0 auto;}
+  .sidenav.collapsed .tnav-btn.active::before{inset-inline-start:-10px;}
+  .sidenav.collapsed .wa-nav-badge{position:absolute;top:3px;inset-inline-start:6px;margin:0;}
+  .sidenav.collapsed .sn-user{justify-content:center;padding:8px 0;background:transparent;border:none;}
+}

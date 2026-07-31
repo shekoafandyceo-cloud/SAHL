@@ -115,7 +115,8 @@ var CLICK_ACTIONS = {
   'goto-stock':    function(){ showPage('stock'); },
   'setup-dismiss': function(){ setupDismiss(); },
   'add-product':   function(){ var b=$id('add-product-btn'); if(b)b.click(); },
-  'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); }
+  'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); },
+  'side-toggle':   function(){ sideToggle(); }
 };
 function initClickActions(){
   document.addEventListener('click', function(ev){
@@ -128,6 +129,22 @@ function initClickActions(){
     if(!fn){ swallow('clickActions', new Error('data-act مش معروف: ' + name)); return; }
     fn(el, ev);
   });
+}
+
+// ── طيّ/فرد السايدبار ──────────────────────────────────────────────
+// أيقونات بس أو أيقونات + أسامي. التفضيل بيتحفظ ويترجع مع كل دخول.
+// ديسكتوب بس — على الموبايل القايمة شريط أفقي والزرار مخفي من الـCSS.
+function sideToggle(){
+  var sn = $id('sidenav'); if(!sn) return;
+  var on = sn.classList.toggle('collapsed');
+  try{ localStorage.setItem('sahl_side_collapsed', on ? '1' : '0'); }catch(e){}
+}
+function initSideCollapse(){
+  try{
+    if(localStorage.getItem('sahl_side_collapsed') === '1'){
+      var sn = $id('sidenav'); if(sn) sn.classList.add('collapsed');
+    }
+  }catch(e){}
 }
 
 
@@ -384,6 +401,7 @@ export function showPage(page){
 // كان بيغيّره في صمت. بقى صريح ومقصود. الترتيب هنا = الترتيب اللي
 // كان بيحصل فعلاً قبل التغيير.
 initClickActions();
+initSideCollapse();
 initReadyCard();
 initTourResize();
 initLoginForm();
