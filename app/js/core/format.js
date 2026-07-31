@@ -6,9 +6,11 @@ export function short(s,n){s=s||'—';return s.length>n?s.slice(0,n)+'…':s;}
 
 export function num(n){return Number(n||0).toLocaleString('ar-EG-u-nu-latn');}
 
-export function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}):'—';}
+// الـlocale العربي بيحقن علامات اتجاه خفية (U+200F) بين مقاطع التاريخ —
+// في خلية LTR بتلخبط الترتيب والقص. بنشيلها: الناتج أرقام وشرط بس.
+export function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}).replace(/[\u200e\u200f\u061c]/g,''):'—';}
 
-export function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG-u-nu-latn',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';}
+export function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG-u-nu-latn',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).replace(/[\u200e\u200f\u061c]/g,''):'—';}
 
 export function pad2(n){return String(n).padStart(2,'0');}
 

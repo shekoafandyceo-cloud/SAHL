@@ -63,7 +63,10 @@ export function renderTable(){
   if(!pg.length){$id('tbody').innerHTML='<div class="ldg">مفيش نتايج في الصفحة دي</div>';}
   // NEW COLUMN ORDER: رقم الطلب - رقم التتبع - اسم العميل - موبايل أساسي - موبايل إضافي - المدينة - العنوان - المنتج - الحالة - التاريخ
   // Default column widths (saved per-user in localStorage)
-  var DEFAULT_WIDTHS = {cb:42,uid:100,track:110,name:160,phone:120,alt:120,city:100,addr:240,prod:200,pay:75,status:120,timer:90,date:90};
+  // مجموع الافتراضيات القديم كان 1577px — أعرض من الشاشة، فعمود التاريخ
+// كان نصه مقصوص بره نطاق السحب دايماً. النحافة دي بتخلي الجدول كله
+// بايناً على 1440px+ (والتاجر لسه يقدر يوسّع أي عمود بالسحب)
+var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,addr:138,prod:146,pay:92,status:118,timer:104,date:94};
   var widths;
   try{ widths = JSON.parse(localStorage.getItem('sb_cols')||'null'); }catch(e){ widths = null; }
   if(!widths) widths = Object.assign({},DEFAULT_WIDTHS);

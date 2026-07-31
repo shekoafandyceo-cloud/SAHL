@@ -1,7 +1,7 @@
 /* تلميحات كروت الإحصاء والكروت القابلة للضغط */
 /* ── Info tooltip on stat cards ── */
 .sc{position:relative;}
-.sc-info{position:absolute;top:8px;left:8px;width:18px;height:18px;border-radius:50%;background:rgba(100,116,139,.18);color:#64748b;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:help;font-style:italic;font-family:Georgia,serif;transition:all .15s;z-index:3;}
+.sc-info{position:absolute;top:8px;left:8px;width:14px;height:14px;border-radius:50%;background:rgba(100,116,139,.12);color:#94a3b8;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center;cursor:help;font-style:italic;font-family:Georgia,serif;transition:all .15s;z-index:3;}
 .sc-info:hover{background:var(--acc);color:#fff;transform:scale(1.15);}
 /* ---- clickable status cards (orders page) ---- */
 .sc-clickable{cursor:pointer;transition:transform .16s cubic-bezier(.4,0,.2,1),box-shadow .2s ease;}
