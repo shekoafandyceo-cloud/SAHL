@@ -33,14 +33,14 @@ export function copyReadonlyField(inputId, btnId, requireUrl, emptyMsg){
 
 // Copy webhook URL to clipboard with visual feedback
 export function copyWebhookUrl(){
-  copyReadonlyField('set-webhook-url', 'set-webhook-copy', true, 'لا يوجد رابط لنسخه');
+  copyReadonlyField('set-webhook-url', 'set-webhook-copy', true, 'مفيش رابط يتنسخ');
 }
 
 // ربط واتساب بميتا
 export function copyWaCallbackUrl(){
-  copyReadonlyField('set-wa-callback-url', 'set-wa-callback-copy', true, 'لا يوجد رابط لنسخه');
+  copyReadonlyField('set-wa-callback-url', 'set-wa-callback-copy', true, 'مفيش رابط يتنسخ');
 }
 
 export function copyWaVerifyToken(){
-  copyReadonlyField('set-wa-verify-token', 'set-wa-verify-copy', false, 'لا يوجد توكن لنسخه');
+  copyReadonlyField('set-wa-verify-token', 'set-wa-verify-copy', false, 'مفيش توكن يتنسخ');
 }

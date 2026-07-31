@@ -352,7 +352,7 @@ export function fetchOrdersPage(){
     refreshCancelBar();
     if(r.error){
       toast('خطأ في تحميل الأوردرات: '+r.error.message,'er');
-      $id('tbody').innerHTML='<div class="ldg">تعذّر تحميل الأوردرات. اضغط ↻ تحديث وحاول تاني.</div>';
+      $id('tbody').innerHTML='<div class="ldg">حصلت مشكلة في تحميل الأوردرات — دوس ↻ تحديث وحاول تاني.</div>';
       $id('pag').style.display='none';
       return;
     }
@@ -427,7 +427,7 @@ export function initOrdersUI(){
   $id('xcls').addEventListener('click',function(){$id('ovl').classList.remove('open');ordersSetSelected(null);});
   $id('ovl').addEventListener('click',function(e){if(e.target===$id('ovl')){$id('ovl').classList.remove('open');ordersSetSelected(null);}});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'){$id('ovl').classList.remove('open');ordersSetSelected(null);}});
-  $id('tdate').textContent=new Date().toLocaleDateString('ar-EG',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  $id('tdate').textContent=new Date().toLocaleDateString('ar-EG-u-nu-latn',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
     $id('bb-ok').addEventListener('click',function(){doBulkUpdate('confirmed');});
   $id('bb-bs').addEventListener('click',function(){doBulkUpdate('bosta_assigned');});

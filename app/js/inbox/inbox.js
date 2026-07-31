@@ -58,7 +58,7 @@ export function waFetchConvos(showLoading){
   if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
-      if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">تعذّر تحميل المحادثات</div>'; veilDone('inbox'); return; }
+      if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل المحادثات</div>'; veilDone('inbox'); return; }
       waConvos=r.data||[];
       renderConvos();
       veilDone('inbox');
@@ -184,7 +184,7 @@ export function waFetchMessages(convId,scroll,isPoll){
   sb.from('wa_messages').select('*').eq('conversation_id',convId)
     .order('created_at',{ascending:true}).limit(500).then(function(r){
       if(convId!==waActiveId) return;
-      if(r.error){ if(!isPoll)$id('wa-msgs').innerHTML='<div class="wa-empty">تعذّر تحميل الرسائل</div>'; return; }
+      if(r.error){ if(!isPoll)$id('wa-msgs').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل الرسائل</div>'; return; }
       var data=r.data||[];
       if(isPoll && data.length===waRenderedCount) return;
       var newArrived = isPoll && data.length>waRenderedCount;
@@ -342,7 +342,7 @@ export function waSend(){
     if(bubble&&bubble.parentNode) bubble.parentNode.removeChild(bubble);
     if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvos.filter(function(x){return x.id===convAtSend;})[0]); }
     else if(code==='upload'){ toast('فشل رفع الملف','er'); }
-    else { toast('تعذّر الإرسال، حاول تاني','er'); }
+    else { toast('الرسالة ماتبعتتش — حاول تاني','er'); }
     if(text && !$id('wa-input').value) $id('wa-input').value=text;
   }
   function done(res){
@@ -447,7 +447,7 @@ export function waSaveQuickReply(){
   if(!body){ toast('اكتب الرد الأول في الخانة','er'); return; }
   if(!sb||!currentTenantId) return;
   sb.from('wa_quick_replies').insert({tenant_id:currentTenantId,body:body}).select('id,body').single().then(function(r){
-    if(r.error){ toast('تعذّر الحفظ','er'); return; }
+    if(r.error){ toast('الحفظ مانفعش — حاول تاني','er'); return; }
     waQuickReplies.push(r.data); waRenderQuickReplies(); toast('اتحفظ كرد جاهز ✅','ok');
   });
 }
@@ -455,7 +455,7 @@ export function waSaveQuickReply(){
 export function waDeleteQuickReply(id){
   if(!id||!sb) return;
   sb.from('wa_quick_replies').delete().eq('id',id).then(function(r){
-    if(r.error){ toast('تعذّر الحذف','er'); return; }
+    if(r.error){ toast('الحذف مانفعش — حاول تاني','er'); return; }
     waQuickReplies=waQuickReplies.filter(function(x){return x.id!==id;}); waRenderQuickReplies();
   });
 }
@@ -513,7 +513,7 @@ export function waToggleLabel(label){
   if(idx>=0) labels.splice(idx,1); else labels.push(label);
   conv.labels=labels;
   waRenderConvLabels(conv); waRenderLabelPicker(conv); renderConvos();
-  sb.from('wa_conversations').update({labels:labels}).eq('id',conv.id).then(function(r){ if(r.error) toast('تعذّر حفظ التصنيف','er'); });
+  sb.from('wa_conversations').update({labels:labels}).eq('id',conv.id).then(function(r){ if(r.error) toast('التصنيف ماتحفظش — حاول تاني','er'); });
 }
 
 export function waSaveNote(){
@@ -522,7 +522,7 @@ export function waSaveNote(){
   var ni=$id('wa-note-input'); var val=ni?(ni.value||'').trim():'';
   conv.note=val;
   sb.from('wa_conversations').update({note:val||null}).eq('id',conv.id).then(function(r){
-    if(r.error){ toast('تعذّر حفظ الملاحظة','er'); return; }
+    if(r.error){ toast('الملاحظة ماتحفظتش — حاول تاني','er'); return; }
     toast('اتحفظت الملاحظة ✅','ok');
     var nbtn=$id('wa-note-btn'); if(nbtn) nbtn.textContent=val?'📝 ملاحظة •':'📝 ملاحظة';
   });
@@ -546,7 +546,7 @@ export function waRefreshNavBadge(){
 // ----- أوردرات العميل جوّه الشات -----
 export function waDateShort(iso){
   if(!iso) return '';
-  try{ return new Date(iso).toLocaleDateString('ar-EG',{day:'2-digit',month:'2-digit',year:'2-digit'}); }catch(e){ return ''; }
+  try{ return new Date(iso).toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'2-digit'}); }catch(e){ return ''; }
 }
 
 export function waLoadOrders(conv){
@@ -566,7 +566,7 @@ export function waLoadOrders(conv){
     .then(function(r){
       // تجاهل لو المستخدم فتح محادثة تانية في الوقت ده
       if(waActiveId!==conv.id) return;
-      if(r.error){ body.innerHTML='<div class="wa-orders-empty">تعذّر تحميل الأوردرات</div>'; return; }
+      if(r.error){ body.innerHTML='<div class="wa-orders-empty">حصلت مشكلة في تحميل الأوردرات</div>'; return; }
       var rows=r.data||[];
       if(title) title.textContent='📦 أوردرات العميل ('+rows.length+')';
       if(!rows.length){ body.innerHTML='<div class="wa-orders-empty">مفيش أوردرات سابقة بنفس الرقم</div>'; return; }

@@ -181,7 +181,7 @@ export function renderIssuesTable(){
 
   var tb=$id('issues-tbody'); if(!tb)return;
   if(!_allIssues.length){tb.innerHTML='<div class="ldg" style="color:var(--green);padding:28px;">✅ ممتاز — مفيش مشاكل موجودة دلوقتي</div>';return;}
-  if(!issues.length){tb.innerHTML='<div class="ldg">لا توجد مشاكل تطابق الفلتر</div>';return;}
+  if(!issues.length){tb.innerHTML='<div class="ldg">مفيش مشاكل مطابقة للفلتر</div>';return;}
 
   var prioConfig={
     high:{label:'🚨 عاجل',cls:'high'},

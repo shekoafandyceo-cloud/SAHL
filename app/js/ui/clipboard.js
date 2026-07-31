@@ -41,7 +41,7 @@ export function fallbackCopy(text,onDone){
 
 // نسخ نص جاهز للحافظة (مع fallback) — يستخدمه زرار نسخ المنتجات
 export function copyTextToClipboard(txt,label){
-  if(!txt){toast('لا يوجد شيء للنسخ','er');return;}
+  if(!txt){toast('مفيش حاجة تتنسخ','er');return;}
   var done=function(){toast('تم نسخ '+(label||'النص')+' ✓','ok');};
   if(navigator.clipboard&&navigator.clipboard.writeText){
     navigator.clipboard.writeText(txt).then(done,function(){fallbackCopy(txt,done);});

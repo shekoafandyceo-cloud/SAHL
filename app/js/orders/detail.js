@@ -63,7 +63,7 @@ export function attachFieldEditors(){
         var val=input.value.trim();
         if(field==='phone' && val){
           var digits=toLatinDigits(val).replace(/[\s-]/g,'');
-          if(!/^[0-9+]{6,}$/.test(digits)){ toast('رقم موبايل غير صالح','er'); return; }
+          if(!/^[0-9+]{6,}$/.test(digits)){ toast('رقم الموبايل مش مظبوط','er'); return; }
           val=digits;
         }
         if(!sb||!currentTenantId){ toast('غير متصل بالسيرفر','er'); return; }
@@ -116,7 +116,7 @@ export function openDetail(id){
   $id('dcnt').innerHTML='<div class="ldg"><div class="spin"></div>جاري تحميل تفاصيل الطلب...</div>';
   $id('ovl').classList.add('open');
   sb.from('orders').select('*').eq('id',id).eq('tenant_id',currentTenantId).single().then(function(r){
-    if(r.error || !r.data){ toast('تعذّر تحميل تفاصيل الطلب','er'); $id('ovl').classList.remove('open'); return; }
+    if(r.error || !r.data){ toast('حصلت مشكلة في تحميل تفاصيل الطلب','er'); $id('ovl').classList.remove('open'); return; }
     ordersSetSelected(r.data);
     loadDetailHistory(sel, function(){ renderDetail(); });
   });
@@ -413,7 +413,7 @@ export function renderDetail(){
   if(vipBtn){
     vipBtn.addEventListener('click',function(){
       var phone=normalizePhone(o.phone);
-      if(!phone){toast('لا يوجد رقم موبايل','er');return;}
+      if(!phone){toast('مفيش رقم موبايل','er');return;}
       // Close detail and filter table by this phone
       $id('ovl').classList.remove('open');ordersSetSelected(null);
       $id('qinp').value=phone;

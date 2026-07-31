@@ -62,7 +62,7 @@ export function expensesInRange(range){
 
 export function fmtMoney(n){
   var v = parseFloat(n) || 0;
-  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + 'ج';
+  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG-u-nu-latn', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + 'ج';
 }
 
 export function loadFinance(){
@@ -281,7 +281,7 @@ export function renderFinanceChart(){
     while(d0 < to){
       var d1 = new Date(d0.getTime() + 86400000);
       var rD = calcPeriod(d0, d1 > to ? to : d1);
-      labels.push(d0.toLocaleDateString('ar-EG',{day:'numeric',month:'short'}));
+      labels.push(d0.toLocaleDateString('ar-EG-u-nu-latn',{day:'numeric',month:'short'}));
       revData.push(rD.rev); profData.push(rD.profit);
       d0 = d1;
     }
@@ -307,7 +307,7 @@ export function renderFinanceChart(){
     while(m0 < to){
       var m1 = new Date(m0.getFullYear(), m0.getMonth()+1, 1);
       var rM = calcPeriod(m0, m1 > to ? to : m1);
-      labels.push(m0.toLocaleDateString('ar-EG',{month:'short',year:'2-digit'}));
+      labels.push(m0.toLocaleDateString('ar-EG-u-nu-latn',{month:'short',year:'2-digit'}));
       revData.push(rM.rev); profData.push(rM.profit);
       m0 = m1;
     }
@@ -328,10 +328,10 @@ export function renderFinanceChart(){
       interaction:{mode:'index', intersect:false},
       plugins:{
         legend:{position:'top',labels:{font:{family:'Cairo',weight:'700'},padding:16}},
-        tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+ctx.parsed.y.toLocaleString('ar-EG')+' ج';}}}
+        tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+ctx.parsed.y.toLocaleString('ar-EG-u-nu-latn')+' ج';}}}
       },
       scales:{
-        y:{beginAtZero:true, ticks:{font:{family:'JetBrains Mono'}, callback:function(v){return v.toLocaleString('ar-EG');}}},
+        y:{beginAtZero:true, ticks:{font:{family:'JetBrains Mono'}, callback:function(v){return v.toLocaleString('ar-EG-u-nu-latn');}}},
         x:{ticks:{font:{family:'Cairo',size:financeChartPeriod==='daily'?9:11}}}
       }
     }

@@ -5,10 +5,10 @@ import { esc } from '../core/dom.js';
 export function waTimeShort(iso){
   if(!iso) return '';
   var d=new Date(iso), now=new Date();
-  if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('ar-EG',{hour:'2-digit',minute:'2-digit'});
+  if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('ar-EG-u-nu-latn',{hour:'2-digit',minute:'2-digit'});
   var y=new Date(now); y.setDate(now.getDate()-1);
   if(d.toDateString()===y.toDateString()) return 'أمس';
-  return d.toLocaleDateString('ar-EG',{day:'2-digit',month:'2-digit'});
+  return d.toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit'});
 }
 
 export function waTicks(status){
@@ -23,11 +23,11 @@ export function waMsgInner(m, urlMap){
   var inner='';
   if(m.media_path && (m.type==='image'||m.type==='sticker')){
     var u=urlMap[m.media_path];
-    inner+= u?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img class="wa-img" src="'+esc(u)+'" loading="lazy"></a>':'<div class="wa-media-fail">📷 تعذّر تحميل الصورة</div>';
+    inner+= u?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img class="wa-img" src="'+esc(u)+'" loading="lazy"></a>':'<div class="wa-media-fail">📷 الصورة ماتحمّلتش</div>';
     if(m.body) inner+='<div class="wa-cap">'+esc(m.body)+'</div>';
   } else if(m.media_path && (m.type==='voice'||m.type==='audio')){
     var ua=urlMap[m.media_path];
-    inner+= ua?'<audio class="wa-audio" controls preload="none" src="'+esc(ua)+'"></audio>':'<div class="wa-media-fail">🎤 تعذّر تحميل الصوت</div>';
+    inner+= ua?'<audio class="wa-audio" controls preload="none" src="'+esc(ua)+'"></audio>':'<div class="wa-media-fail">🎤 الصوت ماتحمّلش</div>';
   } else if(m.media_path && (m.type==='document'||m.type==='video')){
     var ud=urlMap[m.media_path];
     var label=m.media_filename||(m.type==='video'?'فيديو':'ملف');

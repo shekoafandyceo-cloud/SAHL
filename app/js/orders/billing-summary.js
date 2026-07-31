@@ -24,12 +24,12 @@ export function loadVfcashNumber(){
 
 export function fmtMoneyShort(n){
   var v = parseFloat(n) || 0;
-  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG', {maximumFractionDigits: 2}) + 'ج';
+  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG-u-nu-latn', {maximumFractionDigits: 2}) + 'ج';
 }
 
-export function fmtDate(s){ if(!s) return '—'; var d=new Date(s); return d.toLocaleDateString('ar-EG',{day:'numeric',month:'short',year:'numeric'}); }
+export function fmtDate(s){ if(!s) return '—'; var d=new Date(s); return d.toLocaleDateString('ar-EG-u-nu-latn',{day:'numeric',month:'short',year:'numeric'}); }
 
-export function fmtDateTime(s){ if(!s) return '—'; var d=new Date(s); return d.toLocaleString('ar-EG',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
+export function fmtDateTime(s){ if(!s) return '—'; var d=new Date(s); return d.toLocaleString('ar-EG-u-nu-latn',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}); }
 
 // helper used inside the row renderer (defined in the existing table code)
 export function lockMaybe(value){
@@ -53,14 +53,14 @@ export function renderBillingSummary(){
 
   $id('bill-plan-name').textContent = s.plan_name || '—';
   if(s.pricing_type === 'per_order'){
-    $id('bill-plan-price').textContent = (parseFloat(s.per_order_price)||0).toLocaleString('ar-EG') + 'ج / أوردر مؤكد';
+    $id('bill-plan-price').textContent = (parseFloat(s.per_order_price)||0).toLocaleString('ar-EG-u-nu-latn') + 'ج / أوردر مؤكد';
   } else {
-    $id('bill-plan-price').textContent = (parseFloat(s.monthly_price)||0).toLocaleString('ar-EG') + 'ج / شهر';
+    $id('bill-plan-price').textContent = (parseFloat(s.monthly_price)||0).toLocaleString('ar-EG-u-nu-latn') + 'ج / شهر';
   }
 
   // Cycle stat
   if(s.max_orders){
-    $id('bill-cycle-used').textContent = (s.orders_used_cycle||0).toLocaleString('ar-EG') + ' / ' + s.max_orders.toLocaleString('ar-EG');
+    $id('bill-cycle-used').textContent = (s.orders_used_cycle||0).toLocaleString('ar-EG-u-nu-latn') + ' / ' + s.max_orders.toLocaleString('ar-EG-u-nu-latn');
     var rem = s.orders_remaining;
     if(rem !== null && rem < 0){
       $id('bill-cycle-hint').textContent = '⚠️ تجاوزت بـ ' + Math.abs(rem) + ' أوردر · مديونية: ' + fmtMoneyShort(s.overage_debt);
@@ -68,10 +68,10 @@ export function renderBillingSummary(){
       $id('bill-cycle-hint').textContent = (rem || 0) + ' أوردر متبقّي';
     }
   } else if(s.pricing_type === 'per_order'){
-    $id('bill-cycle-used').textContent = (s.orders_used_cycle||0).toLocaleString('ar-EG');
+    $id('bill-cycle-used').textContent = (s.orders_used_cycle||0).toLocaleString('ar-EG-u-nu-latn');
     $id('bill-cycle-hint').textContent = 'أوردر مؤكد · بتُحاسَب 75 قرش لكل واحد';
   } else {
-    $id('bill-cycle-used').textContent = (s.orders_used_cycle||0).toLocaleString('ar-EG');
+    $id('bill-cycle-used').textContent = (s.orders_used_cycle||0).toLocaleString('ar-EG-u-nu-latn');
     $id('bill-cycle-hint').textContent = 'أوردر مؤكد · بدون سقف';
   }
 
@@ -82,7 +82,7 @@ export function renderBillingSummary(){
     $id('bill-renew-hint').textContent = (days > 0 ? 'بعد ' + days + ' يوم' : (days === 0 ? 'اليوم' : 'متأخر ' + Math.abs(days) + ' يوم'));
   } else {
     $id('bill-renew-date').textContent = '—';
-    $id('bill-renew-hint').textContent = (s.pricing_type === 'per_order' ? 'لا يوجد تجديد (PAYG)' : '—');
+    $id('bill-renew-hint').textContent = (s.pricing_type === 'per_order' ? 'مفيش تجديد (PAYG)' : '—');
   }
 
   // VF cash number

@@ -192,7 +192,7 @@ export function loginErrorMessage(error){
   if(msg.indexOf('user not found') >= 0){
     return 'الإيميل أو كلمة المرور غير صحيحة.';
   }
-  return 'تعذّر تسجيل الدخول. حاول تاني أو تواصل مع الدعم.';
+  return 'مش قادرين ندخّلك دلوقتي. حاول تاني أو تواصل مع الدعم.';
 }
 
 export function doLogin(){
@@ -200,7 +200,7 @@ export function doLogin(){
   var pass = $id('login-pass').value;
   $id('login-err').textContent = '';
   if(!email || !pass){
-    $id('login-err').textContent = 'يرجى إدخال البريد وكلمة المرور';
+    $id('login-err').textContent = 'اكتب البريد وكلمة المرور الأول';
     return;
   }
   $id('login-err').textContent = 'جاري التحقق...';
@@ -327,8 +327,8 @@ export function doSignup(){
   if(!store || store.length < 2){ errEl.textContent = 'اكتب اسم متجرك'; return; }
   if(store.length > 80){ errEl.textContent = 'اسم المتجر طويل جداً'; return; }
   if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ errEl.textContent = 'البريد الإلكتروني غير صحيح'; return; }
-  if(!phone || phone.length !== 11 || phone.substring(0,2) !== '01'){ errEl.textContent = 'الموبايل لازم ١١ رقم يبدأ بـ 01'; return; }
-  if(!pass || pass.length < 6){ errEl.textContent = 'كلمة المرور لازم ٦ أحرف على الأقل'; return; }
+  if(!phone || phone.length !== 11 || phone.substring(0,2) !== '01'){ errEl.textContent = 'الموبايل لازم 11 رقم يبدأ بـ 01'; return; }
+  if(!pass || pass.length < 6){ errEl.textContent = 'كلمة المرور لازم 6 أحرف'; return; }
 
   var btn = $id('signup-btn');
   btn.disabled = true;
@@ -386,7 +386,7 @@ export function signupErrorMessage(err){
     return 'محاولات كتير في وقت قصير. استنى دقيقة وحاول تاني.';
   }
   if(msg.indexOf('password') >= 0){
-    return 'كلمة المرور ضعيفة. ٦ أحرف على الأقل.';
+    return 'كلمة المرور ضعيفة — لازم 6 أحرف على الأقل.';
   }
   if(msg.indexOf('email') >= 0){
     return 'البريد الإلكتروني غير صحيح.';

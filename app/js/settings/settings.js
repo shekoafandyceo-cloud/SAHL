@@ -198,7 +198,7 @@ export function saveNotifyPref(key){
     if(r.error){
       el.checked = !desired;
       var m = r.error.message || '';
-      toast(m.indexOf('admin_only')>=0 ? 'الصلاحية دي للأدمن فقط' : ('تعذّر الحفظ: '+m), 'er');
+      toast(m.indexOf('admin_only')>=0 ? 'الصلاحية دي للأدمن فقط' : ('الحفظ مانفعش: '+m), 'er');
       return;
     }
     toast(desired ? 'التنبيه اتفعّل ✓' : 'التنبيه اتقفل', 'ok');
@@ -305,7 +305,7 @@ export async function saveWhatsApp(){
     if(btn){ btn.disabled = false; btn.textContent = orig; }
 
     if(!res.ok || !out.ok){
-      toast(out.message || 'تعذّر التحقق من البيانات.','er');
+      toast(out.message || 'مقدرناش نتحقق من البيانات — راجعها وحاول تاني.','er');
       return;
     }
     toast(out.message || 'تم ✓','ok');

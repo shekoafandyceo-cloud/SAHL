@@ -35,7 +35,7 @@ export function addCallAttempt(){
   // Use exact current time — no datetime input, no timezone conversion needed
   var now = new Date();
   var isoNow = now.toISOString();
-  var formatted = now.toLocaleString('ar-EG',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+  var formatted = now.toLocaleString('ar-EG-u-nu-latn',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
   var calls=Array.isArray(sel.call_attempts)?sel.call_attempts.slice():[];
   calls.push({time:formatted, iso:isoNow, result:result, note:note, by: currentUser ? currentUser.name : '—'});
   sb.from('orders').update({call_attempts:calls}).eq('id',sel.id).eq('tenant_id',currentTenantId).then(function(r){
@@ -99,7 +99,7 @@ export function doBulkUpdate(ns){
   sb.from('orders').select('id,status,status_log').eq('tenant_id',currentTenantId).in('id',ids).then(function(res){
     if(res.error){ toast('خطأ: '+res.error.message,'er'); return; }
     var rows=res.data||[];
-    if(!rows.length){ toast('تعذّر تحميل الأوردرات','er'); return; }
+    if(!rows.length){ toast('حصلت مشكلة في تحميل الأوردرات','er'); return; }
     var done=0, errors=0, n=rows.length;
     rows.forEach(function(ord){
       var oldStatus=ord.status||'pending';

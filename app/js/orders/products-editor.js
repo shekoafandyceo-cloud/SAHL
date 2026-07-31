@@ -115,7 +115,7 @@ export function saveProducts(){
   if(!ensureTenant())return;
   if(!sel)return;
   var products=collectProducts();
-  if(!products.length){toast('لا يمكن حفظ منتجات فارغة','er');return;}
+  if(!products.length){toast('مينفعش تحفظ منتجات فاضية','er');return;}
   var combined = products.length===1 ? products[0] : products.join('\n+ ');
 
   // ─── Smart price update: only adjust by the DIFFERENCE between old and new product lists ───

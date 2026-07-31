@@ -4,11 +4,11 @@ export function fmt(v){return v||'—';}
 
 export function short(s,n){s=s||'—';return s.length>n?s.slice(0,n)+'…':s;}
 
-export function num(n){return Number(n||0).toLocaleString('ar-EG');}
+export function num(n){return Number(n||0).toLocaleString('ar-EG-u-nu-latn');}
 
-export function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}):'—';}
+export function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}):'—';}
 
-export function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';}
+export function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG-u-nu-latn',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';}
 
 export function pad2(n){return String(n).padStart(2,'0');}
 
@@ -23,7 +23,7 @@ export function fmtStoredDateTime(raw){
     // very rare fallback for malformed strings
     return String(raw);
   }
-  return d.toLocaleString('ar-EG',{
+  return d.toLocaleString('ar-EG-u-nu-latn',{
     timeZone:'Africa/Cairo',
     year:'numeric',month:'2-digit',day:'2-digit',
     hour:'2-digit',minute:'2-digit',second:'2-digit'
@@ -38,7 +38,7 @@ export function fmtDateOnly(raw){
   var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m){
     var d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
-    return d.toLocaleDateString('ar-EG',{year:'numeric',month:'2-digit',day:'2-digit'});
+    return d.toLocaleDateString('ar-EG-u-nu-latn',{year:'numeric',month:'2-digit',day:'2-digit'});
   }
   return s;
 }

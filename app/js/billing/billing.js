@@ -60,7 +60,7 @@ export function updateWalletChip(){
     ctEl.textContent = '75ق/أوردر';
   } else if(s.max_orders){
     var used = s.orders_used_cycle || 0;
-    ctEl.textContent = used.toLocaleString('ar-EG') + ' / ' + s.max_orders.toLocaleString('ar-EG');
+    ctEl.textContent = used.toLocaleString('ar-EG-u-nu-latn') + ' / ' + s.max_orders.toLocaleString('ar-EG-u-nu-latn');
   } else {
     ctEl.textContent = 'غير محدود';
   }
@@ -123,9 +123,9 @@ export function renderPlanCards(){
 
       var priceLine;
       if(p.pricing_type === 'per_order'){
-        priceLine = '<div class="plan-price">' + (parseFloat(p.per_order_price)||0).toLocaleString('ar-EG') + 'ج <small>/ أوردر مؤكد</small></div>';
+        priceLine = '<div class="plan-price">' + (parseFloat(p.per_order_price)||0).toLocaleString('ar-EG-u-nu-latn') + 'ج <small>/ أوردر مؤكد</small></div>';
       } else {
-        priceLine = '<div class="plan-price">' + (parseFloat(p.monthly_price)||0).toLocaleString('ar-EG') + 'ج <small>/ شهر</small></div>';
+        priceLine = '<div class="plan-price">' + (parseFloat(p.monthly_price)||0).toLocaleString('ar-EG-u-nu-latn') + 'ج <small>/ شهر</small></div>';
       }
 
       var features = (Array.isArray(p.features) ? p.features : []);
@@ -155,7 +155,7 @@ export var selectPlan = function(planId){
     var p = r.data;
     var msg = 'هل تريد التبديل إلى باقة "' + p.name_ar + '"?';
     if(p.pricing_type !== 'per_order' && parseFloat(p.monthly_price) > 0){
-      msg += '\n\nسيتم خصم ' + (parseFloat(p.monthly_price)).toLocaleString('ar-EG') + ' جنيه من محفظتك فوراً.';
+      msg += '\n\nسيتم خصم ' + (parseFloat(p.monthly_price)).toLocaleString('ar-EG-u-nu-latn') + ' جنيه من محفظتك فوراً.';
       msg += '\nرصيدك الحالي: ' + fmtMoneyShort(walletStateCache.wallet_balance);
       if(parseFloat(walletStateCache.wallet_balance) < parseFloat(p.monthly_price)){
         msg += '\n\n⚠️ رصيدك غير كافي. اشحن المحفظة أولاً.';
@@ -189,7 +189,7 @@ export function switchPlan(planId, planRow){
     var res = r.data || {};
     var charged = parseFloat(res.charged)||0;
     if(charged > 0){
-      toast('تم تفعيل ' + planRow.name_ar + ' وخصم ' + charged.toLocaleString('ar-EG') + ' جنيه من محفظتك ✓','ok');
+      toast('تم تفعيل ' + planRow.name_ar + ' وخصم ' + charged.toLocaleString('ar-EG-u-nu-latn') + ' جنيه من محفظتك ✓','ok');
     } else {
       toast('تم التحويل إلى ' + planRow.name_ar + ' بنجاح ✓','ok');
     }
@@ -234,8 +234,8 @@ export function loadWalletHistory(){
           + '<td>'+esc(fmtDateTime(t.created_at))+'</td>'
           + '<td><span class="htx-type '+esc(t.type)+'">'+esc(TYPES[t.type]||t.type)+'</span></td>'
           + '<td>'+esc(t.description||'—')+'</td>'
-          + '<td class="htx-amount '+cls+'">'+sign+' '+Math.abs(amt).toLocaleString('ar-EG',{minimumFractionDigits:2,maximumFractionDigits:2})+'ج</td>'
-          + '<td class="htx-amount">'+(parseFloat(t.balance_after)||0).toLocaleString('ar-EG',{minimumFractionDigits:2,maximumFractionDigits:2})+'ج</td>'
+          + '<td class="htx-amount '+cls+'">'+sign+' '+Math.abs(amt).toLocaleString('ar-EG-u-nu-latn',{minimumFractionDigits:2,maximumFractionDigits:2})+'ج</td>'
+          + '<td class="htx-amount">'+(parseFloat(t.balance_after)||0).toLocaleString('ar-EG-u-nu-latn',{minimumFractionDigits:2,maximumFractionDigits:2})+'ج</td>'
           + '</tr>';
       });
       h += '</tbody></table>';
@@ -262,7 +262,7 @@ export function loadMyTopupRequests(){
       rows.forEach(function(t){
         h += '<tr>'
           + '<td>'+esc(fmtDateTime(t.created_at))+'</td>'
-          + '<td class="htx-amount pos">+'+(parseFloat(t.amount)||0).toLocaleString('ar-EG')+'ج</td>'
+          + '<td class="htx-amount pos">+'+(parseFloat(t.amount)||0).toLocaleString('ar-EG-u-nu-latn')+'ج</td>'
           + '<td>'+esc(t.sender_phone||'—')+'</td>'
           + '<td><span class="tup-status '+esc(t.status)+'">'+esc(ST[t.status]||t.status)+'</span></td>'
           + '<td>'+esc(t.reject_reason||'—')+'</td>'
@@ -317,7 +317,7 @@ export function submitTopupRequest(){
     if(r.error){
       // If bucket doesn't exist or upload fails, submit without screenshot
       console.warn('Screenshot upload failed:', r.error.message);
-      toast('تعذّر رفع الصورة، هنرسل الطلب بدونها','er');
+      toast('الصورة مارفعتش — هنبعت الطلب من غيرها','er');
       doInsert(null);
       return;
     }
