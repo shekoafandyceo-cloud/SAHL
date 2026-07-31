@@ -1,5 +1,6 @@
 // صندوق محادثات الواتساب — الحالة والتحميل والرسم والإرسال والتسميات
 
+import { skelList } from '../core/skeleton.js';
 import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { statusClass, statusLabel } from '../core/constants.js';
@@ -54,7 +55,7 @@ export function loadInbox(){
 
 export function waFetchConvos(showLoading){
   if(!sb||!currentTenantId) return;
-  if(showLoading) $id('wa-list-body').innerHTML='<div class="wa-empty">جاري التحميل…</div>';
+  if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
       if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">تعذّر تحميل المحادثات</div>'; veilDone('inbox'); return; }

@@ -1,5 +1,6 @@
 // المحفظة والباقات والشحن وقفل نفاد الرصيد
 
+import { skelList, skelTable } from '../core/skeleton.js';
 import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { $id } from '../core/dom.js';
@@ -204,7 +205,7 @@ export function switchPlan(planId, planRow){
 export function loadWalletHistory(){
   var tbody = $id('wallet-history-tbody');
   if(!tbody) return;
-  tbody.innerHTML = '<div class="ldg">جاري التحميل...</div>';
+  tbody.innerHTML = skelTable(5);
   sb.from('wallet_transactions')
     .select('*')
     .eq('tenant_id', currentTenantId)
@@ -246,7 +247,7 @@ export function loadWalletHistory(){
 export function loadMyTopupRequests(){
   var tbody = $id('my-topups-tbody');
   if(!tbody) return;
-  tbody.innerHTML = '<div class="ldg">جاري التحميل...</div>';
+  tbody.innerHTML = skelTable(3);
   sb.from('topup_requests')
     .select('*')
     .eq('tenant_id', currentTenantId)

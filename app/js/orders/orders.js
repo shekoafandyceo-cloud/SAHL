@@ -1,5 +1,6 @@
 // الأوردرات — الحالة والتحميل والجدول والتفاصيل والتحديث الجماعي والريل-تايم
 
+import { skelTable } from '../core/skeleton.js';
 import { currentTenantId, currentUser, forceSuspendLogout } from '../auth/auth.js';
 import { loadWalletState } from '../billing/billing.js';
 import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES } from '../core/constants.js';
@@ -322,7 +323,7 @@ export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()
   if(!ensureTenant()) return;
   ordersSetLoading(true);
-  $id('tbody').innerHTML='<div class="ldg"><div class="spin"></div>جاري التحميل...</div>';
+  $id('tbody').innerHTML=skelTable(8);
   var st=$id('fst').value, pl=$id('fpl').value, py=$id('fpy').value;
   var q=$id('qinp').value.trim();
   var fromIdx=(cur-1)*PS, toIdx=fromIdx+PS-1;

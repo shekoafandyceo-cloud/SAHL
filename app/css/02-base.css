@@ -33,3 +33,14 @@ button:hover{transform:translateY(-1px);}button:active{transform:translateY(0) s
 .empt-sub{font-size:.85rem;font-weight:600;color:var(--muted);line-height:1.9;max-width:440px;}
 .empt-btn{margin-top:8px;padding:10px 22px;border:none;border-radius:12px;background:var(--acc);color:#000;font-family:'Cairo',sans-serif;font-size:.88rem;font-weight:800;cursor:pointer;transition:filter .15s;}
 .empt-btn:hover{filter:brightness(1.06);}
+/* صفوف هيكلية (core/skeleton.js) — شرايط رمادية بلمعة بتتحرك مكان المحتوى */
+.skel{padding:6px 4px;}
+.skel-row{display:flex;align-items:center;gap:10px;padding:13px 10px;border-bottom:1px solid var(--brd);}
+.skel-row:last-child{border-bottom:none;}
+.skel-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--brd);}
+.skel-lines{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;}
+.skel-bar{display:block;height:13px;border-radius:7px;background:linear-gradient(90deg,var(--brd) 25%,#f1f5fb 50%,var(--brd) 75%);background-size:200% 100%;animation:skelShimmer 1.3s ease-in-out infinite;}
+.skel-bar.thin{height:10px;}
+.skel-circle{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(90deg,var(--brd) 25%,#f1f5fb 50%,var(--brd) 75%);background-size:200% 100%;animation:skelShimmer 1.3s ease-in-out infinite;}
+@keyframes skelShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.skel-bar,.skel-circle{animation:none;}}
