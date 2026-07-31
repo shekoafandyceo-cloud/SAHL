@@ -170,7 +170,7 @@ export function renderDetail(){
     });
     callsHtml+='</div>';
   }else{
-    callsHtml='<div class="calls-empty">لا توجد محاولات اتصال مسجلة</div>';
+    callsHtml='<div class="calls-empty">لسه مفيش محاولات اتصال متسجّلة</div>';
   }
 
   var cxBanner='';
@@ -258,7 +258,7 @@ export function renderDetail(){
 
     // CUSTOMER NOTES (from webhook) — highlighted yellow when present
     +'<div class="dsec"><div class="dstt">📌 ملاحظات العميل (من الويب هوك)</div>'
-    +'<div class="notes-box'+(hasCustomerNote?' has-content':' notes-empty')+'">'+(hasCustomerNote?esc(o.customer_notes):'لا توجد ملاحظات من العميل')+'</div>'
+    +'<div class="notes-box'+(hasCustomerNote?' has-content':' notes-empty')+'">'+(hasCustomerNote?esc(o.customer_notes):'مفيش ملاحظات من العميل')+'</div>'
     +'</div>'
 
     // INTERNAL NOTES (between employees) — editable

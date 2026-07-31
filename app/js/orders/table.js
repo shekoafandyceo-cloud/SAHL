@@ -1,5 +1,6 @@
 // جدول الأوردرات — الرندر والتحديد الجماعي والتصفّح
 
+import { emptyState } from '../core/empty.js';
 import { walletStateCache } from '../billing/billing.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
@@ -12,7 +13,7 @@ import { CALL_WAIT_MS, startTimerTick } from './call-timer.js';
 import { openDetail } from './detail.js';
 import { customerOrderCount } from './merge.js';
 import { fetchOrdersPage } from './orders.js';
-import { cur, fil, ordersSetPage, PS, selectedIds, totalCount } from './state.js';
+import { cur, fil, ordersPeriod, ordersSetPage, PS, selectedIds, totalCount } from './state.js';
 
 // الأعمدة اللي الجدول + المؤقّت محتاجينها فقط (مفيش select('*'))
 // حدود سمعة العميل من بوسطة (سهل تغييرها): >= جامد، >= متوسط، أقل = زبالة
@@ -46,8 +47,20 @@ export function getCallDeadline(o){
 
 export function renderTable(){
   var st=(cur-1)*PS, pg=fil;   // fil = الصفحة الحالية (جاية من السيرفر مباشرة)
-  if(!totalCount){$id('tbody').innerHTML='<div class="ldg">مفيش أوردرات مطابقة للبحث أو الفلتر.</div>';$id('pag').style.display='none';return;}
-  if(!pg.length){$id('tbody').innerHTML='<div class="ldg">لا توجد نتائج في هذه الصفحة</div>';}
+  if(!totalCount){
+    // تاجر جديد (مفيش أي فلتر شغّال) ≠ فلتر مش مطابق حاجة — الرسالة القديمة
+    // كانت بتتهم التاجر الجديد إنه عامل بحث غلط وهو لسه فاتح لأول مرة
+    var qv=$id('qinp'), noFilters = !(qv && qv.value.trim())
+      && !($id('fst') && $id('fst').value) && !($id('fpl') && $id('fpl').value)
+      && !($id('fpy') && $id('fpy').value) && ordersPeriod.type==='all';
+    $id('tbody').innerHTML = noFilters
+      ? emptyState({icon:'🛒', title:'لسه مفيش أوردرات',
+          sub:'أول ما تحط رابط استقبال الأوردرات في موقعك أو منصة إعلاناتك، الطلبات هتظهر هنا لوحدها وهيتبعت للعميل رسالة تأكيد أوتوماتيك.',
+          act:'goto-settings', actLabel:'🔗 هات رابط الاستقبال من الإعدادات', adminOnly:true})
+      : emptyState({icon:'🔍', title:'مفيش أوردرات مطابقة',
+          sub:'جرّب تغيّر كلمة البحث أو الفلاتر أو وسّع المدة.'});
+    $id('pag').style.display='none';return;}
+  if(!pg.length){$id('tbody').innerHTML='<div class="ldg">مفيش نتايج في الصفحة دي</div>';}
   // NEW COLUMN ORDER: رقم الطلب - رقم التتبع - اسم العميل - موبايل أساسي - موبايل إضافي - المدينة - العنوان - المنتج - الحالة - التاريخ
   // Default column widths (saved per-user in localStorage)
   var DEFAULT_WIDTHS = {cb:42,uid:100,track:110,name:160,phone:120,alt:120,city:100,addr:240,prod:200,pay:75,status:120,timer:90,date:90};

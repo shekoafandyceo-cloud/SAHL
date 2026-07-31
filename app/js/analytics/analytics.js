@@ -1,5 +1,6 @@
 // صفحة إحصائيات الأداء — المنتجات والمنصات
 
+import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { parseProductItems } from './product-match.js';
 import { BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, normStatus, statusIn } from '../core/constants.js';
@@ -136,7 +137,9 @@ export function renderFinancePlatforms(){
   list.sort(function(a,b){ return b.total - a.total; });
 
   if($id('finplat-count')) $id('finplat-count').textContent = num(list.length) + ' منصة';
-  if(!list.length){ $id('finplat-tbody').innerHTML = '<div class="ldg">لا توجد بيانات في الفترة المختارة</div>'; return; }
+  if(!list.length){ $id('finplat-tbody').innerHTML = emptyState({icon:'📊',
+      title:'مفيش بيانات في المدة دي',
+      sub:'الأرقام بتتبني من أوردراتك — جرّب مدة أطول أو استنى أوردرات جديدة.'}); return; }
 
   function rateColor(p){ if(p==null) return 'var(--muted)'; if(p>=75) return 'var(--green)'; if(p>=70) return 'var(--ora)'; return 'var(--red)'; }
   function rateTxt(p){ return p==null ? '—' : p.toFixed(1)+'%'; }

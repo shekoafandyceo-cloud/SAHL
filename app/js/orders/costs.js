@@ -1,5 +1,6 @@
 // تكلفة البضاعة والمخزون وتصنيف الأوردر — دوال حسابية خالصة
 
+import { emptyState } from '../core/empty.js';
 import { buildProductPerformance } from '../analytics/analytics.js';
 import { nameKey, normalizeProductName, parseProductItems, tokenSortKey } from '../analytics/product-match.js';
 import { currentTenantId } from '../auth/auth.js';
@@ -130,7 +131,9 @@ export function renderProductPerformance(){
   $id('pf-top-del').textContent=bestDel?short(bestDel.name,18):'—';
   $id('pf-top-ret').textContent=worstRet?short(worstRet.name,18):'—';
   $id('perf-count').textContent=list.length!==data.length?num(list.length)+' نتيجة':num(data.length)+' منتج';
-  if(!list.length){$id('perf-tbody').innerHTML='<div class="ldg">لا يوجد أداء منتجات حتى الآن</div>';return;}
+  if(!list.length){$id('perf-tbody').innerHTML=emptyState({icon:'📈',
+      title:'مفيش أداء منتجات لسه',
+      sub:'أول ما توصل أوردرات بأسماء منتجاتك هتشوف هنا أنهي منتج بيكسب وأنهي بيخسر.'});return;}
   var adminView = isAdmin();
   function pct(x){return x==null?'—':x.toFixed(0)+'%';}
   var h='<table><thead><tr>'

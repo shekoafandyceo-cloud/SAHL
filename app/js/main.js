@@ -108,7 +108,11 @@ var CLICK_ACTIONS = {
   'tour-prev':   function(){ tourPrev(); },
   'tour-finish': function(){ tourFinish(); },
   'tour-reopen': function(){ tourReopenWelcome(); },
-  'plan-select': function(el){ selectPlan(el.getAttribute('data-plan')); }
+  'plan-select': function(el){ selectPlan(el.getAttribute('data-plan')); },
+  // CTAs بتوع الحالات الفاضية (core/empty.js)
+  'goto-settings': function(){ showPage('settings'); },
+  'add-product':   function(){ var b=$id('add-product-btn'); if(b)b.click(); },
+  'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); }
 };
 function initClickActions(){
   document.addEventListener('click', function(ev){

@@ -1,5 +1,6 @@
 // المحفظة والباقات والشحن وقفل نفاد الرصيد
 
+import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { $id } from '../core/dom.js';
 import { sb } from '../core/supabase.js';
@@ -212,7 +213,9 @@ export function loadWalletHistory(){
     .then(function(r){
       if(r.error){ tbody.innerHTML = '<div class="ldg">خطأ: '+esc(r.error.message)+'</div>'; return; }
       var rows = r.data || [];
-      if(!rows.length){ tbody.innerHTML = '<div class="ldg">لا توجد حركات بعد</div>'; return; }
+      if(!rows.length){ tbody.innerHTML = emptyState({icon:'💳',
+        title:'مفيش حركات على المحفظة لسه',
+        sub:'كل شحن رصيد أو خصم هيتسجّل هنا بالتفصيل أول بأول.'}); return; }
       var TYPES = {
         topup: 'شحن',
         order_charge: 'خصم أوردر',

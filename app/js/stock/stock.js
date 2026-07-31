@@ -1,5 +1,6 @@
 // المخزون — الحالة والتحميل والرسم والمحرّرات والتنبيهات
 
+import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { normalizeProductName } from '../analytics/product-match.js';
 import { $id, esc } from '../core/dom.js';
@@ -70,7 +71,10 @@ export function renderProducts(){
   var list=stockProducts.filter(function(p){return !q||(p.name||'').toLowerCase().indexOf(q)>=0;});
   $id('prod-count').textContent=list.length!==stockProducts.length?num(list.length)+' نتيجة':num(stockProducts.length)+' منتج';
 
-  if(!list.length){$id('prod-tbody').innerHTML='<div class="ldg">لا توجد منتجات</div>';return;}
+  if(!list.length){$id('prod-tbody').innerHTML=emptyState({icon:'📦',
+      title:'لسه مضفتش أي منتجات',
+      sub:'سجّل منتجاتك عشان المخزون يتخصم أوتوماتيك مع كل أوردر بيخرج، وتعرف قيمة بضاعتك في أي لحظة.',
+      act:'add-product', actLabel:'+ أضف أول منتج', adminOnly:true});return;}
 
   var isAdmin = currentRole === 'admin';
   var h='<table><thead><tr>'
@@ -114,7 +118,9 @@ export function renderMovements(){
   });
   $id('mov-count').textContent=list.length!==stockMovements.length?num(list.length)+' نتيجة':num(stockMovements.length)+' حركة';
 
-  if(!list.length){$id('mov-tbody').innerHTML='<div class="ldg">لا توجد حركات</div>';return;}
+  if(!list.length){$id('mov-tbody').innerHTML=emptyState({icon:'🔄',
+      title:'مفيش حركات مخزون لسه',
+      sub:'الحركات بتتسجّل لوحدها أول ما الأوردرات تخرج من المخزن أو ترجع له — مش محتاج تعمل حاجة.'});return;}
 
   var adminView=isAdmin();
   var h='<table><thead><tr>'

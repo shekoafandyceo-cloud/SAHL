@@ -1,5 +1,6 @@
 // صندوق محادثات الواتساب — الحالة والتحميل والرسم والإرسال والتسميات
 
+import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
@@ -124,7 +125,9 @@ export function renderConvos(){
   var uf=$id('wa-filter-unread'); if(uf) uf.textContent= unreadConvs>0 ? ('غير مقروءة ('+unreadConvs+')') : 'غير مقروءة';
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
   for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+')') : lk; }
-  if(!waConvos.length){ body.innerHTML='<div class="wa-empty">مفيش محادثات لسه. أول ما عميل يبعتلك رسالة واتساب هتظهر هنا.</div>'; return; }
+  if(!waConvos.length){ body.innerHTML=emptyState({icon:'💬',
+      title:'مفيش محادثات لسه',
+      sub:'أول ما عميل يرد على رسالة التأكيد أو يبعتلك على واتساب، المحادثة هتظهر هنا.'}); return; }
   var list=[];
   for(var x=0;x<waConvos.length;x++){ if(waConvMatches(waConvos[x])) list.push(waConvos[x]); }
   if(!list.length){
@@ -204,7 +207,7 @@ export function waScrollBottom(box){ box.scrollTop=box.scrollHeight; setTimeout(
 
 export function renderMessages(msgs,scroll){
   var box=$id('wa-msgs'); if(!box) return;
-  if(!msgs.length){ box.innerHTML='<div class="wa-empty">لا توجد رسائل</div>'; waRenderedCount=0; waRenderedState=[]; return; }
+  if(!msgs.length){ box.innerHTML='<div class="wa-empty">مفيش رسايل في المحادثة دي</div>'; waRenderedCount=0; waRenderedState=[]; return; }
   // تحديث تدريجي لو الرسائل المعروضة بادئة (prefix) من القائمة الجديدة → ما نعيدش بناء كل حاجة (يمنع القفز)
   var canInc = waRenderedState.length>0 && box.querySelector('.wa-msg') && msgs.length>=waRenderedState.length;
   if(canInc){ for(var i=0;i<waRenderedState.length;i++){ if(!msgs[i] || msgs[i].id!==waRenderedState[i].id){ canInc=false; break; } } }

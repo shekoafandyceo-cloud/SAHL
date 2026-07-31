@@ -1,5 +1,6 @@
 // الماليات — التكاليف والأرباح والمصاريف والرسم البياني
 
+import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { BOSTA_POSITIVE_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
@@ -372,7 +373,10 @@ export function renderExpenses(){
   $id('exp-sum-warehouse').textContent = num(sumCat('مخزن').toFixed(0))+' ج';
   $id('exp-sum-other').textContent = num(sumCat('متفرقات').toFixed(0))+' ج';
 
-  if(!list.length){ $id('exp-tbody').innerHTML = '<div class="ldg">لا توجد مصاريف</div>'; return; }
+  if(!list.length){ $id('exp-tbody').innerHTML = emptyState({icon:'🧾',
+      title:'مفيش مصاريف متسجّلة',
+      sub:'سجّل مصاريفك — إعلانات، تغليف، تشغيل — عشان صافي الربح اللي بتشوفه يبقى حقيقي مش شكلي.',
+      act:'add-expense', actLabel:'+ سجّل أول مصروف'}); return; }
 
   var h = '<table><thead><tr>'
     + '<th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>ملاحظة</th><th></th>'
