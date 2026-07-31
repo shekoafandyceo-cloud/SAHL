@@ -22,6 +22,7 @@ import { customerOrderCount, detectMergeable, mergeableCustomers, renderMergeAle
 import { addCallAttempt, deleteCallAttempt, doBulkUpdate, doUpdate, saveInternalNotes } from './orders/mutations.js';
 import { addEmptyProductRow, buildProductOptions, collectProducts, parseProducts, renderProductsEditor, saveProducts } from './orders/products-editor.js';
 import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetPageSize, ordersSetSelected, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, stm, totalCount } from './orders/state.js';
+import { refreshSetupChecklist, setupDismiss } from './ui/setup-checklist.js';
 import { veilBegin } from './core/veil.js';
 import { getCallDeadline, goPage, parseStatusLog, RANK_GOOD, RANK_MID, renderTable, updateBulkBar, updateMasterCb, updateUnprintedBtn } from './orders/table.js';
 
@@ -111,6 +112,8 @@ var CLICK_ACTIONS = {
   'plan-select': function(el){ selectPlan(el.getAttribute('data-plan')); },
   // CTAs بتوع الحالات الفاضية (core/empty.js)
   'goto-settings': function(){ showPage('settings'); },
+  'goto-stock':    function(){ showPage('stock'); },
+  'setup-dismiss': function(){ setupDismiss(); },
   'add-product':   function(){ var b=$id('add-product-btn'); if(b)b.click(); },
   'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); }
 };
@@ -289,6 +292,7 @@ export function showPage(page){
   });
   // أول دخول للتاب في الجلسة: حجاب تحميل بدل الأصفار الكدابة —
   // كل loader بيشيله بـveilDone لما بياناته الأساسية توصل (core/veil.js)
+  if(page==='orders'){refreshSetupChecklist();}
   if(page==='stock'){veilBegin('stock');loadStock();}
   if(page==='finance'){veilBegin('finance');loadFinance();}
   if(page==='billing'){veilBegin('billing');loadBilling();}

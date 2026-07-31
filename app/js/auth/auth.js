@@ -1,5 +1,6 @@
 // الدخول والتسجيل والخروج وهوية المستأجر
 
+import { refreshSetupChecklist } from '../ui/setup-checklist.js';
 import { loadWalletState } from '../billing/billing.js';
 import { maybeShowExpiryBanner, subscriptionLockState } from '../billing/expiry.js';
 import { $id } from '../core/dom.js';
@@ -105,6 +106,7 @@ export function loadTenantAndEnter(){
       maybeShowExpiryBanner(r.data, lockState);
       loadAll();
       loadWalletState();  // load for everyone (admin + employee) — needed for depletion lock
+      refreshSetupChecklist();  // كارت تجهيز المتجر — أدمن بس وبيقفل نفسه لما يكمل
     });
 }
 
