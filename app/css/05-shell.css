@@ -13,3 +13,21 @@
 /* حاوية اللوجو والتابات — كانت inline style وده كان بيمنع أي تعديل
    ريسبونسف عليها (الـinline بيكسب الـstylesheet) */
 .tleft{display:flex;align-items:center;}
+/* ═══ الشِل الجانبي — القايمة على اليمين بدل التوب بار ═══
+   #app بياخد display:flex من auth.js عند الدخول؛ الاتجاه والارتفاع من هنا */
+#app{flex-direction:row;min-height:100vh;align-items:stretch;}
+.sidenav{flex:0 0 226px;display:flex;flex-direction:column;gap:14px;padding:18px 14px;background:rgba(255,255,255,.86);backdrop-filter:blur(18px);border-inline-end:1px solid var(--brd);position:sticky;top:0;height:100vh;overflow-y:auto;z-index:110;}
+.sn-brand{padding:0 4px;}
+.sn-brand .tlogo{display:block;text-align:center;font-size:1.3rem;}
+.appcol{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
+/* التوب بار بقى شريط أدوات بس */
+.appcol .topbar{justify-content:flex-end;}
+/* الـnav جوه السايدبار: عمودي بأيقونات */
+.sidenav .tnav{flex-direction:column;gap:5px;margin:0;background:transparent;border:none;padding:0;border-radius:0;}
+.sidenav .tnav-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:right;padding:11px 13px;border-radius:12px;font-size:.92rem;font-weight:700;position:relative;}
+.sidenav .tnav-btn .nv-ico{font-size:1.05rem;flex:0 0 22px;text-align:center;}
+.sidenav .tnav-btn .nv-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sidenav .tnav-btn:hover{background:var(--sur);box-shadow:none;color:var(--txt);}
+.sidenav .tnav-btn.active{background:linear-gradient(135deg,rgba(255,159,28,.14),rgba(255,191,105,.10));border-color:rgba(255,159,28,.35);color:#111827;box-shadow:none;}
+.sidenav .tnav-btn.active::before{content:'';position:absolute;inset-inline-start:-14px;top:22%;bottom:22%;width:3.5px;border-radius:3px;background:var(--acc);}
+.sidenav .wa-nav-badge{margin-inline-start:auto;}

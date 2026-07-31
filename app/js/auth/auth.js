@@ -102,7 +102,7 @@ export function loadTenantAndEnter(){
       currentTenant = r.data;
       applyTenantBranding();
       $id('login').style.display = 'none';
-      $id('app').style.cssText = 'display:flex;flex-direction:column;min-height:100vh;';
+      $id('app').style.cssText = 'display:flex;';   // الاتجاه والارتفاع من CSS (.sidenav layout) — مش inline (درس 27)
       maybeShowExpiryBanner(r.data, lockState);
       loadAll();
       loadWalletState();  // load for everyone (admin + employee) — needed for depletion lock

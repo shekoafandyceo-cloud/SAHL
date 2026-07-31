@@ -52,7 +52,7 @@ export function renderTable(){
     // كانت بتتهم التاجر الجديد إنه عامل بحث غلط وهو لسه فاتح لأول مرة
     var qv=$id('qinp'), noFilters = !(qv && qv.value.trim())
       && !($id('fst') && $id('fst').value) && !($id('fpl') && $id('fpl').value)
-      && !($id('fpy') && $id('fpy').value) && ordersPeriod.type==='all';
+      && !($id('fpy') && $id('fpy').value) && (ordersPeriod.type==='month' || ordersPeriod.type==='all');   // month هو الافتراضي الجديد
     $id('tbody').innerHTML = noFilters
       ? emptyState({icon:'🛒', title:'لسه مفيش أوردرات',
           sub:'أول ما تحط رابط استقبال الأوردرات في موقعك أو منصة إعلاناتك، الطلبات هتظهر هنا لوحدها وهيتبعت للعميل رسالة تأكيد أوتوماتيك.',
@@ -136,7 +136,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     var prodTitle = locked ? '' : esc(fmt(o.product_name));
     h+='<tr data-id="'+o.id+'"'+clsAttr+'>'
       +'<td class="cbcol"><input type="checkbox" class="cb cb-row" data-id="'+o.id+'" '+checked+'></td>'
-      +'<td class="id">'+noteIcon+esc(fmt(o.order_uid))+cancelBadge+'</td>'
+      +'<td class="id'+(cancelBadge?' has-cx':'')+'">'+noteIcon+esc(fmt(o.order_uid))+cancelBadge+'</td>'
       +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة بوسطة">🖨️</button>'+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
       +'<td class="nm">'+vipBadge+lockMaybe(fmt(o.customer_name))+rankBadge+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.phone))+'</td>'

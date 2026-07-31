@@ -23,7 +23,7 @@ export var pendingBostaByPhone = {};  // فهرس الدمج — loadMergeCandid
 export var selectedIds = new Set();   // بتتعدّل بـ.add/.clear — مش بيتعاد إسنادها
 
 // ===== orders-page period scope (بيتحكّم في الجدول وكروت الإحصاء فوق مع بعض) =====
-export var ordersPeriod = { type: 'all', from: null, to: null };
+export var ordersPeriod = { type: 'month', from: null, to: null };   // الافتراضي: الشهر الحالي
 
 // ===== Server-side orders pagination =====
 export var totalCount = 0;      // إجمالي الأوردرات المطابقة للفلتر (من عدّاد السيرفر)

@@ -102,19 +102,20 @@
 </div>
 
 <div id="app">
-  <div class="topbar">
-    <div class="tleft">
-      <div class="tlogo" id="brand-logo">سهل</div>
-      <div class="tnav">
-        <button class="tnav-btn active" data-page="orders" id="nav-orders">الطلبات</button>
-        <button class="tnav-btn" data-page="stock" id="nav-stock">المخزون</button>
-        <button class="tnav-btn" data-page="inbox" id="nav-inbox">💬 المحادثات<span class="wa-nav-badge" id="wa-nav-badge" style="display:none"></span></button>
-        <button class="tnav-btn admin-only" data-page="finance" id="nav-finance">الماليات</button>
-        <button class="tnav-btn admin-only" data-page="analytics" id="nav-analytics">إحصائيات الأداء</button>
-        <button class="tnav-btn admin-only" data-page="billing" id="nav-billing">المحفظة</button>
-        <button class="tnav-btn admin-only" data-page="settings" id="nav-settings">الإعدادات</button>
-      </div>
+  <aside class="sidenav" id="sidenav">
+    <div class="sn-brand"><div class="tlogo" id="brand-logo">سهل</div></div>
+    <div class="tnav">
+      <button class="tnav-btn active" data-page="orders" id="nav-orders"><span class="nv-ico">🧾</span><span class="nv-txt">الطلبات</span></button>
+      <button class="tnav-btn" data-page="stock" id="nav-stock"><span class="nv-ico">📦</span><span class="nv-txt">المخزون</span></button>
+      <button class="tnav-btn" data-page="inbox" id="nav-inbox"><span class="nv-ico">💬</span><span class="nv-txt">المحادثات</span><span class="wa-nav-badge" id="wa-nav-badge" style="display:none"></span></button>
+      <button class="tnav-btn admin-only" data-page="finance" id="nav-finance"><span class="nv-ico">💰</span><span class="nv-txt">الماليات</span></button>
+      <button class="tnav-btn admin-only" data-page="analytics" id="nav-analytics"><span class="nv-ico">📈</span><span class="nv-txt">إحصائيات الأداء</span></button>
+      <button class="tnav-btn admin-only" data-page="billing" id="nav-billing"><span class="nv-ico">💳</span><span class="nv-txt">المحفظة</span></button>
+      <button class="tnav-btn admin-only" data-page="settings" id="nav-settings"><span class="nv-ico">⚙️</span><span class="nv-txt">الإعدادات</span></button>
     </div>
+  </aside>
+  <div class="appcol">
+  <div class="topbar">
     <div class="tright">
       <div class="wallet-chip admin-only" id="wallet-chip" style="display:none" title="اضغط لفتح صفحة المحفظة">
         <div class="wseg wbalance" id="wchip-bal-seg">
@@ -146,9 +147,9 @@
       <div class="pseg">
         <span class="pseg-ind"></span>
         <button class="pseg-btn" data-period="last3">أخر 3 أيام</button>
-        <button class="pseg-btn" data-period="month">الشهر الحالي</button>
+        <button class="pseg-btn active" data-period="month">الشهر الحالي</button>
         <button class="pseg-btn" data-period="last30">أخر 30 يوم</button>
-        <button class="pseg-btn active" data-period="all">الكل</button>
+        <button class="pseg-btn" data-period="all">الكل</button>
         <button class="pseg-btn" data-period="custom">مخصص</button>
       </div>
       <div class="pcustom" id="orders-period-custom">
@@ -812,6 +813,7 @@
 <!-- ════════════════ /SETTINGS PAGE ════════════════ -->
 
   <!-- ISSUES PAGE (admin only) -->
+  </div><!-- /appcol -->
 </div>
 
 <div class="ovl" id="ovl">

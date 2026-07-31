@@ -61,6 +61,7 @@ export function initReadyCard(){
 }
 
 export function updateStats(){
+  if(tourActive) clearStatsDeltas();   // أرقام الجولة ديمو — فروق الشهر الحقيقية هتلخبط
   var monthOrders=ordersInPeriod();
 
   $id('s0').textContent=num(monthOrders.length);
@@ -155,10 +156,93 @@ export function loadOrdersCards(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
   var d=ordersPeriodCairoDates();
-  sb.rpc('sahl_orders_stats',{ p_tenant: currentTenantId, p_from: d?d.from:null, p_to: d?d.to:null }).then(function(r){
-    if(tourActive) return;
-    if(r.error || !r.data){ if(r.error&&r.error.message) console.warn('stats RPC:',r.error.message); return; }
-    applyOrdersStats(r.data);
+  var statsQ = sb.rpc('sahl_orders_stats',{ p_tenant: currentTenantId, p_from: d?d.from:null, p_to: d?d.to:null });
+  if(ordersPeriod.type==='month'){
+    // وضع الشهر الحالي (الافتراضي): بنجيب الشهر اللي فات كمان عشان
+    // كل كارت يعرض فرقه بالنسبة المئوية — نفس الـRPC بمدى تاني
+    var pd = prevMonthCairoDates();
+    Promise.all([statsQ,
+      sb.rpc('sahl_orders_stats',{ p_tenant: currentTenantId, p_from: pd.from, p_to: pd.to })
+    ]).then(function(rs){
+      if(tourActive) return;
+      var cur=rs[0], prev=rs[1];
+      if(cur.error || !cur.data){ if(cur.error&&cur.error.message) console.warn('stats RPC:',cur.error.message); return; }
+      applyOrdersStats(cur.data);
+      renderStatsDeltas(cur.data, (prev && !prev.error) ? prev.data : null);
+    });
+  } else {
+    clearStatsDeltas();
+    statsQ.then(function(r){
+      if(tourActive) return;
+      if(r.error || !r.data){ if(r.error&&r.error.message) console.warn('stats RPC:',r.error.message); return; }
+      applyOrdersStats(r.data);
+    });
+  }
+}
+
+// الشهر السابق بتوقيت القاهرة — نفس منطق فرع month في ordersPeriodCairoDates
+export function prevMonthCairoDates(){
+  var today=cairoYMD(new Date());
+  var y=+today.slice(0,4), m=+today.slice(5,7);
+  var py=m===1?y-1:y, pm=m===1?12:m-1;
+  var pmStr=('0'+pm).slice(-2);
+  var last=new Date(py,pm,0).getDate();
+  return { from: py+'-'+pmStr+'-01', to: py+'-'+pmStr+'-'+('0'+last).slice(-2) };
+}
+
+// خريطة الكروت: عنصر القيمة ← إزاي نطلّع الرقم من ناتج الـRPC،
+// وهل الزيادة كويسة (أخضر) ولا وحشة (أحمر — إلغاءات/مرتجع/مهدر)
+var DELTA_METRICS = [
+  { el:'s0', get:function(s){return s.total_count||0;}, goodUp:true },
+  { el:'s1', get:function(s){return s.pending||0;}, goodUp:null },
+  { el:'s2', get:function(s){return s.confirmed||0;}, goodUp:true },
+  { el:'s3', get:function(s){return s.delivered||0;}, goodUp:true },
+  { el:'s4', get:function(s){return s.cancelled||0;}, goodUp:false },
+  { el:'s5', get:function(s){return s.returned||0;}, goodUp:false },
+  { el:'s-ready', get:function(s){return s.bosta_ready||0;}, goodUp:true },
+  { el:'s6', get:function(s){return s.processed>0?(s.positive/s.processed)*100:null;}, goodUp:true, points:true },
+  { el:'s7', get:function(s){var dd=(s.delivered||0)+(s.returned||0);return dd>0?(s.delivered/dd)*100:null;}, goodUp:true, points:true },
+  { el:'rv-total', get:function(s){return s.sum_total||0;}, goodUp:true },
+  { el:'rv-collected', get:function(s){return s.sum_collected||0;}, goodUp:true },
+  { el:'rv-expected', get:function(s){return s.sum_expected||0;}, goodUp:true },
+  { el:'rv-lost', get:function(s){return s.sum_lost||0;}, goodUp:false },
+  { el:'rv-aov', get:function(s){return s.total_count?(s.sum_total/s.total_count):null;}, goodUp:true },
+  { el:'rv-paymob', get:function(s){return s.sum_paymob||0;}, goodUp:true }
+];
+
+function deltaSlot(valueEl){
+  var d=valueEl.parentElement.querySelector('.sdelta');
+  if(!d){ d=document.createElement('div'); d.className='sdelta'; valueEl.insertAdjacentElement('afterend', d); }
+  return d;
+}
+
+export function clearStatsDeltas(){
+  document.querySelectorAll('.sdelta').forEach(function(d){ d.textContent=''; d.className='sdelta'; });
+}
+
+// فرق كل كارت عن الشهر اللي فات: ▲ +12% أخضر لو الزيادة كويسة،
+// أحمر لو وحشة (إلغاءات مثلاً)، وكروت النسب بتتقارن بالنقاط
+export function renderStatsDeltas(cur, prev){
+  if(!prev){ clearStatsDeltas(); return; }
+  DELTA_METRICS.forEach(function(m){
+    var valueEl=$id(m.el); if(!valueEl) return;
+    var d=deltaSlot(valueEl);
+    var c=m.get(cur), p=m.get(prev);
+    if(c===null || p===null){ d.textContent=''; d.className='sdelta'; return; }
+    var diff, txt;
+    if(m.points){ diff=c-p; txt=Math.abs(diff).toFixed(1)+' نقطة'; }
+    else if(p===0){
+      if(c===0){ d.textContent=''; d.className='sdelta'; return; }
+      d.textContent='جديد'; d.className='sdelta flat';
+      d.title='مفيش بيانات للشهر اللي فات للمقارنة'; return;
+    }
+    else { diff=(c-p)/p*100; txt=Math.abs(diff).toFixed(0)+'%'; }
+    if(Math.abs(diff) < 0.05){ d.textContent='زي الشهر اللي فات'; d.className='sdelta flat'; d.title=''; return; }
+    var up=diff>0;
+    var good = m.goodUp===null ? null : (up === m.goodUp);
+    d.textContent=(up?'▲ ':'▼ ')+txt;
+    d.className='sdelta '+(good===null?'flat':(good?'up':'down'));
+    d.title=(up?'أعلى':'أقل')+' من الشهر اللي فات بـ'+txt;
   });
 }
 
