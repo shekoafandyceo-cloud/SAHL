@@ -43,23 +43,27 @@
 .sn-uinfo{min-width:0;}
 .sn-uinfo b{display:block;font-size:.82rem;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sn-uinfo small{display:block;color:var(--muted);font-size:.68rem;font-weight:700;margin-top:1px;}
-/* ═══ طيّ السايدبار — زرار في راس القايمة، أيقونات بس، والتفضيل محفوظ ═══
-   الكلاس بيتقلب من data-act="side-toggle" (main.js) والحالة في
+/* ═══ طيّ السايدبار — زرار دايري راكب على حافة القايمة (زي بوسطة) ═══
+   الزرار أخو السايدبار في الـDOM مش جواه: overflow-y:auto جوه القايمة
+   كان هيقصّ أي جزء طالع بره حدودها. fixed لأن القايمة sticky بطول
+   الشاشة، والحالة بتوصله بمحدد الأخ المجاور #sidenav.collapsed + .
+   الكلاس بيتقلب من data-act="side-toggle" (main.js) والتفضيل في
    localStorage[sahl_side_collapsed]. ديسكتوب بس — الموبايل شريط أفقي. */
-.side-toggle{display:none;position:absolute;inset-inline-start:0;top:6px;width:28px;height:28px;border-radius:10px;border:1px solid var(--brd);background:#fff;color:var(--muted);cursor:pointer;font-size:.68rem;align-items:center;justify-content:center;box-shadow:var(--shadow2);padding:0;z-index:3;}
+.side-toggle{display:none;position:fixed;top:82px;inset-inline-start:222px;width:28px;height:28px;border-radius:999px;border:1px solid var(--brd);background:#fff;color:var(--muted);cursor:pointer;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(15,23,42,.14);padding:0;z-index:120;transition:inset-inline-start .2s ease;}
 .side-toggle:hover{color:#b45309;border-color:var(--acc);background:#fff7ed;}
-.side-toggle::before{content:'❯';}
+.side-toggle svg{width:15px;height:15px;display:block;}
+/* أيقونات التنقل — line icons بلون واحد (stroke:currentColor بتاخد لون الزرار) */
+.nv-ico svg{width:19px;height:19px;display:block;margin:0 auto;}
+.sidenav .tnav-btn.active .nv-ico{color:#b45309;}
 @media(min-width:769px){
-  .sn-brand{position:relative;}
   .side-toggle{display:inline-flex;}
-  /* اللوجو positioned وجاي بعد الزرار في الـDOM فبيرسم فوقه — نحجز
-     للزرار خانة على يمين البراند بدل التراكب (درس 31) */
-  .sn-brand .tlogo{margin-inline-start:36px;}
+  .sidenav{transition:flex-basis .2s ease;}
   .sidenav.collapsed{flex:0 0 76px;padding-inline:10px;}
-  .sidenav.collapsed .side-toggle{position:static;margin:0 auto;}
-  .sidenav.collapsed .side-toggle::before{content:'❮';}
+  #sidenav.collapsed + .side-toggle{inset-inline-start:62px;}
+  #sidenav.collapsed + .side-toggle svg{transform:scaleX(-1);}
   .sidenav.collapsed .tlogo,.sidenav.collapsed .sn-tag,.sidenav.collapsed .sn-label,
   .sidenav.collapsed .nv-txt,.sidenav.collapsed .sn-uinfo{display:none;}
+  .sidenav.collapsed .sn-brand{padding-bottom:0;border-bottom:none;min-height:14px;}
   .sidenav.collapsed .tnav{gap:6px;}
   .sidenav.collapsed .tnav-btn{justify-content:center;padding:11px 0;gap:0;}
   .sidenav.collapsed .tnav-btn .nv-ico{flex:0 0 auto;}
