@@ -172,6 +172,14 @@ export function fetchProfileAndEnter(authUser){
     var badge = $id('user-badge');
     badge.className = 'user-badge ' + profile.role;
     badge.textContent = (profile.role === 'admin' ? '👑 ' : '👤 ') + currentUser.name;
+    // كارت المستخدم أسفل السايدبار — نفس البيانات، مكانها الطبيعي في شكل SaaS
+    var snUser = $id('sn-user');
+    if(snUser){
+      snUser.style.display = '';
+      $id('sn-avatar').textContent = (currentUser.name || '؟').trim().charAt(0) || '؟';
+      $id('sn-uname').textContent = currentUser.name;
+      $id('sn-urole').textContent = profile.role === 'admin' ? '👑 أدمن' : '👤 موظف';
+    }
     // Load safe tenant info and enter the dashboard.
     loadTenantAndEnter();
   });

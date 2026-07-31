@@ -195,19 +195,16 @@ export function prevMonthCairoDates(){
 var DELTA_METRICS = [
   { el:'s0', get:function(s){return s.total_count||0;}, goodUp:true },
   { el:'s1', get:function(s){return s.pending||0;}, goodUp:null },
-  { el:'s2', get:function(s){return s.confirmed||0;}, goodUp:true },
   { el:'s3', get:function(s){return s.delivered||0;}, goodUp:true },
   { el:'s4', get:function(s){return s.cancelled||0;}, goodUp:false },
   { el:'s5', get:function(s){return s.returned||0;}, goodUp:false },
-  { el:'s-ready', get:function(s){return s.bosta_ready||0;}, goodUp:true },
   { el:'s6', get:function(s){return s.processed>0?(s.positive/s.processed)*100:null;}, goodUp:true, points:true },
   { el:'s7', get:function(s){var dd=(s.delivered||0)+(s.returned||0);return dd>0?(s.delivered/dd)*100:null;}, goodUp:true, points:true },
   { el:'rv-total', get:function(s){return s.sum_total||0;}, goodUp:true },
   { el:'rv-collected', get:function(s){return s.sum_collected||0;}, goodUp:true },
   { el:'rv-expected', get:function(s){return s.sum_expected||0;}, goodUp:true },
   { el:'rv-lost', get:function(s){return s.sum_lost||0;}, goodUp:false },
-  { el:'rv-aov', get:function(s){return s.total_count?(s.sum_total/s.total_count):null;}, goodUp:true },
-  { el:'rv-paymob', get:function(s){return s.sum_paymob||0;}, goodUp:true }
+  { el:'rv-aov', get:function(s){return s.total_count?(s.sum_total/s.total_count):null;}, goodUp:true }
 ];
 
 function deltaSlot(valueEl){

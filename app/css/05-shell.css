@@ -16,18 +16,30 @@
 /* ═══ الشِل الجانبي — القايمة على اليمين بدل التوب بار ═══
    #app بياخد display:flex من auth.js عند الدخول؛ الاتجاه والارتفاع من هنا */
 #app{flex-direction:row;min-height:100vh;align-items:stretch;}
-.sidenav{flex:0 0 226px;display:flex;flex-direction:column;gap:14px;padding:18px 14px;background:rgba(255,255,255,.86);backdrop-filter:blur(18px);border-inline-end:1px solid var(--brd);position:sticky;top:0;height:100vh;overflow-y:auto;z-index:110;}
-.sn-brand{padding:0 4px;}
+.sidenav{flex:0 0 236px;display:flex;flex-direction:column;gap:10px;padding:20px 14px 14px;background:rgba(255,255,255,.86);backdrop-filter:blur(18px);border-inline-end:1px solid var(--brd);position:sticky;top:0;height:100vh;overflow-y:auto;z-index:110;scrollbar-width:thin;}
+.sn-brand{padding:0 4px 14px;border-bottom:1px solid var(--brd);text-align:center;}
 .sn-brand .tlogo{display:block;text-align:center;font-size:1.3rem;}
+.sn-tag{display:block;margin-top:8px;color:#9aa7b8;font-size:.68rem;font-weight:800;letter-spacing:.12em;}
 .appcol{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
-/* التوب بار بقى شريط أدوات بس */
+/* التوب بار بقى شريط أدوات بس — بيانات المستخدم نزلت أسفل السايدبار */
 .appcol .topbar{justify-content:flex-end;}
-/* الـnav جوه السايدبار: عمودي بأيقونات */
-.sidenav .tnav{flex-direction:column;gap:5px;margin:0;background:transparent;border:none;padding:0;border-radius:0;}
-.sidenav .tnav-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:right;padding:11px 13px;border-radius:12px;font-size:.92rem;font-weight:700;position:relative;}
-.sidenav .tnav-btn .nv-ico{font-size:1.05rem;flex:0 0 22px;text-align:center;}
+@media(min-width:769px){.topbar .user-badge{display:none;}}
+/* الـnav جوه السايدبار: عمودي بأيقونات + عناوين أقسام */
+.sidenav .tnav{flex-direction:column;gap:4px;margin:0;background:transparent;border:none;padding:0;border-radius:0;}
+.sn-label{font-size:.64rem;font-weight:800;color:#9aa7b8;letter-spacing:.14em;padding:14px 12px 5px;user-select:none;}
+.sidenav .tnav .sn-label:first-child{padding-top:4px;}
+.sidenav .tnav-btn{display:flex;align-items:center;gap:11px;width:100%;text-align:right;padding:10px 12px;border-radius:12px;font-size:.9rem;font-weight:700;position:relative;transition:background .14s,color .14s;}
+.sidenav .tnav-btn .nv-ico{font-size:1.05rem;flex:0 0 22px;text-align:center;transition:transform .14s;}
 .sidenav .tnav-btn .nv-txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .sidenav .tnav-btn:hover{background:var(--sur);box-shadow:none;color:var(--txt);}
-.sidenav .tnav-btn.active{background:linear-gradient(135deg,rgba(255,159,28,.14),rgba(255,191,105,.10));border-color:rgba(255,159,28,.35);color:#111827;box-shadow:none;}
+.sidenav .tnav-btn.active{background:linear-gradient(135deg,rgba(255,159,28,.15),rgba(255,191,105,.09));border-color:rgba(255,159,28,.35);color:#111827;box-shadow:0 6px 16px rgba(255,159,28,.10);}
+.sidenav .tnav-btn.active .nv-ico{transform:scale(1.12);}
 .sidenav .tnav-btn.active::before{content:'';position:absolute;inset-inline-start:-14px;top:22%;bottom:22%;width:3.5px;border-radius:3px;background:var(--acc);}
 .sidenav .wa-nav-badge{margin-inline-start:auto;}
+/* كارت المستخدم مثبّت تحت */
+.sn-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--brd);}
+.sn-user{display:flex;align-items:center;gap:10px;padding:9px 10px;background:var(--sur);border:1px solid var(--brd);border-radius:14px;}
+.sn-avatar{width:34px;height:34px;flex:0 0 34px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#211300;font-weight:900;font-size:.95rem;display:inline-flex;align-items:center;justify-content:center;}
+.sn-uinfo{min-width:0;}
+.sn-uinfo b{display:block;font-size:.82rem;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sn-uinfo small{display:block;color:var(--muted);font-size:.68rem;font-weight:700;margin-top:1px;}

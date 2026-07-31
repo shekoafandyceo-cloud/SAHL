@@ -41,6 +41,10 @@
 #finplat-tbody td.nm{font-size:1rem;font-weight:900;}
 #finplat-tbody th{font-size:.85rem;font-weight:800;}
 
+/* Product performance table — نفس معاملة جدول المنصات */
+#perf-tbody td.mn{font-size:1.02rem;font-weight:900;}
+#perf-tbody th{font-size:.85rem;font-weight:800;}
+
 /* Expense table — bigger */
 #exp-tbody td{font-size:.95rem;font-weight:700;}
 #exp-tbody th{font-size:.85rem;font-weight:800;}
