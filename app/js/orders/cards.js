@@ -271,6 +271,10 @@ export function loadBostaInventoryCard(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
   loadStockProductsForCosts(function(){
+    // BOSTA_OPERATION_STATUSES هنا مقصودة — مش BOSTA_INVENTORY_STATUSES:
+    // BOSTA2/bosta2 معناها السكانر بتاعنا ضرب الأوردر في مخزننا وبوسطة
+    // لسه ماستلمتش، فمش "بضاعة مع بوسطة" (قرار المالك 1 أغسطس — أي مراجعة
+    // تقترح "تصليح" ده تعتبر غلط)
     sb.from('orders').select('product_name,inventory_cost_snapshot,inventory_value_snapshot,inventory_value_at_bosta,status')
       .eq('tenant_id',currentTenantId).in('status',BOSTA_OPERATION_STATUSES).then(function(r){
         if(tourActive) return;

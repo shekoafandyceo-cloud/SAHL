@@ -61,10 +61,20 @@ export function refreshOrdersScope(){
 }
 
 // تحميل كل الأوردرات للذاكرة عند الحاجة فقط (الماليات/الإحصائيات بتحسب على كل الفترة).
+// الـcb بياخد باراميتر err: لو السحب فشل في النص، اللي نادى لازم مايرندرش
+// أرقام ناقصة كأنها حقيقية. وفيه طابور مشترك — فتح الماليات والأداء ورا
+// بعض كان بيبدأ سحبتين كاملتين متوازيتين لنفس الجدول.
+var allLoadingCbs = null;
 export function ensureAllLoaded(cb){
   if(tourActive){ cb&&cb(); return; }            // الجولة: all = بيانات ديمو محمّلة بالفعل
   if(allLoaded){ cb&&cb(); return; }
   if(!sb||!currentTenantId){ cb&&cb(); return; }
+  if(allLoadingCbs){ if(cb)allLoadingCbs.push(cb); return; }   // سحبة شغالة — استنى معاها
+  allLoadingCbs = cb ? [cb] : [];
+  function finish(err){
+    var cbs = allLoadingCbs || []; allLoadingCbs = null;
+    cbs.forEach(function(f){ try{ f(err); }catch(e){ swallow('ensureAllLoaded/cb', e); } });
+  }
   // ⚠️ مهم: select() من غير range بيتوقف عند سقف PostgREST (١٠٠٠ صف) في صمت —
   // وده كان بيخلّي الماليات والإحصائيات تتحسب على جزء من البيانات من غير أي تحذير.
   // بنسحب على دفعات لحد ما الداتا تخلص.
@@ -74,13 +84,13 @@ export function ensureAllLoaded(cb){
       .order('created_at',{ascending:false})
       .range(fromIdx, fromIdx + CHUNK - 1)
       .then(function(r){
-        if(r.error){ toast('خطأ في تحميل البيانات: '+r.error.message,'er'); cb&&cb(); return; }
+        if(r.error){ toast('خطأ في تحميل البيانات: '+r.error.message,'er'); finish(r.error); return; }
         var got = r.data || [];
         acc = acc.concat(got);
         if(got.length === CHUNK && acc.length < MAXROWS){ fromIdx += CHUNK; pull(); return; }
         ordersSetAll(acc); ordersSetAllLoaded(true);
         try{ buildIndexes(); }catch(e){ swallow('pull/buildIndexes', e); }           // phoneCounts كامل
-        cb&&cb();
+        finish(null);
       });
   })();
 }
@@ -319,9 +329,13 @@ export function showCancelRequested(){
   fetchOrdersPage();
 }
 
+// رقم جيل الجلب — رد بحث قديم وصل متأخر مايستبدلش نتيجة بحث أحدث
+var fetchGen = 0;
+
 export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()
   if(!ensureTenant()) return;
+  var myGen = ++fetchGen;
   ordersSetLoading(true);
   $id('tbody').innerHTML=skelTable(8);
   var st=$id('fst').value, pl=$id('fpl').value, py=$id('fpy').value;
@@ -348,6 +362,7 @@ export function fetchOrdersPage(){
   var rng=ordersPeriodRangeISO();
   if(rng) query=query.gte('created_at',rng.fromTs).lt('created_at',rng.toTs);
   query.order('created_at',{ascending:false}).range(fromIdx,toIdx).then(function(r){
+    if(myGen !== fetchGen) return;   // طلب أحدث خرج بعدنا — الرد ده بقى قديم
     ordersSetLoading(false);
     refreshCancelBar();
     if(r.error){

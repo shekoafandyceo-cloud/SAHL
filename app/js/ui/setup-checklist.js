@@ -51,6 +51,12 @@ export function refreshSetupChecklist(force){
     sb.from('stock_products').select('id', { count: 'exact', head: true })
       .eq('tenant_id', currentTenantId).limit(1)
   ]).then(function(res){
+    // فشل أي استعلام = مانعرفش، مش "الخطوة ناقصة" — الكارت كان بيتهم
+    // تاجر متجهز إن خطواته ناقصة لمجرد خطأ شبكة عابر
+    if((res[0]&&res[0].error)||(res[1]&&res[1].error)||(res[2]&&res[2].error)){
+      lastComputed = 0;   // خلّي المحاولة الجاية تعيد الحساب من غير خنق
+      host.innerHTML = ''; host.style.display = 'none'; return;
+    }
     var t = (res[0] && res[0].data) || {};
     var hasOrders = ((res[1] && res[1].count) || 0) > 0;
     var hasStock  = ((res[2] && res[2].count) || 0) > 0;

@@ -76,7 +76,9 @@ export function collectProducts(){
     var sel2=row.querySelector('.prod-select');
     var qtyInp=row.querySelector('.prod-qty');
     var name=(sel2?sel2.value:'').trim();
-    var qty=qtyInp?parseInt(qtyInp.value)||1:1;
+    // كمية سالبة أو صفر أو كلام = 1 — parseInt لوحدها كانت بتقبل السالب
+    var qty=qtyInp?parseInt(qtyInp.value):1;
+    if(!isFinite(qty)||qty<1)qty=1;
     if(name){
       arr.push(name+' (عدد '+qty+')'); // ALWAYS include quantity
     }
@@ -114,6 +116,7 @@ export function addEmptyProductRow(){
 export function saveProducts(){
   if(!ensureTenant())return;
   if(!sel)return;
+  var ord=sel;   // التقاط الأوردر — sel الحي ممكن يتبدل قبل رد السيرفر
   var products=collectProducts();
   if(!products.length){toast('مينفعش تحفظ منتجات فاضية','er');return;}
   var combined = products.length===1 ? products[0] : products.join('\n+ ');
@@ -139,46 +142,39 @@ export function saveProducts(){
   }
 
   // Parse old product list (the one saved in the order before this edit)
-  var oldProducts = parseProducts(sel.product_name || '');
+  var oldProducts = parseProducts(ord.product_name || '');
   var oldMap = buildPriceMap(oldProducts);
   var newMap = buildPriceMap(products);
 
-  // Calculate delta: sum of (new - old) for items where we have prices
+  // Calculate delta: sum of (new - old) for items where we have prices.
+  // بيتحسب على union المفاتيح بفرق القيمة المتراكمة — المنتج المكرر بنفس
+  // الكمية بيتجمع في مفتاح واحد، والمقارنة القديمة (موجود/مش موجود بس)
+  // كانت بتفوّت حذف نسخة من نسختين والإجمالي يفضل أعلى من الصح
   var delta = 0;
   var hasKnownChange = false;
-  // Items added or increased
-  Object.keys(newMap).forEach(function(key){
-    if(newMap[key] === null) return; // skip unknown-price items
-    var oldVal = oldMap[key] !== undefined ? (oldMap[key] || 0) : 0;
-    if(oldMap[key] === undefined){
-      // Brand new item → add its price
-      delta += newMap[key];
-      hasKnownChange = true;
-    }
-  });
-  // Items removed
-  Object.keys(oldMap).forEach(function(key){
-    if(oldMap[key] === null || oldMap[key] === undefined) return;
-    if(newMap[key] === undefined){
-      // Removed item → subtract its price
-      delta -= oldMap[key];
-      hasKnownChange = true;
-    }
+  var keys = {};
+  Object.keys(newMap).forEach(function(k){ keys[k]=1; });
+  Object.keys(oldMap).forEach(function(k){ keys[k]=1; });
+  Object.keys(keys).forEach(function(key){
+    var nv = newMap[key], ov = oldMap[key];
+    if(nv === null || ov === null) return;   // سعر مجهول — مانلمسش الإجمالي
+    var d = (nv === undefined ? 0 : nv) - (ov === undefined ? 0 : ov);
+    if(d !== 0){ delta += d; hasKnownChange = true; }
   });
 
-  var currentTotal = parseFloat(sel.total_cost) || 0;
+  var currentTotal = parseFloat(ord.total_cost) || 0;
   var newTotal = currentTotal + delta;
   if(newTotal < 0) newTotal = 0;
 
   var updateData = {product_name: combined};
   if(hasKnownChange) updateData.total_cost = newTotal;
 
-  sb.from('orders').update(updateData).eq('id',sel.id).eq('tenant_id',currentTenantId).then(function(r){
+  sb.from('orders').update(updateData).eq('id',ord.id).eq('tenant_id',currentTenantId).then(function(r){
     if(r.error){$id('prod-status').textContent='خطأ: '+r.error.message;$id('prod-status').className='save-status';return;}
-    sel.product_name=combined;
-    if(hasKnownChange) sel.total_cost=newTotal;
+    ord.product_name=combined;
+    if(hasKnownChange) ord.total_cost=newTotal;
     for(var i=0;i<all.length;i++){
-      if(all[i].id===sel.id){
+      if(all[i].id===ord.id){
         all[i].product_name=combined;
         if(hasKnownChange) all[i].total_cost=newTotal;
         break;

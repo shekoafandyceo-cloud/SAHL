@@ -17,10 +17,13 @@ export function saveInternalNotes(){
   if(!ensureTenant())return;
   if(!sel)return;
   var notes=$id('int-notes').value;
-  sb.from('orders').update({internal_notes:notes}).eq('id',sel.id).eq('tenant_id',currentTenantId).then(function(r){
+  // التقاط الأوردر وقت البدء — sel الحي ممكن يتغير قبل رد السيرفر
+  // (المستخدم فتح أوردر تاني) فكانت ملاحظات A بتتكتب محلياً على B
+  var ord=sel;
+  sb.from('orders').update({internal_notes:notes}).eq('id',ord.id).eq('tenant_id',currentTenantId).then(function(r){
     if(r.error){$id('save-status').textContent='خطأ: '+r.error.message;$id('save-status').className='save-status';return;}
-    sel.internal_notes=notes;
-    for(var i=0;i<all.length;i++){if(all[i].id===sel.id){all[i].internal_notes=notes;break;}}
+    ord.internal_notes=notes;
+    for(var i=0;i<all.length;i++){if(all[i].id===ord.id){all[i].internal_notes=notes;break;}}
     $id('save-status').textContent='✓ تم الحفظ';
     $id('save-status').className='save-status ok';
     setTimeout(function(){if($id('save-status'))$id('save-status').textContent='';},2200);

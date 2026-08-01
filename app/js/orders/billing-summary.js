@@ -95,23 +95,42 @@ export var inboxVerified = null;
 export function refreshInboxGate(){
   if(!sb) return Promise.resolve(false);
   return sb.rpc('wa_inbox_status').then(function(r){
-    var d = (!r.error && r.data) ? r.data : {};
+    // فشل الـRPC (شبكة/سيرفر) = "مش معروف" مش "مش موثّق" — كانت false
+    // فتاجر موثّق بيشوف شاشة "اربط رقمك" طول الجلسة بعد أول فشل عابر،
+    // وnull بتخلي loadInbox يعيد السؤال في الفتحة الجاية
+    if(r.error){ inboxVerified = null; return false; }
+    var d = r.data || {};
     inboxVerified = !!d.verified;
     return inboxVerified;
   }).catch(function(){ inboxVerified = null; return false; });
 }
 
+// القفل overlay فوق الشِل مش بديل ليه — الاستبدال بـinnerHTML كان بيمسح
+// wa-list-body وأخواته، وأول فتح للإنبوكس بعد التوثيق (من غير reload)
+// كان بيرمي TypeError على null ويسيب الصفحة واقفة تحت الحجاب
 export function renderInboxLocked(){
   var wrap = $id('wa-wrap');
   if(!wrap) return;
-  wrap.innerHTML =
-    '<div class="inbox-lock">'
-    + '<div class="inbox-lock-ico">💬</div>'
-    + '<h3>المحادثات متاحة للمتاجر اللي ربطت رقم واتساب خاص بيها</h3>'
-    + '<p>عشان نستقبل رسايل عملائك ونعرضهالك هنا، لازم تربط رقم واتساب بيزنس بتاعك مع الـ Access Token. '
-    + 'ولو شغّال على رقم سهل المشترك، الرسايل بتروح لخدمة عملاء متجرك مباشرةً زي ما هو مكتوب في رسالة التأكيد.</p>'
-    + '<button class="sbtn" id="inbox-go-settings">اربط رقمك دلوقتي ←</button>'
-    + '</div>';
-  var b = $id('inbox-go-settings');
-  if(b) b.addEventListener('click', function(){ showPage('settings'); });
+  var lock = $id('wa-lock');
+  if(!lock){
+    lock = document.createElement('div');
+    lock.id = 'wa-lock';
+    lock.innerHTML =
+      '<div class="inbox-lock">'
+      + '<div class="inbox-lock-ico">💬</div>'
+      + '<h3>المحادثات متاحة للمتاجر اللي ربطت رقم واتساب خاص بيها</h3>'
+      + '<p>عشان نستقبل رسايل عملائك ونعرضهالك هنا، لازم تربط رقم واتساب بيزنس بتاعك مع الـ Access Token. '
+      + 'ولو شغّال على رقم سهل المشترك، الرسايل بتروح لخدمة عملاء متجرك مباشرةً زي ما هو مكتوب في رسالة التأكيد.</p>'
+      + '<button class="sbtn" id="inbox-go-settings">اربط رقمك دلوقتي ←</button>'
+      + '</div>';
+    wrap.appendChild(lock);
+    var b = $id('inbox-go-settings');
+    if(b) b.addEventListener('click', function(){ showPage('settings'); });
+  }
+  lock.style.display = 'flex';
+}
+
+export function clearInboxLock(){
+  var lock = $id('wa-lock');
+  if(lock) lock.style.display = 'none';
 }

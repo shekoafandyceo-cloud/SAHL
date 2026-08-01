@@ -140,10 +140,12 @@ html.dark .wstat,html.dark .topup-box,html.dark .vfcash-info{background:#161e30;
 html.dark .topup-form input,html.dark .topup-form .file-wrap{background:#131b2d;border-color:var(--brd);}
 
 /* ── تنبيه الدمج وطلبات الإلغاء ── */
-html.dark .merge-alert::before{background:#161e30;}
-html.dark .merge-customer{background:#1a2233;border-color:var(--brd);}
-html.dark tr.cancel-req{background:rgba(239,68,68,.07);}
-html.dark .cxbar,html.dark .cx-banner{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.30);}
+/* بانر الدمج بيفضل بألوانه الكهرمانية الفاتحة عمداً — نظام ألوان مقفول
+   على نفسه (بني غامق على كهرماني) وإنذار مقصود يلفت النظر على الغامق.
+   تغميق كروته كان بيكسر قرايته (بني غامق على كارت غامق). */
+html.dark tr.cancel-req{background:rgba(239,68,68,.12) !important;}   /* الأصلية !important فلازم نغلبها */
+html.dark tr.cancel-req td.nm,html.dark tr.cancel-req td.id{color:#f3d6d6;}
+html.dark .cxbar,html.dark .cx-banner{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.30);color:#f87171;}
 
 /* ── الإعدادات ── */
 html.dark #page-settings .settings-card,html.dark .settings-card{background:var(--card);border-color:var(--brd);}
@@ -164,16 +166,22 @@ html.dark .skel-bar,html.dark .skel-circle{background:linear-gradient(90deg,#202
 
 /* ── صندوق المحادثات ── */
 html.dark .wa-list{background:#141b2b;}
+html.dark .wa-chat{background:#10182a;}
 html.dark .wa-search:focus{background:#131b2d;}
 html.dark .wa-filter{background:#1a2233;border-color:var(--brd);color:var(--muted);}
+html.dark .wa-conv{border-color:#20283c;}
 html.dark .wa-conv:hover{background:#1b2337;}
+html.dark .wa-conv.active{background:rgba(59,130,246,.14);}
 html.dark .wa-chat-head,html.dark .wa-compose{background:#141b2b;border-color:var(--brd);}
 html.dark .wa-msg.in{background:#1e2740;border-color:#2b3652;color:var(--txt);}
 html.dark .wa-msg.out{background:#0b4f3f;color:#e7fff5;}
 html.dark .wa-qr,html.dark .wa-qr-add{background:#1a2233;border-color:var(--brd);color:var(--txt);}
+html.dark .wa-qr-panel,html.dark .wa-orders{background:#141b2b;border-color:var(--brd);}
 html.dark .wa-cmeta,html.dark .wa-lp,html.dark .wa-order{background:#161e30;border-color:var(--brd);}
-html.dark .wa-window-closed{background:rgba(245,158,11,.10);}
+html.dark .wa-window-closed{background:rgba(245,158,11,.10);color:#fbbf24;border-color:rgba(245,158,11,.35);}
 html.dark .wa-attach{background:#1a2233;border-color:var(--brd);}
+html.dark .wa-attach:hover{background:#243048;}
+html.dark .wa-attach-x{background:rgba(239,68,68,.15);color:#f87171;}
 
 /* ── كالندر أداء الأيام: نفس التدرجات بس أعمق شوية عشان تبان على الغامق ── */
 html.dark .dcal-day.q-good{background:rgba(16,185,129,.26);border-color:rgba(16,185,129,.55);}

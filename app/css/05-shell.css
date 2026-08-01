@@ -7,7 +7,7 @@
 .tnav-btn{background:transparent;border:1px solid transparent;color:var(--muted);padding:9px 18px;border-radius:13px;cursor:pointer;font-size:.9rem;}
 .tnav-btn:hover{color:var(--txt);background:#fff;box-shadow:var(--shadow2);}
 .tnav-btn.active{color:#111827;background:#fff;border-color:#fff;box-shadow:0 10px 24px rgba(15,23,42,.08);}
-.tright{display:flex;align-items:center;gap:12px;}.tdate{color:var(--muted);font-size:.82rem;font-family:'JetBrains Mono',monospace;background:#fff;border:1px solid var(--brd);border-radius:12px;padding:7px 11px;}
+.tright{display:flex;align-items:center;gap:12px;}.tdate{color:var(--muted);font-size:.82rem;font-family:'Cairo',sans-serif;background:#fff;border:1px solid var(--brd);border-radius:12px;padding:7px 11px;}
 .rbtn{background:#fff;border:1px solid var(--brd);border-radius:13px;color:var(--txt);padding:9px 15px;cursor:pointer;font-size:.86rem;box-shadow:0 8px 18px rgba(15,23,42,.05);}.rbtn:hover{border-color:var(--acc);box-shadow:0 10px 24px rgba(255,159,28,.14);}
 .main{padding:26px;flex:1;max-width:1800px;width:100%;margin:0 auto;}
 /* حاوية اللوجو والتابات — كانت inline style وده كان بيمنع أي تعديل

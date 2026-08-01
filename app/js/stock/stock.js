@@ -176,6 +176,8 @@ export function openProductEditor(id){
     +'</div>';
 
   $id('pe-save').addEventListener('click',function(){
+    var btn=this;
+    if(btn.disabled)return;   // دبل-تاب على شبكة بطيئة = منتجين مكررين
     var data={
       tenant_id:currentTenantId,
       name:$id('pe-name').value.trim(),
@@ -184,8 +186,10 @@ export function openProductEditor(id){
       unit_price:parseFloat($id('pe-unit').value)||0
     };
     if(!data.name){toast('اسم المنتج مطلوب','er');return;}
+    btn.disabled=true;
     var op = isNew ? sb.from('stock_products').insert(data) : sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId);
     op.then(function(r){
+      btn.disabled=false;
       if(r.error){toast('خطأ: '+r.error.message,'er');return;}
       toast(isNew?'تم إضافة المنتج ✓':'تم تحديث المنتج ✓','ok');
       $id('ovl').classList.remove('open');
@@ -234,6 +238,8 @@ export function openMovementEditor(){
     +'</div>';
 
   $id('me-save').addEventListener('click',function(){
+    var btn=this;
+    if(btn.disabled)return;   // دبل-تاب = حركتين خروج = خصم المخزون مرتين
     var prodSel=$id('me-prod');
     var prodId=prodSel.value;
     if(!prodId){toast('اختر المنتج','er');return;}
@@ -253,7 +259,9 @@ export function openMovementEditor(){
       tracking_no:$id('me-uid').value.trim()||null,
       notes:$id('me-notes').value.trim()||null
     };
+    btn.disabled=true;
     sb.from('stock_movements').insert(data).then(function(r){
+      btn.disabled=false;
       if(r.error){toast('خطأ: '+r.error.message,'er');return;}
       toast('تم تسجيل الحركة ✓ المخزون اتحدث تلقائياً','ok');
       $id('ovl').classList.remove('open');

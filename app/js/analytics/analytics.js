@@ -84,7 +84,8 @@ export function loadAnalytics(){
   if(tourActive){ renderAnalyticsActive(); return; }
   if(!ensureTenant()){veilDone('analytics');return;}
   // الإحصائيات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
-  ensureAllLoaded(function(){
+  ensureAllLoaded(function(err){
+    if(err){ veilDone('analytics'); return; }   // فشل السحب — بلاش أرقام ناقصة تتعرض كحقيقية
     loadStockProductsForCosts(function(){ renderAnalyticsActive(); veilDone('analytics'); });
   });
 }

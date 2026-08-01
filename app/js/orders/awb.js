@@ -65,11 +65,13 @@ export async function printAwbForOrders(orderIds, btnEl){
     var win = window.open(pdfUrl, '_blank');
     if(!win){
       toast('السماح بفتح نوافذ جديدة في المتصفح الأول','er');
-      // fallback: download
+      // fallback: download — الـreturn هنا كان بيفوّت جدولة الـrevoke
+      // تحت فالـPDF كله كان بيفضل معلّق في الذاكرة
       var a = document.createElement('a');
       a.href = pdfUrl;
       a.download = 'awb-'+Date.now()+'.pdf';
       a.click();
+      setTimeout(function(){ URL.revokeObjectURL(pdfUrl); }, 60000);
       return;
     }
     

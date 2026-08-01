@@ -3,7 +3,7 @@
 import { refreshSetupChecklist } from '../ui/setup-checklist.js';
 import { loadWalletState } from '../billing/billing.js';
 import { maybeShowExpiryBanner, subscriptionLockState } from '../billing/expiry.js';
-import { $id } from '../core/dom.js';
+import { $id, esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
@@ -50,7 +50,9 @@ export function showSubscriptionLock(t, reason){
   $id('app').style.display = 'none';
   var existing = document.getElementById('sub-lock');
   if(existing) existing.remove();
-  var store = (t && (t.store_name || t.slug)) || 'متجرك';
+  // esc لأن الاسم بيتحقن في innerHTML تحت — اسم متجر فيه < أو markup
+  // كان بيترندر HTML على شاشة القفل
+  var store = esc((t && (t.store_name || t.slug)) || 'متجرك');
   var title, msg, icon;
   if(reason === 'suspended'){
     icon='⛔'; title='تم إيقاف الحساب';
@@ -259,17 +261,11 @@ export function doLogout(){
     okColor:'linear-gradient(135deg,#ef4444,#dc2626)',
     onOk:function(){
       sb.auth.signOut().then(function(){
-        currentUser = null;
-        currentRole = null;
-        currentTenantId = null;
-        currentTenant = null;
-        resetTenantBranding();
-        document.body.classList.remove('role-admin', 'role-employee');
-        $id('app').style.display = 'none';
-        $id('login-user').value = '';
-        $id('login-pass').value = '';
-        $id('login-err').textContent = '';
-        $id('login').style.display = 'flex';
+        // reload كامل بدل التنضيف اليدوي: الكاشات الموديولية (منتجات
+        // المخزون بأسعارها، بوابة الإنبوكس، المحادثات...) والـDOM المرندر
+        // كانوا بيعيشوا للحساب اللي بعده — أسرع عزل مضمون بين الجلسات.
+        // التفضيلات (sahl_dark وأخواتها) في localStorage فبتعيش عادي.
+        location.reload();
       });
     }
   });

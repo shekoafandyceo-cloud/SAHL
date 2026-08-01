@@ -15,7 +15,7 @@ import { waMsgInner, waTicks, waTimeShort } from './message-view.js';
 import { showPage } from '../main.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
+import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
 import { openDetail } from '../orders/detail.js';
 import { ensureTenant } from '../orders/guards.js';
 
@@ -40,6 +40,7 @@ export function loadInbox(){
     refreshInboxGate().then(function(ok){ if(!ok){ renderInboxLocked(); veilDone('inbox'); } else { loadInbox(); } });
     return;
   }
+  clearInboxLock();   // القفل overlay — بيتشال من غير reload أول ما التوثيق يثبت
   waEnsureNotifyPermission();
   waLoadQuickReplies();
   waBuildFilters();
@@ -181,13 +182,19 @@ export function openConversation(id){
 
 export function waFetchMessages(convId,scroll,isPoll){
   if(!sb) return;
+  // descending + reverse = أحدث 500 — الترتيب التصاعدي كان بيجيب أقدم 500
+  // والمحادثة اللي عدّت الحد كانت بتتجمد على القديم للأبد
   sb.from('wa_messages').select('*').eq('conversation_id',convId)
-    .order('created_at',{ascending:true}).limit(500).then(function(r){
+    .order('created_at',{ascending:false}).limit(500).then(function(r){
       if(convId!==waActiveId) return;
       if(r.error){ if(!isPoll)$id('wa-msgs').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل الرسائل</div>'; return; }
-      var data=r.data||[];
-      if(isPoll && data.length===waRenderedCount) return;
-      var newArrived = isPoll && data.length>waRenderedCount;
+      var data=(r.data||[]).reverse();
+      // مقارنة الطول لوحدها بتفشل لما العدد ثابت على الحد (500) والنافذة
+      // بتنزلق — آخر id هو الفيصل
+      var lastRendered = waRenderedState.length ? waRenderedState[waRenderedState.length-1].id : null;
+      var lastNew = data.length ? data[data.length-1].id : null;
+      if(isPoll && data.length===waRenderedCount && lastNew===lastRendered) return;
+      var newArrived = isPoll && !!data.length && lastNew!==lastRendered;
       renderMessages(data, scroll);
       if(newArrived) waMarkRead(convId);
     });
@@ -208,6 +215,9 @@ export function waScrollBottom(box){ box.scrollTop=box.scrollHeight; setTimeout(
 
 export function renderMessages(msgs,scroll){
   var box=$id('wa-msgs'); if(!box) return;
+  // التقاط المحادثة وقت البدء — waResolveUrls غير متزامنة، ولو المستخدم
+  // بدّل محادثة قبل ما توقيعات الميديا ترجع كانت رسايل A بتترسم جوه B
+  var forConv = waActiveId;
   if(!msgs.length){ box.innerHTML='<div class="wa-empty">مفيش رسايل في المحادثة دي</div>'; waRenderedCount=0; waRenderedState=[]; return; }
   // تحديث تدريجي لو الرسائل المعروضة بادئة (prefix) من القائمة الجديدة → ما نعيدش بناء كل حاجة (يمنع القفز)
   var canInc = waRenderedState.length>0 && box.querySelector('.wa-msg') && msgs.length>=waRenderedState.length;
@@ -228,7 +238,8 @@ export function renderMessages(msgs,scroll){
       var nearBottom=(box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
       var npaths=[]; for(var n=0;n<newMsgs.length;n++){ if(newMsgs[n].media_path) npaths.push(newMsgs[n].media_path); }
       waResolveUrls(npaths, function(urlMap){
-        var pend=box.querySelectorAll('.wa-optimistic'); for(var pi=0;pi<pend.length;pi++){ if(pend[pi].parentNode) pend[pi].parentNode.removeChild(pend[pi]); }
+        if(waActiveId!==forConv) return;   // المستخدم بدّل محادثة — رد قديم
+        var pend=box.querySelectorAll('.wa-optimistic'); for(var pi=0;pi<pend.length;pi++){ waRevokeBubbleUrl(pend[pi]); if(pend[pi].parentNode) pend[pi].parentNode.removeChild(pend[pi]); }
         var frag=''; for(var n=0;n<newMsgs.length;n++){ var m=newMsgs[n]; frag+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap)+'</div>'; }
         box.insertAdjacentHTML('beforeend', frag);
         if(scroll || nearBottom) waScrollBottom(box);
@@ -239,6 +250,8 @@ export function renderMessages(msgs,scroll){
   // إعادة بناء كاملة (أول فتح للمحادثة أو تغيّر البنية)
   var paths=[]; for(var i=0;i<msgs.length;i++){ if(msgs[i].media_path) paths.push(msgs[i].media_path); }
   waResolveUrls(paths, function(urlMap){
+    if(waActiveId!==forConv) return;   // المستخدم بدّل محادثة — رد قديم
+    var olds=box.querySelectorAll('.wa-optimistic'); for(var oi=0;oi<olds.length;oi++) waRevokeBubbleUrl(olds[oi]);
     var html=''; for(var i=0;i<msgs.length;i++){ var m=msgs[i]; html+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap)+'</div>'; }
     box.innerHTML=html;
     waRenderedCount=msgs.length;
@@ -258,6 +271,17 @@ export function waMarkRead(convId){
 // ----- إرسال (مرحلة 2) -----
 export var waPendingImage=null, waPendingDoc=null;
 
+// blob URLs بتاعة المعاينات — لازم revoke وإلا بتتراكم في الذاكرة
+// (كل اختيار صورة كان بيسيب اللي قبله معلّق لحد ما التاب يتقفل)
+var waPreviewUrl=null;
+function waSetPreviewUrl(url){
+  if(waPreviewUrl){ try{ URL.revokeObjectURL(waPreviewUrl); }catch(e){} }
+  waPreviewUrl=url;
+}
+function waRevokeBubbleUrl(el){
+  if(el && el.dataset && el.dataset.objurl){ try{ URL.revokeObjectURL(el.dataset.objurl); }catch(e){} }
+}
+
 export function waUpdateWindow(c){
   var lastIn=(c&&c.last_inbound_at)?new Date(c.last_inbound_at).getTime():0;
   var open=lastIn && (Date.now()-lastIn) < 24*3600*1000;
@@ -275,6 +299,7 @@ export function waPickImage(e){
   var df=$id('wa-docfile'); if(df) df.value='';
   var prev=$id('wa-attach-preview');
   var url=URL.createObjectURL(f);
+  waSetPreviewUrl(url);
   prev.innerHTML='<img src="'+url+'"><span style="flex:1;font-size:.82rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</span><button class="wa-attach-x" id="wa-attach-x">شيل</button>';
   prev.style.display='flex';
   $id('wa-attach-x').addEventListener('click',waClearImage);
@@ -288,6 +313,7 @@ export function waPickFile(e){
     if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
     waPendingImage=f; waPendingDoc=null;
     var prevI=$id('wa-attach-preview'); var urlI=URL.createObjectURL(f);
+    waSetPreviewUrl(urlI);
     prevI.innerHTML='<img src="'+urlI+'"><span style="flex:1;font-size:.82rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</span><button class="wa-attach-x" id="wa-attach-x">شيل</button>';
     prevI.style.display='flex'; $id('wa-attach-x').addEventListener('click',waClearImage);
     return;
@@ -303,6 +329,7 @@ export function waPickFile(e){
 
 export function waClearImage(){
   waPendingImage=null; waPendingDoc=null;
+  waSetPreviewUrl(null);
   var prev=$id('wa-attach-preview'); if(prev){ prev.style.display='none'; prev.innerHTML=''; }
   var f=$id('wa-file'); if(f) f.value='';
   var df=$id('wa-docfile'); if(df) df.value='';
@@ -314,7 +341,7 @@ export function waAppendOptimistic(text,kind,url,docName){
   var div=document.createElement('div');
   div.className='wa-msg out wa-msg-pending wa-optimistic';
   var inner='';
-  if(kind==='image'&&url){ inner+='<img class="wa-img" src="'+url+'">'; if(text) inner+='<div class="wa-cap">'+esc(text)+'</div>'; }
+  if(kind==='image'&&url){ div.dataset.objurl=url; inner+='<img class="wa-img" src="'+url+'">'; if(text) inner+='<div class="wa-cap">'+esc(text)+'</div>'; }
   else if(kind==='doc'){ inner+='<span class="wa-doc">📎 '+esc(docName||'ملف')+'</span>'; if(text) inner+='<div class="wa-cap">'+esc(text)+'</div>'; }
   else { inner+='<div class="wa-text">'+esc(text)+'</div>'; }
   inner+='<div class="wa-msg-time">⏳</div>';
@@ -339,6 +366,7 @@ export function waSend(){
   // فضّي البوكس على طول
   input.value=''; input.style.height='auto'; waClearImage();
   function fail(code){
+    waRevokeBubbleUrl(bubble);
     if(bubble&&bubble.parentNode) bubble.parentNode.removeChild(bubble);
     if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvos.filter(function(x){return x.id===convAtSend;})[0]); }
     else if(code==='upload'){ toast('فشل رفع الملف','er'); }

@@ -112,15 +112,20 @@ export function openDetail(id){
   if(!sb||!currentTenantId)return;
   // الجدول عنده أعمدة محدودة بس → نجيب الأوردر كامل من السيرفر بالـ id
   ordersSetSelected(null); detailHistory=null;
+  detailReqId = id;   // فتح A بعدين B بسرعة: رد A القديم مايرندرش فوق B
   $id('dtit').textContent='جاري التحميل...';
   $id('dcnt').innerHTML='<div class="ldg"><div class="spin"></div>جاري تحميل تفاصيل الطلب...</div>';
   $id('ovl').classList.add('open');
   sb.from('orders').select('*').eq('id',id).eq('tenant_id',currentTenantId).single().then(function(r){
+    if(detailReqId !== id) return;   // المستخدم فتح أوردر تاني — الرد ده بقى قديم
     if(r.error || !r.data){ toast('حصلت مشكلة في تحميل تفاصيل الطلب','er'); $id('ovl').classList.remove('open'); return; }
     ordersSetSelected(r.data);
-    loadDetailHistory(sel, function(){ renderDetail(); });
+    loadDetailHistory(sel, function(){ if(detailReqId === id) renderDetail(); });
   });
 }
+
+// آخر أوردر متطلوب لشاشة التفاصيل — حارس الردود القديمة
+var detailReqId = null;
 
 // ملخّص طلبات العميل من الذاكرة (للجولة)
 export function computeHistoryFromAll(o){
@@ -137,7 +142,10 @@ export function computeHistoryFromAll(o){
 export function loadDetailHistory(o, cb){
   detailHistory=null;
   if(!sb||!currentTenantId||!o.phone){ cb&&cb(); return; }
+  var forId=o.id;
   sb.from('orders').select('id,status').eq('tenant_id',currentTenantId).eq('phone',o.phone).then(function(r){
+    // رد تاريخ قديم مايكتبش فوق تاريخ الأوردر المفتوح حالياً
+    if(!sel || sel.id!==forId){ cb&&cb(); return; }
     if(!r.error && r.data){
       var others=r.data.filter(function(x){return x.id!==o.id;});
       detailHistory={ count: r.data.length,
@@ -162,7 +170,7 @@ export function renderDetail(){
       callsHtml+='<div class="call-item">'
         +'<span class="call-time">'+esc(c.time||'—')+'</span>'
         +'<div class="call-meta">'
-        +'<span class="call-res '+(c.result||'no_answer')+'">'+(CR[c.result]||c.result||'—')+'</span>'
+        +'<span class="call-res '+String(c.result||'no_answer').replace(/[^a-z0-9_-]/g,'')+'">'+esc(CR[c.result]||c.result||'—')+'</span>'
         +(c.note?'<span style="color:var(--txt)">— '+esc(c.note)+'</span>':'')
         +(c.by?'<span class="log-by">👤 '+esc(c.by)+'</span>':'')
         +'<button class="call-del" data-idx="'+idx+'">✕</button>'
@@ -287,7 +295,10 @@ export function renderDetail(){
       // Build a chronologically-ordered copy so we can derive each entry's real
       // previous status from the entry before it (the stored "from" is often
       // a system marker like "البوت", not the actual prior status).
-      var chrono = slog.slice().sort(function(a,b){
+      // نسخة عميقة للعناصر مش بس المصفوفة: slice() بينسخ المصفوفة والعناصر
+      // بتفضل نفس الـobjects بتوع o.status_log — الشرح (_realFrom) كان بيتكتب
+      // عليها، وأول تغيير حالة بعدها كان بيبعته للداتابيز جوه السجل
+      var chrono = slog.map(function(e){ return Object.assign({}, e); }).sort(function(a,b){
         return new Date(a.at||0) - new Date(b.at||0);
       });
       // System "from" markers that should NOT be displayed as the previous status.
@@ -328,9 +339,9 @@ export function renderDetail(){
         }
         var fromStatus = e._realFrom;
         rows+='<div class="log-item">'
-          +'<span class="badge '+statusClass(fromStatus)+'"><span class="bdot"></span>'+statusLabel(fromStatus)+'</span>'
+          +'<span class="badge '+statusClass(fromStatus)+'"><span class="bdot"></span>'+esc(statusLabel(fromStatus))+'</span>'
           +'<span class="log-arrow">←</span>'
-          +'<span class="badge '+statusClass(e.to)+'"><span class="bdot"></span>'+statusLabel(e.to)+'</span>'
+          +'<span class="badge '+statusClass(e.to)+'"><span class="bdot"></span>'+esc(statusLabel(e.to))+'</span>'
           +(e.reason?'<span style="color:var(--red);font-size:.76rem">— '+esc(e.reason)+'</span>':'')
           +'<span class="log-by">'+byIcon+' '+esc(byLabel)+'</span>'
           +'<span class="log-time">'+fmtDT(e.at)+'</span>'

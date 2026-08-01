@@ -114,6 +114,7 @@ var CLICK_ACTIONS = {
   // CTAs بتوع الحالات الفاضية (core/empty.js)
   'goto-settings': function(){ showPage('settings'); },
   'goto-stock':    function(){ showPage('stock'); },
+  'goto-billing':  function(){ showPage('billing'); },
   'setup-dismiss': function(){ setupDismiss(); },
   'add-product':   function(){ var b=$id('add-product-btn'); if(b)b.click(); },
   'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); },

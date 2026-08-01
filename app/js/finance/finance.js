@@ -78,7 +78,8 @@ export function loadFinance(){
   if(!requireAdmin()){veilDone('finance');return;}
   if(!ensureTenant()){veilDone('finance');return;}
   // الماليات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
-  ensureAllLoaded(function(){
+  ensureAllLoaded(function(err){
+    if(err){ veilDone('finance'); return; }   // فشل السحب — بلاش أرقام ناقصة تتعرض كحقيقية
     // Finance depends on wholesale_price from stock_products, so load stock first.
     loadStockProductsForCosts(function(){
       sb.from('expenses').select('*').eq('tenant_id', currentTenantId).order('expense_date', {ascending:false}).then(function(r){
@@ -115,7 +116,10 @@ export function renderFinanceOverview(){
   var deliveredOrders = orders.filter(function(o){return statusIn(o.status, DELIVERED_STATUSES);});
   var manufacturerCost = deliveredOrders.reduce(function(s,o){ return s + orderInventoryCost(o); }, 0);
   var shippingCost = deliveredOrders.reduce(function(s,o){ return s + orderShippingCost(o); }, 0);
-  var packagingCost = deliveredOrders.reduce(function(s,o){ return s + (parseFloat(o.packaging_cost)||0); }, 0);
+  // عمود orders.packaging_cost اتشال من الحسابات عمداً (قرار المالك 1 أغسطس):
+  // اتفحص على الداتابيز الحية — 2,547 أوردر كلهم صفر، ميزة نايمة محدش
+  // استخدمها والتغليف الفعلي بيتسجل كمصروف يدوي فئة "تغليف" بس.
+  // لو يوم ما اتقرر تسجيل تغليف لكل أوردر، رجّعه هنا وفي الرسم البياني.
 
   // ALSO charge shipping for orders that bounced/returned (we paid Bosta anyway)
   // الشحن بيتخصم لما الأوردر يتسلّم أو يرجع مرتجع فقط — دول الحالتين اللي
@@ -135,7 +139,7 @@ export function renderFinanceOverview(){
   var expOther     = expenses.filter(function(e){return e.category==='متفرقات';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
   var totalManualExpenses = expSalaries + expAds + expPackaging + expBills + expWarehouse + expOther;
 
-  var totalCosts = manufacturerCost + shippingCost + packagingCost + totalManualExpenses;
+  var totalCosts = manufacturerCost + shippingCost + totalManualExpenses;
   var netProfit = collected - totalCosts;
   var marginPct = collected > 0 ? (netProfit/collected*100) : 0;
   var aov = deliveredOrders.length > 0 ? (collected/deliveredOrders.length) : 0;
@@ -181,10 +185,9 @@ export function renderFinanceOverview(){
     {label:'💰 المتحصل (إيرادات فعلية)', value:collected, isRevenue:true, tip:'إجمالي قيمة الأوردرات Delivered فقط في الفترة المختارة.'},
     {label:'🏭 تكلفة المنتجات (جملة)', value:-manufacturerCost, alwaysShow:true, tip:'الأولوية للـ Snapshot المحفوظ وقت الشحن. لو مش موجود، بيتحسب Live من سعر الجملة الحالي في المخزون × الكمية.'},
     {label:'🚚 تكلفة الشحن الحقيقية (شامل المرتجع)', value:-shippingCost, tip:'سعر الشحن الحقيقي من Bosta (شامل VAT) لكل أوردر اتسلّم، وللي لسه ماجبناش سعره الحقيقي بنحسبه 85 جنيه. وبيتحسب كمان لكل أوردر مرتجع أو فاشل عنده رقم تتبع لأن الشحنة خرجت فعلاً.'},
-    {label:'📦 تكلفة التغليف', value:-packagingCost, tip:'تكلفة التغليف المسجلة على الأوردرات المسلمة من عمود packaging_cost لو موجود.'},
     {label:'👤 مرتبات', value:-expSalaries, tip:'مصاريف فئة المرتبات المسجلة يدويًا في الفترة.'},
     {label:'📱 إعلانات فيسبوك', value:-expAds, tip:'مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة.'},
-    {label:'📦 تغليف (مصاريف يدوية)', value:-expPackaging, tip:'مصاريف تغليف عامة أضفتها يدويًا في تبويب المصاريف.'},
+    {label:'📦 تغليف', value:-expPackaging, tip:'مصاريف التغليف المسجلة يدويًا في تبويب المصاريف.'},
     {label:'🧾 فواتير', value:-expBills, tip:'إجمالي الفواتير المسجلة يدويًا في الفترة.'},
     {label:'🏭 مخزن', value:-expWarehouse, tip:'مصاريف المخزن المسجلة يدويًا في الفترة.'},
     {label:'🔧 متفرقات', value:-expOther, tip:'أي مصاريف أخرى مسجلة يدويًا في الفترة.'},
@@ -251,7 +254,6 @@ export function renderFinanceChart(){
     var rev = orders.filter(isDeliveredOrder).reduce(function(s,o){return s+(parseFloat(o.total_cost)||0);},0);
     var costs = orders.filter(isDeliveredOrder).reduce(function(s,o){return s+orderInventoryCost(o);},0)
       + orders.filter(function(o){return isDeliveredOrder(o)||statusIn(o.status,RETURNED_STATUSES);}).reduce(function(s,o){return s+orderShippingCost(o);},0)
-      + orders.filter(isDeliveredOrder).reduce(function(s,o){return s+(parseFloat(o.packaging_cost)||0);},0)
       + exps.reduce(function(s,e){return s+parseFloat(e.amount);},0);
     return { rev: Math.round(rev), profit: Math.round(rev - costs) };
   }
@@ -439,6 +441,8 @@ export function openExpenseEditor(id){
     + '</div>';
 
   $id('exp-save').addEventListener('click', function(){
+    var btn=this;
+    if(btn.disabled)return;   // دبل-تاب = مصروفين متطابقين يتخصموا مرتين
     var data = {
       tenant_id: currentTenantId,
       category: $id('exp-cat').value,
@@ -448,10 +452,12 @@ export function openExpenseEditor(id){
       created_by: currentUser ? currentUser.id : null
     };
     if(data.amount <= 0){ toast('المبلغ لازم يكون أكبر من صفر','er'); return; }
+    btn.disabled=true;
     var op = isNew
       ? sb.from('expenses').insert(data)
       : sb.from('expenses').update({category:data.category, amount:data.amount, expense_date:data.expense_date, note:data.note}).eq('id', exp.id).eq('tenant_id', currentTenantId);
     op.then(function(r){
+      btn.disabled=false;
       if(r.error){ toast('خطأ: '+r.error.message,'er'); return; }
       toast(isNew ? 'تم إضافة المصروف ✓' : 'تم التحديث ✓','ok');
       $id('ovl').classList.remove('open');

@@ -64,7 +64,6 @@ export function updateWalletChip(){
   } else {
     ctEl.textContent = 'غير محدود';
   }
-  chip.onclick = function(){ showPage('billing'); };
 }
 
 // ---------- Depletion lock: blur sensitive cells when wallet is empty ----------

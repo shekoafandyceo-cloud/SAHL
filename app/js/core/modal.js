@@ -2,6 +2,12 @@
 
 import { $id } from './dom.js';
 
+// الـkeydown الحالي على مدخل المودال — واحد بس مهما اتفتح المودال.
+// كان بيتراكم listener مع كل فتح (والمدخل عنصر دائم في الصفحة حتى
+// للمودالات اللي من غيره)، فـEnter في مودال سبب الإلغاء كانت ممكن
+// تشغّل onOk بتاع مودال قديم اتقفل من زمان — زي الخروج من الحساب.
+var _kd = null;
+
 // ── Custom Modal (replaces browser confirm/prompt) ──────────────
 export function showModal(opts){
   // opts: { icon, title, sub, okLabel, okColor, input, placeholder, onOk }
@@ -48,6 +54,10 @@ export function showModal(opts){
   $id('cmodal-ok').addEventListener('click',okHandler);
   $id('cmodal-cancel').addEventListener('click',cancelHandler);
   bd.addEventListener('click',function(e){ if(e.target===bd)cancelHandler(); },{once:true});
-  // Enter key submits
-  inp&&inp.addEventListener('keydown',function(e){ if(e.key==='Enter')okHandler(); });
+  // Enter key submits — الهاندلر القديم بيتشال الأول
+  if(inp){
+    if(_kd) inp.removeEventListener('keydown', _kd);
+    _kd = function(e){ if(e.key==='Enter')okHandler(); };
+    inp.addEventListener('keydown', _kd);
+  }
 }

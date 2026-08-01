@@ -1,6 +1,8 @@
 /* صندوق محادثات الواتساب */
 /* === WhatsApp Inbox === */
-.wa-wrap{display:flex;gap:0;height:calc(100vh - 215px);min-height:440px;border:1px solid var(--brd);border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);}
+.wa-wrap{display:flex;gap:0;height:calc(100vh - 215px);min-height:440px;border:1px solid var(--brd);border-radius:18px;overflow:hidden;background:var(--card);box-shadow:var(--shadow);position:relative;}
+/* قفل التوثيق — طبقة فوق الشِل مش بديل ليه (billing-summary.js) */
+#wa-lock{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center;background:var(--card);}
 .wa-list{width:340px;flex-shrink:0;border-inline-end:1px solid var(--brd);display:flex;flex-direction:column;background:#fff;}
 .wa-list-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--brd);font-weight:800;color:var(--txt);font-size:.95rem;}
 .wa-refresh{background:transparent;border:none;cursor:pointer;font-size:1.05rem;color:var(--muted);border-radius:8px;padding:4px 8px;}

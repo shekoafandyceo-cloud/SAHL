@@ -17,6 +17,9 @@
   /* عناوين الأقسام وكارت المستخدم مالهمش مكان في الشريط الأفقي */
   .sn-label,.sn-foot,.sn-tag{display:none;}
   .sn-brand{border-bottom:none;padding-bottom:0;}
+  /* التوست: قاعدة الموبايل بتثبّت left/right بس القاعدة الأساسية سايبة
+     translateX(-50%) — كان بيتزحّف نص عرضه بره الشاشة */
+  .toast,.toast.show{transform:none !important;}
   .tdate{display:none !important;}
   .tright{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:nowrap;min-width:0;width:100%;}
   .user-badge{display:block;flex:0 1 auto;min-width:0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 8px !important;}
