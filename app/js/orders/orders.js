@@ -213,6 +213,27 @@ export function startRealtime(){
     }));
 }
 
+// تجميع أحداث الـRealtime: كل حدث كان بيطلق 5 طلبات (كروت + دمج + بضاعة
+// + جدول + محفظة) وبيرجّع الموظف لأول صفحة — رشقة استيراد 20 أوردر كانت
+// بتضرب 100 طلب وتوست لكل واحد. بنحدّث الحالة المحلية فوراً، والطلبات
+// بتتجمع في تحديث واحد بعد ما الرشقة تهدى، من غير لمس الصفحة الحالية.
+var rtTimer = null, rtInserts = 0;
+function scheduleRealtimeRefresh(){
+  if(rtTimer) clearTimeout(rtTimer);
+  rtTimer = setTimeout(function(){
+    rtTimer = null;
+    if(rtInserts > 0){
+      toast(rtInserts === 1 ? '📦 طلب جديد وصل!' : ('📦 '+rtInserts+' طلبات جديدة وصلت!'), 'ok');
+      rtInserts = 0;
+    }
+    loadOrdersCards();
+    loadMergeCandidates();
+    loadBostaInventoryCard();
+    fetchOrdersPage();   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
+    loadWalletState();   // تغيير حالة ممكن يكون سبّب خصم
+  }, 800);
+}
+
 export function handleRealtimeChange(payload){
   var ev = payload.eventType;
   var row = payload.new || {};
@@ -220,7 +241,7 @@ export function handleRealtimeChange(payload){
 
   if(ev === 'INSERT'){
     if(allLoaded) all.unshift(row);
-    toast('📦 طلب جديد وصل!','ok');
+    rtInserts++;
   } else if(ev === 'UPDATE'){
     if(allLoaded){
       for(var i=0;i<all.length;i++){ if(all[i].id === row.id){ all[i] = row; break; } }
@@ -231,12 +252,7 @@ export function handleRealtimeChange(payload){
   }
 
   if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
-  loadOrdersCards();
-  loadMergeCandidates();
-  loadBostaInventoryCard();
-  doFilter();
-  // refresh wallet (status change may have triggered a charge) — for everyone
-  if(ev !== 'DELETE') loadWalletState();
+  scheduleRealtimeRefresh();
 }
 
 export function buildIndexes(){

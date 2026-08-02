@@ -3,6 +3,7 @@
 import { $id, esc } from '../core/dom.js';
 import { normalizePhone, num } from '../core/format.js';
 import { toast } from '../core/toast.js';
+import { mergeQueryCapped } from './cards.js';   // دورة قانونية — مفيش تنفيذ وقت التقييم (درس 19)
 import { doFilter } from './orders.js';
 import { pendingBostaByPhone, phoneCounts } from './state.js';
 
@@ -40,7 +41,7 @@ export function renderMergeAlert(){
     + '<div class="merge-alert-header">'
     +   '<div class="merge-alert-icon">⚠️</div>'
     +   '<div class="merge-alert-title">انتبه يا ريس! فيه عملاء معاهم أوردرات متعددة جاهزة للشحن</div>'
-    +   '<div class="merge-alert-count">'+mergeableCustomers.length+' عميل</div>'
+    +   '<div class="merge-alert-count"'+(mergeQueryCapped?' title="العدّ مبني على أول 1000 أوردر جاهز — ممكن يكون فيه أكتر"':'')+'>'+mergeableCustomers.length+(mergeQueryCapped?'+':'')+' عميل</div>'
     + '</div>';
   mergeableCustomers.forEach(function(c){
     var chips = c.orders.map(function(o){

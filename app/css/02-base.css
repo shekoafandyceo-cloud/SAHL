@@ -44,6 +44,9 @@ button:hover{transform:translateY(-1px);}button:active{transform:translateY(0) s
 .skel-circle{flex:0 0 auto;width:42px;height:42px;border-radius:50%;background:linear-gradient(90deg,var(--brd) 25%,#f1f5fb 50%,var(--brd) 75%);background-size:200% 100%;animation:skelShimmer 1.3s ease-in-out infinite;}
 @keyframes skelShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 @media(prefers-reduced-motion:reduce){.skel-bar,.skel-circle{animation:none;}}
+/* مؤشر نقص عام — لما قايمة توصل لسقف العرض والبيانات الأقدم مش محمّلة */
+.cap-note{margin-top:8px;padding:8px 12px;border-radius:10px;background:var(--sur);border:1px dashed var(--brd2);color:var(--muted);font-size:.76rem;font-weight:700;line-height:1.7;}
+
 /* checklist الإعداد الموجّه (ui/setup-checklist.js) */
 .suc-card{background:var(--card);border:1px solid var(--brd);border-radius:16px;padding:16px 18px;margin-bottom:16px;box-shadow:var(--shadow2);}
 .suc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}

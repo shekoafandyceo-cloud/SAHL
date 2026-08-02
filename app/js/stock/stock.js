@@ -22,6 +22,7 @@ export function stockSetProducts(v){ stockProducts = v || []; }
 export function stockSetMovements(v){ stockMovements = v || []; }
 
 export var stockProducts=[], stockMovements=[], currentStockTab='products';  // المخزون — الجولة بتبدّله بديمو
+export var stockMovementsCapped=false;   // القايمة عند سقف الـ500 — فيه أقدم مش محمّل
 
 export function loadStock(){
   // During the guided tour, never hit Supabase — keep the injected demo data
@@ -49,9 +50,11 @@ export function loadStock(){
     veilDone('stock');
     if(stockMovements && stockMovements.length)renderMovements();
   });
+  // فلاج السقف — العدّاد والتنبؤ لازم يصارحوا إن في أقدم من كده
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(500).then(function(r){
     if(r.error){return;}
     stockMovements=r.data||[];
+    stockMovementsCapped=(stockMovements.length===500);
     renderMovements();
   });
 }
@@ -116,7 +119,10 @@ export function renderMovements(){
     }
     return true;
   });
-  $id('mov-count').textContent=list.length!==stockMovements.length?num(list.length)+' نتيجة':num(stockMovements.length)+' حركة';
+  $id('mov-count').textContent=list.length!==stockMovements.length
+    ? num(list.length)+' نتيجة'
+    : num(stockMovements.length)+(stockMovementsCapped?'+ حركة (معروض آخر 500)':' حركة');
+  if(stockMovementsCapped) $id('mov-count').title='فيه حركات أقدم مش معروضة — البحث والفلترة على آخر 500 بس';
 
   if(!list.length){$id('mov-tbody').innerHTML=emptyState({icon:'🔄',
       title:'مفيش حركات مخزون لسه',
@@ -362,7 +368,8 @@ export function renderSmartStockAlerts(targetId, limit){
       + '<div class="alert-sub">المتاح: '+num(r.qty)+' قطعة · سحب آخر 7 أيام: '+num(r.sold7)+' · متوسط يومي: '+(r.avg?r.avg.toFixed(1):'0')+' قطعة</div>'
       + '<div class="alert-actions"><button class="alert-action" data-stock-search="'+esc(r.name)+'">افتح المنتج</button></div>'
       + '</div>';
-  }).join('');
+  }).join('')
+  + (stockMovementsCapped?'<div class="cap-note">⚠ التنبؤ مبني على آخر 500 حركة بس — الأقدم مش محمّل فالتقدير ممكن يكون متفائل</div>':'');
   target.querySelectorAll('[data-stock-search]').forEach(function(b){
     b.addEventListener('click',function(){openStockProductByName(b.getAttribute('data-stock-search'));});
   });

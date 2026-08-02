@@ -54,6 +54,10 @@ export function loadInbox(){
   },20000);
 }
 
+// وصلنا لسقف الـ200 محادثة؟ — البحث محلي على المعروض بس، فلازم نقول
+// بصراحة إن الأقدم مش هنا بدل ما يبان إن دي كل المحادثات
+export var waConvosCapped=false;
+
 export function waFetchConvos(showLoading){
   if(!sb||!currentTenantId) return;
   if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
@@ -61,6 +65,7 @@ export function waFetchConvos(showLoading){
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
       if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل المحادثات</div>'; veilDone('inbox'); return; }
       waConvos=r.data||[];
+      waConvosCapped=(waConvos.length===200);
       renderConvos();
       veilDone('inbox');
     });
@@ -151,6 +156,8 @@ export function renderConvos(){
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
       +'</div></div>';
   }
+  // مؤشر النقص: القايمة عند السقف = فيه أقدم مش معروض ولا بيدخل البحث
+  if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — الأقدم مش بيظهر هنا ولا في البحث</div>';
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
   for(var j=0;j<items.length;j++){ items[j].addEventListener('click',function(){ openConversation(this.getAttribute('data-id')); }); }

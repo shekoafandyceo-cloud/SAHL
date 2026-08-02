@@ -245,6 +245,7 @@ export function renderStatsDeltas(cur, prev){
 
 // تنبيه الدمج: عملاء معاهم أوردرين+ جاهزين للشحن — كويري مخصّص بدل المصفوفة الكاملة
 export var MERGE_QUERY_STATUSES = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'];
+export var mergeQueryCapped = false;   // الكويري رجع سقف PostgREST (1000) — العدّ ناقص
 
 export function loadMergeCandidates(){
   if(tourActive) return;
@@ -253,6 +254,7 @@ export function loadMergeCandidates(){
     .eq('tenant_id',currentTenantId).in('status',MERGE_QUERY_STATUSES).then(function(r){
       if(tourActive) return;
       if(r.error) return;
+      mergeQueryCapped=((r.data||[]).length===1000);
       ordersSetPendingBosta({});
       (r.data||[]).forEach(function(o){
         var p=normalizePhone(o.phone); if(!p)return;
@@ -281,8 +283,12 @@ export function loadBostaInventoryCard(){
         if(r.error) return;
         var orders=r.data||[];
         var total=orders.reduce(function(s,o){return s+orderInventoryCost(o);},0);
-        el.textContent=money(total);
-        if(sub)sub.textContent=num(orders.length)+' شحنة في التشغيل حاليًا';
+        // سقف PostgREST الافتراضي 1000 صف — لو وصلناله الرقم ناقص ولازم نقول
+        var capped=(orders.length===1000);
+        el.textContent=money(total)+(capped?'+':'');
+        if(sub)sub.textContent=capped
+          ? '1,000+ شحنة في التشغيل — الرقم تقريبي (سقف العرض)'
+          : num(orders.length)+' شحنة في التشغيل حاليًا';
       });
   });
 }
