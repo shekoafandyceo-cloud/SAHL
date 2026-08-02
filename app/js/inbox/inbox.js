@@ -15,6 +15,7 @@ import { waMsgInner, waTicks, waTimeShort } from './message-view.js';
 import { showPage } from '../main.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
+import { walletStateCache } from '../billing/billing.js';
 import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
 import { openDetail } from '../orders/detail.js';
 import { ensureTenant } from '../orders/guards.js';
@@ -35,6 +36,12 @@ export function loadInbox(){
   // حارس بدل ما نقع (الهشاشة دي اتكشفت في اختبار الحجاب)
   if(tourActive){ var wlb=$id('wa-list-body'); if(wlb)wlb.innerHTML='<div class="wa-empty">التبويب ده بيشتغل بالرسائل الحقيقية بعد ما تخلّص الجولة.</div>'; return; }
   if(!ensureTenant()){veilDone('inbox');return;}
+  // النفاد: السيرفر مش بيرجّع محادثات (RLS) — رسالة صريحة بدل قايمة فاضية
+  if(walletStateCache && walletStateCache.is_depleted){
+    var wlb2=$id('wa-list-body');
+    if(wlb2) wlb2.innerHTML='<div class="wa-empty">🔒 المحادثات مقفولة لحد ما تشحن المحفظة — كلها محفوظة وهترجع فوراً بعد الشحن.</div>';
+    veilDone('inbox'); return;
+  }
   if(inboxVerified === false){ renderInboxLocked(); veilDone('inbox'); return; }
   if(inboxVerified === null){
     refreshInboxGate().then(function(ok){ if(!ok){ renderInboxLocked(); veilDone('inbox'); } else { loadInbox(); } });

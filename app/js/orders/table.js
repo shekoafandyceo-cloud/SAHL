@@ -51,6 +51,13 @@ export function getCallDeadline(o){
 export function renderTable(){
   var st=(cur-1)*PS, pg=fil;   // fil = الصفحة الحالية (جاية من السيرفر مباشرة)
   if(!totalCount){
+    // النفاد: السيرفر بقى مابيرجّعش ولا صف (RLS) — من غير الرسالة دي
+    // التاجر المنفّد كان هيشوف "لسه مفيش أوردرات" ويفتكر بياناته ضاعت
+    if(walletStateCache && walletStateCache.is_depleted && !tourActive){
+      $id('tbody').innerHTML = emptyState({icon:'🔒', title:'بياناتك مقفولة لحد ما تشحن المحفظة',
+          sub:'أوردراتك كلها محفوظة زي ما هي — أول ما تشحن هترجع تظهر فوراً. الأوردرات الجديدة لسه بتوصل وبتتسجل عادي.',
+          act:'goto-billing', actLabel:'💳 اشحن المحفظة', adminOnly:true});
+      $id('pag').style.display='none';return;}
     // تاجر جديد (مفيش أي فلتر شغّال) ≠ فلتر مش مطابق حاجة — الرسالة القديمة
     // كانت بتتهم التاجر الجديد إنه عامل بحث غلط وهو لسه فاتح لأول مرة
     var qv=$id('qinp'), noFilters = !(qv && qv.value.trim())

@@ -13,7 +13,7 @@ import { esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
 import { currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { doFilter } from '../orders/orders.js';
+import { doFilter, loadAll } from '../orders/orders.js';
 import { fmtDateTime, fmtMoneyShort, loadVfcashNumber, renderBillingSummary } from '../orders/billing-summary.js';
 import { ensureTenant, isAdmin } from '../orders/guards.js';
 
@@ -27,9 +27,13 @@ export function loadWalletState(cb){
   if(tourActive){ if(cb) cb(null); return; } // tour mode: don't hit DB
   sb.from('wallet_state').select('*').eq('tenant_id', currentTenantId).maybeSingle().then(function(r){
     if(r.error){ console.warn('wallet_state load error', r.error.message); if(cb) cb(null); return; }
+    var wasDepleted = !!(walletStateCache && walletStateCache.is_depleted);
     walletStateCache = r.data || null;
     updateWalletChip();
     applyDepletionLock();
+    // القفل اترفع (شحن وصل): السيرفر بقى يرجّع البيانات تاني (RLS) —
+    // نعيد تحميل الأوردرات فوراً بدل ما التاجر يفضل شايف صفحة مقفولة
+    if(wasDepleted && walletStateCache && !walletStateCache.is_depleted){ loadAll(); }
     if(cb) cb(walletStateCache);
   });
 }
