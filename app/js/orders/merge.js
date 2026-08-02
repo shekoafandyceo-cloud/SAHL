@@ -1,5 +1,6 @@
 // تنبيه الدمج — عملاء معاهم أكتر من أوردر جاهز للشحن
 
+import { walletStateCache } from '../billing/billing.js';
 import { $id, esc } from '../core/dom.js';
 import { normalizePhone, num } from '../core/format.js';
 import { toast } from '../core/toast.js';
@@ -30,7 +31,9 @@ export function detectMergeable(){
 export function renderMergeAlert(){
   var container = $id('merge-alert-container');
   if(!container) return;
-  if(!mergeableCustomers.length){
+  // قفل النفاد: التنبيه كله أسماء وتليفونات — كان الثغرة الوحيدة اللي
+  // بتعرضهم مكشوفين والجدول جنبه متقنّع. يختفي لحد ما المحفظة تتشحن.
+  if(!mergeableCustomers.length || (walletStateCache && walletStateCache.is_depleted)){
     container.style.display = 'none';
     container.innerHTML = '';
     return;

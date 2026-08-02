@@ -5,6 +5,15 @@ import { $id } from '../core/dom.js';
 // SUBSCRIPTION LOCK
 export function subscriptionLockState(t){
   if(!t) return 'active';
+  // الحكم الأساسي من السيرفر (tenant_subscription_state.computed_status —
+  // بيتحسب بـnow() بتاعة الداتابيز): ساعة جهاز التاجر مش مصدر حقيقة —
+  // متأخرة = يستخدم ببلاش بعد الانتهاء، متقدمة = دافع ويتقفل في وشه غلط.
+  if(t.computed_status){
+    if(t.computed_status === 'expired') return 'expired';
+    if(t.computed_status === 'grace') return 'grace';
+    return 'active';   // active / trialing
+  }
+  // fallback للساعة المحلية — لو قراية حالة السيرفر فشلت وقت الدخول
   if(t.plan === 'enterprise' && Number(t.monthly_price) === 0) return 'active';
   if(!t.plan_expires_at) return 'active';
   var exp = new Date(t.plan_expires_at).getTime();
@@ -19,8 +28,10 @@ export function subscriptionLockState(t){
 export function maybeShowExpiryBanner(t, state){
   if(!t || !t.plan_expires_at) return;
   if(t.plan === 'enterprise' && Number(t.monthly_price) === 0) return;
-  var exp = new Date(t.plan_expires_at).getTime();
-  var days = Math.ceil((exp - Date.now())/(24*60*60*1000));
+  // الأيام المتبقية من السيرفر لو متاحة — نفس منطق ساعة السيرفر فوق
+  var days = (typeof t.days_remaining_server === 'number')
+    ? t.days_remaining_server
+    : Math.ceil((new Date(t.plan_expires_at).getTime() - Date.now())/(24*60*60*1000));
   var show=false, text='', bg='';
   if(state === 'grace'){
     show=true; bg='linear-gradient(90deg,#fef2f2,#fff)';

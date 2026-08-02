@@ -80,17 +80,31 @@ export function showSubscriptionLock(t, reason){
 export function loadTenantAndEnter(){
   if(!ensureTenant())return;
   // v_my_tenant: الـ view بيفلتر بالتاجر جواه وبيحجب المفاتيح عن غير الأدمن.
-  sb.from('v_my_tenant')
-    .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price')
-    .eq('id', currentTenantId)
-    .single()
-    .then(function(r){
+  // tenant_subscription_state: حالة الاشتراك محسوبة بساعة السيرفر (computed_status
+  // وdays_remaining) — الحكم بيها مش بساعة جهاز التاجر: ساعة متأخرة كانت بتفتح
+  // حساب منتهي، ومتقدمة كانت بتقفل حساب دافع.
+  Promise.all([
+    sb.from('v_my_tenant')
+      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price')
+      .eq('id', currentTenantId)
+      .single(),
+    sb.from('tenant_subscription_state')
+      .select('id,computed_status,days_remaining')
+      .eq('id', currentTenantId)
+      .maybeSingle()
+  ]).then(function(res){
+      var r = res[0], srv = res[1];
       if(r.error || !r.data){
         $id('login-err').textContent = 'حصلت مشكلة في تحميل بيانات الحساب. تواصل مع الدعم.';
         $id('login').style.display = 'flex';
         $id('app').style.display = 'none';
         currentTenant = null;
         return;
+      }
+      // فشل قراءة حالة السيرفر مش بيقفل الدخول — بنرجع لحساب الساعة المحلية
+      if(srv && !srv.error && srv.data){
+        r.data.computed_status = srv.data.computed_status;
+        r.data.days_remaining_server = srv.data.days_remaining;
       }
       if(r.data.active === false){
         showSubscriptionLock(r.data, 'suspended');

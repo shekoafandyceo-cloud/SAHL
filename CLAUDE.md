@@ -293,6 +293,9 @@ PLATFORM LOG → WA Gate → If2 ─(true)→ SENDING CONF MSG → … → Wait 
 - **`admin/_headers` مالهاش `Strict-Transport-Security`** — لوحة التاجر عندها. (التزام شبه دائم — قرار المالك.) `Permissions-Policy` اتضافت 31 يوليو.
 
 ### ✅ اتقفلت
+- ~~الاشتراك بيتحكم فيه ساعة جهاز التاجر~~ — الحكم بقى من `tenant_subscription_state.computed_status` (بيتحسب بـ`now()` بتاعة الداتابيز) والساعة المحلية fallback بس. **2 أغسطس.**
+- ~~كتابة `call_attempts`/`status_log` بـread-modify-write~~ — بقت RPCs ذرية (`append_call_attempt` / `delete_call_attempt` بالهوية iso مش الفهرس / `set_order_status` بتحسب `from` من صف السيرفر). migration: `atomic_call_attempts_and_status_log`، SECURITY INVOKER فالـRLS بتتطبق، والتنفيذ لـauthenticated + service_role بس. **الفاضل**: n8n لسه بيكتب `status_log` بمساره — لو عايزين ذرية كاملة، نودزه تتحول للـRPC (خطوات يدوية للمالك).
+- ~~تنبيه الدمج بيعرض أسماء وتليفونات مكشوفة أثناء قفل النفاد~~ — بيختفي مع `is_depleted`. (قفل النفاد enforcement على السيرفر لسه **قرار مفتوح** — حالياً قفل واجهة والبيانات بتوصل المتصفح.)
 - ~~ملف الواجهة الضخم~~ — اتفكّك 29 يوليو (587KB → 58KB + 29 موديول).
 - ~~`orders/orders.js` 2,213 سطر~~ — اتقسم 30 يوليو لـ12 موديول، بقى 457 سطر. **اتنشر واتأكد على الهواء.**
 - ~~`val` مش مستوردة — كروت الإيرادات في الجولة فاضية~~ — اتصلّحت واتأكدت على الهواء 30 يوليو.
