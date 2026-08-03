@@ -79,13 +79,18 @@ export function inboxDepletionLock(){
   var body=$id('wa-list-body'); if(body) body.innerHTML=WA_LOCK_MSG;
 }
 
+// جيل جلب القايمة — poll وrealtime وتحديث يدوي بيتسابقوا، وsnapshot أقدم
+// كان بيرجّع unread/preview قديم لحد الدورة الجاية
+var waConvGen=0;
 export function waFetchConvos(showLoading){
   if(!sb||!currentTenantId) return;
   // النفاد: الـRLS بترجّع صفر صفوف — الرد كان بيستبدل رسالة القفل بحالة فاضية عادية
   if(walletStateCache && walletStateCache.is_depleted) return;
+  var myGen=++waConvGen;
   if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
+      if(myGen!==waConvGen) return;   // طلب أحدث خرج بعدنا
       if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل المحادثات</div>'; veilDone('inbox'); return; }
       waConvos=r.data||[];
       waConvosCapped=(waConvos.length===200);
@@ -202,7 +207,14 @@ export function openConversation(id){
     $id('wa-chat-avatar').textContent=waInitials(c.customer_name,c.customer_phone||c.wa_id);
   }
   renderConvos();
-  $id('wa-msgs').innerHTML='<div class="wa-empty">جاري تحميل الرسائل…</div>';
+  // فقاعات optimistic لسه شغالة (صورة بتترفع): المسح المباشر بـinnerHTML
+  // كان بيرمي الـDOM من غير revoke فالـobjectURL يفضل معلّق في الذاكرة
+  var msgsBox=$id('wa-msgs');
+  if(msgsBox){
+    var pendOpt=msgsBox.querySelectorAll('.wa-optimistic');
+    for(var poi=0;poi<pendOpt.length;poi++) waRevokeBubbleUrl(pendOpt[poi]);
+    msgsBox.innerHTML='<div class="wa-empty">جاري تحميل الرسائل…</div>';
+  }
   waRenderedState=[];
   waFetchMessages(id,true,false);
   waMarkRead(id);
@@ -213,13 +225,19 @@ export function openConversation(id){
   if($id('wa-input')){ $id('wa-input').value=''; $id('wa-input').style.height='auto'; }
 }
 
+// جيل جلب الرسائل — الحارس القديم (convId===waActiveId) بيحمي من محادثة
+// تانية بس: طلبين لنفس المحادثة (poll + realtime) بيعدّوا منه الاتنين،
+// وsnapshot أقدم كان يوصل بعد الأحدث فيشيل رسالة لسه ظاهرة مؤقتاً
+var waMsgGen=0;
 export function waFetchMessages(convId,scroll,isPoll){
   if(!sb) return;
+  var myGen=++waMsgGen;
   // descending + reverse = أحدث 500 — الترتيب التصاعدي كان بيجيب أقدم 500
   // والمحادثة اللي عدّت الحد كانت بتتجمد على القديم للأبد
   sb.from('wa_messages').select('*').eq('conversation_id',convId)
     .order('created_at',{ascending:false}).limit(500).then(function(r){
       if(convId!==waActiveId) return;
+      if(myGen!==waMsgGen) return;   // رد أقدم لنفس المحادثة
       if(r.error){ if(!isPoll)$id('wa-msgs').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل الرسائل</div>'; return; }
       var data=(r.data||[]).reverse();
       // مقارنة الطول لوحدها بتفشل لما العدد ثابت على الحد (500) والنافذة
@@ -281,15 +299,23 @@ export function renderMessages(msgs,scroll){
     return;
   }
   // إعادة بناء كاملة (أول فتح للمحادثة أو تغيّر البنية)
+  // الـrebuild بيحصل كمان لما نافذة الـ500 تنزلق (الأقدم بيقع فالـprefix
+  // بيفشل) — القفز الإجباري لآخر الشات كان بيسحب القارئ من مكانه
+  var wasNearBottom = !box.querySelector('.wa-msg') || (box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
+  var prevScrollTop = box.scrollTop;
   var paths=[]; for(var i=0;i<msgs.length;i++){ if(msgs[i].media_path) paths.push(msgs[i].media_path); }
   waResolveUrls(paths, function(urlMap){
     if(waActiveId!==forConv) return;   // المستخدم بدّل محادثة — رد قديم
     var olds=box.querySelectorAll('.wa-optimistic'); for(var oi=0;oi<olds.length;oi++) waRevokeBubbleUrl(olds[oi]);
-    var html=''; for(var i=0;i<msgs.length;i++){ var m=msgs[i]; html+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap)+'</div>'; }
+    var html='';
+    // النافذة عند السقف = فيه أقدم مش معروض — نقولها بدل ما يبان إن دي كل الرسائل
+    if(msgs.length===500) html+='<div class="wa-cap-note">معروض أحدث 500 رسالة — الأقدم مش بيظهر هنا</div>';
+    for(var i=0;i<msgs.length;i++){ var m=msgs[i]; html+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap)+'</div>'; }
     box.innerHTML=html;
     waRenderedCount=msgs.length;
     waRenderedState=msgs.map(function(m){return {id:m.id,status:m.status,direction:m.direction};});
-    waScrollBottom(box);
+    if(scroll || wasNearBottom) waScrollBottom(box);
+    else box.scrollTop=prevScrollTop;   // كان قاري فوق — يفضل تقريباً مكانه
   });
 }
 
@@ -353,6 +379,7 @@ export function waPickFile(e){
   }
   if(f.size>25*1024*1024){ toast('الملف كبير (الحد 25 ميجا)','er'); e.target.value=''; return; }
   waPendingDoc=f; waPendingImage=null;
+  waSetPreviewUrl(null);   // معاينة صورة سابقة — الـURL كان بيفضل معلّق لحد الاختيار الجاي
   var imgf=$id('wa-file'); if(imgf) imgf.value='';
   var prev=$id('wa-attach-preview');
   prev.innerHTML='<span style="font-size:1.4rem">📎</span><span style="flex:1;font-size:.82rem;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</span><button class="wa-attach-x" id="wa-attach-x">شيل</button>';

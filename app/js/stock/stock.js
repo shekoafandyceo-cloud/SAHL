@@ -24,6 +24,9 @@ export function stockSetMovements(v){ stockMovements = v || []; }
 export var stockProducts=[], stockMovements=[], currentStockTab='products';  // المخزون — الجولة بتبدّله بديمو
 export var stockMovementsCapped=false;   // القايمة عند سقف الـ500 — فيه أقدم مش محمّل
 
+// جيل التحميل — فتحتين متتاليتين بسرعة: رد أقدم كان بيستبدل المصفوفات
+// بعد الأحدث ويمسح اللي الـRealtime ضافه في النص
+var stockLoadGen=0;
 export function loadStock(){
   // During the guided tour, never hit Supabase — keep the injected demo data
   // so the cards/products/movements actually show something to learn from.
@@ -36,12 +39,14 @@ export function loadStock(){
     return;
   }
   if(!ensureTenant()){veilDone('stock');return;}
+  var myGen=++stockLoadGen;
   $id('prod-tbody').innerHTML='<div class="ldg"><div class="spin"></div>جاري تحميل المنتجات...</div>';
   $id('mov-tbody').innerHTML='<div class="ldg"><div class="spin"></div>جاري تحميل الحركات...</div>';
 
   // v_stock_products بيحجب wholesale_price عن غير الأدمن على مستوى السيرفر —
   // مش محتاجين نفلتر الأعمدة من هنا تاني.
   sb.from('v_stock_products').select('*').eq('tenant_id',currentTenantId).order('current_qty',{ascending:false}).then(function(r){
+    if(myGen!==stockLoadGen) return;
     if(r.error){toast('خطأ في المنتجات: '+r.error.message,'er');veilDone('stock');return;}
     stockProducts=r.data||[];
     updateStockStats();
@@ -52,6 +57,7 @@ export function loadStock(){
   });
   // فلاج السقف — العدّاد والتنبؤ لازم يصارحوا إن في أقدم من كده
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(500).then(function(r){
+    if(myGen!==stockLoadGen) return;
     if(r.error){return;}
     stockMovements=r.data||[];
     stockMovementsCapped=(stockMovements.length===500);
@@ -74,7 +80,16 @@ export function renderProducts(){
   var list=stockProducts.filter(function(p){return !q||(p.name||'').toLowerCase().indexOf(q)>=0;});
   $id('prod-count').textContent=list.length!==stockProducts.length?num(list.length)+' نتيجة':num(stockProducts.length)+' منتج';
 
-  if(!list.length){$id('prod-tbody').innerHTML=emptyState({icon:'📦',
+  if(!list.length){
+    // بحث مش مطابق ≠ مفيش منتجات — الرسالة القديمة كانت بتقول
+    // "لسه مضفتش أي منتجات" والمنتجات موجودة فعلاً
+    if(q && stockProducts.length){
+      $id('prod-tbody').innerHTML=emptyState({icon:'🔍',
+        title:'مفيش منتجات مطابقة للبحث',
+        sub:'جرّب كلمة تانية أو امسح البحث.'});
+      return;
+    }
+    $id('prod-tbody').innerHTML=emptyState({icon:'📦',
       title:'لسه مضفتش أي منتجات',
       sub:'سجّل منتجاتك عشان المخزون يتخصم أوتوماتيك مع كل أوردر بيخرج، وتعرف قيمة بضاعتك في أي لحظة.',
       act:'add-product', actLabel:'+ أضف أول منتج', adminOnly:true});return;}

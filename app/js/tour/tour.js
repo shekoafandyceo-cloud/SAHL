@@ -2,32 +2,64 @@
 
 import { $id } from '../core/dom.js';
 import { swallow } from '../core/log.js';
-import { financeExpenses, financeSetExpenses, renderFinanceOverview } from '../finance/finance.js';
+import { financeCurrentTab, financeExpenses, financeSetExpenses, renderFinanceOverview } from '../finance/finance.js';
 import { renderMovements, renderProducts, stockMovements, stockProducts, stockSetMovements, stockSetProducts, updateStockStats } from '../stock/stock.js';
 import { tourDemoExpenses, tourDemoMovements, tourDemoOrders, tourDemoStock } from './demo-data.js';
 import { tourPositionFor } from './position.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
-import { currentTenantId } from '../auth/auth.js';
+import { currentTenantId, currentUser } from '../auth/auth.js';
 import { buildIndexes, doFilter } from '../orders/orders.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, updateRevenueStats, updateStats } from '../orders/cards.js';
 import { openDetail } from '../orders/detail.js';
 import { isAdmin } from '../orders/guards.js';
-import { all, ordersSetAll, ordersSetAllLoaded } from '../orders/state.js';
+import { all, ordersPeriod, ordersSetAll, ordersSetAllLoaded } from '../orders/state.js';
 
 export var tourActive=false, tourStep=0, tourSavedHTML=null;
 
 // ===== PRODUCT TOUR (interactive walkthrough with demo data) =====
 export var TOUR_KEY='sahl_tour_done_';
 
-export function tourDone(){ try{return localStorage.getItem(TOUR_KEY+currentTenantId)==='1';}catch(e){return false;} }
+// العقد الموثّق (CLAUDE.md): sahl_tour_done_<uid> — النسخة القديمة كانت
+// بتكتب بالـtenantId، فبنقرا الاتنين عشان أدمن خلّص الجولة قبل كده
+// ماياخدهاش تاني بعد التحويل
+export function tourDone(){ try{
+  var uid = currentUser && currentUser.id;
+  return localStorage.getItem(TOUR_KEY+(uid||currentTenantId))==='1'
+      || localStorage.getItem(TOUR_KEY+currentTenantId)==='1';
+}catch(e){return false;} }
 
-export function markTourDone(){ try{localStorage.setItem(TOUR_KEY+currentTenantId,'1');}catch(e){ swallow('markTourDone/localStorage.setItem', e); } }
+export function markTourDone(){ try{
+  var uid = currentUser && currentUser.id;
+  localStorage.setItem(TOUR_KEY+(uid||currentTenantId),'1');
+}catch(e){ swallow('markTourDone/localStorage.setItem', e); } }
 
 export function tourBackupAndInject(){
   // remember current table + stats; swap in demo data
   tourSavedHTML = $id('tbody') ? $id('tbody').innerHTML : null;
+  // حالة الفلاتر والبحث والمدة الحقيقية — الجولة بتفلتر الديمو بنفس doFilter،
+  // فبحث/فلتر/مدة قديمة كانت بتخلي جدول الديمو فاضي وخطوات تتخطى في صمت
+  window.__tourSavedUI = {
+    q:   $id('qinp')?$id('qinp').value:'',
+    fst: $id('fst')?$id('fst').value:'',
+    fpl: $id('fpl')?$id('fpl').value:'',
+    fpy: $id('fpy')?$id('fpy').value:'',
+    period: ordersPeriod.type
+  };
+  if($id('qinp'))$id('qinp').value='';
+  if($id('fst'))$id('fst').value='';
+  if($id('fpl'))$id('fpl').value='';
+  if($id('fpy'))$id('fpy').value='';
+  ordersPeriod.type='all';   // الديمو كله يبان مهما كانت تواريخه
+  if(window.__syncFilterUI)window.__syncFilterUI();
+  // تبويب الماليات على Expenses كان بيخفي أهداف خطوات الماليات
+  try{
+    if(financeCurrentTab!=='overview'){
+      var ovTab=document.querySelector('.stock-tab[data-ftab="overview"]');
+      if(ovTab) ovTab.click();
+    }
+  }catch(e){ swallow('tourBackupAndInject/financeTab', e); }
   window.__tourRealAll = (typeof all!=='undefined') ? all : null;
   window.__tourRealStock = (typeof stockProducts!=='undefined') ? stockProducts : null;
   window.__tourRealMov = (typeof stockMovements!=='undefined') ? stockMovements : null;
@@ -55,6 +87,17 @@ export function tourRestore(){
   // متحمّل قبلها كامل، الـsnapshot المسترجع بقى قديم وallLoaded=true كانت
   // بتمنع إعادة الجلب، فالماليات والإحصائيات يفضلوا غلط لحد reload
   ordersSetAllLoaded(false);
+  // رجوع فلاتر وبحث ومدة التاجر زي ما كانوا قبل الجولة — قبل نداءات
+  // إعادة التحميل تحت عشان تقرا الحالة الصح
+  var savedUI = window.__tourSavedUI; window.__tourSavedUI = null;
+  if(savedUI){
+    if($id('qinp'))$id('qinp').value=savedUI.q||'';
+    if($id('fst'))$id('fst').value=savedUI.fst||'';
+    if($id('fpl'))$id('fpl').value=savedUI.fpl||'';
+    if($id('fpy'))$id('fpy').value=savedUI.fpy||'';
+    ordersPeriod.type=savedUI.period||'month';
+    if(window.__syncFilterUI)window.__syncFilterUI();
+  }
   // بعد الجولة: all الحقيقي بقى فاضي (مش بيتحمّل عند البداية) — فنرجّع صفحة الأوردرات
   // الحقيقية من السيرفر بدل ما نحسبها من الذاكرة الفاضية.
   try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)
@@ -114,7 +157,12 @@ export function tourSteps(){
   ];
 }
 
+// جيل الرندر — الـtimeouts المتداخلة من غير إلغاء: نقر سريع (التالي/السابق)
+// أو resize كان بيسيب callback خطوة قديمة يرندر فوقة الخطوة الأحدث
+var tourRenderGen=0;
+
 export function tourRender(){
+  var myGen=++tourRenderGen;
   var steps=tourSteps();
   var s=steps[tourStep];
   if(!s){ tourFinish(); return; }
@@ -142,6 +190,7 @@ export function tourRender(){
   }
   var settleDelay = s.openOrder ? 260 : (s.page?380:60);
   setTimeout(function(){
+    if(!tourActive || myGen!==tourRenderGen) return;   // خطوة أحدث خرجت أو الجولة قفلت
     var el=document.querySelector(s.sel);
     if(!el){ // fallback: skip missing target
       tourStep++; if(tourStep>=steps.length){tourFinish();return;} tourRender(); return;
@@ -154,6 +203,7 @@ export function tourRender(){
     el.scrollIntoView({behavior:'smooth',block:'center'});
     // give smooth-scroll a moment (esp. inside the order overlay) before positioning
     setTimeout(function(){
+      if(!tourActive || myGen!==tourRenderGen) return;
       var bubble=document.getElementById('tour-bubble');
       // dots
       var dots=''; for(var i=0;i<steps.length;i++){ dots+='<span class="tour-dot'+(i===tourStep?' active':'')+'"></span>'; }
@@ -188,6 +238,7 @@ export function tourStart(){
 
 export function tourFinish(){
   tourActive=false;
+  tourRenderGen++;   // إبطال أي timeouts رندر معلّقة
   try{ $id('ovl').classList.remove('open'); }catch(e){ swallow('tourFinish/$id', e); }
   var ov=document.getElementById('tour-overlay'); ov.classList.remove('active');
   // BUGFIX: hide the welcome card too — if the user clicked "Skip" before starting,

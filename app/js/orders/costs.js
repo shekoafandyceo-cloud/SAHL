@@ -139,8 +139,13 @@ export function renderProductPerformance(){
   // الكروت الأربعة فوق ثابتة على معاييرها مهما اتغيّر فرز الجدول
   $id('pf-products').textContent=num(data.length);
   $id('pf-top-rev').textContent=data[0]?short(data[0].name,18):'—';
-  var bestDel=data.slice().sort(function(a,b){return b.deliveryRate-a.deliveryRate||b.orders-a.orders;})[0];
-  var worstRet=data.slice().sort(function(a,b){return b.returnRate-a.returnRate||b.orders-a.orders;})[0];
+  // null في المقارنة بيتحول 0 والفرز يقع على عدد الأوردرات — متجر من غير
+  // ولا شحنة محسومة كان بيشوف "أفضل تسليم" و"أعلى مرتجع" مخترعين.
+  // النسبة null = المنتج مالوش شحنات مكتملة فمايدخلش المنافسة أصلاً.
+  var bestDel=data.filter(function(p){return p.deliveryRate!=null;})
+    .sort(function(a,b){return b.deliveryRate-a.deliveryRate||b.orders-a.orders;})[0];
+  var worstRet=data.filter(function(p){return p.returnRate!=null;})
+    .sort(function(a,b){return b.returnRate-a.returnRate||b.orders-a.orders;})[0];
   $id('pf-top-del').textContent=bestDel?short(bestDel.name,18):'—';
   $id('pf-top-ret').textContent=worstRet?short(worstRet.name,18):'—';
   $id('perf-count').textContent=list.length!==data.length?num(list.length)+' نتيجة':num(data.length)+' منتج';

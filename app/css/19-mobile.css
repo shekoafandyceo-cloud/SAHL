@@ -30,3 +30,9 @@
   .tour-fab{bottom:14px;left:14px;width:46px;height:46px;padding:0 !important;border-radius:50%;justify-content:center;font-size:1.2rem;opacity:.94;}
   .tour-fab .tour-fab-txt{display:none;}
 }
+/* الـwallet chip كان بيتقص في صمت (overflow:hidden + nowrap): على القياس
+   375px المحتوى 233px والمتاح 121px — segment الباقة/العداد كان بيختفي
+   نصه. تحت 600px بنشيله بالكامل ونسيب الرصيد — أهم رقم — ظاهر كامل */
+@media(max-width:600px){
+  .wallet-chip .wseg.wplan,.wallet-chip .wsep{display:none;}
+}

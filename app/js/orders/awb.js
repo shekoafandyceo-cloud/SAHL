@@ -75,12 +75,16 @@ export async function printAwbForOrders(orderIds, btnEl){
       return;
     }
     
-    // Auto-trigger print() لما الـ PDF يتحمل
-    win.addEventListener('load', function(){
-      setTimeout(function(){ try{ win.print(); }catch(e){ swallow('printAwbForOrders/win.print', e); } }, 600);
-    });
-    // backup trigger في حالة الـ load event ما اطلقش
-    setTimeout(function(){ try{ win.focus(); win.print(); }catch(e){ swallow('printAwbForOrders/win.focus', e); } }, 1500);
+    // Auto-trigger print() لما الـ PDF يتحمل — مرة واحدة بس: الـload handler
+    // والـbackup timer كانوا بيطلقوا الاتنين من غير علم ببعض = دبل print dialog
+    var printFired = false;
+    function firePrint(){
+      if(printFired) return; printFired = true;
+      try{ win.focus(); win.print(); }catch(e){ swallow('printAwbForOrders/win.print', e); }
+    }
+    win.addEventListener('load', function(){ setTimeout(firePrint, 600); });
+    // backup trigger في حالة الـ load event ما اطلقش (عارض الـPDF في كروم غالباً مابيطلقهوش)
+    setTimeout(firePrint, 1500);
     
     if(data.skipped_no_tracking && data.skipped_no_tracking > 0){
       toast('✅ اتطبع '+data.printed_count+' بوليصة ('+data.skipped_no_tracking+' أوردر مفيش فيهم tracking)','ok');

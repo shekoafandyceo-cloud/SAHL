@@ -4,8 +4,10 @@
 // الحسابات بنفس معادلات كروت اللوحة وجدول المنصات بالظبط:
 //   تأكيد = اللي دخل رحلة الشحن ÷ اللي اتعامل معاه (يستبعد Pending)
 //   تسليم = المسلَّم ÷ (المسلَّم + المرتجع)
-// نسبة التسليم للأيام القريبة بتبقى "—" بصدق — الشحنات لسه ماخلصتش،
-// ووقتها جودة اليوم بتتحسب من التأكيد لوحده (rate.js/dayQuality).
+// نسبة التسليم بتظهر «—» طول ما في اليوم شحنات دخلت الرحلة ولسه
+// ماتحسمتش (undecided > 0) — شحنة واحدة محسومة من 10 كانت بتطلّع
+// "100%" واليوم يتلون ممتاز. وقت الـ«—» جودة اليوم بتتحسب من التأكيد
+// لوحده (rate.js/dayQuality).
 //
 // المالك الوحيد لحالة الشهر المعروض هو الموديول ده.
 
@@ -98,11 +100,15 @@ export function renderDaysCalendar(){
     Object.keys(monthAgg).forEach(function(k){ monthAgg[k] += b[k]; });
     var conf = b.processed > 0 ? (b.positive / b.processed * 100) : null;
     var fin = b.delivered + b.returned;
-    var deliv = fin > 0 ? (b.delivered / fin * 100) : null;
+    // وعد الواجهة: «— لحد ما الشحنات تخلص». undecided = دخل رحلة الشحن
+    // ولسه لا اتسلم ولا رجع — طول ما فيه، النسبة جزئية ومضللة فمابنعرضهاش
+    var undecided = Math.max(0, b.positive - b.delivered - b.returned);
+    var deliv = (fin > 0 && undecided === 0) ? (b.delivered / fin * 100) : null;
     var q = dayQuality(conf, deliv);
     var tip = num(b.total) + ' أوردر — اتعامل مع ' + num(b.processed)
       + ' · اتأكد ' + num(b.positive)
-      + ' · اتسلم ' + num(b.delivered) + ' · رجع ' + num(b.returned);
+      + ' · اتسلم ' + num(b.delivered) + ' · رجع ' + num(b.returned)
+      + (undecided > 0 ? ' · لسه في الشحن ' + num(undecided) : '');
     h += '<div class="dcal-day ' + q.cls + (isToday ? ' today' : '') + '" title="' + tip + '">'
       + '<span class="dcal-num">' + num(day) + '</span>'
       + '<span class="dcal-cnt">' + num(b.total) + ' أوردر</span>'

@@ -131,7 +131,15 @@ html.dark .movement-cost.zero{background:rgba(239,68,68,.12);}
 /* ── المحفظة والباقات ── */
 html.dark .wallet-chip{background:#1a2233;border-color:var(--brd);}
 html.dark .wallet-chip .wseg .wval{color:var(--txt);}
-html.dark .wallet-chip .wseg.wbalance.warn{background:rgba(239,68,68,.12);}
+/* segment الرصيد: الخلفيات الفاتحة بتاعة 16-billing كانت بتفضل زي ما هي
+   والنص بيتحول شبه أبيض — contrast مكسور. تغميق الخلفية + لون قيمة مقروء
+   لكل حالة (عادي/warn/danger) */
+html.dark .wallet-chip .wseg.wbalance{background:rgba(29,110,242,.16);}
+html.dark .wallet-chip .wseg.wbalance .wval{color:#7fb3ff;}
+html.dark .wallet-chip .wseg.wbalance.warn{background:rgba(245,158,11,.15);}
+html.dark .wallet-chip .wseg.wbalance.warn .wval{color:#fbbf24;}
+html.dark .wallet-chip .wseg.wbalance.danger{background:rgba(239,68,68,.17);}
+html.dark .wallet-chip .wseg.wbalance.danger .wval{color:#f87171;}
 html.dark .plan-card{background:var(--card);border-color:var(--brd);}
 html.dark .plan-card.current{background:rgba(16,185,129,.08);}
 html.dark .plan-card.popular{background:rgba(255,159,28,.08);}

@@ -88,7 +88,12 @@ export function ensureAllLoaded(cb){
         var got = r.data || [];
         acc = acc.concat(got);
         if(got.length === CHUNK && acc.length < MAXROWS){ fromIdx += CHUNK; pull(); return; }
-        ordersSetAll(acc); ordersSetAllLoaded(true);
+        // dedupe بالـid: أوردر جديد بيوصل أثناء السحب بيزحزح الـoffset فصف
+        // الحدود بيتكرر بين دفعتين والماليات تحسبه مرتين. (النقص النادر
+        // بنفس الآلية مابيتصلحش هنا — بيتصلح مع أول إعادة جلب)
+        var seenIds={}, dedup=[];
+        for(var ai=0;ai<acc.length;ai++){ var rw=acc[ai]; if(rw&&rw.id){ if(seenIds[rw.id])continue; seenIds[rw.id]=1; } dedup.push(rw); }
+        ordersSetAll(dedup); ordersSetAllLoaded(true);
         try{ buildIndexes(); }catch(e){ swallow('pull/buildIndexes', e); }           // phoneCounts كامل
         finish(null);
       });
@@ -173,7 +178,11 @@ export function startRealtime(){
       // Add new movement to in-memory list and re-render if stock page open
       if(payload.new){
         if(!stockMovements) stockSetMovements([]);
-        stockMovements.unshift(payload.new);
+        // dedupe بالـid: رد loadStock ممكن يكون شايل الحركة بالفعل والحدث
+        // يوصل بعده — كانت بتتكرر في القايمة وتدخل توقع الـ7 أيام مرتين
+        var mvDup=false;
+        for(var mi=0;mi<stockMovements.length;mi++){ if(stockMovements[mi].id===payload.new.id){ mvDup=true; break; } }
+        if(!mvDup) stockMovements.unshift(payload.new);
         if($id('page-stock').style.display !== 'none') renderMovements();
       }
     })
@@ -351,6 +360,9 @@ export function resolveCancelRequest(){
 export function showCancelRequested(){
   var el=$id('fst'); if(!el) return;
   el.value='__cancelreq__';
+  // القيمة اتحطت برمجياً فمفيش change event — القايمة المنسدلة المخصصة
+  // وكروت الحالة كانوا بيفضلوا على الفلتر القديم والنتايج على فلتر تاني
+  if(window.__syncFilterUI)window.__syncFilterUI();
   ordersSetPage(1);
   fetchOrdersPage();
 }
