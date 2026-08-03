@@ -15,7 +15,7 @@ import { renderMovements, renderProducts, stockMovements, stockProducts, stockSe
 import { tourActive, tourMaybeAutoStart } from '../tour/tour.js';
 import { printSelectedAwb } from './awb.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './cards.js';
-import { renderDetail } from './detail.js';
+import { detailAbort, renderDetail } from './detail.js';
 import { reflectStatusCards, wireStatusCards } from './filters-ui.js';
 import { ensureTenant } from './guards.js';
 import { doBulkUpdate } from './mutations.js';
@@ -219,8 +219,12 @@ export function startRealtime(){
 // + جدول + محفظة) وبيرجّع الموظف لأول صفحة — رشقة استيراد 20 أوردر كانت
 // بتضرب 100 طلب وتوست لكل واحد. بنحدّث الحالة المحلية فوراً، والطلبات
 // بتتجمع في تحديث واحد بعد ما الرشقة تهدى، من غير لمس الصفحة الحالية.
-var rtTimer = null, rtInserts = 0;
+var rtTimer = null, rtInserts = 0, rtFirstAt = 0;
 function scheduleRealtimeRefresh(){
+  // debounce بحد أقصى: رشقة مستمرة بفواصل أقل من 800ms كانت بتأجّل
+  // التحديث لما الرشقة تخلص خالص — دلوقتي بنفضفض على الأكثر كل ~3 ثواني
+  var _now = Date.now();
+  if(!rtTimer) rtFirstAt = _now;
   if(rtTimer) clearTimeout(rtTimer);
   rtTimer = setTimeout(function(){
     rtTimer = null;
@@ -233,7 +237,7 @@ function scheduleRealtimeRefresh(){
     loadBostaInventoryCard();
     fetchOrdersPage();   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
     loadWalletState();   // تغيير حالة ممكن يكون سبّب خصم
-  }, 800);
+  }, (_now - rtFirstAt >= 3000) ? 0 : 800);
 }
 
 export function handleRealtimeChange(payload){
@@ -393,6 +397,11 @@ export function fetchOrdersPage(){
       $id('pag').style.display='none';
       return;
     }
+    // العدد نقص (حذف/تغيير حالة من Realtime) والموظف واقف على صفحة بقت
+    // بعد الآخر — من غير الـclamp كان بيشوف جدول فاضي وعدّاد "101–99 من 99"
+    var srvCount=(typeof r.count==='number')?r.count:(r.data||[]).length;
+    var maxPage=Math.max(1,Math.ceil(srvCount/PS));
+    if(cur>maxPage){ ordersSetPage(maxPage); fetchOrdersPage(); return; }
     ordersSetFiltered(r.data||[]);
     ordersSetTotalCount((typeof r.count==='number')?r.count:fil.length);
     var hasFilter=!!(st||pl||py||q);
@@ -461,9 +470,11 @@ export function initOrdersUI(){
     setTimeout(positionPeriodInd,300);
   })();
   $id('psize').addEventListener('change',function(){ordersSetPageSize(parseInt($id('psize').value)||50);localStorage.setItem('sb_ps',PS);ordersSetPage(1);if(tourActive){doFilter();}else{fetchOrdersPage();}});
-  $id('xcls').addEventListener('click',function(){$id('ovl').classList.remove('open');ordersSetSelected(null);});
-  $id('ovl').addEventListener('click',function(e){if(e.target===$id('ovl')){$id('ovl').classList.remove('open');ordersSetSelected(null);}});
-  document.addEventListener('keydown',function(e){if(e.key==='Escape'){$id('ovl').classList.remove('open');ordersSetSelected(null);}});
+  // detailAbort مع كل إغلاق: من غيرها رد فتح قديم لسه في السكة كان بيرجع
+  // يفتح الـoverlay تاني بعد ما المستخدم قفله
+  $id('xcls').addEventListener('click',function(){$id('ovl').classList.remove('open');ordersSetSelected(null);detailAbort();});
+  $id('ovl').addEventListener('click',function(e){if(e.target===$id('ovl')){$id('ovl').classList.remove('open');ordersSetSelected(null);detailAbort();}});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){$id('ovl').classList.remove('open');ordersSetSelected(null);detailAbort();}});
   $id('tdate').textContent=new Date().toLocaleDateString('ar-EG-u-nu-latn',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 
     $id('bb-ok').addEventListener('click',function(){doBulkUpdate('confirmed');});

@@ -1,14 +1,16 @@
 // شريط الفلاتر والبحث وكروت الحالة
 
+import { loadAnalytics } from '../analytics/analytics.js';
 import { loadBilling, loadWalletState, wireBillingEvents } from '../billing/billing.js';
 import { $id } from '../core/dom.js';
 import { loadFinance } from '../finance/finance.js';
+import { loadInbox, waActiveId, waFetchMessages } from '../inbox/inbox.js';
 import { loadIssues } from '../issues/issues.js';
 import { loadSettings } from '../settings/settings.js';
 import { loadStock } from '../stock/stock.js';
 import { tourActive } from '../tour/tour.js';
 import { doFilter, loadAll, resolveCancelRequest, showCancelRequested } from './orders.js';
-import { ordersSetSearchTimer, sel, stm } from './state.js';
+import { ordersSetAll, ordersSetAllLoaded, ordersSetSearchTimer, sel, stm } from './state.js';
 
 // زرار التحديث + بحث وفلاتر الأوردرات
 export function initRefreshAndSearch(){
@@ -29,6 +31,16 @@ export function initRefreshAndSearch(){
       loadSettings();
     } else if(page === 'issues' && typeof loadIssues === 'function'){
       loadIssues();
+      loadWalletState();
+    } else if(page === 'analytics'){
+      // ↻ كان بيقع على loadAll (فرع الأوردرات) — بيصفّر allLoaded من غير
+      // ما يرندر الصفحة نفسها. هنا: تصفير الكاش + إعادة جلب فعلية ورندر
+      ordersSetAll([]); ordersSetAllLoaded(false);
+      loadAnalytics();
+      loadWalletState();
+    } else if(page === 'inbox'){
+      loadInbox();   // بيعيد فحص البوابة والنفاد وبيجيب المحادثات
+      if(waActiveId) waFetchMessages(waActiveId,false,false);
       loadWalletState();
     } else {
       loadAll(); // orders (and everything it pulls in)

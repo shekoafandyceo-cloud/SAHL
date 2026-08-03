@@ -36,10 +36,9 @@ export function loadInbox(){
   // حارس بدل ما نقع (الهشاشة دي اتكشفت في اختبار الحجاب)
   if(tourActive){ var wlb=$id('wa-list-body'); if(wlb)wlb.innerHTML='<div class="wa-empty">التبويب ده بيشتغل بالرسائل الحقيقية بعد ما تخلّص الجولة.</div>'; return; }
   if(!ensureTenant()){veilDone('inbox');return;}
-  // النفاد: السيرفر مش بيرجّع محادثات (RLS) — رسالة صريحة بدل قايمة فاضية
+  // النفاد: السيرفر مش بيرجّع محادثات (RLS) — قفل كامل (رسالة + إيقاف poll + مسح الشات)
   if(walletStateCache && walletStateCache.is_depleted){
-    var wlb2=$id('wa-list-body');
-    if(wlb2) wlb2.innerHTML='<div class="wa-empty">🔒 المحادثات مقفولة لحد ما تشحن المحفظة — كلها محفوظة وهترجع فوراً بعد الشحن.</div>';
+    inboxDepletionLock();
     veilDone('inbox'); return;
   }
   if(inboxVerified === false){ renderInboxLocked(); veilDone('inbox'); return; }
@@ -65,8 +64,25 @@ export function loadInbox(){
 // بصراحة إن الأقدم مش هنا بدل ما يبان إن دي كل المحادثات
 export var waConvosCapped=false;
 
+var WA_LOCK_MSG='<div class="wa-empty">🔒 المحادثات مقفولة لحد ما تشحن المحفظة — كلها محفوظة وهترجع فوراً بعد الشحن.</div>';
+
+// القفل لحظة النفاد: الشات المفتوح كان بيفضل معروض، والـpoll القديم
+// (مابيتوقفش في مسار النفاد بتاع loadInbox) كان بعد ≤20 ثانية بيستبدل
+// رسالة القفل بـ"مفيش محادثات لسه" المضللة ويمسح الشات بـ"مفيش رسايل"
+export function inboxDepletionLock(){
+  if(waPollTimer){ clearInterval(waPollTimer); waPollTimer=null; }
+  waActiveId=null; waRenderedState=[]; waRenderedCount=0;
+  var wrap=$id('wa-wrap'); if(wrap) wrap.classList.remove('show-chat');   // الموبايل: يرجع لعرض القايمة اللي فيها الرسالة
+  var inner=$id('wa-chat-inner'); if(inner) inner.style.display='none';
+  var empty=$id('wa-chat-empty'); if(empty) empty.style.display='';
+  var msgs=$id('wa-msgs'); if(msgs) msgs.innerHTML='';
+  var body=$id('wa-list-body'); if(body) body.innerHTML=WA_LOCK_MSG;
+}
+
 export function waFetchConvos(showLoading){
   if(!sb||!currentTenantId) return;
+  // النفاد: الـRLS بترجّع صفر صفوف — الرد كان بيستبدل رسالة القفل بحالة فاضية عادية
+  if(walletStateCache && walletStateCache.is_depleted) return;
   if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
@@ -139,7 +155,10 @@ export function renderConvos(){
   var uf=$id('wa-filter-unread'); if(uf) uf.textContent= unreadConvs>0 ? ('غير مقروءة ('+unreadConvs+')') : 'غير مقروءة';
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
   for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+')') : lk; }
-  if(!waConvos.length){ body.innerHTML=emptyState({icon:'💬',
+  if(!waConvos.length){
+    // النفاد مش "مفيش محادثات" — الرسالة الغلط كانت بتوحي إن البيانات ضاعت
+    if(walletStateCache && walletStateCache.is_depleted){ body.innerHTML=WA_LOCK_MSG; return; }
+    body.innerHTML=emptyState({icon:'💬',
       title:'مفيش محادثات لسه',
       sub:'أول ما عميل يرد على رسالة التأكيد أو يبعتلك على واتساب، المحادثة هتظهر هنا.'}); return; }
   var list=[];

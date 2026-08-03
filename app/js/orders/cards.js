@@ -152,9 +152,14 @@ export function applyOrdersStats(s){
 }
 
 // كروت الأوردرات (s0..s7 + الإيرادات + عدّاد المدة) في نداء RPC واحد
+// جيل النداء — تبديل مدة سريع (شهر ← آخر 3 أيام) كان بيسيب رد المدة
+// القديمة يوصل متأخر ويكتب أرقامه والـdeltas فوق الأحدث، والجدول
+// وشريط المدة على حاجة تانية (الجدول نفسه محروس بـfetchGen — الكروت لأ)
+var statsGen = 0;
 export function loadOrdersCards(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
+  var myGen = ++statsGen;
   var d=ordersPeriodCairoDates();
   var statsQ = sb.rpc('sahl_orders_stats',{ p_tenant: currentTenantId, p_from: d?d.from:null, p_to: d?d.to:null });
   if(ordersPeriod.type==='month'){
@@ -164,7 +169,7 @@ export function loadOrdersCards(){
     Promise.all([statsQ,
       sb.rpc('sahl_orders_stats',{ p_tenant: currentTenantId, p_from: pd.from, p_to: pd.to })
     ]).then(function(rs){
-      if(tourActive) return;
+      if(myGen !== statsGen || tourActive) return;   // طلب أحدث خرج بعدنا
       var cur=rs[0], prev=rs[1];
       if(cur.error || !cur.data){ if(cur.error&&cur.error.message) console.warn('stats RPC:',cur.error.message); return; }
       applyOrdersStats(cur.data);
@@ -173,7 +178,7 @@ export function loadOrdersCards(){
   } else {
     clearStatsDeltas();
     statsQ.then(function(r){
-      if(tourActive) return;
+      if(myGen !== statsGen || tourActive) return;   // طلب أحدث خرج بعدنا
       if(r.error || !r.data){ if(r.error&&r.error.message) console.warn('stats RPC:',r.error.message); return; }
       applyOrdersStats(r.data);
     });

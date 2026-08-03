@@ -200,12 +200,22 @@ function initApp(){
   }));
   var savedPs=localStorage.getItem('sb_ps');
   if(savedPs){var _ps=parseInt(savedPs); if([25,50,100,200].indexOf(_ps)<0)_ps=50; ordersSetPageSize(_ps); var el=$id('psize'); if(el)el.value=String(_ps);}
+  // رسالة الإيقاف من forceSuspendLogout — بتتسلم عبر sessionStorage لأن
+  // الخروج بقى reload كامل والحالة القديمة كلها بتتمسح معاه
+  var suspendMsg = null;
+  try{
+    if(sessionStorage.getItem('sahl_suspend_msg')){
+      sessionStorage.removeItem('sahl_suspend_msg');
+      suspendMsg = '⚠️ تم إيقاف الاشتراك. تواصل مع الدعم لإعادة التفعيل.';
+    }
+  }catch(e){ swallow('initApp/sessionStorage', e); }
   // Check if user already has a valid session
   sb.auth.getSession().then(function(res){
     if(res.data && res.data.session){
       fetchProfileAndEnter(res.data.session.user);
     } else {
       $id('login').style.display = 'flex';
+      if(suspendMsg) $id('login-err').textContent = suspendMsg;
     }
   });
 }

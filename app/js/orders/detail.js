@@ -122,6 +122,8 @@ export function openDetail(id){
   $id('ovl').classList.add('open');
   sb.from('orders').select('*').eq('id',id).eq('tenant_id',currentTenantId).single().then(function(r){
     if(detailReqId !== id) return;   // المستخدم فتح أوردر تاني — الرد ده بقى قديم
+    // النفاد وصل والطلب في السكة — مانرندرش بيانات على قفل شغّال
+    if(walletStateCache && walletStateCache.is_depleted && !tourActive){ $id('ovl').classList.remove('open'); return; }
     if(r.error || !r.data){ toast('حصلت مشكلة في تحميل تفاصيل الطلب','er'); $id('ovl').classList.remove('open'); return; }
     ordersSetSelected(r.data);
     loadDetailHistory(sel, function(){ if(detailReqId === id) renderDetail(); });
@@ -130,6 +132,10 @@ export function openDetail(id){
 
 // آخر أوردر متطلوب لشاشة التفاصيل — حارس الردود القديمة
 var detailReqId = null;
+
+// إبطال الرد المعلّق عند قفل النافذة — الإغلاق من غيره كان بيسيب رد فتح
+// قديم (الأوردر أو الـhistory) يرجع بعد القفل ويفتح الـoverlay تاني
+export function detailAbort(){ detailReqId = null; }
 
 // ملخّص طلبات العميل من الذاكرة (للجولة)
 export function computeHistoryFromAll(o){
@@ -432,7 +438,7 @@ export function renderDetail(){
       var phone=normalizePhone(o.phone);
       if(!phone){toast('مفيش رقم موبايل','er');return;}
       // Close detail and filter table by this phone
-      $id('ovl').classList.remove('open');ordersSetSelected(null);
+      $id('ovl').classList.remove('open');ordersSetSelected(null);detailAbort();
       $id('qinp').value=phone;
       // Clear other filters to ensure all orders show
       $id('fst').value='';$id('fpl').value='';$id('fpy').value='';

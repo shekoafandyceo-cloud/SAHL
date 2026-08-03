@@ -1,7 +1,6 @@
 // الدخول والتسجيل والخروج وهوية المستأجر
 
 import { refreshSetupChecklist } from '../ui/setup-checklist.js';
-import { loadWalletState } from '../billing/billing.js';
 import { maybeShowExpiryBanner, subscriptionLockState } from '../billing/expiry.js';
 import { $id, esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
@@ -121,7 +120,8 @@ export function loadTenantAndEnter(){
       $id('app').style.cssText = 'display:flex;';   // الاتجاه والارتفاع من CSS (.sidenav layout) — مش inline (درس 27)
       maybeShowExpiryBanner(r.data, lockState);
       loadAll();
-      loadWalletState();  // load for everyone (admin + employee) — needed for depletion lock
+      // loadWalletState بتتنده جوّه loadAll() — النداء التاني هنا كان بيطلق
+      // طلبين متزامنين لنفس الفيو والردود مالهاش ترتيب مضمون
       refreshSetupChecklist();  // كارت تجهيز المتجر — أدمن بس وبيقفل نفسه لما يكمل
     });
 }
@@ -250,20 +250,15 @@ export function forceSuspendLogout(){
   if(_suspending) return;
   _suspending = true;
   try{ if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeSetChannel(null); } }catch(e){ swallow('forceSuspendLogout/sb.removeChannel', e); }
-  sb.auth.signOut().then(function(){
-    currentUser = null;
-    currentRole = null;
-    currentTenantId = null;
-    currentTenant = null;
-    try{ resetTenantBranding(); }catch(e){ swallow('forceSuspendLogout/resetTenantBranding', e); }
-    document.body.classList.remove('role-admin', 'role-employee');
-    $id('app').style.display = 'none';
-    $id('login-user').value = '';
-    $id('login-pass').value = '';
-    $id('login-err').textContent = '⚠️ تم إيقاف الاشتراك. تواصل مع الدعم لإعادة التفعيل.';
-    $id('login').style.display = 'flex';
-    _suspending = false;
-  });
+  // reload كامل زي doLogout بالظبط — التنضيف اليدوي القديم كان بيسيب
+  // كاشات الموديولات (المحفظة/الإنبوكس/المخزون) وwaPollTimer والـDOM
+  // المرندر عايشين لجلسة الحساب اللي بعده على نفس التاب.
+  // الرسالة بتوصل لشاشة اللوجين بعد الـreload عبر sessionStorage.
+  function finish(){
+    try{ sessionStorage.setItem('sahl_suspend_msg','1'); }catch(e){ swallow('forceSuspendLogout/sessionStorage', e); }
+    location.reload();
+  }
+  sb.auth.signOut().then(finish).catch(finish);
 }
 
 export function doLogout(){
