@@ -146,6 +146,7 @@ export function startRealtime(){
       table: 'stock_products',
       filter: 'tenant_id=eq.'+currentTenantId
     }, function(payload){
+      if(tourActive) return;   // stockProducts وقتها ديمو
       // Update in-memory stock products when qty changes (e.g. after scanner deduction)
       if(payload.new && stockProducts){
         for(var i=0;i<stockProducts.length;i++){
@@ -168,6 +169,7 @@ export function startRealtime(){
       table: 'stock_movements',
       filter: 'tenant_id=eq.'+currentTenantId
     }, function(payload){
+      if(tourActive) return;   // stockMovements وقتها ديمو — الحركة الحقيقية كانت بتضيع مع الاسترجاع
       // Add new movement to in-memory list and re-render if stock page open
       if(payload.new){
         if(!stockMovements) stockSetMovements([]);
@@ -235,6 +237,10 @@ function scheduleRealtimeRefresh(){
 }
 
 export function handleRealtimeChange(payload){
+  // الجولة: all فيها بيانات الديمو — حدث حقيقي كان بيتخلط فيها، وبعد
+  // الاسترجاع بيضيع (الـsnapshot المحفوظ مفهوش). tourRestore بتصفّر
+  // allLoaded فأول فتح للماليات بيجيب كل حاجة من السيرفر تاني.
+  if(tourActive) return;
   var ev = payload.eventType;
   var row = payload.new || {};
   var oldRow = payload.old || {};

@@ -414,6 +414,7 @@ export function waSend(){
 
 // ----- realtime + عدّاد التبويب (مرحلة 3) -----
 export function handleWaRealtime(payload){
+  if(tourActive) return;   // الإنبوكس وقت الجولة placeholder — مايتكتبش فوقه بمحادثات حقيقية
   var m=payload.new||{};
   var isUpdate=payload.eventType==='UPDATE';
   var inboxOpen=$id('page-inbox') && $id('page-inbox').style.display!=='none';

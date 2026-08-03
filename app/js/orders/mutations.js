@@ -86,7 +86,8 @@ export function deleteCallAttempt(idx){
 export function doUpdate(ns,cancelReason){
   if(!ensureTenant())return;
   if(!sel)return;
-  var id=sel.id;
+  var ord=sel;   // التقاط — رد تحديث A ماينفعش يقفل مودال B اللي اتفتح بعده
+  var id=ord.id;
   var nowISO=new Date().toISOString();
   // set_order_status: تغيير الحالة + إلحاق السجل ذرياً على السيرفر —
   // from بتتحسب من صف السيرفر (مش من نسخة المتصفح اللي ممكن تكون قديمة)،
@@ -97,7 +98,7 @@ export function doUpdate(ns,cancelReason){
     if(r.error){toast('خطأ: '+r.error.message,'er');return;}
     if(!r.data){toast('الأوردر مش موجود','er');return;}
     for(var i=0;i<all.length;i++){if(all[i].id===id){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(ns==='cancelled'&&cancelReason)all[i].cancel_reason=cancelReason;break;}}
-    $id('ovl').classList.remove('open');ordersSetSelected(null);
+    if(sel===ord){ $id('ovl').classList.remove('open'); ordersSetSelected(null); }
     toast('تم تحديث الحالة ✓','ok');
     loadOrdersCards();loadBostaInventoryCard();doFilter();
   });

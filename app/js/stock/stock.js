@@ -164,17 +164,21 @@ export function openProductEditor(id){
   if(id){for(var i=0;i<stockProducts.length;i++){if(stockProducts[i].id===id){p=stockProducts[i];break;}}}
   var isNew=!p;
   p=p||{name:'',current_qty:0,wholesale_price:0,unit_price:0};
+  // نسخة مجمّدة من قيم لحظة الفتح: صف stockProducts نفسه بيتعدل في مكانه
+  // من الـRealtime (Object.assign في startRealtime)، فالمقارنة وقت الحفظ
+  // لازم تبقى ضد اللي التاجر شافه فعلاً وقت ما فتح المحرر
+  var orig={name:p.name||'', qty:p.current_qty||0, wholesale:p.wholesale_price||0, unit:p.unit_price||0};
 
   $id('dtit').textContent=isNew?'إضافة منتج جديد':'تعديل المنتج';
   $id('dcnt').innerHTML='<div class="dsec">'
     +'<label class="slbl" style="text-align:right;display:block">اسم المنتج</label>'
     +'<input class="sinp" id="pe-name" type="text" value="'+esc(p.name||'')+'" style="direction:rtl;text-align:right">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">'+(isNew?'الكمية الافتتاحية':'المخزون الحالي')+'</label>'
-    +'<input class="sinp" id="pe-qty" type="number" value="'+(p.current_qty||0)+'">'
+    +'<input class="sinp" id="pe-qty" type="number" min="0" value="'+(p.current_qty||0)+'">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر الجملة (للقطعة الواحدة)</label>'
-    +'<input class="sinp" id="pe-wholesale" type="number" step="0.01" value="'+(p.wholesale_price||0)+'">'
+    +'<input class="sinp" id="pe-wholesale" type="number" min="0" step="0.01" value="'+(p.wholesale_price||0)+'">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر البيع للقطعة</label>'
-    +'<input class="sinp" id="pe-unit" type="number" step="0.01" value="'+(p.unit_price||0)+'">'
+    +'<input class="sinp" id="pe-unit" type="number" min="0" step="0.01" value="'+(p.unit_price||0)+'">'
     +'</div>'
     +'<div class="dacts">'
     +(isNew?'':'<button class="abtn cn" id="pe-del">🗑️ حذف</button>')
@@ -184,16 +188,30 @@ export function openProductEditor(id){
   $id('pe-save').addEventListener('click',function(){
     var btn=this;
     if(btn.disabled)return;   // دبل-تاب على شبكة بطيئة = منتجين مكررين
-    var data={
-      tenant_id:currentTenantId,
-      name:$id('pe-name').value.trim(),
-      current_qty:parseInt($id('pe-qty').value)||0,
-      wholesale_price:parseFloat($id('pe-wholesale').value)||0,
-      unit_price:parseFloat($id('pe-unit').value)||0
-    };
-    if(!data.name){toast('اسم المنتج مطلوب','er');return;}
+    var name=$id('pe-name').value.trim();
+    var qty=parseInt($id('pe-qty').value)||0;
+    var wholesale=parseFloat($id('pe-wholesale').value)||0;
+    var unit=parseFloat($id('pe-unit').value)||0;
+    if(!name){toast('اسم المنتج مطلوب','er');return;}
+    // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي
+    if(qty<0||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
+    var data, op;
+    if(isNew){
+      data={tenant_id:currentTenantId, name:name, current_qty:qty, wholesale_price:wholesale, unit_price:unit};
+      op=sb.from('stock_products').insert(data);
+    } else {
+      // بنبعت بس الحقول اللي التاجر غيّرها فعلاً عن لحظة الفتح — إرسال
+      // current_qty دايماً كان بيرجّع كمية خصمها السكانر والمحرر مفتوح
+      // (حفظ تعديل سعر = الكمية القديمة ترجع تتكتب فوق الخصم)
+      data={};
+      if(name!==orig.name) data.name=name;
+      if(qty!==orig.qty) data.current_qty=qty;
+      if(wholesale!==orig.wholesale) data.wholesale_price=wholesale;
+      if(unit!==orig.unit) data.unit_price=unit;
+      if(!Object.keys(data).length){ $id('ovl').classList.remove('open'); return; }
+      op=sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId);
+    }
     btn.disabled=true;
-    var op = isNew ? sb.from('stock_products').insert(data) : sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId);
     op.then(function(r){
       btn.disabled=false;
       if(r.error){toast('خطأ: '+r.error.message,'er');return;}

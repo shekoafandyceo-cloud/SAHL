@@ -60,6 +60,10 @@ export function attachFieldEditors(){
       input.focus(); try{input.setSelectionRange(input.value.length,input.value.length);}catch(e2){ swallow('attachFieldEditors/input.setSelectionRange', e2); }
       wrap.querySelector('.fld-edit-cancel').addEventListener('click',function(){ renderDetail(); });
       function save(){
+        // التقاط الأوردر وقت الضغط — sel الحي ممكن يتبدل لأوردر تاني أو
+        // يتقفل (null) قبل رد السيرفر: الباتش المحلي كان بيقع على B أو يرمي
+        var ord=sel;
+        if(!ord)return;
         var val=input.value.trim();
         if(field==='phone' && val){
           var digits=toLatinDigits(val).replace(/[\s-]/g,'');
@@ -69,12 +73,12 @@ export function attachFieldEditors(){
         if(!sb||!currentTenantId){ toast('غير متصل بالسيرفر','er'); return; }
         var stt=wrap.querySelector('.fld-edit-status'); if(stt)stt.textContent='جاري الحفظ...';
         var upd={}; upd[field]=val||null;
-        sb.from('orders').update(upd).eq('id',sel.id).eq('tenant_id',currentTenantId).then(function(r){
+        sb.from('orders').update(upd).eq('id',ord.id).eq('tenant_id',currentTenantId).then(function(r){
           if(r.error){ if(stt)stt.textContent=''; toast('خطأ في الحفظ: '+r.error.message,'er'); return; }
-          patchOrderField(sel.id,upd);
+          patchOrderField(ord.id,upd);
           toast('تم تعديل '+(field==='phone'?'الموبايل':(field==='address'?'العنوان':'البيانات'))+' ✓','ok');
           try{renderTable();}catch(e3){ swallow('save/renderTable', e3); }
-          renderDetail();
+          if(sel===ord) renderDetail();
         });
       }
       wrap.querySelector('.fld-edit-save').addEventListener('click',save);
@@ -396,7 +400,9 @@ export function renderDetail(){
   if(!stockProducts || !stockProducts.length){
     sb.from('v_stock_products').select('id,name,current_qty,unit_price,wholesale_price').eq('tenant_id',currentTenantId).eq('active',true).order('current_qty',{ascending:false}).then(function(r){
       if(!r.error && r.data) stockSetProducts(r.data);
-      renderProductsEditor(o.product_name||'');
+      // فتح أوردر تاني أثناء التحميل: رد A كان بيرسم منتجاته جوّه مودال B،
+      // والحفظ بعدها كان بيكتب منتجات A على B
+      if(sel && sel.id===o.id) renderProductsEditor(o.product_name||'');
     });
   } else {
     renderProductsEditor(o.product_name||'');

@@ -14,7 +14,7 @@ import { buildIndexes, doFilter } from '../orders/orders.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, updateRevenueStats, updateStats } from '../orders/cards.js';
 import { openDetail } from '../orders/detail.js';
 import { isAdmin } from '../orders/guards.js';
-import { all, ordersSetAll } from '../orders/state.js';
+import { all, ordersSetAll, ordersSetAllLoaded } from '../orders/state.js';
 
 export var tourActive=false, tourStep=0, tourSavedHTML=null;
 
@@ -51,6 +51,10 @@ export function tourRestore(){
   if(typeof window.__tourRealStock!=='undefined'){ try{ stockSetProducts(window.__tourRealStock); }catch(e){ swallow('tourRestore/stockProducts', e); } window.__tourRealStock=undefined; }
   if(typeof window.__tourRealMov!=='undefined'){ try{ stockSetMovements(window.__tourRealMov); }catch(e){ swallow('tourRestore/stockMovements', e); } window.__tourRealMov=undefined; }
   if(typeof window.__tourRealExp!=='undefined'){ try{ financeSetExpenses(window.__tourRealExp); }catch(e){ swallow('tourRestore/financeExpenses', e); } window.__tourRealExp=undefined; }
+  // كاش all اتجمّد طول الجولة (أحداث الـRealtime بتتطنش وقتها) — لو كان
+  // متحمّل قبلها كامل، الـsnapshot المسترجع بقى قديم وallLoaded=true كانت
+  // بتمنع إعادة الجلب، فالماليات والإحصائيات يفضلوا غلط لحد reload
+  ordersSetAllLoaded(false);
   // بعد الجولة: all الحقيقي بقى فاضي (مش بيتحمّل عند البداية) — فنرجّع صفحة الأوردرات
   // الحقيقية من السيرفر بدل ما نحسبها من الذاكرة الفاضية.
   try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)

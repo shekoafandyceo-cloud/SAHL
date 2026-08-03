@@ -20,7 +20,10 @@ export function parseProducts(str){
 export function buildProductOptions(selected){
   // Build <option> list from stockProducts (already loaded when stock page loads)
   // If stock not loaded yet, just return one empty option
-  var opts='<option value="">— اكتب يدوياً —</option>';
+  // القيمة الفاضية = صف من غير منتج. التسمية القديمة «اكتب يدوياً» كانت
+  // وعد كاذب: مفيش حقل نصي، وcollectProducts بتتجاهل الصف — والاختيار ده
+  // مع الحفظ كان بيشيل المنتج من الأوردر في صمت (قرار المالك: مفيش حقل يدوي)
+  var opts='<option value="">— اختار منتج من القايمة —</option>';
   if(stockProducts && stockProducts.length){
     stockProducts.forEach(function(p){
       var sel2=(selected && p.name===selected)?'selected':'';
@@ -119,6 +122,10 @@ export function saveProducts(){
   var ord=sel;   // التقاط الأوردر — sel الحي ممكن يتبدل قبل رد السيرفر
   var products=collectProducts();
   if(!products.length){toast('مينفعش تحفظ منتجات فاضية','er');return;}
+  // صف على الخيار الفاضي كان بيتشال من الأوردر في صمت وقت الحفظ —
+  // نمنع الحفظ بدل ما نمسح منتج التاجر من وراه
+  var rowsN=$id('prod-list')?$id('prod-list').querySelectorAll('.prod-item').length:0;
+  if(rowsN && products.length<rowsN){toast('فيه صف من غير منتج مختار — اختار من القايمة أو امسح الصف','er');return;}
   var combined = products.length===1 ? products[0] : products.join('\n+ ');
 
   // ─── Smart price update: only adjust by the DIFFERENCE between old and new product lists ───
