@@ -12,7 +12,7 @@
 // المالك الوحيد لحالة الشهر المعروض هو الموديول ده.
 
 import { $id } from '../core/dom.js';
-import { num } from '../core/format.js';
+import { num, pad2 } from '../core/format.js';
 import { all } from '../orders/state.js';
 import { BOSTA_POSITIVE_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { dayQuality } from './rate.js';
@@ -109,7 +109,13 @@ export function renderDaysCalendar(){
       + ' · اتأكد ' + num(b.positive)
       + ' · اتسلم ' + num(b.delivered) + ' · رجع ' + num(b.returned)
       + (undecided > 0 ? ' · لسه في الشحن ' + num(undecided) : '');
-    h += '<div class="dcal-day ' + q.cls + (isToday ? ' today' : '') + '" title="' + tip + '">'
+    // اليوم اللي فيه أوردرات بيتفتح في جدول الطلبات بضغطة — نفس تاريخ
+    // التجميع بالظبط عشان اللي يشوفه هو اللي اتعدّ. الأيام الفاضية
+    // والجاية مش قابلة للضغط (مفيش حاجة تتعرض).
+    var ymd = y + '-' + pad2(m + 1) + '-' + pad2(day);
+    h += '<div class="dcal-day dcal-clickable ' + q.cls + (isToday ? ' today' : '') + '"'
+      + ' data-act="day-open" data-ymd="' + ymd + '"'
+      + ' title="' + tip + ' — اضغط تشوف أوردرات اليوم ده">'
       + '<span class="dcal-num">' + num(day) + '</span>'
       + '<span class="dcal-cnt">' + num(b.total) + ' أوردر</span>'
       + '<span class="dcal-rate">تأكيد ' + (conf == null ? '—' : conf.toFixed(0) + '%') + '</span>'

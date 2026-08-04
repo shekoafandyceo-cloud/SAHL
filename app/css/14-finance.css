@@ -73,7 +73,11 @@ th.psort.on .psort-ar{opacity:1;}
 .dcal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;}
 .dcal-wd{text-align:center;font-size:.74rem;font-weight:800;color:var(--muted);padding:4px 0 8px;}
 .dcal-day{min-height:86px;border-radius:14px;border:1px solid var(--brd);padding:8px 9px;display:flex;flex-direction:column;gap:2px;background:var(--sur);transition:transform .12s,box-shadow .12s;}
-.dcal-day:not(.q-empty):not(.q-future):hover{transform:translateY(-2px);box-shadow:var(--shadow2);}
+/* الرفعة على الهوفر بقت للأيام القابلة للضغط بس — اليوم الفاضي كان
+   بيترفع كأنه بيستنى ضغطة ومفيش وراه حاجة تتفتح (وعد كاذب) */
+.dcal-day.dcal-clickable{cursor:pointer;}
+.dcal-day.dcal-clickable:hover{transform:translateY(-2px);box-shadow:var(--shadow2);border-color:var(--acc);}
+.dcal-day.dcal-clickable:active{transform:translateY(0);}
 .dcal-num{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:900;color:var(--txt);}
 .dcal-cnt{font-size:.68rem;font-weight:700;color:var(--muted);}
 .dcal-rate{font-size:.7rem;font-weight:800;color:var(--txt);white-space:nowrap;}

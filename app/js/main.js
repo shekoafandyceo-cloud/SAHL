@@ -10,7 +10,7 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
-import { BOSTA_FILTER_STATUSES, buildIndexes, doFilter, ensureAllLoaded, fetchOrdersPage, fetchPhoneCounts, handleRealtimeChange, initNav, initOrdersUI, loadAll, OPERATION_STATUSES, ORDER_LIST_COLS, ordersInPeriod, ordersPeriodRangeISO, positionPeriodInd, refreshCancelBar, refreshOrdersScope, resolveCancelRequest, setOrdersPeriod, showCancelRequested, showRealtimeDot, startRealtime } from './orders/orders.js';
+import { BOSTA_FILTER_STATUSES, buildIndexes, doFilter, ensureAllLoaded, fetchOrdersPage, fetchPhoneCounts, handleRealtimeChange, initNav, initOrdersUI, loadAll, OPERATION_STATUSES, openOrdersForDay, ORDER_LIST_COLS, ordersInPeriod, ordersPeriodRangeISO, positionPeriodInd, refreshCancelBar, refreshOrdersScope, resolveCancelRequest, setOrdersPeriod, showCancelRequested, showRealtimeDot, startRealtime } from './orders/orders.js';
 import { _b64ToBlob, printAwbForOrders, printSelectedAwb } from './orders/awb.js';
 import { fmtDate, fmtDateTime, fmtMoneyShort, inboxVerified, loadVfcashNumber, lockMaybe, refreshInboxGate, renderBillingSummary, renderInboxLocked, VFCASH_NUMBER } from './orders/billing-summary.js';
 import { applyOrdersStats, initReadyCard, loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, MERGE_QUERY_STATUSES, ordersPeriodCairoDates, updateRevenueStats, updateStats } from './orders/cards.js';
@@ -125,6 +125,7 @@ var CLICK_ACTIONS = {
   'days-prev':     function(){ daysShift(-1); },
   'days-next':     function(){ daysShift(1); },
   'days-today':    function(){ daysToday(); },
+  'day-open':      function(el){ openOrdersForDay(el.getAttribute('data-ymd')); },
   'dark-toggle':   function(){ darkToggle(); }
 };
 function initClickActions(){

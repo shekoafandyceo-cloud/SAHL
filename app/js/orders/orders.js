@@ -60,6 +60,27 @@ export function refreshOrdersScope(){
   try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
 }
 
+// فتح يوم واحد في جدول الأوردرات — بيتنادى من كالندر أداء الأيام.
+// المدة بتتحوّل لـ«مخصص» من اليوم ده لليوم ده بالظبط.
+//
+// حدود اليوم متطابقة بين الاتنين عن قصد: الكالندر بيجمّع بتاريخ الجهاز
+// (`new Date(created_at).getDate()`) و`ordersPeriodRangeISO` بتبني حدود
+// custom بنص ليل الجهاز كمان — فاليوم اللي اتضغط بيوري بالظبط الأوردرات
+// اللي الكالندر عدّها. (كروت الإحصاء فوق بتحسب بتوقيت القاهرة من الـRPC،
+// فبرّه مصر ممكن يبان فرق أوردر أو اتنين — بند مؤجّل موثّق.)
+export function openOrdersForDay(ymd){
+  if(!ymd || tourActive) return;
+  showPage('orders');          // الأول: شريط المدة لازم يبقى ظاهر عشان مؤشّر الـpill يتقاس صح
+  var f=$id('op-from'), t=$id('op-to');
+  if(f) f.value=ymd;
+  if(t) t.value=ymd;
+  setPeriod(ordersPeriod, 'custom', ymd, ymd);
+  setOrdersPeriod('custom');   // بتظبّط الشريط وبتفتح صف التواريخ — ومابتجيبش (custom بيستنى «تطبيق»)
+  refreshOrdersScope();        // فالجلب بيتنادى من هنا صراحةً
+  var anchor=$id('fbar');
+  if(anchor) window.scrollTo({top:Math.max(0,anchor.offsetTop-80),behavior:'smooth'});
+}
+
 // تحميل كل الأوردرات للذاكرة عند الحاجة فقط (الماليات/الإحصائيات بتحسب على كل الفترة).
 // الـcb بياخد باراميتر err: لو السحب فشل في النص، اللي نادى لازم مايرندرش
 // أرقام ناقصة كأنها حقيقية. وفيه طابور مشترك — فتح الماليات والأداء ورا
