@@ -29,3 +29,4 @@ node_modules/
 # مؤقتات بايثون
 __pycache__/
 *.pyc
+tools/node_modules/
