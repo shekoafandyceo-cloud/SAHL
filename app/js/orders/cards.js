@@ -173,7 +173,7 @@ export function loadOrdersCards(){
       var cur=rs[0], prev=rs[1];
       if(cur.error || !cur.data){ if(cur.error&&cur.error.message) console.warn('stats RPC:',cur.error.message); return; }
       applyOrdersStats(cur.data);
-      renderStatsDeltas(cur.data, (prev && !prev.error) ? prev.data : null);
+      renderStatsDeltas(cur.data, (prev && !prev.error) ? prev.data : null, cairoRangeLabel(pd));
     });
   } else {
     clearStatsDeltas();
@@ -185,14 +185,34 @@ export function loadOrdersCards(){
   }
 }
 
-// الشهر السابق بتوقيت القاهرة — نفس منطق فرع month في ordersPeriodCairoDates
+// الشهر السابق بتوقيت القاهرة — **لحد نفس اليوم من الشهر** مش الشهر كامل.
+//
+// كانت بترجع الشهر السابق كله، فيوم 4 أغسطس الكارت كان بيقارن 4 أيام
+// (94 أوردر) بـ31 يوم (786 أوردر) ويطلّع «▼ 88%» — رقم بيقيس فرق طول
+// المدة مش فرق الأداء. القاهرة هنا مقصودة: الـRPC بيفلتر بـ
+// `(created_at at time zone 'Africa/Cairo')::date` فالطرفين على نفس المرجع.
+//
+// الشهر الحالي (ordersPeriodCairoDates) سايب `to` على آخر يوم في الشهر —
+// وده مساوي عملياً لـ«لحد النهاردة» لأن مفيش أوردرات بتاريخ مستقبلي
+// (اتفحص على الداتا الحية: صفر من 2,609).
 export function prevMonthCairoDates(){
   var today=cairoYMD(new Date());
-  var y=+today.slice(0,4), m=+today.slice(5,7);
+  var y=+today.slice(0,4), m=+today.slice(5,7), d=+today.slice(8,10);
   var py=m===1?y-1:y, pm=m===1?12:m-1;
   var pmStr=('0'+pm).slice(-2);
-  var last=new Date(py,pm,0).getDate();
-  return { from: py+'-'+pmStr+'-01', to: py+'-'+pmStr+'-'+('0'+last).slice(-2) };
+  var last=new Date(py,pm,0).getDate();   // آخر يوم في الشهر السابق
+  // 31 مارس بيقارن بـ28/29 فبراير — مفيش يوم 31 نوقف عنده
+  var toD=Math.min(d, last);
+  return { from: py+'-'+pmStr+'-01', to: py+'-'+pmStr+'-'+('0'+toD).slice(-2) };
+}
+
+// "1–4 يوليو" — الطرفين دايماً في نفس الشهر فاسم شهر واحد بيكفي
+var AR_MONTHS = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+export function cairoRangeLabel(r){
+  if(!r || !r.from || !r.to) return '';
+  var a=r.from.split('-'), b=r.to.split('-');
+  var mon=AR_MONTHS[(+a[1])-1] || '';
+  return (+a[2] === +b[2]) ? ((+a[2])+' '+mon) : ((+a[2])+'–'+(+b[2])+' '+mon);
 }
 
 // خريطة الكروت: عنصر القيمة ← إزاي نطلّع الرقم من ناتج الـRPC،
@@ -218,14 +238,26 @@ function deltaSlot(valueEl){
   return d;
 }
 
+// بنمسح خانات الفرق **بتاعة كروت الأوردرات بس**.
+// النسخة القديمة كانت `querySelectorAll('.sdelta')` على الصفحة كلها —
+// فأول ما التاجر يبدّل المدة لغير «الشهر الحالي» كانت بتمسح تسميات ثابتة
+// في صفحة الماليات كمان (`fin-revenue-delta` = «تشمل كل الحالات» و
+// `fin-margin`) — مفيش كود بيعيد كتابتها، فكانت بتضيع لآخر الجلسة.
 export function clearStatsDeltas(){
-  document.querySelectorAll('.sdelta').forEach(function(d){ d.textContent=''; d.className='sdelta'; });
+  DELTA_METRICS.forEach(function(m){
+    var valueEl=$id(m.el); if(!valueEl || !valueEl.parentElement) return;
+    var d=valueEl.parentElement.querySelector('.sdelta');
+    if(d){ d.textContent=''; d.className='sdelta'; d.title=''; }
+  });
 }
 
-// فرق كل كارت عن الشهر اللي فات: ▲ +12% أخضر لو الزيادة كويسة،
-// أحمر لو وحشة (إلغاءات مثلاً)، وكروت النسب بتتقارن بالنقاط
-export function renderStatsDeltas(cur, prev){
+// فرق كل كارت عن **نفس الأيام** من الشهر اللي فات: ▲ +12% أخضر لو الزيادة
+// كويسة، أحمر لو وحشة (إلغاءات مثلاً)، وكروت النسب بتتقارن بالنقاط.
+// prevLabel = النافذة اللي اتقارن بيها ("1–4 يوليو") — بتتحط في الـtooltip
+// عشان التاجر يشوف بعينه إحنا قارنّا بإيه بالظبط بدل ما يخمّن.
+export function renderStatsDeltas(cur, prev, prevLabel){
   if(!prev){ clearStatsDeltas(); return; }
+  var when = prevLabel ? ('مقارنة بـ'+prevLabel) : 'مقارنة بنفس الأيام من الشهر اللي فات';
   DELTA_METRICS.forEach(function(m){
     var valueEl=$id(m.el); if(!valueEl) return;
     var d=deltaSlot(valueEl);
@@ -236,15 +268,15 @@ export function renderStatsDeltas(cur, prev){
     else if(p===0){
       if(c===0){ d.textContent=''; d.className='sdelta'; return; }
       d.textContent='جديد'; d.className='sdelta flat';
-      d.title='مفيش بيانات للشهر اللي فات للمقارنة'; return;
+      d.title='مفيش بيانات في '+(prevLabel||'الشهر اللي فات')+' للمقارنة'; return;
     }
     else { diff=(c-p)/p*100; txt=Math.abs(diff).toFixed(0)+'%'; }
-    if(Math.abs(diff) < 0.05){ d.textContent='زي الشهر اللي فات'; d.className='sdelta flat'; d.title=''; return; }
+    if(Math.abs(diff) < 0.05){ d.textContent='زي نفس الفترة'; d.className='sdelta flat'; d.title=when; return; }
     var up=diff>0;
     var good = m.goodUp===null ? null : (up === m.goodUp);
     d.textContent=(up?'▲ ':'▼ ')+txt;
     d.className='sdelta '+(good===null?'flat':(good?'up':'down'));
-    d.title=(up?'أعلى':'أقل')+' من الشهر اللي فات بـ'+txt;
+    d.title=(up?'أعلى':'أقل')+' بـ'+txt+' — '+when;
   });
 }
 
