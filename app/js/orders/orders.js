@@ -86,6 +86,23 @@ export function openOrdersForDay(ymd){
 // أرقام ناقصة كأنها حقيقية. وفيه طابور مشترك — فتح الماليات والأداء ورا
 // بعض كان بيبدأ سحبتين كاملتين متوازيتين لنفس الجدول.
 var allLoadingCbs = null;
+
+// الأعمدة اللي الماليات والإحصائيات بتقرا منها فعلاً — مش `*`.
+//
+// `select('*')` كان بيجيب ~3 ميجا لـ2,600 أوردر، **نصها `status_log`**
+// (سجل تغيير الحالة) وهو مش مقروء من `all` خالص — بيتقرا من `sel` بعد
+// فتح الأوردر ومن صفحة الجدول. النتيجة كانت تحميل بطيء محسوس على كل
+// دخول للماليات أو الإحصائيات.
+//
+// ⚠️ أي حقل جديد تقراه الماليات/الإحصائيات/الكالندر من `all` **لازم
+// يتضاف هنا** — من غيره بيرجع `undefined` والأرقام تطلع غلط **في صمت**.
+// (الجرد اتعمل بمقارنة كل رقم مرندَر قبل وبعد التضييق، مش بالقراءة بس.)
+// أعمدة الـsnapshot الاحتياطية في `orderCostSnapshotValue`
+// (product_cost_snapshot / products_cost_snapshot / manufacturer_cost_snapshot)
+// **مش موجودة في الجدول** — طلبها من PostgREST بيرمي خطأ، وهي أصلاً
+// `undefined` مع `*` برضه.
+var ALL_COLS = 'id,created_at,status,total_cost,product_name,payment_stage,platform,phone,tracking_no,real_shipping_fee,inventory_cost_snapshot,inventory_value_snapshot,inventory_value_at_bosta';
+
 export function ensureAllLoaded(cb){
   if(tourActive){ cb&&cb(); return; }            // الجولة: all = بيانات ديمو محمّلة بالفعل
   if(allLoaded){ cb&&cb(); return; }
@@ -96,29 +113,44 @@ export function ensureAllLoaded(cb){
     var cbs = allLoadingCbs || []; allLoadingCbs = null;
     cbs.forEach(function(f){ try{ f(err); }catch(e){ swallow('ensureAllLoaded/cb', e); } });
   }
+  function fail(err){ toast('خطأ في تحميل البيانات: '+(err.message||err),'er'); finish(err); }
+
   // ⚠️ مهم: select() من غير range بيتوقف عند سقف PostgREST (١٠٠٠ صف) في صمت —
   // وده كان بيخلّي الماليات والإحصائيات تتحسب على جزء من البيانات من غير أي تحذير.
-  // بنسحب على دفعات لحد ما الداتا تخلص.
-  var CHUNK = 1000, acc = [], fromIdx = 0, MAXROWS = 200000;
-  (function pull(){
-    sb.from('orders').select('*').eq('tenant_id',currentTenantId)
-      .order('created_at',{ascending:false})
-      .range(fromIdx, fromIdx + CHUNK - 1)
-      .then(function(r){
-        if(r.error){ toast('خطأ في تحميل البيانات: '+r.error.message,'er'); finish(r.error); return; }
-        var got = r.data || [];
-        acc = acc.concat(got);
-        if(got.length === CHUNK && acc.length < MAXROWS){ fromIdx += CHUNK; pull(); return; }
-        // dedupe بالـid: أوردر جديد بيوصل أثناء السحب بيزحزح الـoffset فصف
-        // الحدود بيتكرر بين دفعتين والماليات تحسبه مرتين. (النقص النادر
-        // بنفس الآلية مابيتصلحش هنا — بيتصلح مع أول إعادة جلب)
-        var seenIds={}, dedup=[];
-        for(var ai=0;ai<acc.length;ai++){ var rw=acc[ai]; if(rw&&rw.id){ if(seenIds[rw.id])continue; seenIds[rw.id]=1; } dedup.push(rw); }
-        ordersSetAll(dedup); ordersSetAllLoaded(true);
-        try{ buildIndexes(); }catch(e){ swallow('pull/buildIndexes', e); }           // phoneCounts كامل
-        finish(null);
-      });
-  })();
+  // الدفعة الأولى بتجيب العدد الكلي معاها، والباقي بيتسحب **بالتوازي** —
+  // كانت متسلسلة (دفعة تستنى اللي قبلها) فوقت التحميل كان بيتضاعف مع النمو.
+  var CHUNK = 1000, MAXROWS = 200000;
+  function chunkAt(from, withCount){
+    var q = withCount
+      ? sb.from('orders').select(ALL_COLS, {count:'exact'})
+      : sb.from('orders').select(ALL_COLS);
+    return q.eq('tenant_id',currentTenantId)
+            .order('created_at',{ascending:false})
+            .range(from, from + CHUNK - 1);
+  }
+  function done(parts){
+    var acc = [].concat.apply([], parts);
+    // dedupe بالـid: أوردر جديد بيوصل أثناء السحب بيزحزح الـoffset فصف
+    // الحدود بيتكرر بين دفعتين والماليات تحسبه مرتين. (النقص النادر
+    // بنفس الآلية مابيتصلحش هنا — بيتصلح مع أول إعادة جلب)
+    var seenIds={}, dedup=[];
+    for(var ai=0;ai<acc.length;ai++){ var rw=acc[ai]; if(rw&&rw.id){ if(seenIds[rw.id])continue; seenIds[rw.id]=1; } dedup.push(rw); }
+    ordersSetAll(dedup); ordersSetAllLoaded(true);
+    try{ buildIndexes(); }catch(e){ swallow('ensureAllLoaded/buildIndexes', e); }   // phoneCounts كامل
+    finish(null);
+  }
+  chunkAt(0, true).then(function(r){
+    if(r.error){ fail(r.error); return; }
+    var first = r.data || [];
+    var total = (typeof r.count === 'number') ? Math.min(r.count, MAXROWS) : first.length;
+    if(first.length < CHUNK || total <= CHUNK){ done([first]); return; }
+    var rest = [];
+    for(var f = CHUNK; f < total; f += CHUNK) rest.push(chunkAt(f, false));
+    Promise.all(rest).then(function(rs){
+      for(var i=0;i<rs.length;i++){ if(rs[i].error){ fail(rs[i].error); return; } }
+      done([first].concat(rs.map(function(x){ return x.data || []; })));
+    });
+  });
 }
 
 // عدد طلبات كل عميل لصفحة الجدول الحالية (شارة العميل المتكرر) — كويري صغير بدل تحميل الكل

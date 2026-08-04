@@ -1,6 +1,7 @@
 // صفحة إحصائيات الأداء — المنتجات والمنصات
 
 import { emptyState } from '../core/empty.js';
+import { renderLoadError } from '../core/loaderr.js';
 import { ratePill } from './rate.js';
 import { renderDaysCalendar } from './days.js';
 import { veilDone } from '../core/veil.js';
@@ -85,7 +86,8 @@ export function loadAnalytics(){
   if(!ensureTenant()){veilDone('analytics');return;}
   // الإحصائيات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
   ensureAllLoaded(function(err){
-    if(err){ veilDone('analytics'); return; }   // فشل السحب — بلاش أرقام ناقصة تتعرض كحقيقية
+    // فشل السحب — بلاش أرقام ناقصة تتعرض كحقيقية، وبلاش صفحة فاضية صامتة
+    if(err){ renderLoadError('analytics'); veilDone('analytics'); return; }
     loadStockProductsForCosts(function(){ renderAnalyticsActive(); veilDone('analytics'); });
   });
 }

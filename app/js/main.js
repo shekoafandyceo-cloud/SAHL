@@ -126,6 +126,11 @@ var CLICK_ACTIONS = {
   'days-next':     function(){ daysShift(1); },
   'days-today':    function(){ daysToday(); },
   'day-open':      function(el){ openOrdersForDay(el.getAttribute('data-ymd')); },
+  // إعادة محاولة تحميل الصفحة الحالية بعد فشل السحب (core/loaderr.js)
+  'retry-load':    function(){
+    var a = document.querySelector('.tnav-btn.active');
+    showPage(a ? a.getAttribute('data-page') : 'orders');
+  },
   'dark-toggle':   function(){ darkToggle(); }
 };
 function initClickActions(){

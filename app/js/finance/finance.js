@@ -1,6 +1,7 @@
 // الماليات — التكاليف والأرباح والمصاريف والرسم البياني
 
 import { emptyState } from '../core/empty.js';
+import { renderLoadError } from '../core/loaderr.js';
 import { veilDone } from '../core/veil.js';
 import { BOSTA_POSITIVE_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
@@ -79,11 +80,12 @@ export function loadFinance(){
   if(!ensureTenant()){veilDone('finance');return;}
   // الماليات بتحسب على كل الفترة → نحمّل الأوردرات للذاكرة هنا (مرة واحدة)
   ensureAllLoaded(function(err){
-    if(err){ veilDone('finance'); return; }   // فشل السحب — بلاش أرقام ناقصة تتعرض كحقيقية
+    // فشل السحب — بلاش أرقام ناقصة تتعرض كحقيقية، وبلاش صفحة فاضية صامتة
+    if(err){ renderLoadError('finance'); veilDone('finance'); return; }
     // Finance depends on wholesale_price from stock_products, so load stock first.
     loadStockProductsForCosts(function(){
       sb.from('expenses').select('*').eq('tenant_id', currentTenantId).order('expense_date', {ascending:false}).then(function(r){
-        if(r.error){ console.error(r.error); toast('خطأ في تحميل المصاريف','er'); veilDone('finance'); return; }
+        if(r.error){ console.error(r.error); toast('خطأ في تحميل المصاريف','er'); renderLoadError('finance'); veilDone('finance'); return; }
         financeExpenses = r.data || [];
         renderFinance();
         veilDone('finance');
