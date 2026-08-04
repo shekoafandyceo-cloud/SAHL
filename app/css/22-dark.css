@@ -197,3 +197,5 @@ html.dark .dcal-day.q-ok{background:rgba(16,185,129,.14);border-color:rgba(16,18
 html.dark .dcal-day.q-mid{background:rgba(245,158,11,.17);border-color:rgba(245,158,11,.45);}
 html.dark .dcal-day.q-weak{background:rgba(249,115,22,.17);border-color:rgba(249,115,22,.48);}
 html.dark .dcal-day.q-bad{background:rgba(239,68,68,.19);border-color:rgba(239,68,68,.50);}
+/* الكهرماني الغامق مش مقروء على خلفية اليوم الغامقة */
+html.dark .dcal-open{color:#fbbf24;background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.35);}

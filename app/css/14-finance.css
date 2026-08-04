@@ -81,6 +81,8 @@ th.psort.on .psort-ar{opacity:1;}
 .dcal-num{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:900;color:var(--txt);}
 .dcal-cnt{font-size:.68rem;font-weight:700;color:var(--muted);}
 .dcal-rate{font-size:.7rem;font-weight:800;color:var(--txt);white-space:nowrap;}
+/* عدّاد الشحنات اللي لسه ماتقفلتش — تحذير إن نسبة التسليم فوقه مش نهائية */
+.dcal-open{font-size:.65rem;font-weight:800;color:#b45309;background:rgba(245,158,11,.16);border:1px solid rgba(245,158,11,.32);border-radius:999px;padding:1px 7px;align-self:flex-start;white-space:nowrap;margin-top:2px;}
 .dcal-day.today{outline:2px solid var(--acc);outline-offset:2px;}
 /* تدرج الجودة — الخلفية والحدود بيتقلوا مع الجودة */
 .dcal-day.q-good{background:rgba(16,185,129,.20);border-color:rgba(16,185,129,.45);}
@@ -105,7 +107,9 @@ th.psort.on .psort-ar{opacity:1;}
 /* موبايل: الكالندر بيضيّق — نخفي تفاصيل النسب ونسيب الرقم واللون */
 @media(max-width:768px){
   .dcal-day{min-height:56px;padding:5px 6px;}
-  .dcal-rate,.dcal-cnt{display:none;}
+  /* النسب مخفية على الموبايل، فالتحذير بتاعها مالوش لازمة — والمربع
+     أصغر من إنه يشيل سطر زيادة. التفاصيل كاملة بضغطة على اليوم. */
+  .dcal-rate,.dcal-cnt,.dcal-open{display:none;}
   .dcal-grid{gap:4px;}
 }
 

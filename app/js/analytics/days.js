@@ -111,7 +111,7 @@ export function renderDaysCalendar(){
     var tip = num(b.total) + ' أوردر — اتعامل مع ' + num(b.processed)
       + ' · اتأكد ' + num(b.positive)
       + ' · اتسلم ' + num(b.delivered) + ' · رجع ' + num(b.returned)
-      + (undecided > 0 ? ' · لسه في الشحن ' + num(undecided) : '');
+      + (undecided > 0 ? ' · لسه ماتقفلتش ' + num(undecided) : '');
     // اليوم اللي فيه أوردرات بيتفتح في جدول الطلبات بضغطة — نفس تاريخ
     // التجميع بالظبط عشان اللي يشوفه هو اللي اتعدّ. الأيام الفاضية
     // والجاية مش قابلة للضغط (مفيش حاجة تتعرض).
@@ -123,6 +123,10 @@ export function renderDaysCalendar(){
       + '<span class="dcal-cnt">' + num(b.total) + ' أوردر</span>'
       + '<span class="dcal-rate">تأكيد ' + (conf == null ? '—' : conf.toFixed(0) + '%') + '</span>'
       + '<span class="dcal-rate">تسليم ' + (deliv == null ? '—' : deliv.toFixed(0) + '%') + '</span>'
+      // الشحنات اللي لسه ماخدتش قرار نهائي (لا اتسلمت ولا رجعت): بتظهر
+      // في المربع نفسه عشان الأدمن يعرف إن نسبة التسليم فوق مش نهائية —
+      // وبتختفي خالص لما اليوم يخلص فالمربع مايتلخبطش بسطر مالوش لازمة
+      + (undecided > 0 ? '<span class="dcal-open" title="شحنات دخلت رحلة الشحن ولسه لا اتسلمت ولا رجعت">⏳ ' + num(undecided) + ' لسه ماتقفلتش</span>' : '')
       + '</div>';
   }
   h += '</div>';
