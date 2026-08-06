@@ -1,4 +1,4 @@
-# SHIP CTX — توصيل زرار «شحن» من اللوحة بمسار الشحن في `Whatsapp_WEBHOOK`
+# SHIPT CTX — توصيل زرار «شحن» من اللوحة بمسار الشحن في `Whatsapp_WEBHOOK`
 
 > **الحالة اللي الملف ده اتكتب عليها:** `Whatsapp_WEBHOOK` (`9XzDXtvG64WkVoO4`)
 > · `versionId = 55e68908-9680-42f9-aefb-9fba820c390f`
@@ -9,6 +9,40 @@
 > اللي على الهوا نسخة تانية غير اللي في المحرر (درس 1). اتأكد من ده قبل أي خطوة.
 >
 > كل الخطوات دي **يدوية على n8n**. أنا مابعدّلش وركفلو إنتاجي (قاعدة الأمان 1).
+
+---
+
+---
+
+## 0) حالة التنفيذ — مراجعة 6 أغسطس بعد تعديل المالك
+
+> النود اتسمّت **`SHIPT CTX`** (بـT) مش `SHIPT CTX`. مش مشكلة —
+> الـ36 إشارة كلها `$('SHIPT CTX')` **مطابقة للاسم بالحرف**، وده أخطر
+> حاجة كانت ممكن تغلط (درس 3). الملف ده اتظبط على الاسم الجديد.
+>
+> `versionId == activeVersionId == cd6e1009` → **منشور** ✅
+
+### اتعمل ✅
+
+| البند | الحالة |
+|---|---|
+| نود `SHIPT CTX` موجودة | ✅ |
+| 13 نود اتحوّلت (36 إشارة) | ✅ الاسم مطابق |
+| `ConfirmReply → SHIPT CTX → If5 → Switch1` | ✅ |
+| `Webhook2` بقت **POST** | ✅ |
+| `If5` بقت `{{ $json.tenant.shipping_api_key }}` | ✅ **أنضف من المقترح** — بتقرا من الـinput مباشرة بدل الاسم |
+| المسار القديم سليم | ✅ 6 نودز (`ConfirmReply` · `CancelledReply` · `checkExistance` · `CancelledReply1` · `If9` · `If10`) لسه على الأسماء القديمة — **وده صح**، دول قبل `SHIPT CTX` |
+
+### ناقص ❌
+
+| # | البند | الأثر |
+|---|---|---|
+| 1 | 🔴 **`get_order_details` مش موجودة خالص** | الكود بينادي `$('get_order_details')` — نود مش موجودة. **مسار اللوحة ميّت** |
+| 2 | 🔴 **`get_tenant_details` الفلتر لسه فاضي** (`keyName:"id"` من غير `keyValue`) | التاجر مش هيتجاب |
+| 3 | 🔴 **`Send a text message4/5/8` لسه على `$('Update Order → confirmed')`** (9 إشارات) | مسارات **الفشل** بس — التست العادي مش هيمسكها |
+| 4 | 🟠 الكود مافيهوش حارس `tracking_no` ولا رمي صريح | شحنة مكررة · ورسالة خطأ غامضة |
+| 5 | 🟠 `Webhook2` المسار لسه `ordercreate` | مكشوف ويتخمّن |
+| 6 | 🟠 `alwaysOutputData` مش مفعّلة على `get_tenant_details` | وقوف صامت (درس 5) |
 
 ---
 
@@ -64,15 +98,15 @@ ConfirmReply ──────────────────────�
 
 ```
 ConfirmReply ─────────────────────────────────────────────┐
-                                                          ├→ SHIP CTX → If5 → Switch1 ─[bosta]→ Ta7leel el Address → …
+                                                          ├→ SHIPT CTX → If5 → Switch1 ─[bosta]→ Ta7leel el Address → …
 Webhook2 → get_tenant_details → get_order_details ────────┘                          └─[jt] → (J&T بعدين)
 ```
 
-`SHIP CTX` بترجّع `{ tenant:{…}, order:{…} }` من أي مسار، والسلسلة كلها بتقرا منها هي بس.
+`SHIPT CTX` بترجّع `{ tenant:{…}, order:{…} }` من أي مسار، والسلسلة كلها بتقرا منها هي بس.
 
 **ليه ده أحسن من الحلول التانية:**
 - **مسار الواتساب لحد `ConfirmReply` مايتلمسش خالص** — صفر تعديل على المسار الحي اللي بيشتغل دلوقتي
-- **J&T بتتعمل مرة واحدة.** فرع جديد في `Switch1` بيقرا نفس `SHIP CTX` — مش هتدوّر على أسماء نودز تاني
+- **J&T بتتعمل مرة واحدة.** فرع جديد في `Switch1` بيقرا نفس `SHIPT CTX` — مش هتدوّر على أسماء نودز تاني
 - **مفيش تكرار للسلسلة.** (البديل — نسخ الـ25 نود في وركفلو تاني — كان معناه تعمل J&T مرتين)
 - الـ`try/catch` جوّه نود Code بيمسك خطأ «النود مانفّذتش» لأنه **جافاسكربت حقيقي** — التعبيرة العادية (`{{ }}`) ماتقدرش
 
@@ -106,7 +140,7 @@ Webhook2 → get_tenant_details → get_order_details ────────�
 
 **أول ما تاجر تاني يشحن من اللوحة، شكاوى عناوين عملائه هتنزل في جروب عتبة.**
 ده نفس بند 🟠 المفتوح في `CLAUDE.md`. لازم يتقرا من صف التاجر:
-`{{ $('SHIP CTX').item.json.tenant.telegram_group_id }}` (أو `ops_chat_id`)
+`{{ $('SHIPT CTX').item.json.tenant.telegram_group_id }}` (أو `ops_chat_id`)
 **قبل** ما الميزة تتفتح لغير عتبة.
 
 ### هـ) `Trendose` مالهاش `shipping_api_key`
@@ -152,8 +186,8 @@ Supabase · **بعد** `get_tenant_details`.
 > فلتر الـ`tenant_id` مش زيادة — من غيره `order_id` من تاجر تاني بيمر.
 > ده الحاجز التاني بعد الـEdge Function.
 
-### خطوة 3 — نود جديدة `SHIP CTX` (Code)
-**اسمها لازم يبقى `SHIP CTX` بالحرف** — الـ46 إشارة كلها هتنادي الاسم ده.
+### خطوة 3 — نود جديدة `SHIPT CTX` (Code)
+**اسمها `SHIPT CTX` بالحرف** — الـ46 إشارة كلها هتنادي الاسم ده.
 
 ```javascript
 // نقطة الالتقاء بين المسارين. الـtry/catch هنا هو اللي بيخلي الحكاية تمشي:
@@ -174,12 +208,12 @@ if (!order || !order.id) {
 }
 
 // وقوف صريح أحسن من تمرير undefined لسلسلة بتعمل شحنات بفلوس (درس 5)
-if (!tenant || !tenant.id) throw new Error('SHIP CTX: مفيش بيانات تاجر من أي مسار');
-if (!order  || !order.id)  throw new Error('SHIP CTX: مفيش بيانات أوردر من أي مسار');
+if (!tenant || !tenant.id) throw new Error('SHIPT CTX: مفيش بيانات تاجر من أي مسار');
+if (!order  || !order.id)  throw new Error('SHIPT CTX: مفيش بيانات أوردر من أي مسار');
 
 // حارس الشحنة المكررة — طبقة تانية جوّه n8n نفسه، مستقلة عن الـEdge Function
 if (order.tracking_no) {
-  throw new Error('SHIP CTX: الأوردر عنده بوليصة بالفعل (' + order.tracking_no + ') — وقفنا قبل ما نعمل شحنة تانية');
+  throw new Error('SHIPT CTX: الأوردر عنده بوليصة بالفعل (' + order.tracking_no + ') — وقفنا قبل ما نعمل شحنة تانية');
 }
 
 return [{ json: { tenant, order, source: $('Get Tenant').isExecuted === undefined ? 'unknown' : 'wa' } }];
@@ -193,10 +227,10 @@ return [{ json: { tenant, order, source: $('Get Tenant').isExecuted === undefine
 
 | احذف الوصلة | ضيف الوصلة |
 |---|---|
-| `ConfirmReply → If5` | `ConfirmReply → SHIP CTX` |
+| `ConfirmReply → If5` | `ConfirmReply → SHIPT CTX` |
 | `get_tenant_details → If5` | `get_tenant_details → get_order_details` |
-| — | `get_order_details → SHIP CTX` |
-| — | `SHIP CTX → If5` |
+| — | `get_order_details → SHIPT CTX` |
+| — | `SHIPT CTX → If5` |
 
 الباقي زي ما هو: `If5 → Switch1 → Ta7leel el Address → …`
 
@@ -218,8 +252,8 @@ return [{ json: { tenant, order, source: $('Get Tenant').isExecuted === undefine
 القاعدة بسيطة:
 
 ```
-$('Get Tenant').item.json.X                → $('SHIP CTX').item.json.tenant.X
-$('Update Order → confirmed').item.json.X  → $('SHIP CTX').item.json.order.X
+$('Get Tenant').item.json.X                → $('SHIPT CTX').item.json.tenant.X
+$('Update Order → confirmed').item.json.X  → $('SHIPT CTX').item.json.order.X
 ```
 
 🔴 **`Update a row` فيها استثناء:** الإشارة لـ`$('BOSTA API')` **ماتتغيرش** —
@@ -236,10 +270,10 @@ $('Update Order → confirmed').item.json.X  → $('SHIP CTX').item.json.order.X
 
 | # | الاختبار | المتوقع |
 |---|---|---|
-| 1 | `Execute step` على `SHIP CTX` لوحدها من مسار الواتساب (Pin data من تنفيذ قديم) | `{tenant:{…}, order:{…}}` — والاتنين مليانين |
-| 2 | POST على الـwebhook بـ`order_id` **عنده `tracking_no`** | يقف عند `SHIP CTX` برسالة «عنده بوليصة بالفعل» — **مفيش نداء لبوسطة** |
+| 1 | `Execute step` على `SHIPT CTX` لوحدها من مسار الواتساب (Pin data من تنفيذ قديم) | `{tenant:{…}, order:{…}}` — والاتنين مليانين |
+| 2 | POST على الـwebhook بـ`order_id` **عنده `tracking_no`** | يقف عند `SHIPT CTX` برسالة «عنده بوليصة بالفعل» — **مفيش نداء لبوسطة** |
 | 3 | POST بـ`tenant_id` تاجر **مالوش `shipping_api_key`** (مثلاً Trendose) | `If5` ترجّع false — الفرع يقف، مفيش شحنة |
-| 4 | POST بـ`order_id` من تاجر و`tenant_id` من تاجر تاني | `get_order_details` ترجّع فاضي → `SHIP CTX` ترمي. **لو عملت شحنة = العزل مكسور** |
+| 4 | POST بـ`order_id` من تاجر و`tenant_id` من تاجر تاني | `get_order_details` ترجّع فاضي → `SHIPT CTX` ترمي. **لو عملت شحنة = العزل مكسور** |
 | 5 | POST بأوردر حقيقي من `3ataba` من غير `tracking_no` | شحنة واحدة · `status='BOSTA AUTO'` · `tracking_no` اتكتب |
 | 6 | **بعد 5 على طول** — نفس الأوردر تاني | يقف عند الحارس. **لو عمل شحنة تانية = فلوس ضاعت** |
 | 7 | أوردر تأكيد حقيقي من الواتساب (المسار القديم) | زي ما كان بالظبط — ده اختبار عدم الانحدار |
@@ -257,7 +291,7 @@ $('Update Order → confirmed').item.json.X  → $('SHIP CTX').item.json.order.X
 |---|---|
 | لسه في المحرر ومانشرتش | **Publish** النسخة القديمة (`activeVersionId = 1b749480…`) |
 | اتنشر وطلع غلط | ارفع الـJSON اللي نزّلته في خطوة 0 وانشره |
-| عايز تقفل الميزة بسرعة من غير rollback | عطّل `Webhook2` (Disable node). المسار القديم بيفضل شغّال عبر `ConfirmReply → SHIP CTX` |
+| عايز تقفل الميزة بسرعة من غير rollback | عطّل `Webhook2` (Disable node). المسار القديم بيفضل شغّال عبر `ConfirmReply → SHIPT CTX` |
 
 آخر واحد ده هو **أرخص مفتاح إطفاء** — خليه في بالك.
 
@@ -267,6 +301,6 @@ $('Update Order → confirmed').item.json.X  → $('SHIP CTX').item.json.order.X
 
 - [ ] Edge Function `ship-order` (`verify_jwt`) — بتاخد `order_id` بس، والتاجر من الـJWT
 - [ ] زرار «شحن» في `orders/detail.js` بينادي الـFunction + حالة انتظار + رسالة صريحة لو مفيش مفتاح شحن
-- [ ] `chat_id` في `Send a text message4/5/8` يتقرا من `SHIP CTX.tenant` (بند د فوق) — **قبل** فتح الميزة لغير عتبة
+- [ ] `chat_id` في `Send a text message4/5/8` يتقرا من `SHIPT CTX.tenant` (بند د فوق) — **قبل** فتح الميزة لغير عتبة
 - [ ] فرع `jt` في `Switch1` لما J&T تيجي
 - [ ] عمود `shipping_requested_at` على `orders` لحارس التكرار

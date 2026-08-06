@@ -22,7 +22,7 @@
 - 
 + =أنت مساعد ذكي لشركة شحن.
 + 
-+ عنوان العميل هو: {{ $('SHIP CTX').item.json.order.address }}
++ عنوان العميل هو: {{ $('SHIPT CTX').item.json.order.address }}
 + 
 + قاعدة البيانات المتاحة لهذه المحافظة:
 + {{ $json.database_text }}
@@ -53,7 +53,7 @@
 - 
 + =أنت مساعد ذكي لشركة شحن.
 + 
-+ عنوان العميل هو: {{ $('SHIP CTX').item.json.order.address }}
++ عنوان العميل هو: {{ $('SHIPT CTX').item.json.order.address }}
 + 
 + قاعدة البيانات المتاحة لهذه المحافظة:
 + {{ $json.database_text }}
@@ -90,7 +90,7 @@
 - 
 + =أنت مساعد ذكي لشركة شحن.
 + 
-+ عنوان العميل هو: {{ $('SHIP CTX').item.json.order.address }}
++ عنوان العميل هو: {{ $('SHIPT CTX').item.json.order.address }}
 + 
 + قاعدة البيانات المتاحة لهذه المحافظة:
 + {{ $json.database_text }}
@@ -133,7 +133,7 @@
 - 
 + =أنت مساعد ذكي لشركة شحن.
 + 
-+ عنوان العميل هو: {{ $('SHIP CTX').item.json.order.address }}
++ عنوان العميل هو: {{ $('SHIPT CTX').item.json.order.address }}
 + 
 + قاعدة البيانات المتاحة لهذه المحافظة:
 + {{ $json.database_text }}
@@ -160,7 +160,7 @@
 -   "Content-Type": "application/json"
 - }
 + ={
-+   "Authorization": "{{ $('SHIP CTX').item.json.tenant.shipping_api_key }}",
++   "Authorization": "{{ $('SHIPT CTX').item.json.tenant.shipping_api_key }}",
 +   "Content-Type": "application/json"
 + }
 ```
@@ -200,23 +200,23 @@
 +     "size": "MEDIUM",
 +     "packageDetails": {
 +       "itemsCount": 1,
-+       "description": "{{ $('SHIP CTX').item.json.order.product_name + (String($('SHIP CTX').item.json.order.manufacturer_note ?? '').trim() ? ' ' + String($('SHIP CTX').item.json.order.manufacturer_note ?? '').trim() : '') }}"
++       "description": "{{ $('SHIPT CTX').item.json.order.product_name + (String($('SHIPT CTX').item.json.order.manufacturer_note ?? '').trim() ? ' ' + String($('SHIPT CTX').item.json.order.manufacturer_note ?? '').trim() : '') }}"
 +     }
 +   },
-+   "notes": "{{ String($('SHIP CTX').item.json.order.manufacturer_note ?? '').trim() }}",
-+   "cod":{{ $('SHIP CTX').item.json.order.total_cost }} ,
++   "notes": "{{ String($('SHIPT CTX').item.json.order.manufacturer_note ?? '').trim() }}",
++   "cod":{{ $('SHIPT CTX').item.json.order.total_cost }} ,
 + 
 +   "dropOffAddress": {
 +     "city": "{{ $json.City_Name }}",
 +     "zoneId": "{{ $json.Zone_Id }}",
 +     "districtId": "{{ $json.District_Id }}",
-+     "firstLine": "{{ $('SHIP CTX').item.json.order.address.replace(/\
++     "firstLine": "{{ $('SHIPT CTX').item.json.order.address.replace(/\
 + /g, ' ') }}"
 +   },
 + 
 +   "receiver": {
-+     "firstName": "{{ $('SHIP CTX').item.json.order.customer_name }}",
-+     "phone": "{{ $('SHIP CTX').item.json.order.phone }}"
++     "firstName": "{{ $('SHIPT CTX').item.json.order.customer_name }}",
++     "phone": "{{ $('SHIPT CTX').item.json.order.phone }}"
 +   }
 + }
 ```
@@ -229,7 +229,7 @@
 -   "Content-Type": "application/json"
 - }
 + ={
-+   "Authorization": "{{ $('SHIP CTX').item.json.tenant.shipping_api_key }}",
++   "Authorization": "{{ $('SHIPT CTX').item.json.tenant.shipping_api_key }}",
 +   "Content-Type": "application/json"
 + }
 ```
@@ -269,23 +269,23 @@
 +     "size": "MEDIUM",
 +     "packageDetails": {
 +       "itemsCount": 1,
-+       "description": "{{ $('SHIP CTX').item.json.order.product_name + (String($('SHIP CTX').item.json.order.manufacturer_note ?? '').trim() ? ' ' + String($('SHIP CTX').item.json.order.manufacturer_note ?? '').trim() : '') }}"
++       "description": "{{ $('SHIPT CTX').item.json.order.product_name + (String($('SHIPT CTX').item.json.order.manufacturer_note ?? '').trim() ? ' ' + String($('SHIPT CTX').item.json.order.manufacturer_note ?? '').trim() : '') }}"
 +     }
 +   },
-+   "notes": "{{ String($('SHIP CTX').item.json.order.manufacturer_note ?? '').trim() }}",
-+   "cod":{{ $('SHIP CTX').item.json.order.total_cost }} ,
++   "notes": "{{ String($('SHIPT CTX').item.json.order.manufacturer_note ?? '').trim() }}",
++   "cod":{{ $('SHIPT CTX').item.json.order.total_cost }} ,
 + 
 +   "dropOffAddress": {
 +     "city": "{{ $json.City_Name }}",
 +     "zoneId": "{{ $json.Zone_Id }}",
 +     "districtId": "{{ $json.District_Id }}",
-+     "firstLine": "{{ $('SHIP CTX').item.json.order.address.replace(/\
++     "firstLine": "{{ $('SHIPT CTX').item.json.order.address.replace(/\
 + /g, ' ') }}"
 +   },
 + 
 +   "receiver": {
-+     "firstName": "{{ $('SHIP CTX').item.json.order.customer_name }}",
-+     "phone": "{{ $('SHIP CTX').item.json.order.phone }}"
++     "firstName": "{{ $('SHIPT CTX').item.json.order.customer_name }}",
++     "phone": "{{ $('SHIPT CTX').item.json.order.phone }}"
 +   }
 + }
 ```
@@ -294,14 +294,14 @@
 
 ```diff
 - ={{ $('Get Tenant').item.json.shipping_api_key }}
-+ ={{ $('SHIP CTX').item.json.tenant.shipping_api_key }}
++ ={{ $('SHIPT CTX').item.json.tenant.shipping_api_key }}
 ```
 
 ### `RANKING` — httpRequest · 3 إشارة
 
 ```diff
 - ={{ $('Update Order → confirmed').item.json.phone }}
-+ ={{ $('SHIP CTX').item.json.order.phone }}
++ ={{ $('SHIPT CTX').item.json.order.phone }}
 ```
 ```diff
 - ={
@@ -309,7 +309,7 @@
 -   "Content-Type": "application/json"
 - }
 + ={
-+   "Authorization": "{{ $('SHIP CTX').item.json.tenant.shipping_api_key }}",
++   "Authorization": "{{ $('SHIPT CTX').item.json.tenant.shipping_api_key }}",
 +   "Content-Type": "application/json"
 + }
 ```
@@ -318,7 +318,7 @@
 -   "mobilePhones": "{{ $('Update Order → confirmed').item.json.phone }}"
 - }
 + ={
-+   "mobilePhones": "{{ $('SHIP CTX').item.json.order.phone }}"
++   "mobilePhones": "{{ $('SHIPT CTX').item.json.order.phone }}"
 + }
 ```
 
@@ -326,7 +326,7 @@
 
 ```diff
 - ={{ $('Update Order → confirmed').item.json.phone }}
-+ ={{ $('SHIP CTX').item.json.order.phone }}
++ ={{ $('SHIPT CTX').item.json.order.phone }}
 ```
 ```diff
 - ={
@@ -334,7 +334,7 @@
 -   "Content-Type": "application/json"
 - }
 + ={
-+   "Authorization": "{{ $('SHIP CTX').item.json.tenant.shipping_api_key }}",
++   "Authorization": "{{ $('SHIPT CTX').item.json.tenant.shipping_api_key }}",
 +   "Content-Type": "application/json"
 + }
 ```
@@ -343,7 +343,7 @@
 -   "mobilePhones": "{{ $('Update Order → confirmed').item.json.phone }}"
 - }
 + ={
-+   "mobilePhones": "{{ $('SHIP CTX').item.json.order.phone }}"
++   "mobilePhones": "{{ $('SHIPT CTX').item.json.order.phone }}"
 + }
 ```
 
@@ -369,12 +369,12 @@
 - بس مش ظابطة.
 + =العميل دا أكد بس انا مش عارف اظبط البوليصة حد يعملها يا شباب 
 + 
-+ {{ $('SHIP CTX').item.json.order.phone }}
++ {{ $('SHIPT CTX').item.json.order.phone }}
 + رقم الاوردر
-+ {{ $('SHIP CTX').item.json.order.order_uid }}
++ {{ $('SHIPT CTX').item.json.order.order_uid }}
 + 
 + عنوانه اهو 
-+ {{ $('SHIP CTX').item.json.order.address }}
++ {{ $('SHIPT CTX').item.json.order.address }}
 + 
 + و انا عملت المحافظة 
 + ( {{ $('Code in JavaScript').item.json.city }} )
@@ -408,12 +408,12 @@
 - بس مش ظابطة.
 + =العميل دا أكد بس انا مش عارف اظبط البوليصة حد يعملها يا شباب 
 + 
-+ {{$('SHIP CTX').item.json.order.phone }}
++ {{$('SHIPT CTX').item.json.order.phone }}
 + رقم الاوردر
-+ {{ $('SHIP CTX').item.json.order.order_uid }}
++ {{ $('SHIPT CTX').item.json.order.order_uid }}
 + 
 + عنوانه اهو 
-+ {{ $('SHIP CTX').item.json.order.address }}
++ {{ $('SHIPT CTX').item.json.order.address }}
 + 
 + و انا عملت المحافظة 
 + ( {{ $('Code in JavaScript').item.json.city }} )
@@ -441,13 +441,13 @@
 - كلموه انتوا و ظبطوا الدنيا معاه
 + =العميل دا أكد بس عنوانه أهطل أوي  
 + 
-+ {{ $('SHIP CTX').item.json.order.PHONE }}
++ {{ $('SHIPT CTX').item.json.order.PHONE }}
 + رقم العامود
-+ {{ $('SHIP CTX').item.json.order.row_number }}
++ {{ $('SHIPT CTX').item.json.order.row_number }}
 + 
 + 
 + عنوانه اهو 
-+ {{ $('SHIP CTX').item.json.order.ADDRESS }}
++ {{ $('SHIPT CTX').item.json.order.ADDRESS }}
 + 
 + كلموه انتوا و ظبطوا الدنيا معاه
 ```
@@ -456,7 +456,7 @@
 
 ```diff
 - ={{ $('Get Tenant').item.json.shipping_provider }}
-+ ={{ $('SHIP CTX').item.json.tenant.shipping_provider }}
++ ={{ $('SHIPT CTX').item.json.tenant.shipping_provider }}
 ```
 
 ### `Ta7leel el Address` — agent · 1 إشارة
@@ -492,7 +492,7 @@
 + =أنت مساعد ذكي متخصص في تحليل عناوين الشحن داخل مصر لشركات التوصيل.
 + 
 + حلل العنوان التالي:
-+ "{{ $('SHIP CTX').item.json.order.address }}"
++ "{{ $('SHIPT CTX').item.json.order.address }}"
 + 
 + المطلوب:
 + 1- تقييم ما إذا كان العنوان "مكتملاً وصالحاً للتوصيل الفعلي لباب العميل" أم "ناقصاً".
@@ -551,7 +551,7 @@
 + =أنت مساعد ذكي متخصص في تحليل عناوين الشحن داخل مصر لشركات التوصيل.
 + 
 + حلل العنوان التالي:
-+ "{{ $('SHIP CTX').item.json.order.address }}"
++ "{{ $('SHIPT CTX').item.json.order.address }}"
 + 
 + المطلوب:
 + 1- تقييم ما إذا كان العنوان "مكتملاً وصالحاً للتوصيل الفعلي لباب العميل" أم "ناقصاً".
@@ -581,22 +581,22 @@
 
 ```diff
 - ={{ $('Update Order → confirmed').item.json.id }}
-+ ={{ $('SHIP CTX').item.json.order.id }}
++ ={{ $('SHIPT CTX').item.json.order.id }}
 ```
 ```diff
 - ={{ $('Update Order → confirmed').item.json.tenant_id }}
-+ ={{ $('SHIP CTX').item.json.order.tenant_id }}
++ ={{ $('SHIPT CTX').item.json.order.tenant_id }}
 ```
 
 ### `Update a row2` — supabase · 2 إشارة
 
 ```diff
 - ={{ $('Update Order → confirmed').item.json.id }}
-+ ={{ $('SHIP CTX').item.json.order.id }}
++ ={{ $('SHIPT CTX').item.json.order.id }}
 ```
 ```diff
 - ={{ $('Update Order → confirmed').item.json.tenant_id }}
-+ ={{ $('SHIP CTX').item.json.order.tenant_id }}
++ ={{ $('SHIPT CTX').item.json.order.tenant_id }}
 ```
 
 > **الإجمالي: 17 نود · 46 إشارة.**
