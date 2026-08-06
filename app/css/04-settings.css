@@ -109,3 +109,54 @@ td.cm-delta{color:var(--green);font-weight:800;}
 td.cm-amt{color:var(--pur);font-weight:900;}
 .cm-empty{padding:34px 20px;text-align:center;border-radius:13px;background:var(--bg);
   border:1px dashed var(--brd2);color:var(--muted);font-weight:700;font-size:.87rem;}
+
+/* ── التسويات وأرصدة العمولة ── */
+.cm-user{position:relative;padding-bottom:46px;}
+.cm-settle-btn{position:absolute;bottom:12px;inset-inline-start:14px;
+  background:#ecfdf5;border:1px solid #a7f3d0;color:#047857;border-radius:10px;
+  padding:6px 14px;font-family:inherit;font-weight:800;font-size:.78rem;cursor:pointer;transition:.15s;}
+.cm-settle-btn:hover{filter:brightness(.96);}
+.cm-owed{background:#fef2f2;color:#b91c1b;border:1px solid #fecaca;
+  font-size:.79rem;font-weight:800;padding:3px 9px;border-radius:999px;}
+.cm-settled{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;
+  font-size:.79rem;font-weight:800;padding:3px 9px;border-radius:999px;}
+tr.cm-row{cursor:pointer;}
+tr.cm-row:hover td{background:rgba(255,159,28,.07);}
+.cm-open{font-size:.75rem;font-weight:800;color:var(--blue);white-space:nowrap;}
+.cm-rev-btn{background:#fff;border:1px solid var(--brd2);border-radius:9px;padding:4px 11px;
+  font-family:inherit;font-weight:800;font-size:.74rem;cursor:pointer;color:var(--muted);}
+.cm-rev-btn:hover{border-color:#fcd34d;color:#92400e;background:#fffbeb;}
+tr.cm-rev td{opacity:.72;}
+.cm-rev-tag{margin-inline-start:6px;font-size:.66rem;font-weight:800;padding:1px 6px;
+  border-radius:999px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;
+  font-family:'Cairo',sans-serif;}
+td.cm-pos{color:var(--red);font-weight:800;}
+td.cm-neg{color:var(--green);font-weight:800;}
+.cm-empty.sm{padding:20px;font-size:.83rem;}
+
+/* ── شارة الـupsell في جدول الطلبات ── */
+.up-badge{display:inline-block;margin-inline-end:5px;font-size:.82rem;cursor:help;
+  filter:saturate(1.2);vertical-align:middle;}
+
+/* ── شريط عمولة الموظف فوق الجدول ── */
+.my-cm-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
+  padding:11px 15px;border-radius:13px;background:linear-gradient(135deg,#f5f3ff,#ede9fe);
+  border:1px solid #ddd6fe;}
+.my-cm-ico{font-size:1.05rem;}
+.my-cm-txt{font-weight:900;font-size:.88rem;color:#4c1d95;}
+.my-cm-n{font-size:.75rem;font-weight:700;color:var(--muted);}
+.my-cm-go{margin-inline-start:auto;background:#7c3aed;color:#fff;border:none;border-radius:10px;
+  padding:7px 15px;font-family:inherit;font-weight:800;font-size:.78rem;cursor:pointer;white-space:nowrap;}
+.my-cm-go:hover{filter:brightness(1.08);}
+
+/* ── صفحة «عمولتي» ── */
+#page-mycommission{max-width:980px;margin:0 auto;}
+#page-mycommission .sp-head{display:flex;align-items:center;gap:16px;margin:4px 0 22px;}
+#page-mycommission .sp-head-ico{width:52px;height:52px;border-radius:16px;display:flex;
+  align-items:center;justify-content:center;font-size:1.5rem;
+  background:linear-gradient(135deg,#7c3aed,#a78bfa);box-shadow:0 8px 20px rgba(124,58,237,.3);}
+#page-mycommission .sp-head h2{margin:0;font-size:1.45rem;font-weight:900;color:var(--txt);}
+#page-mycommission .sp-head p{margin:4px 0 0;color:var(--muted);font-size:.87rem;font-weight:600;}
+.cm-rate-note{padding:12px 15px;border-radius:12px;background:#f5f3ff;border:1px solid #ddd6fe;
+  color:var(--txt);font-size:.83rem;font-weight:600;line-height:1.9;margin-bottom:6px;}
+.sval.cm-neg-val{color:var(--red);}

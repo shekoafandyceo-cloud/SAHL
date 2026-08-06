@@ -1,6 +1,7 @@
 // الأوردرات — الحالة والتحميل والجدول والتفاصيل والتحديث الجماعي والريل-تايم
 
 import { skelTable } from '../core/skeleton.js';
+import { loadCommissions, myCommissionEnabled, refreshMyCommissionNav, renderMyCommissionBar } from '../finance/commissions.js';
 import { currentTenantId, currentUser, forceSuspendLogout } from '../auth/auth.js';
 import { loadWalletState } from '../billing/billing.js';
 import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES } from '../core/constants.js';
@@ -101,7 +102,7 @@ var allLoadingCbs = null;
 // (product_cost_snapshot / products_cost_snapshot / manufacturer_cost_snapshot)
 // **مش موجودة في الجدول** — طلبها من PostgREST بيرمي خطأ، وهي أصلاً
 // `undefined` مع `*` برضه.
-var ALL_COLS = 'id,created_at,status,total_cost,product_name,payment_stage,platform,phone,tracking_no,real_shipping_fee,inventory_cost_snapshot,inventory_value_snapshot,inventory_value_at_bosta';
+var ALL_COLS = 'id,created_at,status,total_cost,product_name,payment_stage,platform,phone,tracking_no,real_shipping_fee,inventory_cost_snapshot,inventory_value_snapshot,inventory_value_at_bosta,has_upsell';
 
 export function ensureAllLoaded(cb){
   if(tourActive){ cb&&cb(); return; }            // الجولة: all = بيانات ديمو محمّلة بالفعل
@@ -175,6 +176,9 @@ export function loadAll(){
   loadOrdersCards();         // s0..s7 + الإيرادات + عدّاد المدة من RPC
   loadMergeCandidates();     // تنبيه الدمج من كويري مخصّص
   loadBostaInventoryCard();  // كارت بضاعة بوسطة من كويري مخصّص (بيحمّل المخزون عند اللزوم)
+  // شريط عمولة الموظف + زرار «عمولتي» — بيتحمّلوا مرة مع أول تحميل للطلبات.
+  // بيرجعوا بدري لو العمولة مش مفعّلة، فمفيش نداء زيادة على أغلب التجار.
+  if(myCommissionEnabled()){ refreshMyCommissionNav(); loadCommissions(renderMyCommissionBar); }
   doFilter();                // الجدول: صفحة واحدة من السيرفر
   startRealtime();
   waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
@@ -354,7 +358,7 @@ export var OPERATION_STATUSES = BOSTA_OPERATION_STATUSES;
 
 export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2'];
 
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,cancel_requested_at,cancel_resolved_at,var';
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,cancel_requested_at,cancel_resolved_at,var,has_upsell';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){

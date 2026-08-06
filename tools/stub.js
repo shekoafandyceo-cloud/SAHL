@@ -26,6 +26,7 @@
       customer_notes:null, internal_notes:null, customer_ranking:null,
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
+      has_upsell:false,
       'var':null
     }, o);
   }
@@ -53,7 +54,10 @@
   }
 
   var TABLES = {
-    user_profiles: [{id:'u1', tenant_id:TENANT, role:'admin', active:true, full_name:'أدمن الاختبار'}],
+    // الدور بيتحقن من الاختبار قبل الستب (window.__ROLE) — الافتراضي أدمن
+    // عشان الاختبارات القديمة تفضل بنفس سلوكها بالحرف
+    user_profiles: [{id:'u1', tenant_id:TENANT, role:(window.__ROLE||'admin'), active:true, full_name:'أدمن الاختبار',
+      upsell_commission_enabled:(window.__CM_ON||false), upsell_commission_type:'percent', upsell_commission_value:10}],
     v_my_tenant:   [{id:TENANT, slug:'test', store_name:'متجر الاختبار', active:true, plan:'growth', plan_expires_at:null, subscription_status:'active', grace_period_days:3, monthly_price:0, shipping_provider:'bosta', created_at:iso(30,10)}],
     tenant_subscription_state: [{id:TENANT, computed_status:'active', days_remaining:30}],
     wallet_state:  [{tenant_id:TENANT, wallet_balance:500, overdraft_limit:0, available:500, orders_used_cycle:5, max_orders:1000, orders_remaining:995, overage_debt:0, plan:'growth', plan_name:'Growth', monthly_price:299, per_order_price:0.75, pricing_type:'monthly', subscription_status:'active', cycle_started_at:iso(10,0), cycle_ends_at:iso(-20,0), is_lifetime:false, is_depleted:false}],
@@ -70,8 +74,17 @@
     // حركات المخزون بتتقري من window.__MOVEMENTS وقت الاستعلام مش وقت التحميل —
     // كده الاختبار يقدر يحقنها من غير ما يعتمد على ترتيب addInitScript،
     // والافتراضي [] عشان الاختبارات القديمة تفضل بنفس السلوك بالحرف.
-    var rows = (table === 'stock_movements' ? (window.__MOVEMENTS || []) : (TABLES[table] || [])).slice();
+    var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
+                commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL' };
+    var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     if(table === 'orders'){
+      // شارة الـupsell: الاختبار بيحقن `window.__UPSELL_IDS` وإحنا بنقراها **وقت
+      // الاستعلام**. الحقن على DOMContentLoaded ماينفعش — موديولات ES بتتنفّذ
+      // قبله، فالـ16 استعلام كلهم بيخرجوا والصفحة اترسمت قبل ما الحدث يولّع.
+      var up = window.__UPSELL_IDS || [];
+      if(up.length) rows = rows.map(function(o){
+        return up.indexOf(o.id) >= 0 ? Object.assign({}, o, {has_upsell:true}) : o;
+      });
       // نطبّق فلاتر التاريخ زي السيرفر بالظبط — ده جوهر الاختبار
       if(st.gte && st.gte.col === 'created_at') rows = rows.filter(function(o){ return o.created_at >= st.gte.val; });
       if(st.lt  && st.lt.col  === 'created_at') rows = rows.filter(function(o){ return o.created_at <  st.lt.val;  });

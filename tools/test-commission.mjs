@@ -35,6 +35,15 @@ const EXTRA = `
       after_total:500, delta:200, commission_type:'fixed', commission_rate:25,
       commission_amount:25, status:'earned',  resolved_at:'2026-08-06T10:00:00Z', created_at:'2026-08-06T09:00:00Z' }
   ];
+  // أرصدة الموظفين — بتيجي من الفيو v_commission_balances مش من الحركات.
+  // كارتَي «اتصرف» و«الرصيد المستحق» بيتحسبوا منها هي، فلازم تتحقن هنا
+  // وإلا الكروت تطلع صفر والتجميع بالموظف يفضل فاضي.
+  window.__CM_BAL = [
+    { user_id:'u2', user_name:'سارة إبراهيم', events_count:2, pending_total:30, earned_total:30,
+      void_total:0,  settled_total:0,  settlements_count:0, outstanding:30 },
+    { user_id:'u3', user_name:'عمر حسن',      events_count:2, pending_total:0,  earned_total:25,
+      void_total:25, settled_total:25, settlements_count:1, outstanding:0 }
+  ];
 `;
 
 let bad = 0;
@@ -131,14 +140,18 @@ await p.waitForTimeout(300);
 const sums = await p.evaluate(() => ({
   pending: (document.getElementById('cm-sum-pending')||{}).textContent,
   earned:  (document.getElementById('cm-sum-earned')||{}).textContent,
-  vd:      (document.getElementById('cm-sum-void')||{}).textContent,
+  settled: (document.getElementById('cm-sum-settled')||{}).textContent,
+  out:     (document.getElementById('cm-sum-out')||{}).textContent,
   rows:    document.querySelectorAll('#cm-tbody tbody tr').length,
   users:   [...document.querySelectorAll('.cm-user')].map(u => u.textContent.replace(/\s+/g,' ').trim())
 }));
-// المتوقع من الداتا: معلّق 30 · مستحق 30+25=55 · ملغي 25
+// المعلّق والمستحق بيتحسبوا من **الحركات**: معلّق 30 · مستحق 30+25=55.
+// المتصرّف والرصيد بيتحسبوا من **الفيو**: اتصرف 0+25=25 · الرصيد 30+0=30.
+// التقسيمة دي مقصودة — التسويات مالهاش علاقة بجدول الحركات.
 ok(/30/.test(sums.pending), `المعلّق = ${sums.pending}   [متوقع 30 ج]`);
 ok(/55/.test(sums.earned),  `المستحق = ${sums.earned}   [متوقع 55 ج]`);
-ok(/25/.test(sums.vd),      `الملغي = ${sums.vd}   [متوقع 25 ج]`);
+ok(/25/.test(sums.settled), `اتصرف = ${sums.settled}   [متوقع 25 ج]`);
+ok(/30/.test(sums.out),     `الرصيد المستحق = ${sums.out}   [متوقع 30 ج]`);
 ok(sums.rows === 4, `الجدول فيه 4 حركات — ${sums.rows}`);
 ok(sums.users.length === 2, `التجميع بالموظف: موظفين — ${sums.users.length}`);
 console.log('  ' + sums.users.join('\n  '));

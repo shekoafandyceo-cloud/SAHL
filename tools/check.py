@@ -931,6 +931,60 @@ def check_html(rel_path):
     # --- 6. تثبيت سكربتات الـCDN + SRI ---
     check_cdn_pinning(path, html)
 
+    # --- 7. توازن وسوم الـmarkup ---
+    check_tag_balance(path, html, rel_path)
+
+
+# ------------------------------------------------- توازن وسوم الـmarkup
+
+# الوسوم اللي مالهاش قفلة — قفلة زيادة عليها مش موجودة أصلاً
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+             "link", "meta", "param", "source", "track", "wbr"}
+# وسوم HTML بتقفل نفسها ضمنياً — ماينفعش نعدّها بمكدّس صارم
+OPTIONAL_CLOSE = {"li", "option", "p", "tr", "td", "th", "thead", "tbody",
+                  "tfoot", "dt", "dd", "colgroup", "rt", "rp"}
+
+TAG_RE = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9-]*)((?:[^>\"']|\"[^\"]*\"|'[^']*')*)>")
+
+
+def check_tag_balance(html_path, html, rel_path):
+    """قفلة `</div>` زيادة = المتصفح بيصلّحها في صمت والتخطيط بيتفكّ.
+
+    ده مش فحص تجميلي: قفلتين زيادة في تبويب العمولات قفلوا `#page-finance`
+    و`.appcol` بدري، فكل الصفحات اللي بعدها (الإحصائيات · المحفظة ·
+    الإعدادات) خرجت بره عمود التخطيط ونزلت تحت الشاشة على الموبايل —
+    **من غير أي خطأ في الكونسول ولا في `node --check`**. الـHTML parser
+    بيبلع الغلط ويكمل، فالعرض بيبقى غلط والكود «سليم».
+    """
+    src = COMMENT_RE.sub("", strip_scripts(html))
+    stack = []
+    for m in TAG_RE.finditer(src):
+        closing, name, attrs = m.group(1), m.group(2).lower(), m.group(3)
+        if name in VOID_TAGS or attrs.rstrip().endswith("/"):
+            continue
+        if name in OPTIONAL_CLOSE:
+            continue
+        line = src.count("\n", 0, m.start()) + 1
+        if not closing:
+            stack.append((name, line))
+            continue
+        if not stack:
+            err("قفلة زيادة </%s> — %s: حوالي سطر %d في الـmarkup المجرّد"
+                % (name, rel_path, line))
+            return
+        top, top_line = stack[-1]
+        if top != name:
+            err("قفلة مش مطابقة </%s> والمفتوح هو <%s> (سطر %d في الـmarkup "
+                "المجرّد) — %s" % (name, top, top_line, rel_path))
+            return
+        stack.pop()
+    if stack:
+        names = ", ".join("<%s>" % n for n, _ in stack[-5:])
+        err("وسوم مفتوحة من غير قفلة (%d) — آخرهم: %s — %s"
+            % (len(stack), names, rel_path))
+        return
+    ok("وسوم الـmarkup متوازنة — مفيش قفلة زيادة ولا ناقصة")
+
 
 # ---------------------------------------------------------- تسمية شركة الشحن
 

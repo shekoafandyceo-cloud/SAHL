@@ -49,7 +49,7 @@ import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.j
 
 import { copyWebhookUrl } from './settings/webhook.js';
 
-import { CM_STATUS, commissionRows, commissionsSetRows, loadCommissions, renderCommissions, wireCommissionEvents } from './finance/commissions.js';
+import { CM_STATUS, commissionBalances, commissionRows, commissionSettlements, commissionsSetBalances, commissionsSetRows, commissionsSetSettlements, loadCommissions, loadMyCommission, myBalance, myCommissionEnabled, openOrderFromCommission, openSettle, refreshMyCommissionNav, renderCommissions, renderMyCommission, renderMyCommissionBar, renderSettlements, reverseSettlement, wireCommissionEvents } from './finance/commissions.js';
 
 import { addStaff, deleteStaff, loadStaff, renderStaff, saveCommission, staffCall, staffSetUsers, staffUsers, toggleCommissionBox, toggleStaff, wireStaffEvents } from './settings/staff.js';
 
@@ -345,6 +345,9 @@ export function showPage(page){
     toast('القسم ده للأدمن فقط','er');
     page='orders';
   }
+  // «عمولتي» متاحة بس لمين عمولته مفعّلة — الأدمن عنده الصورة الكاملة
+  // في الماليات فمش محتاج نسخة مصغّرة
+  if(page==='mycommission' && !myCommissionEnabled()){ page='orders'; }
   $id('page-orders').style.display  = page==='orders'  ? 'block' : 'none';
   $id('page-stock').style.display   = page==='stock'   ? 'block' : 'none';
   $id('page-finance').style.display = page==='finance' ? 'block' : 'none';
@@ -353,6 +356,7 @@ export function showPage(page){
   if($id('page-issues'))$id('page-issues').style.display = page==='issues' ? 'block' : 'none';
   if($id('page-analytics'))$id('page-analytics').style.display = page==='analytics' ? 'block' : 'none';
   if($id('page-inbox'))$id('page-inbox').style.display = page==='inbox' ? 'block' : 'none';
+  if($id('page-mycommission'))$id('page-mycommission').style.display = page==='mycommission' ? 'block' : 'none';
   document.querySelectorAll('.tnav-btn').forEach(function(b){
     b.classList.toggle('active', b.getAttribute('data-page')===page);
   });
@@ -366,6 +370,7 @@ export function showPage(page){
   if(page==='issues'){veilBegin('issues');loadIssues();}
   if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
   if(page==='inbox'){veilBegin('inbox');loadInbox();}
+  if(page==='mycommission'){loadMyCommission();}
 }
 
 

@@ -138,6 +138,12 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
         rankBadge='<span class="rk-badge '+_rkCls+'" title="نسبة استلام العميل عبر شركة الشحن: '+_rk.toFixed(1)+'%">'+_rkLbl+'</span>';
       }
     }
+    // شارة الـupsell — الأوردر اتزوّد فيه منتج بعد ما اتسجّل. العلامة جاية
+    // من عمود `has_upsell` على السيرفر (بيتحط جوّه save_order_products)
+    // مش من حساب في المتصفح — فبتشتغل حتى لو الحدث القديم مش محمّل.
+    var upBadge = o.has_upsell
+      ? '<span class="up-badge" title="فيه upselling — اتزوّد فيه منتج بعد التسجيل">🔼</span>'
+      : '';
     var cancelBadge = (o.cancel_requested_at && !o.cancel_resolved_at)
       ? '<span class="cx-badge" title="العميل طلب إلغاء الأوردر بعد ما كان مؤكد — '+esc(fmtD(o.cancel_requested_at))+'">\u26A0 طلب إلغاء</span>'
       : '';
@@ -148,7 +154,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
       +'<td class="cbcol"><input type="checkbox" class="cb cb-row" data-id="'+o.id+'" '+checked+'></td>'
       +'<td class="id'+(cancelBadge?' has-cx':'')+'">'+noteIcon+esc(fmt(o.order_uid))+cancelBadge+'</td>'
       +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة الشحن">🖨️</button>'+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
-      +'<td class="nm">'+vipBadge+lockMaybe(fmt(o.customer_name))+rankBadge+'</td>'
+      +'<td class="nm">'+vipBadge+upBadge+lockMaybe(fmt(o.customer_name))+rankBadge+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.phone))+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.alt_phone))+'</td>'
       +'<td>'+lockMaybe(fmt(o.city))+'</td>'

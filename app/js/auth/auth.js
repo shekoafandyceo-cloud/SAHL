@@ -178,7 +178,13 @@ export function fetchProfileAndEnter(authUser){
       name: profile.full_name || authUser.email,
       role: profile.role,
       tenant_id: profile.tenant_id,
-      id: authUser.id
+      id: authUser.id,
+      // إعدادات عمولة الـupselling — للعرض بس (إظهار زرار «عمولتي» وشرح
+      // النسبة). الحساب الفعلي على السيرفر من صف الموظف، فتزويرها هنا
+      // مايغيّرش ولا مليم.
+      upsell_commission_enabled: profile.upsell_commission_enabled === true,
+      upsell_commission_type: profile.upsell_commission_type || null,
+      upsell_commission_value: profile.upsell_commission_value || 0
     };
     currentRole = profile.role;
     // Apply role class

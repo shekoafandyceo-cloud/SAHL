@@ -10,7 +10,7 @@ var _kd = null;
 
 // ── Custom Modal (replaces browser confirm/prompt) ──────────────
 export function showModal(opts){
-  // opts: { icon, title, sub, okLabel, okColor, input, placeholder, onOk }
+  // opts: { icon, title, sub, okLabel, okColor, input, inputValue, placeholder, onOk }
   var bd=$id('cmodal-backdrop');
   var box=$id('cmodal-box');
   $id('cmodal-icon').textContent=opts.icon||'';
@@ -21,8 +21,10 @@ export function showModal(opts){
   if(opts.input){
     inputWrap.style.display='block';
     inp.placeholder=opts.placeholder||'';
-    inp.value='';
-    setTimeout(function(){inp.focus();},120);
+    // قيمة مكتوبة سلفاً (اختيارية) — بتتحدّد كلها عند الفوكس عشان الكتابة
+    // فوقها تمسحها على طول. الافتراضي فاضي زي ما كان.
+    inp.value=(opts.inputValue!=null?String(opts.inputValue):'');
+    setTimeout(function(){ inp.focus(); if(opts.inputValue!=null){ try{ inp.select(); }catch(e){} } },120);
   } else {
     inputWrap.style.display='none';
   }
