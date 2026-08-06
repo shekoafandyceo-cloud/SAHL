@@ -67,7 +67,10 @@
   };
 
   function rowsFor(table, st){
-    var rows = (TABLES[table] || []).slice();
+    // حركات المخزون بتتقري من window.__MOVEMENTS وقت الاستعلام مش وقت التحميل —
+    // كده الاختبار يقدر يحقنها من غير ما يعتمد على ترتيب addInitScript،
+    // والافتراضي [] عشان الاختبارات القديمة تفضل بنفس السلوك بالحرف.
+    var rows = (table === 'stock_movements' ? (window.__MOVEMENTS || []) : (TABLES[table] || [])).slice();
     if(table === 'orders'){
       // نطبّق فلاتر التاريخ زي السيرفر بالظبط — ده جوهر الاختبار
       if(st.gte && st.gte.col === 'created_at') rows = rows.filter(function(o){ return o.created_at >= st.gte.val; });

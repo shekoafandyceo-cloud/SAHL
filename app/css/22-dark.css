@@ -77,10 +77,25 @@ html.dark td.addr{color:var(--muted);}
 html.dark .history-table th{background:#1b2337;}
 html.dark .dsec{background:#151d30;border-color:var(--brd);}
 html.dark .dpan{background:rgba(22,29,46,.98);border-color:var(--brd);}
+/* نافذة تفاصيل الأوردر في الليلي — الكارت لازم يبقى **أفتح** من اللوح (elevation).
+   اللي كان: .dpan=#161d2e و.dsec=#151d30 — نفس اللون حرفياً فمفيش أي حافة.
+   والـtone الفاتح بتاع النهاري (#eff6ff وأخواته) بيتقلب لنسخ شفافة، وإلا
+   بيبقى شريط أبيض ساطع في نص الليلي. */
+html.dark #ovl .dpan{background:#0e1425;border-color:#242e45;}
+html.dark #dcnt .dsec{background:#19223a;border-color:#2c3752;box-shadow:0 1px 2px rgba(0,0,0,.45),0 8px 22px rgba(0,0,0,.35);}
+html.dark #dcnt .dstt{color:var(--txt);border-bottom-color:#2c3752;background:var(--tone-bg,rgba(255,255,255,.045));}
+html.dark #dcnt .dstt-ico{background:rgba(255,255,255,.07);}
+html.dark #dcnt .dsec[data-tone="blue"]{--tone-bg:rgba(37,99,235,.16);--tone-brd:rgba(96,165,250,.42);}
+html.dark #dcnt .dsec[data-tone="purple"]{--tone-bg:rgba(124,58,237,.16);--tone-brd:rgba(167,139,250,.42);}
+html.dark #dcnt .dsec[data-tone="orange"]{--tone-bg:rgba(249,115,22,.15);--tone-brd:rgba(251,146,60,.42);}
+html.dark #dcnt .dsec[data-tone="green"]{--tone-bg:rgba(16,185,129,.15);--tone-brd:rgba(52,211,153,.42);}
+html.dark #dcnt .dsec[data-tone="sky"]{--tone-bg:rgba(14,165,233,.15);--tone-brd:rgba(56,189,248,.42);}
 html.dark .dtit{color:var(--txt);}
 html.dark .notes-box,html.dark .int-notes{background:#131b2d;border-color:var(--brd);color:var(--txt);}
 html.dark .call-item,html.dark .log-item{background:#151d30;border-color:var(--brd);}
 html.dark .call-time,html.dark .log-time{color:#a8b4c8;}
+html.dark .mv-date{color:#c2ccdc;}
+html.dark .mv-time{color:#8d9ab0;}
 html.dark .psize select,html.dark .pag{background:#1a2233;border-color:var(--brd);color:var(--txt);}
 html.dark .cb{background:#131b2d;border-color:var(--brd2);}
 

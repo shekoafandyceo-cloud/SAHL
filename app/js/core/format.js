@@ -6,11 +6,17 @@ export function short(s,n){s=s||'—';return s.length>n?s.slice(0,n)+'…':s;}
 
 export function num(n){return Number(n||0).toLocaleString('ar-EG-u-nu-latn');}
 
-// الـlocale العربي بيحقن علامات اتجاه خفية (U+200F) بين مقاطع التاريخ —
-// في خلية LTR بتلخبط الترتيب والقص. بنشيلها: الناتج أرقام وشرط بس.
-export function fmtD(v){return v?new Date(v).toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'}).replace(/[\u200e\u200f\u061c]/g,''):'—';}
+// الـlocale العربي بيحقن علامات اتجاه خفية (U+200F RLM · U+200E LRM · U+061C ALM)
+// بين مقاطع التاريخ. جوّه خلية direction:ltr العلامة بتفتح مقطع RTL جوّه سطر
+// LTR فالمقاطع بتتقلب واليوم بيطير لآخر السطر.
+// أي دالة بترجّع تاريخ معروض **لازم** تعدّي على stripBidi — الحارس في مكان
+// واحد بدل ما كل formatter جديد يقع في نفس الفخ. (fmtD/fmtDT كانوا متصلّحين
+// وfmtStoredDateTime لأ — فعمود التاريخ في حركات المخزون فضل مقلوب.)
+export function stripBidi(s){return String(s==null?'':s).replace(/[\u200e\u200f\u061c]/g,'');}
 
-export function fmtDT(v){return v?new Date(v).toLocaleString('ar-EG-u-nu-latn',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).replace(/[\u200e\u200f\u061c]/g,''):'—';}
+export function fmtD(v){return v?stripBidi(new Date(v).toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:'Africa/Cairo'})):'—';}
+
+export function fmtDT(v){return v?stripBidi(new Date(v).toLocaleString('ar-EG-u-nu-latn',{timeZone:'Africa/Cairo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})):'—';}
 
 export function pad2(n){return String(n).padStart(2,'0');}
 
@@ -25,11 +31,11 @@ export function fmtStoredDateTime(raw){
     // very rare fallback for malformed strings
     return String(raw);
   }
-  return d.toLocaleString('ar-EG-u-nu-latn',{
+  return stripBidi(d.toLocaleString('ar-EG-u-nu-latn',{
     timeZone:'Africa/Cairo',
     year:'numeric',month:'2-digit',day:'2-digit',
     hour:'2-digit',minute:'2-digit',second:'2-digit'
-  });
+  }));
 }
 
 export function fmtDateOnly(raw){
@@ -40,7 +46,7 @@ export function fmtDateOnly(raw){
   var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m){
     var d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
-    return d.toLocaleDateString('ar-EG-u-nu-latn',{year:'numeric',month:'2-digit',day:'2-digit'});
+    return stripBidi(d.toLocaleDateString('ar-EG-u-nu-latn',{year:'numeric',month:'2-digit',day:'2-digit'}));
   }
   return s;
 }
@@ -49,6 +55,26 @@ export function fmtMovementDate(v,createdAt){
   // In movements table we display created_at time; movement_date remains date-only for filtering/grouping.
   if(createdAt)return fmtStoredDateTime(createdAt);
   return fmtDateOnly(v);
+}
+
+// نفس بيانات fmtMovementDate بس مقسومة: التاريخ لوحده والوقت لوحده.
+// السبب مش تجميل — التاريخ أرقام (LTR) والوقت بينتهي بـ«م»/«ص» (حرف عربي RTL).
+// لما يتحطوا في سترينج واحد جوّه خلية LTR، الـ«م» بتفتح مقطع RTL في آخر السطر
+// والمقاطع بتتزحلق. فصلهم في عنصرين = كل واحد صندوق اتجاه مستقل، فمفيش تفاعل
+// أصلاً — وبيقرا أوضح كمان (التاريخ فوق والساعة تحته باهتة).
+export function fmtMovementDateParts(v,createdAt){
+  var TZ='Africa/Cairo';
+  if(createdAt){
+    var d=new Date(createdAt);
+    if(!isNaN(d.getTime())){
+      return {
+        date: stripBidi(d.toLocaleDateString('ar-EG-u-nu-latn',{timeZone:TZ,year:'numeric',month:'2-digit',day:'2-digit'})),
+        time: stripBidi(d.toLocaleTimeString('ar-EG-u-nu-latn',{timeZone:TZ,hour:'2-digit',minute:'2-digit',second:'2-digit'}))
+      };
+    }
+  }
+  // مفيش created_at (أو مالوش معنى) → movement_date التاريخ-بس، من غير وقت
+  return { date: fmtDateOnly(v), time: '' };
 }
 
 // Phone normalization: removes leading 0, spaces — returns 10-digit number for WhatsApp (prefixed with 20)

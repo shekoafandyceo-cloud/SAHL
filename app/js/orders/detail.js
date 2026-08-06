@@ -237,7 +237,7 @@ export function renderDetail(){
     +cxBanner
     +vipBanner
 
-    +'<div class="dsec"><div class="dstt">بيانات العميل</div>'
+    +'<div class="dsec" data-tone="blue"><div class="dstt"><span class="dstt-ico">\uD83D\uDC64</span>بيانات العميل</div>'
     +dr('الاسم',copyable(o.customer_name,'الاسم'))
     +(function(){
        if(o.customer_ranking===null||o.customer_ranking===undefined||o.customer_ranking==='')return '';
@@ -252,19 +252,19 @@ export function renderDetail(){
     +dr('العنوان',fieldEditable(o.address,'العنوان','address'))
     +'</div>'
 
-    +'<div class="dsec"><div class="dstt">بيانات الطلب</div>'
+    +'<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">\uD83E\uDDFE</span>بيانات الطلب</div>'
     +dr('رقم الطلب','<span class="dval">'+esc(fmt(o.order_uid))+'</span>')
     +dr('رقم التتبع','<span class="dval">'+(o.tracking_no?esc(o.tracking_no):'<span style="color:var(--muted);font-style:italic">في انتظار بوسطة</span>')+'</span>')
     +'</div>'
 
-    +'<div class="dsec"><div class="dstt">المنتجات</div>'
+    +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">\uD83D\uDCE6</span>المنتجات</div>'
     +((o['var']&&String(o['var']).trim())?'<div class="drow"><span class="dkey">اللون / المقاس</span>'+copyable(String(o['var']),'اللون/المقاس')+'</div>':'')
     +'<div class="prod-list" id="prod-list"></div>'
     +'<button class="prod-add-btn" id="prod-add">+ إضافة منتج آخر</button>'
     +'<div class="save-row" style="margin-top:10px"><button class="save-btn" id="save-prod">💾 حفظ المنتجات</button><button class="copy-prod-btn" id="copy-prod">📋 نسخ كل المنتجات</button><span class="save-status" id="prod-status"></span></div>'
     +'</div>'
 
-    +'<div class="dsec"><div class="dstt">تفاصيل إضافية</div>'
+    +'<div class="dsec" data-tone="sky"><div class="dstt"><span class="dstt-ico">\uD83E\uDDEE</span>تفاصيل إضافية</div>'
     +dr('المبلغ','<span class="dval" style="color:var(--txt);font-weight:600">'+(o.total_cost?num(o.total_cost)+' ج.م':'—')+'</span>')
     +(isAdmin()?dr('تكلفة البضاعة','<span class="dval" style="color:var(--ora);font-weight:800">'+money(orderInventoryCost(o))+'</span>'):'')
     +(isAdmin()?dr('مصدر التكلفة','<span class="dval ar">'+esc(orderInventoryCostSource(o))+'</span>'):'')
@@ -275,17 +275,17 @@ export function renderDetail(){
     +'</div>'
 
     // CUSTOMER NOTES (from webhook) — highlighted yellow when present
-    +'<div class="dsec"><div class="dstt">📌 ملاحظات العميل (من الويب هوك)</div>'
+    +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">📌</span>ملاحظات العميل (من الويب هوك)</div>'
     +'<div class="notes-box'+(hasCustomerNote?' has-content':' notes-empty')+'">'+(hasCustomerNote?esc(o.customer_notes):'مفيش ملاحظات من العميل')+'</div>'
     +'</div>'
 
     // INTERNAL NOTES (between employees) — editable
-    +'<div class="dsec"><div class="dstt">💬 ملاحظات داخلية بين الموظفين</div>'
+    +'<div class="dsec" data-tone="sky"><div class="dstt"><span class="dstt-ico">💬</span>ملاحظات داخلية بين الموظفين</div>'
     +'<textarea class="int-notes" id="int-notes" placeholder="اكتب أي ملاحظات للموظفين الآخرين عن هذا الطلب...">'+esc(o.internal_notes||'')+'</textarea>'
     +'<div class="save-row"><button class="save-btn" id="save-notes">💾 حفظ الملاحظات</button><span class="save-status" id="save-status"></span></div>'
     +'</div>'
 
-    +'<div class="dsec"><div class="dstt">📞 محاولات الاتصال ('+calls.length+'/9)</div>'
+    +'<div class="dsec" data-tone="green"><div class="dstt"><span class="dstt-ico">📞</span>محاولات الاتصال ('+calls.length+'/9)</div>'
     +callsHtml
     +'<div class="add-call">'
     +'<select id="ca-res">'
@@ -358,9 +358,9 @@ export function renderDetail(){
           +'</div>';
       });
       rows+='</div>';
-      return '<div class="dsec"><div class="dstt">📜 سجل تغييرات الحالة</div>'+rows+'</div>';
+      return '<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">📜</span>سجل تغييرات الحالة</div>'+rows+'</div>';
     })()
-    +'<div class="dsec"><div class="dstt">تغيير الحالة</div>'
+    +'<div class="dsec" data-tone="blue"><div class="dstt"><span class="dstt-ico">\uD83D\uDD01</span>تغيير الحالة</div>'
     +'<div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="badge '+statusClass(o.status||'pending')+'" style="font-size:.88rem;padding:5px 12px"><span class="bdot"></span>'+statusLabel(o.status||'pending')+'</span>'
     +(o.status_changed_at?'<span style="color:var(--muted);font-size:.78rem">آخر تغيير: '+fmtDT(o.status_changed_at)+'</span>':'')
     +'</div>'

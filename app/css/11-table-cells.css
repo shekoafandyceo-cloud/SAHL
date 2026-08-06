@@ -9,6 +9,45 @@ td.pay{font-size:.76rem;text-align:center;}td.pay.paid{background:rgba(16,185,12
 .ldg{display:flex;align-items:center;justify-content:center;padding:62px;color:var(--muted);gap:10px;}.spin{width:20px;height:20px;border:3px solid #e2e8f0;border-top-color:var(--acc);border-radius:50%;animation:sp .65s linear infinite;}@keyframes sp{to{transform:rotate(360deg)}}
 .ovl{position:fixed;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(8px);z-index:200;display:none;align-items:center;justify-content:center;padding:20px;}.ovl.open{display:flex;}.dpan{background:rgba(255,255,255,.96);border:1px solid rgba(255,255,255,.9);border-radius:28px;width:600px;max-width:100%;max-height:calc(100vh - 40px);overflow-y:auto;padding:26px;animation:si .18s ease;box-shadow:0 30px 90px rgba(15,23,42,.22);}@keyframes si{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:scale(1)}}.dhdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}.dtit{font-size:1.15rem;color:#111827;}.xcls{background:#f8fafc;border:1px solid var(--brd);border-radius:12px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);}.xcls:hover{color:var(--red);border-color:#fecaca;background:#fef2f2;}
 .wa-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;background:linear-gradient(135deg,var(--wa),#16a34a);color:#fff;border:none;border-radius:16px;font-size:.96rem;cursor:pointer;margin-bottom:14px;text-decoration:none;box-shadow:0 12px 24px rgba(37,211,102,.22);}.wa-btn:hover{filter:brightness(1.06);}.wa-btn .wa-ico{font-size:1.1rem;}
+/* عمود التاريخ في حركات المخزون — التاريخ والوقت كل واحد في صندوق اتجاه لوحده.
+   الوقت بينتهي بـ«م»/«ص» (حرف عربي) والتاريخ أرقام، فدمجهم في سطر واحد جوّه
+   خلية direction:ltr كان بيزحلق المقاطع. `isolate` بتقفل كل واحد على نفسه. */
+/* ═══ أقسام نافذة تفاصيل الأوردر ═══
+   المشكلة اللي كانت: .dpan خلفيتها rgba(255,255,255,.96) و.dsec خلفيتها #fff
+   وحدّها #eef2f7 — يعني المربع **نفس لون اللوح** والحدّ تباينه ~1.06:1.
+   وفي الليلي أسوأ: .dpan = #161d2e و.dsec = #151d30 (فرق 1-2 على القناة الواحدة).
+   فالعين مالهاش أي حافة تمسك فيها والدنيا سايحة.
+   الحل: اللوح ياخد خلفية مموّهة والأقسام تبقى كروت فوقها بحدّ حقيقي وشريط
+   لوني، والعنوان يبقى عنوان مش همس.
+   كله scoped على #dcnt — .dsec/.dstt مستخدمين في الماليات والمحفظة كمان،
+   وأي قاعدة غير مقيّدة كانت هتغيّر صفحات المالك ماطلبش يلمسها. */
+#ovl .dpan{background:#f1f5fb;}
+/* متغيّرات الـtone في المشروع معرّفة تحت #page-settings بس (20-orders-extras)،
+   فماكانتش بتوصل للنافذة أصلاً و.dstt كانت بتقع على var(--sur) = أبيض شبه
+   شفاف فوق كارت أبيض = شريط عنوان مالوش وجود. بنعرّفها هنا للنافذة. */
+#dcnt .dsec[data-tone="blue"]{--tone-bg:#eff6ff;--tone-brd:#bfdbfe;}
+#dcnt .dsec[data-tone="purple"]{--tone-bg:#f5f3ff;--tone-brd:#ddd6fe;}
+#dcnt .dsec[data-tone="orange"]{--tone-bg:#fff7ed;--tone-brd:#fed7aa;}
+#dcnt .dsec[data-tone="green"]{--tone-bg:#f0fdf4;--tone-brd:#bbf7d0;}
+#dcnt .dsec[data-tone="sky"]{--tone-bg:#f0f9ff;--tone-brd:#bae6fd;}
+#dcnt .dsec{position:relative;overflow:hidden;background:#fff;border:1px solid var(--brd2);border-radius:16px;padding:14px 16px;margin-bottom:14px;box-shadow:0 1px 2px rgba(15,23,42,.05),0 6px 18px rgba(15,23,42,.06);}
+#dcnt .dsec::before{content:'';position:absolute;inset-inline-start:0;top:0;bottom:0;width:4px;background:var(--tone-brd,var(--brd2));}
+/* العنوان بيمتد على عرض الكارت بهوامش سالبة — من غير ما نلمس layout الأبناء */
+/* الـ!important مقصود: 02-base.css فيها
+   `button,input,…,div,span,…{font-weight:700 !important}` على كل العناصر،
+   فأي font-weight من غير !important بيتبلع في صمت — وده اللي مخلّي
+   `.settings-card .dstt{font-weight:900}` مش شغّالة أصلاً من زمان.
+   من غيره العنوان بيبقى بنفس وزن .dkey/.dval اللي تحته فمفيش تدرّج. */
+#dcnt .dstt{display:flex;align-items:center;gap:10px;margin:-14px -16px 12px;padding:12px 16px;font-size:1rem;font-weight:900 !important;color:var(--txt);text-transform:none;letter-spacing:0;border-bottom:1px solid var(--brd);background:var(--tone-bg,var(--sur));}
+#dcnt .dstt-ico{flex:0 0 auto;width:28px;height:28px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:.92rem;background:#fff;border:1px solid var(--tone-brd,var(--brd));}
+#dcnt .dsec .drow{border-bottom-color:var(--brd);}
+td.mn.mv-when{white-space:normal;line-height:1.32;}
+.mv-date,.mv-time{display:block;direction:ltr;unicode-bidi:isolate;text-align:right;white-space:nowrap;}
+/* nowrap على كل سطر لوحده مقصود: td.mn.mv-when فوق فيها white-space:normal
+   عشان السطرين يتراصّوا فوق بعض — من غير nowrap هنا العمود الضيق كان
+   بيقصّ «04:33:34 م» عند المسافة وينزّل الـ«م» سطر تالت لوحدها. */
+.mv-date{color:var(--muted);}
+.mv-time{font-size:.71rem;color:var(--muted2);margin-top:1px;}
 .dsec{margin-bottom:16px;background:#fff;border:1px solid #eef2f7;border-radius:18px;padding:14px;}.dstt{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #eef2f7;}.drow{display:flex;justify-content:space-between;align-items:flex-start;padding:7px 0;border-bottom:1px dashed #eef2f7;}.drow:last-child{border-bottom:none;}.dkey{color:var(--muted);font-size:.84rem;flex-shrink:0;margin-left:10px;}.dval{color:var(--txt);font-size:.87rem;text-align:left;direction:ltr;word-break:break-word;}.dval.ar{direction:rtl;text-align:right;}.dval-wrap{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;}.copy-btn{background:#f8fafc;border:1px solid var(--brd);border-radius:8px;width:27px;height:27px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:.78rem;flex-shrink:0;padding:0;}.copy-btn:hover{color:var(--acc);border-color:var(--acc);}.copy-btn.done{color:var(--green);border-color:var(--green);}.copy-btn svg{width:12px;height:12px;}
 .notes-box{background:#f8fafc;border:1px solid var(--brd);border-radius:14px;padding:11px 12px;font-size:.86rem;color:var(--txt);direction:rtl;text-align:right;min-height:60px;line-height:1.7;white-space:pre-wrap;}.notes-box.has-content{background:linear-gradient(135deg,#fff7ed,#fff);border:1px solid #fdba74;color:#7c2d12;box-shadow:0 0 0 4px rgba(251,146,60,.10);}.notes-empty{color:var(--muted);font-style:italic;}.int-notes{width:100%;background:#fff;border:1px solid var(--brd);border-radius:14px;padding:11px 12px;font-size:.86rem;color:var(--txt);direction:rtl;text-align:right;min-height:86px;line-height:1.6;outline:none;resize:vertical;}.int-notes:focus{border-color:var(--acc);box-shadow:0 0 0 4px rgba(255,159,28,.12);}
 .prod-list,.log-list,.calls-list{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}.prod-item{display:flex;align-items:center;gap:7px;}.prod-input,.prod-select,.prod-qty,.add-call select,.add-call input{flex:1;min-width:90px;padding:10px 12px;background:#fff;border:1px solid var(--brd);border-radius:12px;color:var(--txt);font-size:.84rem;direction:rtl;text-align:right;outline:none;}.prod-qty{flex:0 0 72px!important;min-width:60px!important;text-align:center!important;}.prod-input:focus,.prod-select:focus,.prod-qty:focus,.add-call select:focus,.add-call input:focus{border-color:var(--acc);box-shadow:0 0 0 4px rgba(255,159,28,.1);}.prod-del{background:#fff;border:1px solid var(--brd);border-radius:12px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:.95rem;flex-shrink:0;}.prod-del:hover{color:var(--red);border-color:#fecaca;background:#fef2f2;}.prod-add-btn{padding:9px 14px;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:12px;color:var(--muted);cursor:pointer;font-size:.84rem;width:100%;}.prod-add-btn:hover{color:#b45309;border-color:var(--acc);background:#fff7ed;}.save-row{display:flex;gap:8px;margin-top:8px;align-items:center;}.save-btn,.add-call button{padding:8px 14px;background:linear-gradient(135deg,var(--acc),var(--acc2));color:#211300;border:none;border-radius:12px;cursor:pointer;font-size:.84rem;box-shadow:0 8px 18px rgba(255,159,28,.18);}.save-status{font-size:.78rem;color:var(--muted);}.save-status.ok{color:var(--green);}

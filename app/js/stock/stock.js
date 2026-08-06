@@ -4,7 +4,7 @@ import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { normalizeProductName } from '../analytics/product-match.js';
 import { $id, esc } from '../core/dom.js';
-import { fmt, fmtMovementDate, num, pad2, short } from '../core/format.js';
+import { fmt, fmtMovementDateParts, num, pad2, short } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { tourDemoMovements, tourDemoStock } from '../tour/demo-data.js';
@@ -159,7 +159,12 @@ export function renderMovements(){
       ? '<span class="movement-cost ok">'+num(wholesale)+' ج</span>'
       : '<span class="movement-cost zero" title="سعر الجملة غير مسجل أو صفر — راجع stock_products.wholesale_price">⚠️ 0 ج</span>';
     h+='<tr>'
-      +'<td class="mn">'+fmtMovementDate(m.movement_date,m.created_at)+'</td>'
+      +(function(){
+         var dt=fmtMovementDateParts(m.movement_date,m.created_at);
+         return '<td class="mn mv-when"><span class="mv-date">'+esc(dt.date)+'</span>'
+              + (dt.time?'<span class="mv-time">'+esc(dt.time)+'</span>':'')
+              + '</td>';
+       })()
       +'<td class="nm">'+esc(m.product_name)+'</td>'
       +(adminView?'<td>'+wholesaleHtml+'</td>':'')
       +'<td>'+(m.qty_in?'<span class="mov-in">+'+num(m.qty_in)+'</span>':'—')+'</td>'
