@@ -932,6 +932,91 @@ def check_html(rel_path):
     check_cdn_pinning(path, html)
 
 
+# ---------------------------------------------------------- تسمية شركة الشحن
+
+# «بوسطة» مسموحة في كومنتات الكود (بتوصف التكامل الفعلي) وفي كارت «ربط بوسطة»
+# في الإعدادات بس — ده اسم الشركة اللي التاجر بيدخّل مفتاحها، وتسميته
+# «شركة الشحن» هتلخبطه. أي نص معروض تاني لازم يقول «شحن»/«شركة الشحن»
+# عشان اللوحة تفضل محايدة لما J&T وغيرها يدخلوا.
+# القيم في الداتابيز (bosta_assigned · BOSTA AUTO · BOSTA2) **مش** موضوع
+# الفحص ده — دي معرّفات لازم تفضل مطابقة حرفياً.
+CARRIER_WORD = "\u0628\u0648\u0633\u0637\u0629"   # بوسطة
+
+# مفيش أي استثناء: الكارت نفسه بقى «ربط شركة الشحن» و«بوسطة» اتنقلت
+# للسطر الشارح تحته (وهو نص معروض برضه — فهو مسجّل هنا صراحةً).
+CARRIER_ALLOWED = {
+    ("app/index.html", "\u0634\u0631\u0643\u0629 \u0627\u0644\u0634\u062d\u0646 \u0627\u0644\u0645\u062f\u0639\u0648\u0645\u0629 \u062d\u0627\u0644\u064a\u064b\u0627: " + CARRIER_WORD),
+}
+
+
+def _strip_js_comment(line):
+    """يقص الكومنت اللي في آخر سطر كود — بس اللي بره السترينجات.
+
+    `grep` والقطع الساذج على أول "//" بيغلطوا مع سترينج فيه رابط
+    (`'https://…'`) — فبنمشي حرف حرف وناخد بالنا من الاقتباس والهروب."""
+    q = None
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if q:
+            if c == "\\":
+                i += 2
+                continue
+            if c == q:
+                q = None
+        elif c in "'\"`":
+            q = c
+        elif c == "/" and i + 1 < len(line) and line[i + 1] == "/":
+            return line[:i]
+        i += 1
+    return line
+
+
+def _visible_part(rel, line):
+    """الجزء اللي ممكن يوصل لعين التاجر من السطر."""
+    stripped = line.strip()
+    if (stripped.startswith("//") or stripped.startswith("/*")
+            or stripped.startswith("*") or stripped.startswith("<!--")):
+        return ""
+    return _strip_js_comment(line) if rel.endswith(".js") else line
+
+
+def check_carrier_naming():
+    """أي ظهور جديد لـ«بوسطة» في نص معروض = فشل.
+
+    الفحص ببايثون مش grep عن قصد — نطاق البايتات العربي في grep بيمسك
+    حروف مش المقصودة (درس 28)."""
+    print("\u2500\u2500 \u062a\u0633\u0645\u064a\u0629 \u0634\u0631\u0643\u0629 \u0627\u0644\u0634\u062d\u0646")
+    bad, comments = [], 0
+    for dirpath, _dirs, files in os.walk(os.path.join(ROOT, "app")):
+        for fn in sorted(files):
+            if not fn.endswith((".js", ".html", ".css")):
+                continue
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, ROOT).replace(os.sep, "/")
+            try:
+                text = read(full)
+            except Exception:
+                continue
+            if CARRIER_WORD not in text:
+                continue
+            for n, line in enumerate(text.splitlines(), 1):
+                if CARRIER_WORD not in line:
+                    continue
+                visible = _visible_part(rel, line)
+                if CARRIER_WORD not in visible:
+                    comments += 1
+                    continue
+                if any(rel == f and frag in visible for f, frag in CARRIER_ALLOWED):
+                    continue
+                bad.append((rel, n, line.strip()[:110]))
+    if bad:
+        for rel, n, txt in bad:
+            err("\u00ab" + CARRIER_WORD + "\u00bb \u0641\u064a \u0646\u0635 \u0645\u0639\u0631\u0648\u0636 \u2014 %s:%d\n     %s" % (rel, n, txt))
+    else:
+        ok("\u0645\u0641\u064a\u0634 \u00ab" + CARRIER_WORD + "\u00bb \u0641\u064a \u0623\u064a \u0646\u0635 \u0645\u0639\u0631\u0648\u0636 (%d \u0643\u0648\u0645\u0646\u062a \u0645\u0633\u0645\u0648\u062d + %d \u0645\u0648\u0636\u0639 \u0641\u064a \u0643\u0627\u0631\u062a \u0627\u0644\u0631\u0628\u0637)" % (comments, len(CARRIER_ALLOWED)))
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -941,6 +1026,8 @@ def main():
     for t in TARGETS:
         check_html(t)
         print()
+    check_carrier_naming()
+    print()
     if errors:
         print("❌ %d مشكلة — ماتنشرش" % len(errors))
         return 1

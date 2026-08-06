@@ -244,7 +244,7 @@ export function renderDetail(){
        var _rk=Number(o.customer_ranking); if(isNaN(_rk))return '';
        var _c=_rk>=RANK_GOOD?'rk-good':(_rk>=RANK_MID?'rk-mid':'rk-bad');
        var _l=_rk>=RANK_GOOD?'جامد':(_rk>=RANK_MID?'متوسط':'زبالة');
-       return dr('سمعة العميل (بوسطة)','<span class="rk-badge '+_c+'" style="margin:0">'+_l+'</span> <span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+_rk.toFixed(1)+'%</span>');
+       return dr('سمعة العميل (شركة الشحن)','<span class="rk-badge '+_c+'" style="margin:0">'+_l+'</span> <span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+_rk.toFixed(1)+'%</span>');
      })()
     +dr('الموبايل الأساسي',fieldEditable(o.phone,'الموبايل','phone'))
     +dr('الموبايل الإضافي',copyable(o.alt_phone,'الموبايل'))
@@ -254,7 +254,7 @@ export function renderDetail(){
 
     +'<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">\uD83E\uDDFE</span>بيانات الطلب</div>'
     +dr('رقم الطلب','<span class="dval">'+esc(fmt(o.order_uid))+'</span>')
-    +dr('رقم التتبع','<span class="dval">'+(o.tracking_no?esc(o.tracking_no):'<span style="color:var(--muted);font-style:italic">في انتظار بوسطة</span>')+'</span>')
+    +dr('رقم التتبع','<span class="dval">'+(o.tracking_no?esc(o.tracking_no):'<span style="color:var(--muted);font-style:italic">في انتظار شركة الشحن</span>')+'</span>')
     +'</div>'
 
     +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">\uD83D\uDCE6</span>المنتجات</div>'
@@ -369,10 +369,10 @@ export function renderDetail(){
     +STATUS_OPTIONS.map(function(s){return'<option value="'+s+'"'+(s===o.status?' selected':'')+'>'+statusLabel(s)+'</option>';}).join('')
     +'</select></div>'
 
-    // 3 main action buttons: تأكيد - بوسطة - إلغاء
+    // 3 main action buttons: تأكيد - شحن - إلغاء
     +'<div class="dacts">'
     +'<button class="abtn ok" id="da-ok">✓ تأكيد</button>'
-    +'<button class="abtn bs" id="da-bs">📦 بوسطة</button>'
+    +'<button class="abtn bs" id="da-bs">📦 شحن</button>'
     +'<button class="abtn cn" id="da-cn">✕ إلغاء</button>'
     +'</div>'
     +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>';

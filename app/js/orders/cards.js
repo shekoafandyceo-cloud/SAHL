@@ -302,7 +302,7 @@ export function loadMergeCandidates(){
     });
 }
 
-// كارت "بضاعة مع بوسطة": تكلفة بضاعة الأوردرات في تشغيل بوسطة — كويري مخصّص
+// كارت "قيمة بضاعة مع شركة الشحن": تكلفة بضاعة الأوردرات في تشغيل بوسطة — كويري مخصّص
 export function loadBostaInventoryCard(){
   var el=$id('rv-bosta-stock'); if(!el) return;
   var sub=$id('rv-bosta-stock-sub');

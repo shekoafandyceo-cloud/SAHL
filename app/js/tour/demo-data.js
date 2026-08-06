@@ -27,7 +27,7 @@ export function tourDemoOrders(){
     { id:'demo-1039', order_uid:'DEMO-1039', customer_name:'نورهان سامح', phone:'01033334444', city:'طنطا',
       address:'شارع البحر، أمام المستشفى', product_name:'ترابيزة IKEA', total_cost:1420,
       status:'Delivered', platform:'tiktok', payment_stage:'cod', tracking_no:'BOS-77280', created_at:thisMonth(3),
-      status_log:[{to:'pending',at:iso(2000),by:'النظام'},{to:'confirmed',at:iso(1900),by:'سارة'},{to:'OUT',at:iso(1500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(800),by:'بوسطة'}] },
+      status_log:[{to:'pending',at:iso(2000),by:'النظام'},{to:'confirmed',at:iso(1900),by:'سارة'},{to:'OUT',at:iso(1500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(800),by:'شركة الشحن'}] },
     { id:'demo-1038', order_uid:'DEMO-1038', customer_name:'يوسف الديب', phone:'01555556666', city:'القاهرة',
       address:'مدينة نصر، الحي السابع', product_name:'ترولي خشب ايكيا', total_cost:870,
       status:'cancelled', platform:'fb', payment_stage:'cod', tracking_no:'', created_at:thisMonth(4),
@@ -37,19 +37,19 @@ export function tourDemoOrders(){
     { id:'demo-1037', order_uid:'DEMO-1037', customer_name:'مريم حسن', phone:'01066667777', city:'الفيوم',
       address:'شارع الحرية، وسط البلد', product_name:'تيربو بريمو ٥ دور', total_cost:1290,
       status:'Returned to business', platform:'ig', payment_stage:'cod', tracking_no:'BOS-77199', created_at:thisMonth(6),
-      status_log:[{to:'pending',at:iso(3000),by:'النظام'},{to:'confirmed',at:iso(2900),by:'سارة'},{to:'OUT',at:iso(2500),by:'أحمد (سكانر)'},{to:'Returned to business',at:iso(1200),by:'بوسطة'}] },
+      status_log:[{to:'pending',at:iso(3000),by:'النظام'},{to:'confirmed',at:iso(2900),by:'سارة'},{to:'OUT',at:iso(2500),by:'أحمد (سكانر)'},{to:'Returned to business',at:iso(1200),by:'شركة الشحن'}] },
     { id:'demo-1036', order_uid:'DEMO-1036', customer_name:'أحمد صبري', phone:'01077778888', city:'القاهرة',
       address:'العباسية، شارع الأمير', product_name:'مطبقية ريكي ٢ دور', total_cost:980,
       status:'Delivered', platform:'fb', payment_stage:'cod', tracking_no:'BOS-77150', created_at:thisMonth(6),
-      status_log:[{to:'pending',at:iso(4000),by:'النظام'},{to:'confirmed',at:iso(3900),by:'سارة'},{to:'OUT',at:iso(3500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(2800),by:'بوسطة'}] },
+      status_log:[{to:'pending',at:iso(4000),by:'النظام'},{to:'confirmed',at:iso(3900),by:'سارة'},{to:'OUT',at:iso(3500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(2800),by:'شركة الشحن'}] },
     { id:'demo-1035', order_uid:'DEMO-1035', customer_name:'فاطمة علي', phone:'01099990000', city:'الجيزة',
       address:'الهرم، شارع الملك فيصل', product_name:'استاند أمريكانا', total_cost:1150,
       status:'Delivered', platform:'ig', payment_stage:'cod', tracking_no:'BOS-77080', created_at:thisMonth(7),
-      status_log:[{to:'pending',at:iso(5000),by:'النظام'},{to:'confirmed',at:iso(4900),by:'سارة'},{to:'OUT',at:iso(4500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(3800),by:'بوسطة'}] },
+      status_log:[{to:'pending',at:iso(5000),by:'النظام'},{to:'confirmed',at:iso(4900),by:'سارة'},{to:'OUT',at:iso(4500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(3800),by:'شركة الشحن'}] },
     { id:'demo-1034', order_uid:'DEMO-1034', customer_name:'عمر خالد', phone:'01511112222', city:'الإسكندرية',
       address:'سيدي جابر، شارع أبو قير', product_name:'ترابيزة IKEA', total_cost:1420,
       status:'Delivered', platform:'tiktok', payment_stage:'cod', tracking_no:'BOS-77010', created_at:thisMonth(8),
-      status_log:[{to:'pending',at:iso(6000),by:'النظام'},{to:'confirmed',at:iso(5900),by:'سارة'},{to:'OUT',at:iso(5500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(4800),by:'بوسطة'}] }
+      status_log:[{to:'pending',at:iso(6000),by:'النظام'},{to:'confirmed',at:iso(5900),by:'سارة'},{to:'OUT',at:iso(5500),by:'أحمد (سكانر)'},{to:'Delivered',at:iso(4800),by:'شركة الشحن'}] }
   ];
 }
 
@@ -86,8 +86,8 @@ export function tourDemoMovements(){
   function iso(mins){ return new Date(now - mins*60000).toISOString(); }
   function dOnly(mins){ return new Date(now - mins*60000).toISOString().slice(0,10); }
   return [
-    {id:'dm1', product_id:'ds4', product_name:'ترابيزة IKEA', movement_type:'out', qty_in:0, qty_out:1, created_at:iso(1500), movement_date:dOnly(1500), tracking_no:'BOS-77280', notes:'خروج مع بوسطة — DEMO-1039'},
-    {id:'dm2', product_id:'ds3', product_name:'استاند أمريكانا', movement_type:'out', qty_in:0, qty_out:1, created_at:iso(120), movement_date:dOnly(120), tracking_no:'BOS-77310', notes:'خروج مع بوسطة — DEMO-1040'},
+    {id:'dm1', product_id:'ds4', product_name:'ترابيزة IKEA', movement_type:'out', qty_in:0, qty_out:1, created_at:iso(1500), movement_date:dOnly(1500), tracking_no:'BOS-77280', notes:'خروج مع شركة الشحن — DEMO-1039'},
+    {id:'dm2', product_id:'ds3', product_name:'استاند أمريكانا', movement_type:'out', qty_in:0, qty_out:1, created_at:iso(120), movement_date:dOnly(120), tracking_no:'BOS-77310', notes:'خروج مع شركة الشحن — DEMO-1040'},
     {id:'dm3', product_id:'ds1', product_name:'تيربو بريمو ٥ دور', movement_type:'in', qty_in:1, qty_out:0, created_at:iso(1200), movement_date:dOnly(1200), tracking_no:'BOS-77199', notes:'مرتجع رجع للمخزن — DEMO-1037'},
     {id:'dm4', product_id:'ds2', product_name:'مطبقية ريكي ٢ دور', movement_type:'in', qty_in:20, qty_out:0, created_at:iso(5000), movement_date:dOnly(5000), tracking_no:'', notes:'توريد جديد'}
   ];

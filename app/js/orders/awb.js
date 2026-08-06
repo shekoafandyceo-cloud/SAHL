@@ -57,7 +57,7 @@ export async function printAwbForOrders(orderIds, btnEl){
       return;
     }
     
-    if(!data.pdf_base64){ toast('بوسطة ما رجعتش PDF','er'); return; }
+    if(!data.pdf_base64){ toast('شركة الشحن ما رجعتش PDF','er'); return; }
     
     var pdfBlob = _b64ToBlob(data.pdf_base64, 'application/pdf');
     var pdfUrl = URL.createObjectURL(pdfBlob);

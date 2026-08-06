@@ -258,7 +258,7 @@ export function saveIntegrations(payload, sectionLabel, btn, onDone){
 export function saveBosta(){
   var btn = $id('set-save-bosta');
   var key = ($id('set-bosta-key').value || '').trim();
-  saveIntegrations({ p_shipping_api_key: key }, 'بوسطة', btn);
+  saveIntegrations({ p_shipping_api_key: key }, 'شركة الشحن', btn);
 }
 
 // Auto-save the WhatsApp-confirmation on/off toggle. Reverts visual state on failure.

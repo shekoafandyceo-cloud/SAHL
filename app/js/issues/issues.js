@@ -83,7 +83,7 @@ export function buildIssues(){
     // 4) مشاكل تشغيل Bosta الحالية — الحديثة فقط.
     if(BOSTA_INVENTORY_STATUSES.indexOf(o.status)>=0 && isRecent(o,OPS_ISSUE_DAYS)){
       if(!o.tracking_no){
-        add('high','بوسطة','شحنة في التشغيل بدون رقم تتبع', 'الأوردر داخل حالات بوسطة التشغيل لكن مفيش tracking_no محفوظ.', '#'+uid, {kind:'order',q:o.order_uid||o.phone||o.id}, 'ops');
+        add('high','شحن','شحنة في التشغيل بدون رقم تتبع', 'الأوردر داخل حالات شحن التشغيل لكن مفيش tracking_no محفوظ.', '#'+uid, {kind:'order',q:o.order_uid||o.phone||o.id}, 'ops');
       }
       if(!o.stock_deducted_at && o.tracking_no){
         noDeduct++;
@@ -92,7 +92,7 @@ export function buildIssues(){
     }
 
     if((o.status==='Exception' || o.status==='exception') && isRecent(o,OPS_ISSUE_DAYS)){
-      add('high','بوسطة','Exception محتاج تدخل', 'الشحنة في حالة Exception ولازم تتراجع مع بوسطة أو العميل.', '#'+uid, {kind:'order',q:o.tracking_no||o.order_uid||o.phone}, 'ops');
+      add('high','شحن','Exception محتاج تدخل', 'الشحنة في حالة Exception ولازم تتراجع مع شركة الشحن أو العميل.', '#'+uid, {kind:'order',q:o.tracking_no||o.order_uid||o.phone}, 'ops');
     }
 
     // 5) مرتجع بدون رجوع مخزون — بس لو أصلاً كان اتخصم.

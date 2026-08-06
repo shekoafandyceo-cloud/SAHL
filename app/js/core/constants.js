@@ -7,10 +7,10 @@ export var SL={
   Delivered:'تم التسليم',
   cancelled:'ملغية',
   returned:'مرتجعة',
-  bosta_assigned:'بوسطة',
-  'BOSTA AUTO':'بوسطة اوتوماتيك',
+  bosta_assigned:'شحن',
+  'BOSTA AUTO':'شحن أوتوماتيك',
   BOSTA2:'اوردر اتضرب',
-  bosta_auto:'بوسطة اوتوماتيك',
+  bosta_auto:'شحن أوتوماتيك',
   bosta2:'اوردر اتضرب',
   failed:'فشل',
   // Official Bosta API statuses — keep these exact strings in database

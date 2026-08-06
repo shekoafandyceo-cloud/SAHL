@@ -178,22 +178,22 @@
     <div class="sgrid">
       <div class="sc a"><span class="sc-info" data-tip="إجمالي عدد الطلبات اللي نزلت على السيستم في المدة المختارة بكل حالاتها.">i</span><div class="slb">إجمالي الطلبات</div><div class="sval" id="s0">—</div></div>
       <div class="sc p"><span class="sc-info" data-tip="الطلبات اللي لسه محتاجة تأكيد من العميل ومتاخدش فيها أي إجراء.">i</span><div class="slb">قيد الانتظار</div><div class="sval" id="s1">—</div></div>
-      <div class="sc c"><span class="sc-info" data-tip="الطلبات اللي العميل أكّدها وجاهزة للشحن (لسه متبعتتش لبوسطة).">i</span><div class="slb">مؤكدة</div><div class="sval" id="s2">—</div></div>
+      <div class="sc c"><span class="sc-info" data-tip="الطلبات اللي العميل أكّدها وجاهزة للشحن (لسه متبعتتش لشركة الشحن).">i</span><div class="slb">مؤكدة</div><div class="sval" id="s2">—</div></div>
       <div class="sc d"><span class="sc-info" data-tip="الطلبات اللي اتسلّمت للعميل فعلاً ووصلت بنجاح (Delivered).">i</span><div class="slb">تم التسليم</div><div class="sval" id="s3">—</div></div>
       <div class="sc x"><span class="sc-info" data-tip="الطلبات اللي اتلغت سواء من العميل أو من المدير.">i</span><div class="slb">ملغية</div><div class="sval" id="s4">—</div></div>
       <div class="sc r"><span class="sc-info" data-tip="الطلبات اللي رجعت من العميل بعد ما اتشحنت (مرتجع).">i</span><div class="slb">مرتجعة</div><div class="sval" id="s5">—</div></div>
-      <div class="sc bs" id="card-ready"><span class="sc-info" data-tip="الأوردرات اللي اتأكدت واتبعتت لبوسطة وجاهزة للخروج من المخزن — حالاتها: بوسطة، بوسطة أوتوماتيك، بوسطة 2. اضغط للذهاب لفلتر بوسطة.">i</span><div class="slb">جاهز للخروج</div><div class="sval" id="s-ready">—</div></div>
+      <div class="sc bs" id="card-ready"><span class="sc-info" data-tip="الأوردرات اللي اتأكدت واتبعتت لشركة الشحن وجاهزة للخروج من المخزن — حالاتها: شحن، شحن أوتوماتيك، اوردر اتضرب. اضغط للذهاب لفلتر الشحن.">i</span><div class="slb">جاهز للخروج</div><div class="sval" id="s-ready">—</div></div>
       <div class="sc cr"><span class="sc-info" data-tip="نسبة التأكيد = الطلبات المؤكدة ÷ الطلبات اللي اتخذ فيها قرار (مؤكد + ملغي). الطلبات قيد الانتظار مش بتدخل الحسبة.">i</span><div class="slb">نسبة التأكيد</div><div class="sval" id="s6">—</div></div>
       <div class="sc dr"><span class="sc-info" data-tip="نسبة التسليم = الطلبات اللي اتسلّمت ÷ الطلبات اللي خلصت رحلة الشحن (تسليم + مرتجع). بتحسب نجاحك في توصيل الطلبات اللي اتشحنت فعلاً، مش من إجمالي الأوردرات.">i</span><div class="slb">نسبة التسليم</div><div class="sval" id="s7">—</div></div>
     </div>
     <div class="revenue-grid admin-only" id="revenue-grid">
       <div class="rev-card" style="--rv:var(--green)"><div class="rev-lbl">قيمة الطلبات المسجلة</div><div class="rev-val" id="rv-total">—</div><div class="rev-sub">تشمل كل الحالات — حسب المدة</div></div>
       <div class="rev-card" style="--rv:var(--teal)"><div class="rev-lbl">المتحصل فعليًا</div><div class="rev-val" id="rv-collected">—</div><div class="rev-sub">Delivered فقط — حسب المدة</div></div>
-      <div class="rev-card" style="--rv:var(--blue)"><div class="rev-lbl">متوقع التحصيل</div><div class="rev-val" id="rv-expected">—</div><div class="rev-sub">متوقع من بوسطة — حسب المدة</div></div>
+      <div class="rev-card" style="--rv:var(--blue)"><div class="rev-lbl">متوقع التحصيل</div><div class="rev-val" id="rv-expected">—</div><div class="rev-sub">متوقع من شركة الشحن — حسب المدة</div></div>
       <div class="rev-card" style="--rv:var(--red)"><div class="rev-lbl">مبيعات مهدرة</div><div class="rev-val" id="rv-lost">—</div><div class="rev-sub">ملغية + مرتجعة — حسب المدة</div></div>
       <div class="rev-card" style="--rv:var(--pur)"><div class="rev-lbl">متوسط الأوردر</div><div class="rev-val" id="rv-aov">—</div><div class="rev-sub">AOV — حسب المدة</div></div>
       <div class="rev-card" style="--rv:var(--acc)"><div class="rev-lbl">مدفوع أونلاين</div><div class="rev-val" id="rv-paymob">—</div><div class="rev-sub">Paymob — حسب المدة</div></div>
-      <div class="rev-card admin-only" style="--rv:var(--ora)"><div class="rev-lbl">قيمة بضاعة مع بوسطة</div><div class="rev-val" id="rv-bosta-stock">—</div><div class="rev-sub" id="rv-bosta-stock-sub">شحنات في التشغيل حاليًا</div></div>
+      <div class="rev-card admin-only" style="--rv:var(--ora)"><div class="rev-lbl">قيمة بضاعة مع شركة الشحن</div><div class="rev-val" id="rv-bosta-stock">—</div><div class="rev-sub" id="rv-bosta-stock-sub">شحنات في التشغيل حاليًا</div></div>
     </div>
     <div class="fbar">
       <div class="sw"><span>🔍</span><input class="sinput" id="qinp" placeholder="بحث بالاسم، الهاتف، رقم الطلب، التتبع، العنوان، الحملة..."></div>
@@ -201,12 +201,12 @@
         <option value="">كل الحالات</option>
         <option value="pending">قيد الانتظار</option>
         <option value="confirmed">مؤكدة</option>
-        <option value="__operation__">⚙️ OPERATION (مع بوسطة الآن)</option>
+        <option value="__operation__">⚙️ OPERATION (مع شركة الشحن الآن)</option>
         <option value="__cancelreq__">⚠ طلب إلغاء من العميل</option>
         <option value="delivered">تم التسليم</option>
         <option value="cancelled">ملغية</option>
         <option value="returned">مرتجعة</option>
-        <option value="bosta_assigned">بوسطة</option>
+        <option value="bosta_assigned">شحن</option>
         <option value="failed">فشل</option>
       </select>
       <select class="fsel" id="fpl">
@@ -229,14 +229,14 @@
       <div class="bsep"></div>
       <span style="color:var(--muted);font-size:.83rem;">تغيير الحالة لكل المحددين:</span>
       <button class="bbtn ok" id="bb-ok">✓ تأكيد</button>
-      <button class="bbtn bs" id="bb-bs">📦 بوسطة</button>
+      <button class="bbtn bs" id="bb-bs">📦 شحن</button>
       <button class="bbtn cn" id="bb-cn">✕ إلغاء</button>
          <div class="bsep"></div>
-         <button class="bbtn" id="bb-print" style="background:#1d6ef2;color:#fff;border-color:#1d6ef2;" title="يطبع بوليصة بوسطة لكل الأوردرات المحددة (لازم يكون فيها tracking_no)">🖨️ طبع البوالص</button>
+         <button class="bbtn" id="bb-print" style="background:#1d6ef2;color:#fff;border-color:#1d6ef2;" title="يطبع بوليصة الشحن لكل الأوردرات المحددة (لازم يكون فيها tracking_no)">🖨️ طبع البوالص</button>
       <select class="fsel" id="bb-sel" style="padding:6px 10px;font-size:.82rem;">
         <option value="">حالة أخرى...</option>
         <option value="pending">قيد الانتظار</option>
-        <option value="BOSTA AUTO">بوسطة اوتوماتيك</option>
+        <option value="BOSTA AUTO">شحن أوتوماتيك</option>
         <option value="BOSTA2">اوردر اتضرب</option>
         <option value="Received at warehouse">استلام في المخزن</option>
         <option value="Route Assigned">تعيين المسار</option>
@@ -407,7 +407,7 @@
       <div class="sgrid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;">
         <div class="sc a"><span class="info-i" tabindex="0" title="إجمالي قيمة كل الطلبات داخل الفترة المختارة من غير استبعاد أي حالة. الرقم ده يقيس حجم الطلبات المسجلة، مش الفلوس اللي اتحصلت فعلاً." data-tip="إجمالي قيمة كل الطلبات داخل الفترة المختارة من غير استبعاد أي حالة. الرقم ده يقيس حجم الطلبات المسجلة، مش الفلوس اللي اتحصلت فعلاً.">i</span><div class="slb">قيمة الطلبات المسجلة</div><div class="sval" id="fin-revenue">—</div><div class="sdelta" id="fin-revenue-delta">تشمل كل الحالات</div></div>
         <div class="sc d"><span class="info-i" tabindex="0" title="إجمالي قيمة الأوردرات اللي حالتها Delivered فقط. ده أقرب رقم للفلوس اللي المفروض دخلت فعليًا من التسليم." data-tip="إجمالي قيمة الأوردرات اللي حالتها Delivered فقط. ده أقرب رقم للفلوس اللي المفروض دخلت فعليًا من التسليم.">i</span><div class="slb">المتحصل فعلاً</div><div class="sval" id="fin-collected">—</div></div>
-        <div class="sc c"><span class="info-i" tabindex="0" title="قيمة الأوردرات اللي دخلت بوسطة أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة." data-tip="قيمة الأوردرات اللي دخلت بوسطة أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة.">i</span><div class="slb">متوقع التحصيل</div><div class="sval" id="fin-expected">—</div></div>
+        <div class="sc c"><span class="info-i" tabindex="0" title="قيمة الأوردرات اللي دخلت شركة الشحن أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة." data-tip="قيمة الأوردرات اللي دخلت شركة الشحن أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة.">i</span><div class="slb">متوقع التحصيل</div><div class="sval" id="fin-expected">—</div></div>
         <div class="sc x"><span class="info-i" tabindex="0" title="قيمة الأوردرات الملغية أو المرتجعة أو الفاشلة داخل الفترة. ده رقم يساعدك تشوف حجم المبيعات اللي ضاعت." data-tip="قيمة الأوردرات الملغية أو المرتجعة أو الفاشلة داخل الفترة. ده رقم يساعدك تشوف حجم المبيعات اللي ضاعت.">i</span><div class="slb">المهدر</div><div class="sval" id="fin-lost">—</div></div>
       </div>
 
@@ -685,8 +685,8 @@
       <div class="sc-head">
         <div class="sc-ico">📦</div>
         <div class="sc-titles">
-          <h3>ربط بوسطة</h3>
-          <p>عشان النظام يطلّع بوالص ويتابع التسليم أوتوماتيك</p>
+          <h3>ربط شركة الشحن</h3>
+          <p>عشان النظام يطلّع بوالص ويتابع التسليم أوتوماتيك — شركة الشحن المدعومة حاليًا: بوسطة</p>
         </div>
       </div>
       <div class="sc-body">
@@ -700,7 +700,7 @@
           </div>
         </div>
         <div class="settings-actions">
-          <button class="sbtn settings-save-btn" id="set-save-bosta">💾 حفظ بيانات بوسطة</button>
+          <button class="sbtn settings-save-btn" id="set-save-bosta">💾 حفظ بيانات الشحن</button>
         </div>
       </div>
     </section>

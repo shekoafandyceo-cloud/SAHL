@@ -135,7 +135,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
       if(!isNaN(_rk)){
         var _rkCls=_rk>=RANK_GOOD?'rk-good':(_rk>=RANK_MID?'rk-mid':'rk-bad');
         var _rkLbl=_rk>=RANK_GOOD?'جامد':(_rk>=RANK_MID?'متوسط':'زبالة');
-        rankBadge='<span class="rk-badge '+_rkCls+'" title="نسبة استلام العميل عبر بوسطة: '+_rk.toFixed(1)+'%">'+_rkLbl+'</span>';
+        rankBadge='<span class="rk-badge '+_rkCls+'" title="نسبة استلام العميل عبر شركة الشحن: '+_rk.toFixed(1)+'%">'+_rkLbl+'</span>';
       }
     }
     var cancelBadge = (o.cancel_requested_at && !o.cancel_resolved_at)
@@ -147,7 +147,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     h+='<tr data-id="'+o.id+'"'+clsAttr+'>'
       +'<td class="cbcol"><input type="checkbox" class="cb cb-row" data-id="'+o.id+'" '+checked+'></td>'
       +'<td class="id'+(cancelBadge?' has-cx':'')+'">'+noteIcon+esc(fmt(o.order_uid))+cancelBadge+'</td>'
-      +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة بوسطة">🖨️</button>'+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
+      +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة الشحن">🖨️</button>'+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
       +'<td class="nm">'+vipBadge+lockMaybe(fmt(o.customer_name))+rankBadge+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.phone))+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.alt_phone))+'</td>'

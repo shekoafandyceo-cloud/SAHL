@@ -67,7 +67,7 @@ export function refreshSetupChecklist(force){
         hint: hasOrders ? 'الأوردرات بتوصل ✓' : 'انسخه من الإعدادات وحطه في موقعك — الأوردرات هتيجي لوحدها' },
       { done: hasStock, label: 'سجّل منتجاتك', act: 'goto-stock',
         hint: hasStock ? 'المخزون شغّال ✓' : 'عشان المخزون يتخصم أوتوماتيك مع كل أوردر' },
-      { done: !!(t.shipping_api_key && String(t.shipping_api_key).trim()), label: 'اربط بوسطة', act: 'goto-settings',
+      { done: !!(t.shipping_api_key && String(t.shipping_api_key).trim()), label: 'اربط شركة الشحن', act: 'goto-settings',
         hint: 'عشان البوالص تتطلع والتتبع يشتغل أوتوماتيك' },
       { done: !!(t.telegram_chat_id && String(t.telegram_chat_id).trim()), label: 'اربط بوت تلجرام', act: 'goto-settings',
         hint: 'تنبيهات لحظية بكل اللي بيحصل في متجرك' }
