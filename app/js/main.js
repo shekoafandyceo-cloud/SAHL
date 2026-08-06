@@ -49,6 +49,8 @@ import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.j
 
 import { copyWebhookUrl } from './settings/webhook.js';
 
+import { addStaff, deleteStaff, loadStaff, renderStaff, staffCall, staffSetUsers, staffUsers, toggleStaff, wireStaffEvents } from './settings/staff.js';
+
 import { askCancelReason } from './orders/cancel-reason.js';
 
 import { tourPositionFor } from './tour/position.js';

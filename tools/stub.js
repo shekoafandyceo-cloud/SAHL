@@ -129,7 +129,9 @@
 
   var client = {
     auth: {
-      getSession: function(){ return Promise.resolve({data:{session:{user:{id:'u1', email:'admin@test.local'}}}, error:null}); },
+      // access_token لازم يكون موجود — الكود بيقراه عشان ينادي الـEdge Functions
+      // (staff.js و wa-verify-number). من غيره النداء بيفشل بـ«الجلسة انتهت».
+      getSession: function(){ return Promise.resolve({data:{session:{user:{id:'u1', email:'admin@test.local'}, access_token:'stub-jwt'}}, error:null}); },
       getUser:    function(){ return Promise.resolve({data:{user:{id:'u1', email:'admin@test.local', user_metadata:{}}}, error:null}); },
       signOut:    function(){ return Promise.resolve({error:null}); },
       onAuthStateChange: function(){ return {data:{subscription:{unsubscribe:function(){}}}}; }
@@ -148,6 +150,27 @@
       upload: function(){ return Promise.resolve({data:null, error:{message:'stub'}}); }
     }; } },
     functions: { invoke: function(){ return Promise.resolve({data:{ok:false}, error:null}); } }
+  };
+
+  // اعتراض نداءات Edge Functions — بيتفعّل بس لو الاختبار حط window.__FN
+  // (الافتراضي مطفي فالاختبارات القديمة بنفس سلوكها بالحرف)
+  var _fetch = window.fetch;
+  window.fetch = function(url, opt){
+    var u = String(url || '');
+    if(window.__FN && u.indexOf('/functions/v1/') >= 0){
+      var slug = u.split('/functions/v1/')[1].split('?')[0];
+      var body = {};
+      try{ body = JSON.parse((opt && opt.body) || '{}'); }catch(e){}
+      window.__FNCALLS = window.__FNCALLS || [];
+      window.__FNCALLS.push({ slug: slug, body: body, auth: !!(opt && opt.headers && opt.headers.Authorization) });
+      var out = window.__FN(slug, body);
+      return Promise.resolve({
+        ok: out.status ? out.status < 400 : true,
+        status: out.status || 200,
+        json: function(){ return Promise.resolve(out.body); }
+      });
+    }
+    return _fetch.apply(window, arguments);
   };
 
   window.supabase = { createClient: function(){ return client; } };

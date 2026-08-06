@@ -42,3 +42,37 @@
 .settings-steps code,#set-tg-bot-link{direction:ltr;unicode-bidi:isolate;display:inline-block;}
 /* الروابط والتوكنات الطويلة تاخد الصف كله — في العمود الضيق كانت بتتقص 45% */
 #page-settings .settings-grid .sg-full{grid-column:1/-1;}
+
+/* ── موظفين المتجر ─────────────────────────────────────────────────── */
+.staff-rows{display:flex;flex-direction:column;gap:10px;}
+.staff-row{display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg);
+  border:1px solid var(--brd);border-radius:13px;transition:.15s;}
+.staff-row.off{opacity:.62;background:repeating-linear-gradient(45deg,transparent,transparent 7px,rgba(100,116,139,.05) 7px,rgba(100,116,139,.05) 14px);}
+.staff-main{flex:1;min-width:0;}
+.staff-name{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-weight:900;font-size:.92rem;color:var(--txt);}
+.staff-role{font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+.staff-role.ra{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
+.staff-role.re{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;}
+.staff-you{font-size:.68rem;font-weight:800;padding:2px 7px;border-radius:999px;background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;}
+.staff-off-badge{font-size:.68rem;font-weight:800;padding:2px 7px;border-radius:999px;background:#fee2e2;color:#991b1b;border:1px solid #fecaca;}
+.staff-sub{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:4px;}
+/* الإيميل والتاريخ مونو وLTR — والـtext-align صريح جنب أي direction:ltr (درس 30) */
+.staff-mail{font-family:'JetBrains Mono',monospace;font-size:.74rem;color:var(--muted);direction:ltr;unicode-bidi:isolate;text-align:left;}
+.staff-seen{font-size:.73rem;color:var(--muted2);font-weight:700;}
+.staff-acts{display:flex;align-items:center;gap:7px;flex-shrink:0;}
+.staff-btn{border:1px solid var(--brd2);background:#fff;color:var(--txt);border-radius:10px;
+  padding:7px 14px;font-family:inherit;font-weight:800;font-size:.78rem;cursor:pointer;transition:.15s;white-space:nowrap;}
+.staff-btn:hover{filter:brightness(.97);}
+.staff-btn:disabled{opacity:.55;cursor:default;}
+.staff-btn.warn:hover{border-color:#fcd34d;color:#92400e;background:#fffbeb;}
+.staff-btn.ok{border-color:#a7f3d0;color:#047857;background:#ecfdf5;}
+.staff-btn.del:hover{border-color:#fecaca;color:#b91c1b;background:#fef2f2;}
+.staff-locked{font-size:1rem;opacity:.5;padding:0 10px;cursor:default;}
+.staff-empty,.staff-err{padding:18px;text-align:center;border-radius:13px;background:var(--bg);
+  border:1px dashed var(--brd2);color:var(--muted);font-weight:700;font-size:.86rem;}
+.staff-err{border-color:#fecaca;color:#b91c1b;background:#fef2f2;}
+@media(max-width:640px){
+  .staff-row{flex-direction:column;align-items:stretch;gap:10px;}
+  .staff-acts{justify-content:flex-end;}
+  .staff-btn{flex:1;text-align:center;}
+}

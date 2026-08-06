@@ -680,7 +680,50 @@
       </div>
     </section>
 
-    <!-- 3) بوسطة -->
+    <!-- 3) الموظفين -->
+    <section class="settings-card" data-tone="blue">
+      <div class="sc-head">
+        <div class="sc-ico">👥</div>
+        <div class="sc-titles">
+          <h3>موظفين المتجر</h3>
+          <p>اعمل حساب لكل موظف بباسورد خاص بيه — وتقدر توقفه في أي وقت</p>
+        </div>
+      </div>
+      <div class="sc-body">
+        <div id="staff-list"></div>
+        <div class="sc-divider"><span>➕ إضافة موظف</span></div>
+        <div class="settings-grid">
+          <div class="settings-row">
+            <label>اسم الموظف</label>
+            <input class="sinp" id="staff-name" type="text" placeholder="مثلاً: سارة إبراهيم" autocomplete="off">
+          </div>
+          <div class="settings-row">
+            <label>البريد الإلكتروني <span class="lbl-opt">(بيدخل بيه)</span></label>
+            <input class="sinp mono" id="staff-email" type="email" placeholder="sara@mystore.com" autocomplete="off" style="direction:ltr;text-align:left;">
+          </div>
+          <div class="settings-row">
+            <label>كلمة المرور <span class="lbl-opt">(8 حروف على الأقل)</span></label>
+            <div class="settings-secret-wrap">
+              <input class="sinp" id="staff-pass" type="password" placeholder="اكتب كلمة مرور قوية" autocomplete="new-password" style="direction:ltr;text-align:left;">
+              <button class="settings-eye-btn" data-target="staff-pass" type="button">👁</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>الصلاحية</label>
+            <select class="fsel" id="staff-role" style="width:100%">
+              <option value="employee">موظف — الطلبات والمخزون والمحادثات</option>
+              <option value="admin">أدمن — كل حاجة بما فيها الماليات والإعدادات</option>
+            </select>
+          </div>
+        </div>
+        <p class="sc-hint">🔑 الباسورد بيتحفظ مشفّر ومش هتقدر تشوفه تاني — اكتبه للموظف وقت ما تعمل الحساب.</p>
+        <div class="settings-actions">
+          <button class="sbtn settings-save-btn" id="staff-add">➕ إضافة الموظف</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4) شركة الشحن -->
     <section class="settings-card" data-tone="orange">
       <div class="sc-head">
         <div class="sc-ico">📦</div>
@@ -705,7 +748,7 @@
       </div>
     </section>
 
-    <!-- 4) واتساب -->
+    <!-- 5) واتساب -->
     <section class="settings-card" data-tone="green">
       <div class="sc-head">
         <div class="sc-ico">💬</div>
@@ -749,7 +792,7 @@
       </div>
     </section>
 
-    <!-- 5) ربط واتساب بميتا -->
+    <!-- 6) ربط واتساب بميتا -->
     <section class="settings-card" data-tone="green">
       <div class="sc-head">
         <div class="sc-ico">🔌</div>
@@ -786,7 +829,7 @@
       </div>
     </section>
 
-    <!-- 6) تلجرام + تنبيهات البوت -->
+    <!-- 7) تلجرام + تنبيهات البوت -->
     <section class="settings-card" data-tone="sky">
       <div class="sc-head">
         <div class="sc-ico">📱</div>

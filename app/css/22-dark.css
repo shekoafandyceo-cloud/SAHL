@@ -214,3 +214,17 @@ html.dark .dcal-day.q-weak{background:rgba(249,115,22,.17);border-color:rgba(249
 html.dark .dcal-day.q-bad{background:rgba(239,68,68,.19);border-color:rgba(239,68,68,.50);}
 /* الكهرماني الغامق مش مقروء على خلفية اليوم الغامقة */
 html.dark .dcal-open{color:#fbbf24;background:rgba(245,158,11,.15);border-color:rgba(245,158,11,.35);}
+
+/* ── موظفين المتجر — الليلي ── */
+html.dark .staff-row{background:#151d30;border-color:var(--brd);}
+html.dark .staff-row.off{background:repeating-linear-gradient(45deg,#151d30,#151d30 7px,rgba(255,255,255,.03) 7px,rgba(255,255,255,.03) 14px);}
+html.dark .staff-btn{background:#1a2233;border-color:var(--brd2);color:var(--txt);}
+html.dark .staff-btn.ok{background:rgba(16,185,129,.12);border-color:rgba(16,185,129,.35);color:#34d399;}
+html.dark .staff-btn.warn:hover{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#fbbf24;}
+html.dark .staff-btn.del:hover{background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.35);color:#f87171;}
+html.dark .staff-role.ra{background:rgba(245,158,11,.14);color:#fbbf24;border-color:rgba(245,158,11,.35);}
+html.dark .staff-role.re{background:rgba(37,99,235,.16);color:#93c5fd;border-color:rgba(59,130,246,.4);}
+html.dark .staff-you{background:rgba(16,185,129,.14);color:#34d399;border-color:rgba(16,185,129,.35);}
+html.dark .staff-off-badge{background:rgba(239,68,68,.14);color:#f87171;border-color:rgba(239,68,68,.35);}
+html.dark .staff-empty{background:#151d30;border-color:var(--brd2);}
+html.dark .staff-err{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);color:#f87171;}

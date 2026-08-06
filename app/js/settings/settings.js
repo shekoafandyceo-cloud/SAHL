@@ -11,6 +11,7 @@ import { showPage } from '../main.js';
 import { SECRET_NOT_READY, WA_WEBHOOK_BASE_URL, WEBHOOK_BASE_URL } from '../core/config.js';
 import { swallow } from '../core/log.js';
 import { copyWaCallbackUrl, copyWaVerifyToken, copyWebhookUrl } from './webhook.js';
+import { loadStaff, wireStaffEvents } from './staff.js';
 import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
 import { refreshInboxGate } from '../orders/billing-summary.js';
 import { ensureTenant, isAdmin } from '../orders/guards.js';
@@ -41,6 +42,7 @@ export function loadSettings(){
     renderWaVerifyBadge((wRes && !wRes.error) ? wRes.data : null);
     veilDone('settings');
     loadNotifyPrefs();
+    loadStaff();   // قايمة الموظفين — نداء منفصل لأنها من Edge Function مش من الفيو
   });
 }
 
@@ -395,6 +397,7 @@ export function wireSettingsEvents(){
   if($id('set-save-wa'))      $id('set-save-wa').addEventListener('click', saveWhatsApp);
   if($id('set-wa-confirm-toggle')) $id('set-wa-confirm-toggle').addEventListener('change', saveWaConfirmToggle);
   if($id('set-save-tg'))      $id('set-save-tg').addEventListener('click', saveTelegram);
+  wireStaffEvents();
   document.querySelectorAll('.settings-eye-btn').forEach(function(b){
     b.addEventListener('click', toggleSecretVisibility);
   });
