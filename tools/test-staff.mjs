@@ -72,10 +72,10 @@ const rows = () => p.evaluate(() => [...document.querySelectorAll('#staff-list .
 
 let r = await rows();
 ok(r.length === 4, `اتعرضوا 4 موظفين — ${r.length}`);
-ok(r[0].locked && r[0].btns.length === 0, 'حسابي أنا مقفول — مفيش أزرار عليه');
+ok(r[0].locked && r[0].btns.length === 0, 'حسابي أنا مقفول — مفيش أزرار عليه (ولا حتى العمولة)');
 ok(r[3].locked && r[3].btns.length === 0, 'الحساب المحمي (سوبر أدمن) مقفول');
-ok(!r[1].locked && r[1].btns.join('|') === 'إيقاف|حذف', `الموظف النشط عليه إيقاف+حذف — ${r[1].btns.join('|')}`);
-ok(r[2].off && r[2].btns[0] === 'تفعيل', 'الموظف الموقوف شكله مختلف وزراره «تفعيل»');
+ok(!r[1].locked && r[1].btns.join('|') === '💰 عمولة|إيقاف|حذف', `الموظف النشط عليه عمولة+إيقاف+حذف — ${r[1].btns.join('|')}`);
+ok(r[2].off && r[2].btns[1] === 'تفعيل', `الموظف الموقوف شكله مختلف وزراره «تفعيل» — ${r[2].btns.join('|')}`);
 ok(r[1].mail === 'sara@test.local', `الإيميل ظاهر — ${r[1].mail}`);
 
 // 🔴 الثابت: الواجهة مابتبعتش tenant_id خالص
@@ -113,7 +113,7 @@ ok(/يعمل تحديث|يقفل الصفحة/.test(modalTxt), 'وبتصارح �
 await p.click('#cmodal-ok');
 await p.waitForTimeout(500);
 r = await rows();
-ok(r[1].off && r[1].btns[0] === 'تفعيل', 'بعد الإيقاف الصف بقى موقوف وزراره «تفعيل»');
+ok(r[1].off && r[1].btns[1] === 'تفعيل', `بعد الإيقاف الصف بقى موقوف وزراره «تفعيل» — ${r[1].btns.join('|')}`);
 
 // حذف — تأكيد بيحذّر من السجل التاريخي
 await p.click('#staff-list .staff-row:nth-child(3) .staff-btn.del');
@@ -136,6 +136,32 @@ const toastTxt = await p.evaluate(() => [...document.querySelectorAll('.toast')]
 ok(/مسجّل بالفعل/.test(toastTxt), `رسالة السيرفر ظهرت للتاجر — ${toastTxt.slice(0,60)}`);
 const btnBack = await p.evaluate(() => { const b = document.getElementById('staff-add'); return { d: b.disabled, t: b.textContent.trim() }; });
 ok(!btnBack.d && /إضافة/.test(btnBack.t), 'الزرار رجع شغّال بعد الفشل مش عالق على «جاري الإنشاء»');
+
+// ── محرّر العمولة ────────────────────────────────────────────────────
+// الأدمن بيفعّل عمولة upselling للموظف. القيم دي **للعرض بس** — الحساب
+// الحقيقي في save_order_products من صف الموظف على السيرفر.
+await p.click('#staff-list .staff-row:nth-child(2) .staff-btn.cm');
+await p.waitForSelector('#staff-list .staff-cm-box .cm-fields', { timeout:5000 });
+const cmBox = await p.evaluate(() => {
+  const box = document.querySelector('#staff-list .staff-row:nth-child(2) .staff-cm-box');
+  return {
+    open: box && box.style.display !== 'none',
+    hasToggle: !!box.querySelector('input[type=checkbox]'),
+    types: [...box.querySelectorAll('select option')].map(o => o.value),
+    hint: (box.querySelector('.cm-hint')||{}).textContent || ''
+  };
+});
+ok(cmBox.open && cmBox.hasToggle, 'محرّر العمولة بيفتح ومعاه مفتاح تفعيل');
+ok(cmBox.types.join('|') === 'percent|fixed', `النوعين موجودين — ${cmBox.types.join('|')}`);
+ok(/مبلغ الزيادة/.test(cmBox.hint), 'الشرح بيقول إن العمولة على الزيادة بس');
+ok(/يتسلّم/.test(cmBox.hint) && /رجع|اتلغى/.test(cmBox.hint),
+   'والشرح بيقول إمتى تستحق وإمتى تتلغي');
+// إغلاق
+await p.click('#staff-list .staff-row:nth-child(2) .staff-btn.cm');
+await p.waitForTimeout(200);
+const closed = await p.evaluate(() =>
+  document.querySelector('#staff-list .staff-row:nth-child(2) .staff-cm-box').style.display === 'none');
+ok(closed, 'الضغط تاني بيقفل المحرّر');
 
 ok(errs.filter(e => !/favicon|ERR_/i.test(e)).length === 0,
    `صفر أخطاء صفحة${errs.length ? ' — ' + JSON.stringify(errs.slice(0,2)) : ''}`);

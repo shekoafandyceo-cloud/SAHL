@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     if (action === "list") {
       const { data: rows, error } = await admin
         .from("user_profiles")
-        .select("id, full_name, role, active, last_seen, created_at, is_super_admin")
+        .select("id, full_name, role, active, last_seen, created_at, is_super_admin, upsell_commission_enabled, upsell_commission_type, upsell_commission_value")
         .eq("tenant_id", tenantId)
         .order("created_at", { ascending: true });
       if (error) throw error;
@@ -130,6 +130,11 @@ Deno.serve(async (req) => {
         active: r.active,
         last_seen: r.last_seen,
         created_at: r.created_at,
+        // إعدادات العمولة للعرض بس — الحساب الفعلي بيتم في save_order_products
+        // من صف الموظف على السيرفر، فالقيم دي مالهاش أي أثر لو اتزوّرت
+        upsell_commission_enabled: r.upsell_commission_enabled === true,
+        upsell_commission_type: r.upsell_commission_type,
+        upsell_commission_value: r.upsell_commission_value,
         is_self: r.id === caller.id,
         // الأدمن مايقدرش يلمس نفسه ولا حساب محمي — الواجهة بتقفل الأزرار
         // بناءً على ده، والسيرفر بيرفض برضه لو اتحايل عليها

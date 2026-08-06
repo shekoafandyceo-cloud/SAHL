@@ -3,6 +3,7 @@
 import { emptyState } from '../core/empty.js';
 import { renderLoadError } from '../core/loaderr.js';
 import { veilDone } from '../core/veil.js';
+import { loadCommissions, renderCommissions, wireCommissionEvents } from './commissions.js';
 import { BOSTA_POSITIVE_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
 import { fmtD, num } from '../core/format.js';
@@ -528,8 +529,15 @@ export function initFinanceAndIssues(){
       document.querySelectorAll('.stock-tab[data-ftab]').forEach(function(x){ x.classList.toggle('active', x===b); });
       $id('finance-overview-tab').style.display = financeCurrentTab==='overview' ? 'block' : 'none';
       $id('finance-expenses-tab').style.display = financeCurrentTab==='expenses' ? 'block' : 'none';
+      var cmTab = $id('finance-commissions-tab');
+      if(cmTab){
+        cmTab.style.display = financeCurrentTab==='commissions' ? 'block' : 'none';
+        // بتتحمّل عند أول فتح بس — استعلام منفصل مش جزء من ensureAllLoaded
+        if(financeCurrentTab==='commissions') loadCommissions();
+      }
     });
   });
+  wireCommissionEvents();
   $id('exp-search').addEventListener('input', renderExpenses);
   $id('exp-filter-cat').addEventListener('change', renderExpenses);
   $id('add-expense-btn').addEventListener('click', function(){ openExpenseEditor(null); });

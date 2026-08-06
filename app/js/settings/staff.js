@@ -73,6 +73,11 @@ export function renderStaff(){
       +     '<span class="staff-role ' + (u.role === 'admin' ? 'ra' : 're') + '">' + roleLbl + '</span>'
       +     (u.is_self ? '<span class="staff-you">أنت</span>' : '')
       +     (u.active ? '' : '<span class="staff-off-badge">موقوف</span>')
+      +     (u.upsell_commission_enabled
+              ? '<span class="staff-cm-badge">💰 ' + (u.upsell_commission_type === 'percent'
+                  ? esc(String(u.upsell_commission_value)) + '%'
+                  : esc(String(u.upsell_commission_value)) + ' ج') + '</span>'
+              : '')
       +   '</div>'
       +   '<div class="staff-sub"><span class="staff-mail">' + esc(u.email || '—') + '</span>'
       +     '<span class="staff-seen">' + esc(seen) + '</span></div>'
@@ -80,10 +85,13 @@ export function renderStaff(){
       + '<div class="staff-acts">'
       + (u.locked
           ? '<span class="staff-locked" title="' + (u.is_self ? 'مينفعش تعدّل على حسابك من هنا' : 'الحساب ده محمي') + '">🔒</span>'
-          : '<button class="staff-btn ' + (u.active ? 'warn' : 'ok') + '" data-staff-toggle="' + esc(u.id) + '" data-active="' + (u.active ? '0' : '1') + '">'
+          : '<button class="staff-btn cm" data-staff-cm="' + esc(u.id) + '">💰 عمولة</button>'
+            + '<button class="staff-btn ' + (u.active ? 'warn' : 'ok') + '" data-staff-toggle="' + esc(u.id) + '" data-active="' + (u.active ? '0' : '1') + '">'
               + (u.active ? 'إيقاف' : 'تفعيل') + '</button>'
             + '<button class="staff-btn del" data-staff-del="' + esc(u.id) + '">حذف</button>')
-      + '</div></div>';
+      + '</div>'
+      + '<div class="staff-cm-box" id="cm-' + esc(u.id) + '" style="display:none"></div>'
+      + '</div>';
   });
   h += '</div>';
   box.innerHTML = h;
@@ -95,6 +103,9 @@ export function renderStaff(){
   });
   box.querySelectorAll('[data-staff-del]').forEach(function(b){
     b.addEventListener('click', function(){ deleteStaff(b.getAttribute('data-staff-del')); });
+  });
+  box.querySelectorAll('[data-staff-cm]').forEach(function(b){
+    b.addEventListener('click', function(){ toggleCommissionBox(b.getAttribute('data-staff-cm')); });
   });
 }
 
@@ -192,4 +203,67 @@ export function wireStaffEvents(){
   });
   try{ if($id('staff-pass')) $id('staff-pass').setAttribute('autocomplete','new-password'); }
   catch(e){ swallow('wireStaffEvents/autocomplete', e); }
+}
+
+
+// ── عمولة الـupselling ──────────────────────────────────────────────
+// الموظف بيفتح الأوردر ويضيف منتج → الإجمالي يزيد → الفرق = upsell.
+// العمولة **على الزيادة بس** وبتستحق لما الأوردر يتسلّم (قرار المالك).
+// الحساب كله على السيرفر في `save_order_products` — الأرقام هنا للعرض بس.
+export function toggleCommissionBox(id){
+  var u = findStaff(id);
+  var box = $id('cm-' + id);
+  if(!u || !box) return;
+  if(box.style.display !== 'none'){ box.style.display = 'none'; box.innerHTML = ''; return; }
+  var on   = !!u.upsell_commission_enabled;
+  var type = u.upsell_commission_type || 'percent';
+  var val  = u.upsell_commission_value || '';
+  box.innerHTML =
+      '<label class="cm-row"><input type="checkbox" class="swx" id="cm-on-' + esc(id) + '"' + (on ? ' checked' : '') + '>'
+    +   '<span class="cm-on-txt">فعّل عمولة على الـupselling</span></label>'
+    + '<div class="cm-fields" id="cm-f-' + esc(id) + '"' + (on ? '' : ' style="opacity:.45;pointer-events:none"') + '>'
+    +   '<select class="fsel" id="cm-t-' + esc(id) + '">'
+    +     '<option value="percent"' + (type === 'percent' ? ' selected' : '') + '>نسبة من الزيادة %</option>'
+    +     '<option value="fixed"'   + (type === 'fixed'   ? ' selected' : '') + '>مبلغ ثابت لكل upsell</option>'
+    +   '</select>'
+    +   '<input class="sinp" id="cm-v-' + esc(id) + '" type="number" min="0" step="0.5" placeholder="القيمة" value="' + esc(String(val)) + '">'
+    +   '<button class="staff-btn ok" id="cm-s-' + esc(id) + '">حفظ</button>'
+    + '</div>'
+    + '<p class="cm-hint">العمولة بتتحسب على <b>مبلغ الزيادة</b> بس، وبتفضل «معلّقة» لحد ما الأوردر يتسلّم — ولو رجع أو اتلغى بتتلغي.</p>';
+  box.style.display = '';
+
+  var cb = $id('cm-on-' + id);
+  cb.addEventListener('change', function(){
+    var f = $id('cm-f-' + id);
+    f.style.opacity = cb.checked ? '' : '.45';
+    f.style.pointerEvents = cb.checked ? '' : 'none';
+  });
+  $id('cm-s-' + id).addEventListener('click', function(){ saveCommission(id, this); });
+}
+
+export function saveCommission(id, btn){
+  if(btn && btn.disabled) return;
+  var on   = $id('cm-on-' + id).checked;
+  var type = $id('cm-t-' + id).value === 'fixed' ? 'fixed' : 'percent';
+  var val  = parseFloat($id('cm-v-' + id).value);
+  if(on){
+    if(!isFinite(val) || val <= 0){ toast('اكتب قيمة أكبر من صفر','er'); return; }
+    if(type === 'percent' && val > 100){ toast('النسبة مينفعش تعدّي 100%','er'); return; }
+  }
+  var orig = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = '...'; }
+  sb.rpc('set_upsell_commission', {
+    p_user_id: id, p_enabled: on, p_type: on ? type : null, p_value: on ? val : 0
+  }).then(function(r){
+    if(btn){ btn.disabled = false; btn.textContent = orig; }
+    if(r.error){
+      var m = r.error.message || '';
+      toast(m.indexOf('admin_only') >= 0 ? 'الصلاحية دي للأدمن فقط'
+          : m.indexOf('user_not_found') >= 0 ? 'الموظف ده مش في متجرك'
+          : ('مانفعش: ' + m), 'er');
+      return;
+    }
+    toast(on ? 'اتفعّلت العمولة ✓' : 'اتقفلت العمولة', 'ok');
+    loadStaff();
+  });
 }

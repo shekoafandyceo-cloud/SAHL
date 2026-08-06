@@ -228,3 +228,14 @@ html.dark .staff-you{background:rgba(16,185,129,.14);color:#34d399;border-color:
 html.dark .staff-off-badge{background:rgba(239,68,68,.14);color:#f87171;border-color:rgba(239,68,68,.35);}
 html.dark .staff-empty{background:#151d30;border-color:var(--brd2);}
 html.dark .staff-err{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35);color:#f87171;}
+
+/* ── عمولة الـupselling — الليلي ── */
+html.dark .staff-cm-badge{background:rgba(124,58,237,.16);color:#c4b5fd;border-color:rgba(167,139,250,.4);}
+html.dark .staff-btn.cm{background:rgba(124,58,237,.14);border-color:rgba(167,139,250,.35);color:#c4b5fd;}
+html.dark .staff-cm-box{border-top-color:var(--brd);}
+html.dark .cm-user{background:#151d30;border-color:var(--brd);}
+html.dark .cm-earned,html.dark .cm-badge.earned{background:rgba(16,185,129,.14);color:#34d399;border-color:rgba(16,185,129,.35);}
+html.dark .cm-pending,html.dark .cm-badge.pending{background:rgba(245,158,11,.14);color:#fbbf24;border-color:rgba(245,158,11,.35);}
+html.dark .cm-badge.void{background:rgba(255,255,255,.06);color:#94a3b8;border-color:var(--brd2);}
+html.dark .cm-empty{background:#151d30;border-color:var(--brd2);}
+html.dark td.cm-amt{color:#c4b5fd;}

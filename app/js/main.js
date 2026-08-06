@@ -49,7 +49,9 @@ import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.j
 
 import { copyWebhookUrl } from './settings/webhook.js';
 
-import { addStaff, deleteStaff, loadStaff, renderStaff, staffCall, staffSetUsers, staffUsers, toggleStaff, wireStaffEvents } from './settings/staff.js';
+import { CM_STATUS, commissionRows, commissionsSetRows, loadCommissions, renderCommissions, wireCommissionEvents } from './finance/commissions.js';
+
+import { addStaff, deleteStaff, loadStaff, renderStaff, saveCommission, staffCall, staffSetUsers, staffUsers, toggleCommissionBox, toggleStaff, wireStaffEvents } from './settings/staff.js';
 
 import { askCancelReason } from './orders/cancel-reason.js';
 

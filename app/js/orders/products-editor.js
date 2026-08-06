@@ -1,6 +1,5 @@
 // محرّر منتجات الأوردر جوّه نافذة التفاصيل
 
-import { currentTenantId } from '../auth/auth.js';
 import { $id, esc } from '../core/dom.js';
 import { num } from '../core/format.js';
 import { sb } from '../core/supabase.js';
@@ -173,28 +172,43 @@ export function saveProducts(){
   var newTotal = currentTotal + delta;
   if(newTotal < 0) newTotal = 0;
 
-  var updateData = {product_name: combined};
-  if(hasKnownChange) updateData.total_cost = newTotal;
-
-  sb.from('orders').update(updateData).eq('id',ord.id).eq('tenant_id',currentTenantId).then(function(r){
+  // الحفظ بقى RPC ذرية بدل update مباشر — سببين:
+  //  1) عمولة الـupselling لازم تتحسب على السيرفر من إجمالي **صف السيرفر**
+  //     قبل التعديل. لو الفرونت بعت الرقم القديم، أي موظف يقدر يبعت صفر
+  //     ويطلّع لنفسه عمولة على الأوردر كله.
+  //  2) تحديث المنتجات + تسجيل الحدث في عملية واحدة — مفيش نص طريق.
+  // `p_total_cost` بـnull معناها «ماتلمسش الإجمالي» (سعر غير معروف).
+  sb.rpc('save_order_products',{
+    p_order_id: ord.id,
+    p_product_name: combined,
+    p_total_cost: hasKnownChange ? newTotal : null
+  }).then(function(r){
     if(r.error){$id('prod-status').textContent='خطأ: '+r.error.message;$id('prod-status').className='save-status';return;}
+    var out = r.data || {};
+    var srvOrder = out.order || null;
+    // نمشي على أرقام السيرفر مش نسختنا — لو حد تاني غيّر السعر في نفس اللحظة
+    var savedTotal = srvOrder && srvOrder.total_cost != null ? Number(srvOrder.total_cost) : newTotal;
     ord.product_name=combined;
-    if(hasKnownChange) ord.total_cost=newTotal;
+    if(hasKnownChange) ord.total_cost=savedTotal;
     for(var i=0;i<all.length;i++){
       if(all[i].id===ord.id){
         all[i].product_name=combined;
-        if(hasKnownChange) all[i].total_cost=newTotal;
+        if(hasKnownChange) all[i].total_cost=savedTotal;
         break;
       }
     }
     var msg = '✓ تم الحفظ';
     if(hasKnownChange){
       var sign = delta >= 0 ? '+' : '';
-      msg += ' — السعر: ' + num(newTotal) + ' ج (' + sign + num(delta) + ' ج)';
+      msg += ' — السعر: ' + num(savedTotal) + ' ج (' + sign + num(delta) + ' ج)';
     }
     $id('prod-status').textContent = msg;
     $id('prod-status').className='save-status ok';
     setTimeout(function(){if($id('prod-status'))$id('prod-status').textContent='';},3500);
+    // العمولة بترجع من السيرفر لو اتسجّلت — الموظف يشوف إنه كسب حاجة
+    if(out.upsell && out.upsell.commission_amount != null){
+      toast('عمولة upselling ' + num(out.upsell.commission_amount) + ' ج اتسجّلت — بتستحق لما الأوردر يتسلّم', 'ok');
+    }
     loadOrdersCards();
     loadBostaInventoryCard();
     doFilter();

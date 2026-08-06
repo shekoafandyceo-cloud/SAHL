@@ -399,6 +399,7 @@
     <div class="finance-tabs">
       <button class="stock-tab active" data-ftab="overview">📊 الإيرادات والأرباح</button>
       <button class="stock-tab" data-ftab="expenses">💸 المصاريف</button>
+      <button class="stock-tab admin-only" data-ftab="commissions">💰 عمولات الـupselling</button>
     </div>
 
     <!-- TAB 1: OVERVIEW -->
@@ -464,6 +465,27 @@
       </div>
       <div class="twrap">
         <div class="thscroll" id="exp-tbody"><div class="ldg">جاري التحميل...</div></div>
+      </div>
+    </div>
+
+    <div id="finance-commissions-tab" style="display:none">
+      <div class="sgrid" style="grid-template-columns:repeat(3,1fr);margin-bottom:14px;">
+        <div class="sc"><span class="info-i" tabindex="0" title="عمولات اتسجّلت والأوردر لسه في السكة. بتبقى مستحقة أول ما يتسلّم، وبتتلغي لو رجع أو اتلغى." data-tip="عمولات اتسجّلت والأوردر لسه في السكة. بتبقى مستحقة أول ما يتسلّم، وبتتلغي لو رجع أو اتلغى.">i</span><div class="slb">معلّقة</div><div class="sval" id="cm-sum-pending">—</div></div>
+        <div class="sc"><span class="info-i" tabindex="0" title="عمولات على أوردرات اتسلّمت فعلاً — دي المستحقة للصرف." data-tip="عمولات على أوردرات اتسلّمت فعلاً — دي المستحقة للصرف.">i</span><div class="slb">مستحقة</div><div class="sval" id="cm-sum-earned">—</div></div>
+        <div class="sc"><span class="info-i" tabindex="0" title="عمولات اتلغت لأن الأوردر رجع أو اتلغى." data-tip="عمولات اتلغت لأن الأوردر رجع أو اتلغى.">i</span><div class="slb">ملغية</div><div class="sval" id="cm-sum-void">—</div></div>
+      </div>
+      <div class="fbar">
+        <select class="fsel" id="cm-filter-status">
+          <option value="">كل الحالات</option>
+          <option value="pending">معلّقة</option>
+          <option value="earned">مستحقة</option>
+          <option value="void">ملغية</option>
+        </select>
+        <span class="fcnt" id="cm-count"></span>
+      </div>
+      <div id="cm-by-user"></div>
+      <div class="twrap">
+        <div class="thscroll" id="cm-tbody"><div class="ldg">جاري التحميل...</div></div>
       </div>
     </div>
 
