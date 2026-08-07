@@ -60,3 +60,18 @@ td.mn.mv-when{white-space:normal;line-height:1.32;}
    للحالة النادرة دي بس الإنذار بيبان دايماً */
 td.id.has-cx{white-space:normal;}
 td.id.has-cx .cx-badge{display:block;width:max-content;margin:3px 0 0;}
+
+/* ── منطقة الشحن في نافذة التفاصيل ── */
+.ship-area{display:flex;flex-direction:column;gap:8px;margin:0 0 10px;}
+.ship-area:empty{display:none;}
+.ship-auto-btn{width:100%;padding:11px 16px;border:none;border-radius:12px;cursor:pointer;
+  font-family:inherit;font-weight:900;font-size:.9rem;color:#fff;
+  background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 4px 14px rgba(16,185,129,.25);
+  transition:.15s;}
+.ship-auto-btn:hover{filter:brightness(1.06);transform:translateY(-1px);}
+.ship-auto-btn:disabled{opacity:.65;cursor:wait;transform:none;}
+.ship-chip{display:flex;align-items:center;gap:8px;padding:10px 13px;border-radius:11px;
+  font-size:.82rem;font-weight:700;line-height:1.7;}
+.ship-chip.wait{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;}
+.ship-chip.warn{background:#fffbeb;border:1px solid #fde68a;color:#92400e;}
+.ship-chip .spin.sm{width:14px;height:14px;border-width:2px;flex:0 0 auto;}

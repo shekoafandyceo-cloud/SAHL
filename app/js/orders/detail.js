@@ -20,6 +20,7 @@ import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from '
 import { doFilter } from './orders.js';
 import { addEmptyProductRow, renderProductsEditor, saveProducts } from './products-editor.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
+import { manualShipFlow, shipControlsHtml, shipDetailClosed, wireShipControls } from './ship.js';
 import { parseStatusLog, RANK_GOOD, RANK_MID, renderTable } from './table.js';
 
 export var intNotesTimer=null;
@@ -135,7 +136,7 @@ var detailReqId = null;
 
 // إبطال الرد المعلّق عند قفل النافذة — الإغلاق من غيره كان بيسيب رد فتح
 // قديم (الأوردر أو الـhistory) يرجع بعد القفل ويفتح الـoverlay تاني
-export function detailAbort(){ detailReqId = null; }
+export function detailAbort(){ detailReqId = null; try{ shipDetailClosed(); }catch(e){} }
 
 // ملخّص طلبات العميل من الذاكرة (للجولة)
 export function computeHistoryFromAll(o){
@@ -369,16 +370,20 @@ export function renderDetail(){
     +STATUS_OPTIONS.map(function(s){return'<option value="'+s+'"'+(s===o.status?' selected':'')+'>'+statusLabel(s)+'</option>';}).join('')
     +'</select></div>'
 
-    // 3 main action buttons: تأكيد - شحن - إلغاء
+    // منطقة الشحن: شارة المتابعة/التحذير + زرار الأوتوماتيك (للرابط API بس)
+    +'<div class="ship-area" id="ship-area">'+shipControlsHtml(o)+'</div>'
+    // 3 main action buttons: تأكيد - شحن يدوي - إلغاء
+    // «اتشحن يدوي» بيسجّل رقم التتبع كمان — والأوردر اللي له بوليصة مابيشوفهوش
     +'<div class="dacts">'
     +'<button class="abtn ok" id="da-ok">✓ تأكيد</button>'
-    +'<button class="abtn bs" id="da-bs">📦 شحن</button>'
+    +((o.tracking_no||'').trim()?'':'<button class="abtn bs" id="da-bs">📦 اتشحن يدوي</button>')
     +'<button class="abtn cn" id="da-cn">✕ إلغاء</button>'
     +'</div>'
     +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>';
 
   $id('da-ok').addEventListener('click',function(){doUpdate('confirmed');});
-  $id('da-bs').addEventListener('click',function(){doUpdate('bosta_assigned');});
+  if($id('da-bs'))$id('da-bs').addEventListener('click',function(){manualShipFlow();});
+  wireShipControls();
   $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);});});
   $id('da-up').addEventListener('click',function(){
     var v=$id('dsel').value;

@@ -253,3 +253,6 @@ html.dark .my-cm-txt{color:#c4b5fd;}
 html.dark .cm-rate-note{background:rgba(124,58,237,.12);border-color:rgba(167,139,250,.3);}
 html.dark .sval.cm-pos-val{color:#34d399;}
 html.dark tr.cm-ev-row:hover td{background:rgba(255,159,28,.09);}
+
+html.dark .ship-chip.wait{background:rgba(37,99,235,.14);border-color:rgba(59,130,246,.35);color:#93c5fd;}
+html.dark .ship-chip.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#fbbf24;}

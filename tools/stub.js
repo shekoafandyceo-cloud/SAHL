@@ -26,7 +26,7 @@
       customer_notes:null, internal_notes:null, customer_ranking:null,
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
-      has_upsell:false,
+      has_upsell:false, shipping_requested_at:null,
       'var':null
     }, o);
   }
@@ -77,10 +77,15 @@
     var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
+    if(table === 'v_my_tenant'){
+      // زرار «شحن أوتوماتيك» بيقرا العمود ده — الاختبار بيطفيه بـ__SHIP_API=false
+      rows = rows.map(function(t){ return Object.assign({}, t, { has_shipping_api: window.__SHIP_API !== false }); });
+    }
     if(table === 'orders'){
       // شارة الـupsell: الاختبار بيحقن `window.__UPSELL_IDS` وإحنا بنقراها **وقت
       // الاستعلام**. الحقن على DOMContentLoaded ماينفعش — موديولات ES بتتنفّذ
       // قبله، فالـ16 استعلام كلهم بيخرجوا والصفحة اترسمت قبل ما الحدث يولّع.
+      if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
       var up = window.__UPSELL_IDS || [];
       if(up.length) rows = rows.map(function(o){
         return up.indexOf(o.id) >= 0 ? Object.assign({}, o, {has_upsell:true}) : o;
@@ -103,6 +108,7 @@
         if(m === 'gte' && a === 'created_at') st.gte = {col:a, val:b};
         if(m === 'lt'  && a === 'created_at') st.lt  = {col:a, val:b};
         if(m === 'eq'  && a === 'status')     st.eqStatus = b;
+        if(m === 'eq'  && a === 'id')         st.eqId = b;
         if(m === 'in'  && a === 'status')     st.inStatus = b;
         if(m === 'range'){ st.from = a; st.to = b; }
         return api;
