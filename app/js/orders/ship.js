@@ -21,17 +21,25 @@ import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { loadBostaInventoryCard, loadOrdersCards } from './cards.js';
-import { renderDetail } from './detail.js';
-import { all, fil, sel } from './state.js';
+import { detailAbort, renderDetail } from './detail.js';
+import { all, fil, ordersSetSelected, sel } from './state.js';
+import { renderTable } from './table.js';
 import { doFilter } from './orders.js';
 
-// المدة اللي بعدها المحاولة المعلّقة بتتحسب «ماكملتش» — أطول بكتير من
-// الزمن المقاس (12–30ث) عشان مانحكمش بدري، وأقصر من إن التاجر ينسى
-var STALE_MINUTES = 3;
-// الـpoll: كل 3 ثواني لحد 45 ثانية
-var POLL_MS = 3000, POLL_TRIES = 15;
+// المدة اللي بعدها المحاولة المعلّقة بتتحسب «ماكملتش». النجاح المقاس حي
+// 12–30 ثانية والفشل في n8n بييجي أسرع (اتقاس ~12ث) — 90 ثانية = هامش
+// تلات أضعاف من غير ما الموظف يفضل شايف علامة بتلف على محاولة ميتة.
+// (كانت 3 دقايق والمالك شافها طويلة على الهواء — الفشل كان باين في n8n
+// بعد 12 ثانية والعلامة لسه بتلف بعد دقيقة.)
+// window.__SHIP_STALE_MIN مدخل اختبار بس — الهارنس بيقصّر العتبة.
+var STALE_MINUTES = (typeof window !== 'undefined' && window.__SHIP_STALE_MIN) || 1.5;
+// الـpoll: كل 3 ثواني لحد العتبة نفسها — لما يخلص من غير tracking
+// العلامة بتتقلب صفرا في نفس اللحظة ورسالة بتقول
+var POLL_MS = 3000, POLL_TRIES = Math.max(1, Math.round(STALE_MINUTES * 60000 / POLL_MS));
 
 var pollTimer = null, pollOrderId = null;
+// الأوردرات اللي علامتها الصفرا اترسمت خلاص — عشان التيكر مايرسمش تاني
+var staleShown = {};
 
 export function hasShipApi(){
   return !!(currentTenant && currentTenant.has_shipping_api);
@@ -135,8 +143,19 @@ function autoShipFlow(){
 }
 
 async function callShipFunction(ord){
-  var chipHost = $id('ship-auto');
-  if(chipHost){ chipHost.disabled = true; chipHost.textContent = '⏳ بيتبعت...'; }
+  // النافذة بتتقفل فوراً (طلب المالك) — الموظف يكمّل شغله والجدول بيحكي.
+  // كل الرسايل من هنا ورايح بتقول رقم الأوردر عشان تبقى مفهومة من أي مكان.
+  var uid = ord.order_uid ? ('#' + ord.order_uid) : '';
+  if(sel && sel.id === ord.id){
+    $id('ovl').classList.remove('open');
+    ordersSetSelected(null);
+    detailAbort();
+  }
+  // العلامة تظهر في الجدول في نفس اللحظة (تفاؤلي — بنصححها لو الطلب اترفض)
+  var row = findRow(ord.id);
+  var optimistic = new Date().toISOString();
+  if(row) row.shipping_requested_at = optimistic;
+  renderTable();
   var out = {};
   try{
     var sess = await sb.auth.getSession();
@@ -151,17 +170,15 @@ async function callShipFunction(ord){
     out = await res.json().catch(function(){ return {}; });
     if(!res.ok || !out.ok) throw new Error(out.message || 'حصلت مشكلة — حاول تاني');
   }catch(e){
-    toast(String(e.message || e),'er');
-    refreshShipArea(ord.id);
+    // الطلب اترفض قبل ما يتبعت أصلاً — نشيل العلامة ونقول السبب بصراحة
+    if(row && row.shipping_requested_at === optimistic) row.shipping_requested_at = null;
+    renderTable();
+    toast('أوردر ' + uid + ': ' + String(e.message || e),'er');
     return;
   }
-  // اتبعت — نحدّث العلامة محلياً ونتابع الصف لحد ما البوليصة تظهر
-  var row = findRow(ord.id);
-  if(row) row.shipping_requested_at = out.requested_at || new Date().toISOString();
-  if(sel && sel.id === ord.id) sel.shipping_requested_at = row ? row.shipping_requested_at : out.requested_at;
-  refreshShipArea(ord.id);
-  toast('اتبعت لشركة الشحن — كمّل شغلك عادي، العلامة اللي جنب الحالة في الجدول هتتحدث لوحدها','ok');
-  doFilter();   // العلامة تظهر في الجدول فوراً
+  if(row) row.shipping_requested_at = out.requested_at || optimistic;
+  renderTable();
+  toast('أوردر ' + uid + ' اتبعت لشركة الشحن — كمّل شغلك عادي، العلامة جنب الحالة هتتحدث لوحدها','ok');
   startPoll(ord.id);
 }
 
@@ -174,18 +191,23 @@ function startPoll(orderId){
     sb.from('orders').select('id,status,tracking_no,shipping_requested_at')
       .eq('id', orderId).eq('tenant_id', currentTenantId).single()
       .then(function(r){
-        if(pollOrderId !== orderId) return;         // اتلغى — أوردر تاني اتفتح
+        if(pollOrderId !== orderId) return;         // اتلغى — محاولة أجدد بدأت
         var d = r && r.data;
+        var row = findRow(orderId);
+        var uid = row && row.order_uid ? ('#' + row.order_uid) : '';
         if(d && (d.tracking_no || '').trim()){
           stopPoll();
           applyShipped(orderId, d.status, d.tracking_no, d.shipping_requested_at);
-          toast('البوليصة اتعملت ✓ رقم التتبع: ' + d.tracking_no,'ok');
+          toast('البوليصة اتعملت لأوردر ' + uid + ' ✓ رقم التتبع: ' + d.tracking_no,'ok');
           return;
         }
         if(tries >= POLL_TRIES){
+          // العتبة خلصت من غير بوليصة — العلامة بتتقلب صفرا دلوقتي
+          // (نفس عمر STALE_MINUTES بالظبط) والرسالة بتوجّه لليدوي
           stopPoll();
-          toast('الشحنة لسه بتتجهز — كمّل شغلك عادي والعلامة جنب الحالة هتقولك. لو بقت صفرا ⚠️ يبقى ماكملتش واشحنه يدوي.','er');
-          refreshShipArea(orderId);
+          renderTable();
+          if(sel && sel.id === orderId) renderDetail();
+          toast('أوردر ' + uid + ': محاولة الشحن الأوتوماتيك ماكملتش ⚠️ — افتحه واشحنه يدوي أو جرّب تاني','er');
         }
       });
   }, POLL_MS);
@@ -219,13 +241,7 @@ function applyShipped(orderId, status, tracking, requestedAt){
   loadOrdersCards(); loadBostaInventoryCard(); doFilter();
 }
 
-// إعادة رسم منطقة الزرار/الشارة بس لو نفس الأوردر لسه مفتوح
-function refreshShipArea(orderId){
-  if(sel && sel.id === orderId) renderDetail();
-}
 
-// إغلاق النافذة أو فتح أوردر تاني بيوقف المتابعة القديمة
-export function shipDetailClosed(){ stopPoll(); }
 
 // ── تيكر الجدول ─────────────────────────────────────────────────────
 // نافذة المتابعة: من لحظة الطلب لحد ما يبقى قديم بمدة كافية إن العلامة
@@ -237,18 +253,23 @@ export function initShipTicker(){
   setInterval(function(){
     // صفوف الجدول في fil (الصفحة الحالية من السيرفر) — وall مخزن
     // الماليات الكسول وممكن يبقى فاضي. بنمسح الاتنين.
-    var watch = [], seen = {};
+    var watch = [], seen = {}, flip = false;
     var scan = fil.concat(all);
     for(var i=0;i<scan.length;i++){
       var o = scan[i];
       if(seen[o.id] || !o.shipping_requested_at || (o.tracking_no||'').trim()) continue;
       seen[o.id] = true;
       var age = (Date.now() - new Date(o.shipping_requested_at).getTime()) / 60000;
-      if(age >= 0 && age < WATCH_WINDOW_MIN) watch.push(o.id);
+      if(age < 0 || age >= WATCH_WINDOW_MIN) continue;
+      watch.push(o.id);
+      // العلامة اتقلبت صفرا من آخر رسمة؟ نرسم مرة واحدة بس لكل انقلاب —
+      // إعادة الرسم كل تيك كانت باينة للمالك كـ«ريفريش على الفاضي»
+      if(age >= STALE_MINUTES && !staleShown[o.id]){ staleShown[o.id] = true; flip = true; }
     }
-    if(!watch.length || !sb || !currentTenantId) return;
+    if(!watch.length || !sb || !currentTenantId){ if(flip) renderTable(); return; }
     // إعادة جلب الصفوف المعلّقة بس — لو النجاح وصل والـRealtime فاتته
-    // (تاب مفصول مثلاً) العلامة بتتصلّح من هنا
+    // (تاب مفصول مثلاً) العلامة بتتصلّح من هنا. **صامت**: مفيش أي رسم
+    // غير لو فيه تغيير فعلي من السيرفر أو انقلاب علامة.
     sb.from('orders').select('id,status,tracking_no,shipping_requested_at')
       .eq('tenant_id', currentTenantId).in('id', watch)
       .then(function(r){
@@ -260,14 +281,13 @@ export function initShipTicker(){
             row.status = d.status; row.tracking_no = d.tracking_no;
             row.shipping_requested_at = d.shipping_requested_at;
             changed = true;
+            delete staleShown[d.id];
             if((d.tracking_no||'').trim())
               toast('البوليصة اتعملت لأوردر #' + (row.order_uid || '') + ' ✓ رقم التتبع: ' + d.tracking_no,'ok');
           }
         });
-        // حتى من غير تغيير من السيرفر: إعادة الرسم بتقلب «بيتبعت» لصفرا
-        // لما العمر يعدي الحد — الحسبة بتتم وقت الرندر
-        doFilter();
-        if(changed){ loadOrdersCards(); loadBostaInventoryCard(); }
+        if(changed){ renderTable(); loadOrdersCards(); loadBostaInventoryCard(); }
+        else if(flip){ renderTable(); }
       });
   }, TICK_MS);
 }

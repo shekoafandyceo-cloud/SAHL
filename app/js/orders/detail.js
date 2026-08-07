@@ -20,7 +20,7 @@ import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from '
 import { doFilter } from './orders.js';
 import { addEmptyProductRow, renderProductsEditor, saveProducts } from './products-editor.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
-import { manualShipFlow, shipControlsHtml, shipDetailClosed, wireShipControls } from './ship.js';
+import { manualShipFlow, shipControlsHtml, wireShipControls } from './ship.js';
 import { parseStatusLog, RANK_GOOD, RANK_MID, renderTable } from './table.js';
 
 export var intNotesTimer=null;
@@ -136,7 +136,7 @@ var detailReqId = null;
 
 // إبطال الرد المعلّق عند قفل النافذة — الإغلاق من غيره كان بيسيب رد فتح
 // قديم (الأوردر أو الـhistory) يرجع بعد القفل ويفتح الـoverlay تاني
-export function detailAbort(){ detailReqId = null; try{ shipDetailClosed(); }catch(e){} }
+export function detailAbort(){ detailReqId = null; }
 
 // ملخّص طلبات العميل من الذاكرة (للجولة)
 export function computeHistoryFromAll(o){

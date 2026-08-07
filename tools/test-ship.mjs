@@ -106,33 +106,46 @@ async function openDetailOf(p, orderId){
   await p.click('#cmodal-ok');
   await p.waitForTimeout(600);
 
+  // النافذة اتقفلت فوراً (طلب المالك) — الموظف يكمّل شغله والجدول بيحكي
+  const closed = await p.evaluate(() => ({
+    ovlOpen: document.getElementById('ovl').classList.contains('open'),
+    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.wait')
+  }));
+  ok(!closed.ovlOpen, 'نافذة التفاصيل اتقفلت فوراً بعد التأكيد');
+  ok(closed.tableInd, 'والعلامة بتلف على الصف في الجدول في نفس اللحظة');
+
   const call = await p.evaluate(() => (window.__FNCALLS || []).filter(c => c.slug === 'order-ship').pop());
   ok(!!call, 'الـEdge Function اتندهت');
   ok(call && call.body.order_id === 'o3', `بالأوردر الصح — ${call && call.body.order_id}`);
   ok(call && !('tenant_id' in call.body), '🔴 ومفيش tenant_id في الـbody — بييجي من الـJWT بس');
   ok(call && call.auth, 'والـJWT متبعت في الهيدر');
 
-  // قبل ما التتبع يوصل: شارة «بيتبعت...» ومفيش أي نجاح معلن
-  const midState = await p.evaluate(() => ({
-    chip: ((document.getElementById('ship-chip')||{}).textContent || ''),
-    toasts: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
-  }));
-  ok(/بيتبعت لشركة الشحن/.test(midState.chip), 'شارة «بيتبعت...» ظاهرة أثناء الانتظار');
-  ok(!/البوليصة اتعملت/.test(midState.toasts), 'ومفيش إعلان نجاح قبل ما التتبع يظهر فعلاً');
+  const midToasts = await p.evaluate(() =>
+    [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '));
+  ok(!/البوليصة اتعملت/.test(midToasts), 'ومفيش إعلان نجاح قبل ما التتبع يظهر فعلاً');
+  ok(/اتبعت لشركة الشحن/.test(midToasts) && /#9003/.test(midToasts),
+     'رسالة «اتبعت — كمّل شغلك» برقم الأوردر');
 
-  // الـpoll يلقط التتبع (الستب حطه بعد 1.2 ثانية — الـpoll كل 3 ثواني)
+  // الـpoll يلقط التتبع والنافذة مقفولة خالص
   await p.waitForFunction(() =>
     [...document.querySelectorAll('.toast')].some(t => /البوليصة اتعملت/.test(t.textContent)),
     { timeout: 15000 });
   const done = await p.evaluate(() => ({
     toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
-    rowStatus: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}).status,
-    detailHasTrk: (document.getElementById('dcnt')||{}).textContent.indexOf('TRKAUTO9') >= 0,
-    autoGone: !document.getElementById('ship-auto')
+    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind')
   }));
-  ok(/TRKAUTO9/.test(done.toast), `النجاح معلن برقم التتبع الحقيقي — ${done.toast.slice(0,60)}`);
-  ok(done.detailHasTrk, 'ورقم التتبع ظهر في نافذة التفاصيل');
-  ok(done.autoGone, 'وزرار الأوتوماتيك اختفى (الأوردر بقى له بوليصة)');
+  ok(/TRKAUTO9/.test(done.toast) && /#9003/.test(done.toast),
+     `النجاح معلن برقم التتبع ورقم الأوردر — ${done.toast.slice(0,70)}`);
+  ok(!done.tableInd, 'والعلامة اختفت من الجدول');
+  // ولما يفتح الأوردر تاني: التتبع موجود وولا زرار شحن
+  await openDetailOf(p, 'o3');
+  const reopened = await p.evaluate(() => ({
+    hasTrk: (document.getElementById('dcnt')||{}).textContent.indexOf('TRKAUTO9') >= 0,
+    auto: !!document.getElementById('ship-auto'),
+    manual: !!document.getElementById('da-bs')
+  }));
+  ok(reopened.hasTrk, 'فتحه تاني: رقم التتبع موجود');
+  ok(!reopened.auto && !reopened.manual, 'وولا زرار شحن — بوليصة واحدة بس');
   await p.close();
 }
 
@@ -210,10 +223,70 @@ async function openDetailOf(p, orderId){
   await p.waitForTimeout(800);
   const fail = await p.evaluate(() => ({
     toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
+    row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}),
+    ovlOpen: document.getElementById('ovl').classList.contains('open'),
+    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind')
+  }));
+  ok(/العنوان قصير/.test(fail.toast) && /#9003/.test(fail.toast),
+     `رسالة الفشل برقم الأوردر — ${fail.toast.slice(0,70)}`);
+  ok(fail.row.status === 'pending' && !fail.row.tracking_no, 'والأوردر فضل زي ما هو — مفيش حالة كاذبة');
+  ok(!fail.ovlOpen, 'والنافذة مقفولة برضه — مفيش رجوع ليها');
+  ok(!fail.tableInd, 'والعلامة التفاؤلية اتشالت — الطلب مااتبعتش أصلاً');
+  await p.close();
+}
+
+// ════ 5-ب) الفشل الصامت: العتبة بتخلص والعلامة بتتقلب صفرا برسالة ════
+{
+  const p = await openApp({ pre: `
+    window.__SHIP_STALE_MIN = 0.1;   // 6 ثواني — poll تريين وخلاص
+    window.__FN = function(slug){
+      if(slug === 'order-ship')   // الـEF قبلت... وn8n فشل في صمت (مفيش tracking أبداً)
+        return { status: 200, body: { ok:true, requested_at: new Date().toISOString() } };
+      return { status: 404, body: {} };
+    };
+  `});
+  console.log('──── n8n فشل في صمت: العلامة بتتقلب صفرا لوحدها ────');
+  await openDetailOf(p, 'o3');
+  await p.click('#ship-auto');
+  await p.waitForSelector('#cmodal-box', { state:'visible' });
+  await p.click('#cmodal-ok');
+  await p.waitForFunction(() =>
+    [...document.querySelectorAll('.toast')].some(t => /ماكملتش/.test(t.textContent)),
+    { timeout: 20000 });
+  const dead = await p.evaluate(() => ({
+    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
+    warn: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.warn'),
     row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {})
   }));
-  ok(/العنوان قصير/.test(fail.toast), `رسالة الفشل الحقيقية ظهرت — ${fail.toast.slice(0,60)}`);
-  ok(fail.row.status === 'pending' && !fail.row.tracking_no, 'والأوردر فضل زي ما هو — مفيش حالة كاذبة');
+  ok(/#9003/.test(dead.toast) && /يدوي/.test(dead.toast),
+     `رسالة «ماكملتش» برقم الأوردر وتوجيه لليدوي — ${dead.toast.slice(0,70)}`);
+  ok(dead.warn, 'والعلامة الصفرا ظهرت على الصف في الجدول');
+  ok(dead.row.status === 'pending' && !dead.row.tracking_no, 'والحالة ماتغيّرتش — مفيش حالة كاذبة');
+  await p.close();
+}
+
+// ════ 5-ج) التيكر صامت: مفيش «ريفريش على الفاضي» ════
+{
+  const p = await openApp({ pre: `
+    window.__SHIP_TICK_MS = 700;
+    // محاولة معلّقة لسه في نافذة «بيتبعت» (عمرها ثانية) — التيكر هيسأل
+    // السيرفر كل تيك، بس ممنوع يرسم الجدول طول ما مفيش جديد
+    window.__SHIP_REQS = { o3: new Date().toISOString() };
+  `});
+  console.log('──── التيكر مايعملش ريفريش على الفاضي ────');
+  await p.evaluate(() => {
+    window.__renders = 0;
+    new MutationObserver(function(){ window.__renders++; })
+      .observe(document.getElementById('tbody'), { childList: true, subtree: false });
+  });
+  await p.waitForTimeout(3000);   // ~4 تيكات
+  const quiet = await p.evaluate(() => ({
+    renders: window.__renders,
+    tickerAsked: (window.__calls || []).filter(c => c.table === 'orders'
+      && String(c.cols||'') === 'id,status,tracking_no,shipping_requested_at').length
+  }));
+  ok(quiet.tickerAsked >= 2, `التيكر بيسأل السيرفر فعلاً — ${quiet.tickerAsked} استعلام`);
+  ok(quiet.renders === 0, `ومفيش ولا إعادة رسم للجدول من غير تغيير — ${quiet.renders} رسمة`);
   await p.close();
 }
 
