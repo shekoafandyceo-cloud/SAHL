@@ -143,7 +143,7 @@ export function renderCommissions(){
   rows.forEach(function(x){
     var rate = x.commission_type === 'percent'
       ? (num(x.commission_rate) + '%') : (num(x.commission_rate) + ' ج ثابت');
-    h += '<tr class="cm-row" data-cm-order="' + esc(x.order_id) + '">'
+    h += '<tr class="cm-ev-row" data-cm-order="' + esc(x.order_id) + '">'
       + '<td class="mn">' + esc(fmtD(x.created_at)) + '</td>'
       + '<td class="nm">' + esc(x.user_name || '—') + '</td>'
       + '<td class="mn">' + num(x.before_total) + '</td>'
@@ -158,7 +158,7 @@ export function renderCommissions(){
   box.innerHTML = h;
 
   // الضغط على الصف يفتح الأوردر — أسرع طريق للمراجعة
-  box.querySelectorAll('.cm-row').forEach(function(tr){
+  box.querySelectorAll('.cm-ev-row').forEach(function(tr){
     tr.addEventListener('click', function(){ openOrderFromCommission(tr.getAttribute('data-cm-order')); });
   });
 }
@@ -311,7 +311,6 @@ export function renderMyCommissionBar(){
         ? '<span class="cm-owed">عليك ' + num(Math.round(Math.abs(out))) + ' ج</span>'
         : '<span class="cm-earned">ليك ' + num(Math.round(out)) + ' ج</span>')
     + '<span class="cm-pending">معلّق ' + num(Math.round(b.pending_total || 0)) + ' ج</span>'
-    + '<span class="my-cm-n">' + (b.events_count || 0) + ' حركة</span>'
     + '<button class="my-cm-go" id="my-cm-go">التفاصيل ↗</button>';
   bar.style.display = '';
   var go = $id('my-cm-go');
@@ -330,7 +329,7 @@ export function renderMyCommission(){
   var out = Number(b.outstanding || 0);
   if($id('my-cm-out')){
     $id('my-cm-out').textContent = (out < 0 ? '−' : '') + num(Math.round(Math.abs(out))) + ' ج';
-    $id('my-cm-out').className = 'sval' + (out < 0 ? ' cm-neg-val' : '');
+    $id('my-cm-out').className = 'sval' + (out < 0 ? ' cm-neg-val' : (out > 0 ? ' cm-pos-val' : ''));
   }
   if($id('my-cm-pending')) $id('my-cm-pending').textContent = num(Math.round(b.pending_total || 0)) + ' ج';
   if($id('my-cm-settled')) $id('my-cm-settled').textContent = num(Math.round(b.settled_total || 0)) + ' ج';
@@ -354,7 +353,7 @@ export function renderMyCommission(){
     ev.innerHTML = mine.length
       ? '<table><thead><tr><th>التاريخ</th><th>قبل</th><th>بعد</th><th>الزيادة</th><th>عمولتك</th><th>الحالة</th></tr></thead><tbody>'
         + mine.map(function(x){
-            return '<tr>'
+            return '<tr class="cm-ev-row" data-cm-order="' + esc(x.order_id) + '" title="اضغط تفتح الأوردر">'
               + '<td class="mn">' + esc(fmtD(x.created_at)) + '</td>'
               + '<td class="mn">' + num(x.before_total) + '</td>'
               + '<td class="mn">' + num(x.after_total) + '</td>'
@@ -365,6 +364,9 @@ export function renderMyCommission(){
           }).join('')
         + '</tbody></table>'
       : '<div class="cm-empty sm">لسه مفيش حركات upselling ليك.</div>';
+    ev.querySelectorAll('.cm-ev-row').forEach(function(tr){
+      tr.addEventListener('click', function(){ openOrderFromCommission(tr.getAttribute('data-cm-order')); });
+    });
   }
 
   var st = $id('my-cm-settlements');

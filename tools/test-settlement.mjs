@@ -114,8 +114,26 @@ ok(admin.settleBtns === 2, `زرار تسوية لكل موظف — ${admin.sett
 ok(admin.settleRows === 2, `سجل التسويات فيه صفّين — ${admin.settleRows}`);
 ok(admin.revBtns === 2, `وكل تسوية عليها زرار إلغاء — ${admin.revBtns}`);
 
+// محاذاة جدول الحركات — الصفوف لازم تفضل table rows حقيقية.
+// `.cm-row` (كلاس سطر محرر العمولة في الإعدادات) عليها display:flex،
+// ولما الجدول خد نفس الكلاس بالغلط الـ<tr> اتفكّك والخلايا اترصّت
+// بعيد عن عناوينها من غير أي خطأ — المالك هو اللي شافها. فحصين:
+// الـdisplay نفسه + انحراف العناوين ضد الخلايا بالبكسل (فحص النتيجة
+// مش الوسيلة — درس 34).
+const align = await p.evaluate(() => {
+  const t = document.querySelector('#cm-tbody table');
+  if(!t) return { err:'no-table' };
+  const ths = [...t.querySelectorAll('thead th')].map(e => e.getBoundingClientRect().x);
+  const tds = [...t.querySelectorAll('tbody tr:first-child td')].map(e => e.getBoundingClientRect().x);
+  const drift = ths.length === tds.length
+    ? Math.max(...ths.map((x,i) => Math.abs(x - tds[i]))) : 9999;
+  return { disp: getComputedStyle(t.querySelector('tbody tr')).display, drift: Math.round(drift) };
+});
+ok(align.disp === 'table-row', `صفوف الجدول table rows حقيقية — ${align.disp}`);
+ok(align.drift <= 3, `العناوين فوق خلاياها بالظبط — أقصى انحراف ${align.drift}px`);
+
 // الضغط على صف الحركة يفتح الأوردر
-await p.click('#cm-tbody tbody tr.cm-row');
+await p.click('#cm-tbody tbody tr.cm-ev-row');
 await p.waitForSelector('#ovl.open', { state:'visible', timeout:6000 });
 ok(true, 'الضغط على صف العمولة فتح نافذة الأوردر');
 await p.evaluate(() => document.getElementById('ovl').classList.remove('open'));
@@ -186,19 +204,37 @@ const bar = await p2.evaluate(() => {
   return { txt: el.textContent.replace(/\s+/g,' ').trim(), visible: r.height > 0,
            hit: !!(hit && el.contains(hit)) };
 });
-ok(bar.visible, 'شريط العمولة ظاهر فوق جدول الطلبات');
+ok(bar.visible, 'شريط العمولة ظاهر');
+// الموقع الجديد (طلب المالك): جوّه صف المدة مش فوق الجدول — المكان القديم
+// بيظهر فيه تنبيه طلبات الإلغاء وكانوا بيزاحموا بعض
+ok(await p2.evaluate(() => document.getElementById('my-cm-bar').parentElement.id === 'orders-period-bar'),
+   'الشريط جوّه صف المدة (orders-period-bar)');
 ok(/عليك 10/.test(bar.txt), `والرصيد السالب مكتوب «عليك» — ${bar.txt.slice(0,60)}`);
 ok(/معلّق 30/.test(bar.txt), 'والمعلّق ظاهر معاه');
 ok(bar.hit, 'الـhit-test: الشريط مش مدفون تحت حاجة');
 
-// زرار «عمولتي» في القايمة
-ok(await p2.evaluate(() => {
+// زرار «عمولتي» في القايمة — ظاهر + أيقونته بمقاس إخواته (كانت SVG عارية
+// من غير .nv-ico فطلعت بعرض السايدبار كله) + الضغطة بتوصّل فعلاً
+// (الأزرار متوصّلة بالـID واحد واحد في orders.js — الزرار ده كان ناقص)
+const navBtn = await p2.evaluate(() => {
   const n = document.getElementById('nav-mycommission');
-  return !!n && n.offsetParent !== null;
-}), 'زرار «عمولتي» ظاهر في القايمة');
-
+  if(!n || n.offsetParent === null) return null;
+  const svg = n.querySelector('svg');
+  const r = svg ? svg.getBoundingClientRect() : { width: 9999 };
+  return { hasIco: !!n.querySelector('.nv-ico'), svgW: Math.round(r.width) };
+});
+ok(!!navBtn, 'زرار «عمولتي» ظاهر في القايمة');
+ok(navBtn && navBtn.hasIco && navBtn.svgW <= 40,
+   `أيقونة الزرار بمقاسها الطبيعي — ${navBtn ? navBtn.svgW : '؟'}px`);
+await p2.click('#nav-mycommission');
+await p2.waitForSelector('#page-mycommission', { state:'visible', timeout:6000 });
+ok(true, 'ضغطة زرار القايمة فتحت صفحة «عمولتي»');
+// والرجوع والدخول تاني من زرار الشريط — المسارين شغّالين
+await p2.click('#nav-orders');
+await p2.waitForSelector('#page-orders', { state:'visible' });
 await p2.click('#my-cm-go');
 await p2.waitForSelector('#page-mycommission', { state:'visible', timeout:6000 });
+ok(true, 'وزرار «التفاصيل ↗» في الشريط بيوصّل برضه');
 await p2.waitForTimeout(400);
 const page = await p2.evaluate(() => ({
   out: (document.getElementById('my-cm-out')||{}).textContent,

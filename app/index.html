@@ -113,7 +113,7 @@
       <button class="tnav-btn" data-page="stock" id="nav-stock" title="المخزون"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg></span><span class="nv-txt">المخزون</span></button>
       <button class="tnav-btn" data-page="inbox" id="nav-inbox" title="المحادثات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span><span class="nv-txt">المحادثات</span><span class="wa-nav-badge" id="wa-nav-badge" style="display:none"></span></button>
       <div class="sn-label admin-only">الأعمال</div>
-      <button class="tnav-btn" data-page="mycommission" id="nav-mycommission" title="عمولتي" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5a2.5 2.5 0 0 0-2.5-1.5c-1.4 0-2.5.7-2.5 2s1.1 1.7 2.5 2 2.5.7 2.5 2-1.1 2-2.5 2a2.5 2.5 0 0 1-2.5-1.5M12 6.5v11"/></svg><span>عمولتي</span></button>
+      <button class="tnav-btn" data-page="mycommission" id="nav-mycommission" title="عمولتي" style="display:none"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6"/><circle cx="9.5" cy="9.5" r=".5" fill="currentColor"/><circle cx="14.5" cy="14.5" r=".5" fill="currentColor"/></svg></span><span class="nv-txt">عمولتي</span></button>
       <button class="tnav-btn admin-only" data-page="finance" id="nav-finance" title="الماليات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01"/><path d="M18 12h.01"/></svg></span><span class="nv-txt">الماليات</span></button>
       <button class="tnav-btn admin-only" data-page="analytics" id="nav-analytics" title="إحصائيات الأداء"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg></span><span class="nv-txt">إحصائيات الأداء</span></button>
       <button class="tnav-btn admin-only" data-page="billing" id="nav-billing" title="المحفظة"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg></span><span class="nv-txt">المحفظة</span></button>
@@ -174,6 +174,10 @@
         <input type="date" id="op-to" class="pdate">
         <button class="papply" id="op-apply">تطبيق</button>
       </div>
+      <!-- شريط عمولة الموظف — جوّه صف المدة عن قصد (طلب المالك): المكان
+           اللي تحت الفلاتر بيظهر فيه تنبيه طلبات الإلغاء، والاتنين مع بعض
+           كانوا بيزاحموا عين الموظف -->
+      <div class="my-cm-bar" id="my-cm-bar" style="display:none"></div>
       <span class="pcnt" id="orders-period-cnt"></span>
     </div>
     <div class="sgrid">
@@ -225,8 +229,7 @@
       <button class="unprinted-btn" id="bb-sel-unprinted" title="يحدّد كل الأوردرات اللي لسه ماتطبعتش بوليصتها في القايمة دي مرة واحدة">✓ حدد غير المطبوع</button>
     </div>
 
-    <div class="my-cm-bar" id="my-cm-bar" style="display:none"></div>
-  <div class="bulkbar" id="bulkbar">
+    <div class="bulkbar" id="bulkbar">
       <span class="bcnt" id="bcnt">0 محدد</span>
       <div class="bsep"></div>
       <span style="color:var(--muted);font-size:.83rem;">تغيير الحالة لكل المحددين:</span>
@@ -918,9 +921,9 @@
     </div>
   </div>
   <div class="sgrid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
-    <div class="sc"><span class="info-i" tabindex="0" title="اللي ليك دلوقتي بعد خصم اللي اتصرفلك. لو طلع بالسالب يبقى اتصرفلك أكتر من المستحق (أوردر رجع بعد ما اتصرف)." data-tip="اللي ليك دلوقتي بعد خصم اللي اتصرفلك. لو طلع بالسالب يبقى اتصرفلك أكتر من المستحق (أوردر رجع بعد ما اتصرف).">i</span><div class="slb">رصيدك المستحق</div><div class="sval" id="my-cm-out">—</div></div>
-    <div class="sc"><span class="info-i" tabindex="0" title="عمولات على أوردرات لسه في السكة — بتبقى مستحقة أول ما تتسلّم، وبتتلغي لو رجعت." data-tip="عمولات على أوردرات لسه في السكة — بتبقى مستحقة أول ما تتسلّم، وبتتلغي لو رجعت.">i</span><div class="slb">معلّق</div><div class="sval" id="my-cm-pending">—</div></div>
-    <div class="sc"><span class="info-i" tabindex="0" title="إجمالي اللي اتصرفلك في التسويات." data-tip="إجمالي اللي اتصرفلك في التسويات.">i</span><div class="slb">اتصرفلك</div><div class="sval" id="my-cm-settled">—</div></div>
+    <div class="sc c"><span class="info-i" tabindex="0" title="اللي ليك دلوقتي بعد خصم اللي اتصرفلك. لو طلع بالسالب يبقى اتصرفلك أكتر من المستحق (أوردر رجع بعد ما اتصرف)." data-tip="اللي ليك دلوقتي بعد خصم اللي اتصرفلك. لو طلع بالسالب يبقى اتصرفلك أكتر من المستحق (أوردر رجع بعد ما اتصرف).">i</span><div class="slb">رصيدك المستحق</div><div class="sval" id="my-cm-out">—</div></div>
+    <div class="sc r"><span class="info-i" tabindex="0" title="عمولات على أوردرات لسه في السكة — بتبقى مستحقة أول ما تتسلّم، وبتتلغي لو رجعت." data-tip="عمولات على أوردرات لسه في السكة — بتبقى مستحقة أول ما تتسلّم، وبتتلغي لو رجعت.">i</span><div class="slb">معلّق</div><div class="sval" id="my-cm-pending">—</div></div>
+    <div class="sc a"><span class="info-i" tabindex="0" title="إجمالي اللي اتصرفلك في التسويات." data-tip="إجمالي اللي اتصرفلك في التسويات.">i</span><div class="slb">اتصرفلك</div><div class="sval" id="my-cm-settled">—</div></div>
   </div>
   <div class="cm-rate-note" id="my-cm-rate"></div>
   <div class="sc-divider"><span>🔼 حركاتك</span></div>

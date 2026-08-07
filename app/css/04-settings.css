@@ -93,7 +93,9 @@
 
 /* ── قسم العمولات في الماليات ── */
 .cm-users{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
-.cm-user{flex:1 1 240px;padding:12px 14px;background:var(--bg);border:1px solid var(--brd);border-radius:13px;}
+/* flex:0 مش 1 — موظف واحد على شاشة عريضة كان بياخد العرض كله والاسم
+   في طرف و«N حركة» في الطرف التاني (space-between على 1900px) */
+.cm-user{flex:0 1 340px;min-width:255px;padding:13px 15px;background:var(--bg);border:1px solid var(--brd);border-radius:13px;}
 .cm-user-name{display:flex;align-items:center;justify-content:space-between;gap:8px;
   font-weight:900;font-size:.9rem;color:var(--txt);margin-bottom:7px;}
 .cm-user-n{font-size:.72rem;font-weight:700;color:var(--muted2);}
@@ -120,8 +122,12 @@ td.cm-amt{color:var(--pur);font-weight:900;}
   font-size:.79rem;font-weight:800;padding:3px 9px;border-radius:999px;}
 .cm-settled{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;
   font-size:.79rem;font-weight:800;padding:3px 9px;border-radius:999px;}
-tr.cm-row{cursor:pointer;}
-tr.cm-row:hover td{background:rgba(255,159,28,.07);}
+/* صفوف جداول الحركات اسمها cm-ev-row عن قصد — `.cm-row` (فوق) هي سطر
+   محرر العمولة في كارت الموظفين وعليها display:flex. لما الجدول خد نفس
+   الكلاس، الـ<tr> اتفكّك من الـtable layout والخلايا اترصّت بعيد عن
+   عناوينها من غير أي خطأ (المالك هو اللي شافها). */
+tr.cm-ev-row{cursor:pointer;}
+tr.cm-ev-row:hover td{background:rgba(255,159,28,.07);}
 .cm-open{font-size:.75rem;font-weight:800;color:var(--blue);white-space:nowrap;}
 .cm-rev-btn{background:#fff;border:1px solid var(--brd2);border-radius:9px;padding:4px 11px;
   font-family:inherit;font-weight:800;font-size:.74rem;cursor:pointer;color:var(--muted);}
@@ -138,16 +144,18 @@ td.cm-neg{color:var(--green);font-weight:800;}
 .up-badge{display:inline-block;margin-inline-end:5px;font-size:.82rem;cursor:help;
   filter:saturate(1.2);vertical-align:middle;}
 
-/* ── شريط عمولة الموظف فوق الجدول ── */
-.my-cm-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
-  padding:11px 15px;border-radius:13px;background:linear-gradient(135deg,#f5f3ff,#ede9fe);
+/* ── شريط عمولة الموظف — chip جوّه صف المدة ──
+   اتنقل من فوق الجدول لجوّه .pbar (طلب المالك): المكان القديم بيظهر
+   فيه تنبيه طلبات الإلغاء والاتنين كانوا بيزاحموا بعض. */
+.my-cm-bar{display:inline-flex;align-items:center;gap:8px;
+  padding:6px 12px;border-radius:999px;background:linear-gradient(135deg,#f5f3ff,#ede9fe);
   border:1px solid #ddd6fe;}
-.my-cm-ico{font-size:1.05rem;}
-.my-cm-txt{font-weight:900;font-size:.88rem;color:#4c1d95;}
-.my-cm-n{font-size:.75rem;font-weight:700;color:var(--muted);}
-.my-cm-go{margin-inline-start:auto;background:#7c3aed;color:#fff;border:none;border-radius:10px;
-  padding:7px 15px;font-family:inherit;font-weight:800;font-size:.78rem;cursor:pointer;white-space:nowrap;}
+.my-cm-ico{font-size:.95rem;}
+.my-cm-txt{font-weight:900;font-size:.82rem;color:#4c1d95;}
+.my-cm-go{background:#7c3aed;color:#fff;border:none;border-radius:999px;
+  padding:5px 12px;font-family:inherit;font-weight:800;font-size:.74rem;cursor:pointer;white-space:nowrap;}
 .my-cm-go:hover{filter:brightness(1.08);}
+@media(max-width:760px){.my-cm-bar{flex-wrap:wrap;border-radius:14px;}}
 
 /* ── صفحة «عمولتي» ── */
 #page-mycommission{max-width:980px;margin:0 auto;}
@@ -160,3 +168,4 @@ td.cm-neg{color:var(--green);font-weight:800;}
 .cm-rate-note{padding:12px 15px;border-radius:12px;background:#f5f3ff;border:1px solid #ddd6fe;
   color:var(--txt);font-size:.83rem;font-weight:600;line-height:1.9;margin-bottom:6px;}
 .sval.cm-neg-val{color:var(--red);}
+.sval.cm-pos-val{color:var(--green);}

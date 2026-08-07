@@ -572,4 +572,8 @@ export function initNav(){
   if($id('nav-settings'))$id('nav-settings').addEventListener('click',function(){showPage('settings');});
   if($id('nav-analytics'))$id('nav-analytics').addEventListener('click',function(){showPage('analytics');});
   if($id('nav-inbox'))$id('nav-inbox').addEventListener('click',function(){showPage('inbox');});
+  // زرار «عمولتي» (للموظف اللي عمولته مفعّلة) — الأزرار هنا متوصّلة
+  // بالـID واحد واحد، وأي زرار جديد في القايمة **لازم** يتضاف هنا
+  // وإلا الضغطة بتروح في الفراغ من غير أي خطأ (حصلت فعلاً)
+  if($id('nav-mycommission'))$id('nav-mycommission').addEventListener('click',function(){showPage('mycommission');});
 }
