@@ -217,6 +217,79 @@ async function openDetailOf(p, orderId){
   await p.close();
 }
 
+// ════ 6) علامة «بيتبعت» جوه إطار الحالة في الجدول ════
+{
+  const p = await openApp({ pre: `window.__SHIP_REQS = { o3: new Date().toISOString() };` });
+  console.log('──── علامة الجدول: بيتبعت ────');
+  const ind = await p.evaluate(() => {
+    const tr = document.querySelector('#tbody tr[data-id="o3"]');
+    const el = tr && tr.querySelector('.ship-ind');
+    return el ? { cls: el.className, inBadge: !!el.closest('.badge'),
+                  title: el.title || '' } : null;
+  });
+  ok(!!ind, 'العلامة ظاهرة على صف الأوردر');
+  ok(ind && /wait/.test(ind.cls), 'وبتلف (تحميل) — الطلب لسه طازة');
+  ok(ind && ind.inBadge, 'وجوه نفس إطار كلمة الحالة (طلب المالك)');
+  ok(ind && /أوتوماتيك/.test(ind.title), 'والتلميح بيشرح');
+  // الأوردرات التانية من غير علامة
+  const others = await p.evaluate(() => document.querySelectorAll('#tbody .ship-ind').length);
+  ok(others === 1, `والعلامة على أوردر واحد بس — ${others}`);
+  await p.close();
+}
+
+// ════ 7) العلامة الصفرا — المحاولة ماكملتش ════
+{
+  const p = await openApp({ pre: `window.__SHIP_REQS = { o3: new Date(Date.now() - 10*60000).toISOString() };` });
+  console.log('──── علامة الجدول: صفرا (ماكملتش) ────');
+  const ind = await p.evaluate(() => {
+    const tr = document.querySelector('#tbody tr[data-id="o3"]');
+    const el = tr && tr.querySelector('.ship-ind');
+    return el ? { cls: el.className, inBadge: !!el.closest('.badge'), title: el.title || '',
+                  bg: getComputedStyle(el).backgroundColor } : null;
+  });
+  ok(ind && /warn/.test(ind.cls), 'العلامة بقت تحذير — الطلب قديم من غير بوليصة');
+  ok(ind && /245, 158, 11/.test(ind.bg), `ولونها أصفر فعلاً — ${ind && ind.bg}`);
+  ok(ind && /يدوي/.test(ind.title), 'والتلميح بيوجّه للشحن اليدوي');
+  // وجوه النافذة: تحذير مكتوب + زرار الأوتوماتيك راجع للمحاولة تاني
+  await openDetailOf(p, 'o3');
+  const inPopup = await p.evaluate(() => ({
+    chip: ((document.getElementById('ship-chip')||{}).textContent || ''),
+    auto: !!document.getElementById('ship-auto'),
+    manual: !!document.getElementById('da-bs')
+  }));
+  ok(/ماكملتش/.test(inPopup.chip), 'وجوه النافذة التحذير مكتوب صريح');
+  ok(inPopup.auto && inPopup.manual, 'والزرارين متاحين — يعيد المحاولة أو يشحن يدوي');
+  await p.close();
+}
+
+// ════ 8) التيكر: الموظف مشي يشتغل — العلامة بتتحدث لوحدها ════
+{
+  const p = await openApp({ pre: `
+    window.__SHIP_TICK_MS = 700;
+    window.__SHIP_REQS = { o3: new Date().toISOString() };
+  ` });
+  console.log('──── التيكر: النجاح بيوصل للجدول من غير ما يفتح الأوردر ────');
+  const before = await p.evaluate(() =>
+    !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.wait'));
+  ok(before, 'العلامة بتلف في الأول');
+  // «n8n» كتب البوليصة على السيرفر — من غير ما النافذة تكون مفتوحة خالص
+  await p.evaluate(() => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o3')[0];
+    o.tracking_no = 'TRKTICK1'; o.status = 'BOSTA AUTO';
+  });
+  await p.waitForFunction(() =>
+    [...document.querySelectorAll('.toast')].some(t => /TRKTICK1/.test(t.textContent)),
+    { timeout: 10000 });
+  const after = await p.evaluate(() => ({
+    ind: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind'),
+    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join('|'),
+    badge: (document.querySelector('#tbody tr[data-id="o3"] .badge')||{}).textContent || ''
+  }));
+  ok(/9003/.test(after.toast), `الرسالة بتقول أنهي أوردر — ${after.toast.slice(0,70)}`);
+  ok(!after.ind, 'والعلامة اختفت — الأوردر بقى له بوليصة');
+  await p.close();
+}
+
 await b.close();
 console.log(bad ? `\n❌ ${bad} مشكلة` : '\n✅ تمام');
 process.exit(bad ? 1 : 0);

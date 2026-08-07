@@ -3,6 +3,7 @@
 import { emptyState } from '../core/empty.js';
 import { walletStateCache } from '../billing/billing.js';
 import { statusClass, statusLabel } from '../core/constants.js';
+import { shipIndicatorHtml } from './ship.js';
 import { $id, esc } from '../core/dom.js';
 import { fmt, fmtD, num, short } from '../core/format.js';
 import { pRange } from '../finance/finance.js';
@@ -161,7 +162,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
       +'<td class="addr" title="'+addrTitle+'">'+lockMaybe(short(o.address,45))+'</td>'
       +'<td class="pr" title="'+prodTitle+'">'+lockMaybe(short(o.product_name,30))+(!locked&&o['var']&&String(o['var']).trim()?'<span class="var-badge" title="اللون / المقاس: '+esc(String(o['var']))+'">'+esc(short(String(o['var']),18))+'</span>':'')+'</td>'
       +'<td class="pay'+(o.payment_stage==='paymob'?' paid':'')+'">'+(o.payment_stage==='paymob'?'<span class="pay-badge">مدفوع</span>':'<span class="pay-cod">COD</span>')+'</td>'
-      +'<td><span class="badge '+statusClass(s)+'"><span class="bdot"></span>'+esc(statusLabel(s))+'</span></td>'
+      +'<td><span class="badge '+statusClass(s)+'"><span class="bdot"></span>'+esc(statusLabel(s))+shipIndicatorHtml(o)+'</span></td>'
       +'<td class="timer-cell" data-deadline="'+getCallDeadline(o)+'" data-id="'+o.id+'"></td>'
       +'<td class="mn">'+fmtD(o.created_at)+'</td>'
       +'</tr>';

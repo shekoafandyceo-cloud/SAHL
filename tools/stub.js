@@ -86,6 +86,12 @@
       // الاستعلام**. الحقن على DOMContentLoaded ماينفعش — موديولات ES بتتنفّذ
       // قبله، فالـ16 استعلام كلهم بيخرجوا والصفحة اترسمت قبل ما الحدث يولّع.
       if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
+      // علامة الشحن في الجدول: الاختبار بيحقن {id: iso} والستب بيطبّقها
+      // وقت الاستعلام — نفس نمط __UPSELL_IDS
+      var sq = window.__SHIP_REQS || {};
+      rows = rows.map(function(o){
+        return sq[o.id] !== undefined ? Object.assign({}, o, {shipping_requested_at: sq[o.id]}) : o;
+      });
       var up = window.__UPSELL_IDS || [];
       if(up.length) rows = rows.map(function(o){
         return up.indexOf(o.id) >= 0 ? Object.assign({}, o, {has_upsell:true}) : o;
