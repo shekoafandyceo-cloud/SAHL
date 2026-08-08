@@ -32,6 +32,22 @@ export function buildProductOptions(selected){
   return opts;
 }
 
+// سعر السيستم لمنتج بالاسم — null لو مش في المخزون
+function stockPriceOf(name){
+  var it = (stockProducts||[]).find(function(s){ return s.name === name; });
+  return it && it.unit_price != null ? Number(it.unit_price) : null;
+}
+
+// خانة السعر: بتتملى تلقائي بسعر السيستم وبتتعدل بحرية —
+// التعديل بيأثر على إجمالي **الأوردر ده بس** (عرض/خصم على قطعة)،
+// سعر المنتج في المخزون وسعر التكلفة مايتلمسوش (طلب المالك 8 أغسطس)
+function priceInputHtml(idx, val){
+  return '<input type="text" inputmode="decimal" class="prod-price" data-idx="'+idx+'"'
+    +' placeholder="السعر" title="سعر البيع للقطعة في الأوردر ده بس — سعر المخزون والتكلفة ثابتين"'
+    +' style="flex:0 0 88px;min-width:70px;direction:ltr;text-align:center;"'
+    +' value="'+(val!=null?esc(String(val)):'')+'">';
+}
+
 export function renderProductsEditor(str){
   var products=parseProducts(str);
   var list=$id('prod-list');
@@ -39,8 +55,10 @@ export function renderProductsEditor(str){
   var h='';
   products.forEach(function(p,i){
     // Each product row: stock dropdown + quantity input + manual text override + delete button
+    var nm=p.replace(/\s*\(عدد\s*\d+\)\s*$/, '').trim();
     h+='<div class="prod-item" data-idx="'+i+'">'
-      +'<select class="prod-select prod-input" data-idx="'+i+'" style="flex:2;min-width:140px;">'+buildProductOptions(p.replace(/\s*\(عدد\s*\d+\)\s*$/, '').trim())+'</select>'
+      +'<select class="prod-select prod-input" data-idx="'+i+'" style="flex:2;min-width:140px;">'+buildProductOptions(nm)+'</select>'
+      +priceInputHtml(i, stockPriceOf(nm))
       +'<input type="text" class="prod-qty" data-idx="'+i+'" placeholder="الكمية" style="flex:0 0 70px;min-width:60px;" value="'+(p.match(/\(عدد\s*(\d+)\)/)?p.match(/\(عدد\s*(\d+)\)/)[1]:'1')+'">'
       +(products.length>1?'<button class="prod-del" data-idx="'+i+'" title="حذف">✕</button>':'')
       +'</div>';
@@ -59,12 +77,27 @@ export function renderProductsEditor(str){
       sel2.insertBefore(opt, sel2.options[1]||null);
     }
   });
+  wirePriceRefill(list);
   list.querySelectorAll('.prod-del').forEach(function(b){
     b.addEventListener('click',function(){
       var prods=collectProducts();
       prods.splice(parseInt(b.getAttribute('data-idx')),1);
       if(!prods.length)prods=[''];
       renderProductsEditor(prods.join('\n+ '));
+    });
+  });
+}
+
+// اختيار منتج من القايمة بيرجّع السعر لسعر السيستم — نقطة بداية للتعديل
+function wirePriceRefill(scope){
+  scope.querySelectorAll('.prod-select').forEach(function(sl){
+    if(sl.__priceWired) return;
+    sl.__priceWired = true;
+    sl.addEventListener('change', function(){
+      var priceInp = sl.parentNode.querySelector('.prod-price');
+      if(!priceInp) return;
+      var sp = stockPriceOf(sl.value.trim());
+      priceInp.value = sp != null ? String(sp) : '';
     });
   });
 }
@@ -97,6 +130,7 @@ export function addEmptyProductRow(){
   div.className='prod-item';
   div.setAttribute('data-idx',idx);
   div.innerHTML='<select class="prod-select prod-input" data-idx="'+idx+'" style="flex:2;min-width:140px;">'+buildProductOptions('')+'</select>'
+    +priceInputHtml(idx, null)
     +'<input type="text" class="prod-qty" data-idx="'+idx+'" placeholder="الكمية" style="flex:0 0 70px;min-width:60px;" value="1">'
     +'<button class="prod-del" data-idx="'+idx+'" title="حذف">✕</button>';
   list.appendChild(div);
@@ -107,6 +141,7 @@ export function addEmptyProductRow(){
     var remaining=list.querySelectorAll('.prod-item');
     if(remaining.length===1) remaining[0].querySelector('.prod-del') && (remaining[0].querySelector('.prod-del').style.display='none');
   });
+  wirePriceRefill(div);
   div.querySelector('.prod-select').focus();
   // Show delete button on first row now that there are multiple
   list.querySelectorAll('.prod-item').forEach(function(r){
@@ -147,10 +182,36 @@ export function saveProducts(){
     return map;
   }
 
+  // الجانب الجديد بيتحسب من **الأسعار المكتوبة في الخانات** مش من سعر
+  // السيستم — الخانة بتتملى بسعر السيستم تلقائياً، فلو التاجر ماغيّرهاش
+  // الناتج مطابق للقديم والفرق صفر. ولو كتب سعر عرض، الفرق بيتحسب بسعره
+  // هو — للأوردر ده بس. سعر فاضي/مش رقم = مجهول (مانلمسش الإجمالي).
+  function buildEnteredMap(){
+    var map = {};
+    var rows = $id('prod-list') ? $id('prod-list').querySelectorAll('.prod-item') : [];
+    rows.forEach(function(row){
+      var sl = row.querySelector('.prod-select');
+      var qInp = row.querySelector('.prod-qty');
+      var pInp = row.querySelector('.prod-price');
+      var name = (sl ? sl.value : '').trim();
+      if(!name) return;
+      var qty = qInp ? parseInt(qInp.value) : 1;
+      if(!isFinite(qty) || qty < 1) qty = 1;
+      var key = name + '|' + qty;
+      var price = pInp ? parseFloat(String(pInp.value).replace(/[^\d.]/g,'')) : NaN;
+      if(!isFinite(price) || price < 0){
+        map[key] = null;                       // سعر مجهول — زي القديم بالظبط
+      }else{
+        map[key] = (map[key] || 0) + price * qty;
+      }
+    });
+    return map;
+  }
+
   // Parse old product list (the one saved in the order before this edit)
   var oldProducts = parseProducts(ord.product_name || '');
   var oldMap = buildPriceMap(oldProducts);
-  var newMap = buildPriceMap(products);
+  var newMap = buildEnteredMap();
 
   // Calculate delta: sum of (new - old) for items where we have prices.
   // بيتحسب على union المفاتيح بفرق القيمة المتراكمة — المنتج المكرر بنفس
