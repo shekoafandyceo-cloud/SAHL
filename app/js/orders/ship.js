@@ -16,7 +16,7 @@
 
 import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../core/config.js';
-import { $id } from '../core/dom.js';
+import { $id, esc } from '../core/dom.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -40,6 +40,10 @@ var POLL_MS = 3000, POLL_TRIES = Math.max(1, Math.round(STALE_MINUTES * 60000 / 
 var pollTimer = null, pollOrderId = null;
 // الأوردرات اللي علامتها الصفرا اترسمت خلاص — عشان التيكر مايرسمش تاني
 var staleShown = {};
+// سبب فشل المحاولة (جلسة محلية): بيظهر في تلميح العلامة الصفرا وفي شارة
+// النافذة — بدل رسايل الـtoast اللي المالك شالها. عبر الأجهزة/الريفريش
+// السبب بيضيع والعلامة بتفضل بانقلاب الوقت (عادي — التلميح العام بيكفي).
+var shipFail = {};
 
 export function hasShipApi(){
   return !!(currentTenant && currentTenant.has_shipping_api);
@@ -63,11 +67,29 @@ export function shipPendingState(o){
 // علامة جوه إطار شارة الحالة في الجدول (طلب المالك): الموظف بيدوس
 // «شحن أوتوماتيك» ويمشي يشتغل على غيره — الجدول هو اللي بيحكي.
 export function shipIndicatorHtml(o){
+  if(!o || (o.tracking_no || '').trim()) return '';
   var st = shipPendingState(o);
-  if(!st) return '';
-  return st.stale
-    ? '<span class="ship-ind warn" title="محاولة الشحن الأوتوماتيك ماكملتش — افتح الأوردر واشحنه يدوي أو جرّب تاني"></span>'
-    : '<span class="ship-ind wait" title="بيتبعت لشركة الشحن أوتوماتيك — العلامة هتتحدث لوحدها"></span>';
+  if(st && !st.stale)
+    return '<span class="ship-ind wait" title="بيتبعت لشركة الشحن أوتوماتيك — العلامة هتتحدث لوحدها"></span>';
+  var reason = shipFail[o.id];
+  if(reason || (st && st.stale))
+    return '<span class="ship-ind warn" title="' + esc(reason || 'محاولة الشحن الأوتوماتيك ماكملتش — افتح الأوردر واشحنه يدوي أو جرّب تاني') + '"></span>';
+  return '';
+}
+
+// تحديث جراحي لعلامة صف واحد — من غير أي إعادة رسم للجدول.
+// (المالك شاف الرسم الكامل بعد الضغطة كـ«ريفريش» ورفضه — الرسم الكامل
+// بقى محجوز لتغيير الحالة الفعلي بس.)
+function updateRowIndicator(orderId){
+  var tr = document.querySelector('#tbody tr[data-id="' + orderId + '"]');
+  var row = findRow(orderId);
+  if(!tr || !row) return;
+  var badge = tr.querySelector('.badge');
+  if(!badge) return;
+  var old = badge.querySelector('.ship-ind');
+  if(old) old.remove();
+  var html = shipIndicatorHtml(row);
+  if(html) badge.insertAdjacentHTML('beforeend', html);
 }
 
 // ── الجزء اللي بيترسم جوّه نافذة التفاصيل ───────────────────────────
@@ -75,8 +97,11 @@ export function shipControlsHtml(o){
   if(!o) return '';
   var h = '';
   var req = shipPendingState(o);
+  var reason = (!((o.tracking_no || '').trim()) && shipFail[o.id]) || null;
   if(req && !req.stale){
-    h += '<div class="ship-chip wait" id="ship-chip"><span class="spin sm"></span> بيتبعت لشركة الشحن... النتيجة بتظهر هنا في ثواني</div>';
+    h += '<div class="ship-chip wait" id="ship-chip"><span class="spin sm"></span> بيتبعت لشركة الشحن... تقدر تقفل وتكمّل شغلك — العلامة جنب الحالة هتتحدث لوحدها</div>';
+  }else if(reason){
+    h += '<div class="ship-chip warn" id="ship-chip">⚠️ ' + esc(reason) + '</div>';
   }else if(req && req.stale){
     h += '<div class="ship-chip warn" id="ship-chip">⚠️ فيه محاولة شحن ماكملتش — راجع العنوان وجرّب تاني. الحالة ماتغيّرتش ومفيش بوليصة اتعملت.</div>';
   }
@@ -143,19 +168,21 @@ function autoShipFlow(){
 }
 
 async function callShipFunction(ord){
-  // النافذة بتتقفل فوراً (طلب المالك) — الموظف يكمّل شغله والجدول بيحكي.
-  // كل الرسايل من هنا ورايح بتقول رقم الأوردر عشان تبقى مفهومة من أي مكان.
-  var uid = ord.order_uid ? ('#' + ord.order_uid) : '';
+  // النافذة بتتقفل فوراً والموظف يكمّل شغله — **من غير أي toast ولا أي
+  // إعادة رسم للجدول** (طلب المالك بعد التجربة الحية التالتة): العلامة
+  // جنب الحالة هي القناة الوحيدة، وبتتحدث بتحديث جراحي لخلية الصف بس.
+  // الرسم الكامل محجوز لتغيير الحالة الفعلي (البوليصة وصلت).
   if(sel && sel.id === ord.id){
     $id('ovl').classList.remove('open');
     ordersSetSelected(null);
     detailAbort();
   }
-  // العلامة تظهر في الجدول في نفس اللحظة (تفاؤلي — بنصححها لو الطلب اترفض)
+  delete shipFail[ord.id];
+  delete staleShown[ord.id];
   var row = findRow(ord.id);
   var optimistic = new Date().toISOString();
   if(row) row.shipping_requested_at = optimistic;
-  renderTable();
+  updateRowIndicator(ord.id);
   var out = {};
   try{
     var sess = await sb.auth.getSession();
@@ -170,15 +197,15 @@ async function callShipFunction(ord){
     out = await res.json().catch(function(){ return {}; });
     if(!res.ok || !out.ok) throw new Error(out.message || 'حصلت مشكلة — حاول تاني');
   }catch(e){
-    // الطلب اترفض قبل ما يتبعت أصلاً — نشيل العلامة ونقول السبب بصراحة
+    // الطلب اترفض قبل ما يتبعت أصلاً — العلامة بتتقلب صفرا فوراً والسبب
+    // الحقيقي جوّاها (تلميح الماوس + شارة النافذة لو اتفتح) — مفيش toast
     if(row && row.shipping_requested_at === optimistic) row.shipping_requested_at = null;
-    renderTable();
-    toast('أوردر ' + uid + ': ' + String(e.message || e),'er');
+    shipFail[ord.id] = String(e.message || e);
+    updateRowIndicator(ord.id);
+    if(sel && sel.id === ord.id) renderDetail();
     return;
   }
   if(row) row.shipping_requested_at = out.requested_at || optimistic;
-  renderTable();
-  toast('أوردر ' + uid + ' اتبعت لشركة الشحن — كمّل شغلك عادي، العلامة جنب الحالة هتتحدث لوحدها','ok');
   startPoll(ord.id);
 }
 
@@ -202,12 +229,13 @@ function startPoll(orderId){
           return;
         }
         if(tries >= POLL_TRIES){
-          // العتبة خلصت من غير بوليصة — العلامة بتتقلب صفرا دلوقتي
-          // (نفس عمر STALE_MINUTES بالظبط) والرسالة بتوجّه لليدوي
+          // العتبة خلصت من غير بوليصة — العلامة بتتقلب صفرا (تحديث جراحي
+          // للصف بس، من غير toast ولا رسم كامل — قرار المالك)
           stopPoll();
-          renderTable();
+          shipFail[orderId] = 'محاولة الشحن الأوتوماتيك ماكملتش — راجع العنوان واشحنه يدوي أو جرّب تاني';
+          staleShown[orderId] = true;
+          updateRowIndicator(orderId);
           if(sel && sel.id === orderId) renderDetail();
-          toast('أوردر ' + uid + ': محاولة الشحن الأوتوماتيك ماكملتش ⚠️ — افتحه واشحنه يدوي أو جرّب تاني','er');
         }
       });
   }, POLL_MS);
@@ -226,6 +254,7 @@ function findRow(id){
 
 // نجاح (يدوي أو أوتوماتيك): تحديث الذاكرة المحلية + الجدول + النافذة
 function applyShipped(orderId, status, tracking, requestedAt){
+  delete shipFail[orderId]; delete staleShown[orderId];
   var row = findRow(orderId);
   if(row){
     row.status = status || row.status;
@@ -253,7 +282,7 @@ export function initShipTicker(){
   setInterval(function(){
     // صفوف الجدول في fil (الصفحة الحالية من السيرفر) — وall مخزن
     // الماليات الكسول وممكن يبقى فاضي. بنمسح الاتنين.
-    var watch = [], seen = {}, flip = false;
+    var watch = [], seen = {}, flipped = [];
     var scan = fil.concat(all);
     for(var i=0;i<scan.length;i++){
       var o = scan[i];
@@ -262,11 +291,12 @@ export function initShipTicker(){
       var age = (Date.now() - new Date(o.shipping_requested_at).getTime()) / 60000;
       if(age < 0 || age >= WATCH_WINDOW_MIN) continue;
       watch.push(o.id);
-      // العلامة اتقلبت صفرا من آخر رسمة؟ نرسم مرة واحدة بس لكل انقلاب —
-      // إعادة الرسم كل تيك كانت باينة للمالك كـ«ريفريش على الفاضي»
-      if(age >= STALE_MINUTES && !staleShown[o.id]){ staleShown[o.id] = true; flip = true; }
+      // العلامة اتقلبت صفرا من آخر رسمة؟ تحديث جراحي للصف ده بس —
+      // الرسم الكامل كان باين للمالك كـ«ريفريش على الفاضي» واترفض
+      if(age >= STALE_MINUTES && !staleShown[o.id]){ staleShown[o.id] = true; flipped.push(o.id); }
     }
-    if(!watch.length || !sb || !currentTenantId){ if(flip) renderTable(); return; }
+    flipped.forEach(updateRowIndicator);
+    if(!watch.length || !sb || !currentTenantId) return;
     // إعادة جلب الصفوف المعلّقة بس — لو النجاح وصل والـRealtime فاتته
     // (تاب مفصول مثلاً) العلامة بتتصلّح من هنا. **صامت**: مفيش أي رسم
     // غير لو فيه تغيير فعلي من السيرفر أو انقلاب علامة.
@@ -281,13 +311,13 @@ export function initShipTicker(){
             row.status = d.status; row.tracking_no = d.tracking_no;
             row.shipping_requested_at = d.shipping_requested_at;
             changed = true;
-            delete staleShown[d.id];
+            delete staleShown[d.id]; delete shipFail[d.id];
             if((d.tracking_no||'').trim())
               toast('البوليصة اتعملت لأوردر #' + (row.order_uid || '') + ' ✓ رقم التتبع: ' + d.tracking_no,'ok');
           }
         });
+        // الرسم الكامل عند تغيير الحالة الفعلي بس — ده المسموح
         if(changed){ renderTable(); loadOrdersCards(); loadBostaInventoryCard(); }
-        else if(flip){ renderTable(); }
       });
   }, TICK_MS);
 }

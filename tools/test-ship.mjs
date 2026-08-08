@@ -103,16 +103,27 @@ async function openDetailOf(p, orderId){
   const conf = await p.evaluate(() => (document.getElementById('cmodal-sub')||{}).textContent || '');
   ok(/بفلوس حقيقية/.test(conf), 'مودال التأكيد بيقول إنها بوليصة حقيقية بفلوس');
   ok(/مش هتتغير غير لما/.test(conf), 'وبيوعد إن الحالة مش هتتغير غير بالبوليصة الفعلية');
+  // مراقب على الجدول: الضغطة ممنوع تسبب أي إعادة رسم — العلامة بتتحقن
+  // جراحياً في خلية الصف (قرار المالك بعد ما شاف الرسم كـ«ريفريش»)
+  await p.evaluate(() => {
+    window.__renders = 0;
+    new MutationObserver(function(){ window.__renders++; })
+      .observe(document.getElementById('tbody'), { childList: true, subtree: false });
+  });
   await p.click('#cmodal-ok');
   await p.waitForTimeout(600);
 
   // النافذة اتقفلت فوراً (طلب المالك) — الموظف يكمّل شغله والجدول بيحكي
   const closed = await p.evaluate(() => ({
     ovlOpen: document.getElementById('ovl').classList.contains('open'),
-    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.wait')
+    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.wait'),
+    renders: window.__renders,
+    toasts: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
   }));
   ok(!closed.ovlOpen, 'نافذة التفاصيل اتقفلت فوراً بعد التأكيد');
   ok(closed.tableInd, 'والعلامة بتلف على الصف في الجدول في نفس اللحظة');
+  ok(closed.renders === 0, `من غير أي إعادة رسم للجدول — ${closed.renders} رسمة`);
+  ok(closed.toasts.trim() === '', `ومن غير أي رسالة تحت — «${closed.toasts.slice(0,40)}»`);
 
   const call = await p.evaluate(() => (window.__FNCALLS || []).filter(c => c.slug === 'order-ship').pop());
   ok(!!call, 'الـEdge Function اتندهت');
@@ -123,8 +134,6 @@ async function openDetailOf(p, orderId){
   const midToasts = await p.evaluate(() =>
     [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '));
   ok(!/البوليصة اتعملت/.test(midToasts), 'ومفيش إعلان نجاح قبل ما التتبع يظهر فعلاً');
-  ok(/اتبعت لشركة الشحن/.test(midToasts) && /#9003/.test(midToasts),
-     'رسالة «اتبعت — كمّل شغلك» برقم الأوردر');
 
   // الـpoll يلقط التتبع والنافذة مقفولة خالص
   await p.waitForFunction(() =>
@@ -221,17 +230,29 @@ async function openDetailOf(p, orderId){
   await p.waitForSelector('#cmodal-box', { state:'visible' });
   await p.click('#cmodal-ok');
   await p.waitForTimeout(800);
-  const fail = await p.evaluate(() => ({
-    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
-    row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}),
-    ovlOpen: document.getElementById('ovl').classList.contains('open'),
-    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind')
-  }));
-  ok(/العنوان قصير/.test(fail.toast) && /#9003/.test(fail.toast),
-     `رسالة الفشل برقم الأوردر — ${fail.toast.slice(0,70)}`);
+  const fail = await p.evaluate(() => {
+    const ind = document.querySelector('#tbody tr[data-id="o3"] .ship-ind');
+    return {
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
+      row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}),
+      ovlOpen: document.getElementById('ovl').classList.contains('open'),
+      indCls: ind ? ind.className : '',
+      indTitle: ind ? (ind.title || '') : ''
+    };
+  });
+  ok(fail.toast.trim() === '', `صفر رسايل تحت — الفشل صامت (قرار المالك) — «${fail.toast.slice(0,40)}»`);
+  ok(/warn/.test(fail.indCls), 'العلامة الصفرا ظهرت على الصف فوراً');
+  ok(/العنوان قصير/.test(fail.indTitle), `والسبب الحقيقي جوه تلميحها — ${fail.indTitle.slice(0,50)}`);
   ok(fail.row.status === 'pending' && !fail.row.tracking_no, 'والأوردر فضل زي ما هو — مفيش حالة كاذبة');
   ok(!fail.ovlOpen, 'والنافذة مقفولة برضه — مفيش رجوع ليها');
-  ok(!fail.tableInd, 'والعلامة التفاؤلية اتشالت — الطلب مااتبعتش أصلاً');
+  // فتح الأوردر: السبب مكتوب في الشارة جوه النافذة + الزرار متاح يجرب تاني
+  await openDetailOf(p, 'o3');
+  const inPopup = await p.evaluate(() => ({
+    chip: ((document.getElementById('ship-chip')||{}).textContent || ''),
+    auto: !!document.getElementById('ship-auto')
+  }));
+  ok(/العنوان قصير/.test(inPopup.chip), 'وفتح الأوردر: السبب مكتوب في الشارة');
+  ok(inPopup.auto, 'وزرار الأوتوماتيك متاح يجرب تاني بعد ما يصلّح');
   await p.close();
 }
 
@@ -250,17 +271,20 @@ async function openDetailOf(p, orderId){
   await p.click('#ship-auto');
   await p.waitForSelector('#cmodal-box', { state:'visible' });
   await p.click('#cmodal-ok');
+  // العلامة نفسها هي الإشارة — بنستنى انقلابها مش رسالة
   await p.waitForFunction(() =>
-    [...document.querySelectorAll('.toast')].some(t => /ماكملتش/.test(t.textContent)),
+    !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.warn'),
     { timeout: 20000 });
-  const dead = await p.evaluate(() => ({
-    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
-    warn: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.warn'),
-    row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {})
-  }));
-  ok(/#9003/.test(dead.toast) && /يدوي/.test(dead.toast),
-     `رسالة «ماكملتش» برقم الأوردر وتوجيه لليدوي — ${dead.toast.slice(0,70)}`);
-  ok(dead.warn, 'والعلامة الصفرا ظهرت على الصف في الجدول');
+  const dead = await p.evaluate(() => {
+    const ind = document.querySelector('#tbody tr[data-id="o3"] .ship-ind.warn');
+    return {
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
+      indTitle: ind ? (ind.title || '') : '',
+      row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {})
+    };
+  });
+  ok(dead.toast.trim() === '', `العلامة اتقلبت صفرا من غير أي رسالة — «${dead.toast.slice(0,40)}»`);
+  ok(/يدوي/.test(dead.indTitle), `والتلميح بيوجّه لليدوي — ${dead.indTitle.slice(0,50)}`);
   ok(dead.row.status === 'pending' && !dead.row.tracking_no, 'والحالة ماتغيّرتش — مفيش حالة كاذبة');
   await p.close();
 }
