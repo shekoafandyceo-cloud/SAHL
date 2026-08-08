@@ -26,7 +26,7 @@
       customer_notes:null, internal_notes:null, customer_ranking:null,
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
-      has_upsell:false, shipping_requested_at:null,
+      has_upsell:false, shipping_requested_at:null, line_prices:null,
       'var':null
     }, o);
   }

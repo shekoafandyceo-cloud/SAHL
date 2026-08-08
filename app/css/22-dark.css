@@ -256,3 +256,5 @@ html.dark tr.cm-ev-row:hover td{background:rgba(255,159,28,.09);}
 
 html.dark .ship-chip.wait{background:rgba(37,99,235,.14);border-color:rgba(59,130,246,.35);color:#93c5fd;}
 html.dark .ship-chip.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#fbbf24;}
+
+html.dark .prod-price{background:#1a2233;border-color:var(--brd);color:var(--txt);}

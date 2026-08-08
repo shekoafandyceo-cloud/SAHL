@@ -82,3 +82,11 @@ td.id.has-cx .cx-badge{display:block;width:max-content;margin:3px 0 0;}
 .ship-ind.warn{width:10px;height:10px;border-radius:50%;background:#f59e0b;box-shadow:0 0 0 3px rgba(245,158,11,.28);cursor:help;animation:shippulse 1.6s ease-in-out infinite;}
 @keyframes shipspin{to{transform:rotate(360deg)}}
 @keyframes shippulse{0%,100%{box-shadow:0 0 0 3px rgba(245,158,11,.28)}50%{box-shadow:0 0 0 5px rgba(245,158,11,.12)}}
+
+/* خانة سعر القطعة في محرر المنتجات — نفس عيلة خانة الكمية */
+.prod-price{flex:0 0 96px!important;min-width:78px!important;padding:10px 8px;
+  background:#fff;border:1px solid var(--brd);border-radius:12px;color:var(--txt);
+  font-family:'JetBrains Mono',monospace;font-size:.8rem;font-weight:600;
+  direction:ltr;text-align:center!important;outline:none;}
+.prod-price::placeholder{font-family:'Cairo',sans-serif;font-weight:400;color:var(--muted2);}
+.prod-price:focus{border-color:var(--acc);box-shadow:0 0 0 4px rgba(255,159,28,.1);}

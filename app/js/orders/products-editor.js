@@ -42,24 +42,43 @@ function stockPriceOf(name){
 // التعديل بيأثر على إجمالي **الأوردر ده بس** (عرض/خصم على قطعة)،
 // سعر المنتج في المخزون وسعر التكلفة مايتلمسوش (طلب المالك 8 أغسطس)
 function priceInputHtml(idx, val){
+  var v = val != null ? esc(String(val)) : '';
   return '<input type="text" inputmode="decimal" class="prod-price" data-idx="'+idx+'"'
     +' placeholder="السعر" title="سعر البيع للقطعة في الأوردر ده بس — سعر المخزون والتكلفة ثابتين"'
-    +' style="flex:0 0 88px;min-width:70px;direction:ltr;text-align:center;"'
-    +' value="'+(val!=null?esc(String(val)):'')+'">';
+    +' data-init="'+v+'" value="'+v+'">';
 }
 
-export function renderProductsEditor(str){
+export function renderProductsEditor(str, priceOverrides){
   var products=parseProducts(str);
   var list=$id('prod-list');
   if(!list)return;
+  // أسعار السطور المحفوظة مع الأوردر — [{n,q,p}] بييجي من عمود line_prices
+  var lp = (sel && Array.isArray(sel.line_prices)) ? sel.line_prices : [];
+  var lpUsed = {};
+  function savedPriceOf(name, qty){
+    for(var i=0;i<lp.length;i++){
+      var e = lp[i];
+      if(!lpUsed[i] && e && e.n === name && Number(e.q) === qty && e.p != null && isFinite(Number(e.p))){
+        lpUsed[i] = true; return Number(e.p);
+      }
+    }
+    return null;
+  }
   var h='';
   products.forEach(function(p,i){
-    // Each product row: stock dropdown + quantity input + manual text override + delete button
     var nm=p.replace(/\s*\(عدد\s*\d+\)\s*$/, '').trim();
+    var qty=p.match(/\(عدد\s*(\d+)\)/)?parseInt(p.match(/\(عدد\s*(\d+)\)/)[1]):1;
+    // أولوية السعر: تجاوز مؤقت (حذف صف) ← المحفوظ ← إجمالي/كمية (سطر
+    // واحد — بيرجّع سعر العرض حتى للأوردرات القديمة) ← سعر السيستم
+    var pv = (priceOverrides && priceOverrides[i] != null) ? priceOverrides[i] : savedPriceOf(nm, qty);
+    if(pv == null && products.length === 1 && sel && Number(sel.total_cost) > 0 && qty > 0){
+      pv = Math.round((Number(sel.total_cost) / qty) * 100) / 100;
+    }
+    if(pv == null) pv = stockPriceOf(nm);
     h+='<div class="prod-item" data-idx="'+i+'">'
       +'<select class="prod-select prod-input" data-idx="'+i+'" style="flex:2;min-width:140px;">'+buildProductOptions(nm)+'</select>'
-      +priceInputHtml(i, stockPriceOf(nm))
-      +'<input type="text" class="prod-qty" data-idx="'+i+'" placeholder="الكمية" style="flex:0 0 70px;min-width:60px;" value="'+(p.match(/\(عدد\s*(\d+)\)/)?p.match(/\(عدد\s*(\d+)\)/)[1]:'1')+'">'
+      +priceInputHtml(i, pv)
+      +'<input type="text" class="prod-qty" data-idx="'+i+'" placeholder="الكمية" style="flex:0 0 70px;min-width:60px;" value="'+qty+'">'
       +(products.length>1?'<button class="prod-del" data-idx="'+i+'" title="حذف">✕</button>':'')
       +'</div>';
   });
@@ -81,9 +100,15 @@ export function renderProductsEditor(str){
   list.querySelectorAll('.prod-del').forEach(function(b){
     b.addEventListener('click',function(){
       var prods=collectProducts();
-      prods.splice(parseInt(b.getAttribute('data-idx')),1);
-      if(!prods.length)prods=[''];
-      renderProductsEditor(prods.join('\n+ '));
+      var prices=[];
+      list.querySelectorAll('.prod-item .prod-price').forEach(function(inp){
+        var v=parseFloat(String(inp.value).replace(/[^\d.]/g,''));
+        prices.push(isFinite(v)&&v>=0?v:null);
+      });
+      var di=parseInt(b.getAttribute('data-idx'));
+      prods.splice(di,1); prices.splice(di,1);
+      if(!prods.length){prods=[''];prices=[null];}
+      renderProductsEditor(prods.join('\n+ '), prices);
     });
   });
 }
@@ -162,87 +187,40 @@ export function saveProducts(){
   if(rowsN && products.length<rowsN){toast('فيه صف من غير منتج مختار — اختار من القايمة أو امسح الصف','er');return;}
   var combined = products.length===1 ? products[0] : products.join('\n+ ');
 
-  // ─── Smart price update: only adjust by the DIFFERENCE between old and new product lists ───
-  // This keeps the original price for any product not found in stock_products.
-  function buildPriceMap(list){
-    // Returns { "productName|qty": totalContribution } for products we know prices for
-    var map = {};
-    list.forEach(function(p){
-      var match = p.match(/^(.+?)\s*\(عدد\s*(\d+)\)\s*$/);
-      var name = match ? match[1].trim() : p.trim();
-      var qty  = match ? parseInt(match[2]) : 1;
-      var key  = name + '|' + qty;
-      var stockItem = (stockProducts||[]).find(function(s){ return s.name === name; });
-      if(stockItem && stockItem.unit_price){
-        map[key] = (map[key] || 0) + stockItem.unit_price * qty;
-      } else {
-        map[key] = null; // unknown price — track presence only
-      }
-    });
-    return map;
-  }
-
-  // الجانب الجديد بيتحسب من **الأسعار المكتوبة في الخانات** مش من سعر
-  // السيستم — الخانة بتتملى بسعر السيستم تلقائياً، فلو التاجر ماغيّرهاش
-  // الناتج مطابق للقديم والفرق صفر. ولو كتب سعر عرض، الفرق بيتحسب بسعره
-  // هو — للأوردر ده بس. سعر فاضي/مش رقم = مجهول (مانلمسش الإجمالي).
-  function buildEnteredMap(){
-    var map = {};
-    var rows = $id('prod-list') ? $id('prod-list').querySelectorAll('.prod-item') : [];
-    rows.forEach(function(row){
-      var sl = row.querySelector('.prod-select');
-      var qInp = row.querySelector('.prod-qty');
-      var pInp = row.querySelector('.prod-price');
-      var name = (sl ? sl.value : '').trim();
-      if(!name) return;
-      var qty = qInp ? parseInt(qInp.value) : 1;
-      if(!isFinite(qty) || qty < 1) qty = 1;
-      var key = name + '|' + qty;
-      var price = pInp ? parseFloat(String(pInp.value).replace(/[^\d.]/g,'')) : NaN;
-      if(!isFinite(price) || price < 0){
-        map[key] = null;                       // سعر مجهول — زي القديم بالظبط
-      }else{
-        map[key] = (map[key] || 0) + price * qty;
-      }
-    });
-    return map;
-  }
-
-  // Parse old product list (the one saved in the order before this edit)
-  var oldProducts = parseProducts(ord.product_name || '');
-  var oldMap = buildPriceMap(oldProducts);
-  var newMap = buildEnteredMap();
-
-  // Calculate delta: sum of (new - old) for items where we have prices.
-  // بيتحسب على union المفاتيح بفرق القيمة المتراكمة — المنتج المكرر بنفس
-  // الكمية بيتجمع في مفتاح واحد، والمقارنة القديمة (موجود/مش موجود بس)
-  // كانت بتفوّت حذف نسخة من نسختين والإجمالي يفضل أعلى من الصح
-  var delta = 0;
-  var hasKnownChange = false;
-  var keys = {};
-  Object.keys(newMap).forEach(function(k){ keys[k]=1; });
-  Object.keys(oldMap).forEach(function(k){ keys[k]=1; });
-  Object.keys(keys).forEach(function(key){
-    var nv = newMap[key], ov = oldMap[key];
-    if(nv === null || ov === null) return;   // سعر مجهول — مانلمسش الإجمالي
-    var d = (nv === undefined ? 0 : nv) - (ov === undefined ? 0 : ov);
-    if(d !== 0){ delta += d; hasKnownChange = true; }
+  // ─── الحساب المطلق: الرقم اللي في الخانات هو اللي بيتحفظ ───
+  // (النسخة الأولى كانت بتحسب «فرق» ضد سعر السيستم — فالمكتوب كان بيضيع
+  // بعد القفل والفتح والنتايج بقت غير متوقعة. المالك: «عاوز الرقم اللي
+  // أكتبه وأدوس حفظ يتعمله حفظ» — 8 أغسطس.)
+  var rows = $id('prod-list') ? $id('prod-list').querySelectorAll('.prod-item') : [];
+  var lines = [], allKnown = true, newTotal = 0, touched = false;
+  rows.forEach(function(row){
+    var slEl = row.querySelector('.prod-select');
+    var qEl  = row.querySelector('.prod-qty');
+    var pEl  = row.querySelector('.prod-price');
+    var name = (slEl ? slEl.value : '').trim();
+    if(!name) return;
+    var qty = qEl ? parseInt(qEl.value) : 1;
+    if(!isFinite(qty) || qty < 1) qty = 1;
+    var raw = pEl ? String(pEl.value).trim() : '';
+    var price = parseFloat(raw.replace(/[^\d.]/g,''));
+    var known = raw !== '' && isFinite(price) && price >= 0;
+    if(!known){ allKnown = false; price = null; }
+    else { newTotal += price * qty; }
+    if(pEl && String(pEl.getAttribute('data-init') || '') !== raw) touched = true;
+    lines.push({ n: name, q: qty, p: known ? price : null });
   });
+  newTotal = Math.round(newTotal * 100) / 100;
+  var productsChanged = combined !== (ord.product_name || '');
+  // مفيش أي تغيير (نفس المنتجات ونفس الأسعار اللي اتفتحت بيها) = مانبعتش
+  // إجمالي خالص — مانلمسش أوردر ماحدش عدّله
+  var noChange = !productsChanged && !touched;
+  var sendTotal = (!noChange && allKnown) ? newTotal : null;
 
-  var currentTotal = parseFloat(ord.total_cost) || 0;
-  var newTotal = currentTotal + delta;
-  if(newTotal < 0) newTotal = 0;
-
-  // الحفظ بقى RPC ذرية بدل update مباشر — سببين:
-  //  1) عمولة الـupselling لازم تتحسب على السيرفر من إجمالي **صف السيرفر**
-  //     قبل التعديل. لو الفرونت بعت الرقم القديم، أي موظف يقدر يبعت صفر
-  //     ويطلّع لنفسه عمولة على الأوردر كله.
-  //  2) تحديث المنتجات + تسجيل الحدث في عملية واحدة — مفيش نص طريق.
-  // `p_total_cost` بـnull معناها «ماتلمسش الإجمالي» (سعر غير معروف).
   sb.rpc('save_order_products',{
     p_order_id: ord.id,
     p_product_name: combined,
-    p_total_cost: hasKnownChange ? newTotal : null
+    p_total_cost: sendTotal,
+    p_prices: noChange ? null : lines
   }).then(function(r){
     if(r.error){$id('prod-status').textContent='خطأ: '+r.error.message;$id('prod-status').className='save-status';return;}
     var out = r.data || {};
@@ -250,19 +228,22 @@ export function saveProducts(){
     // نمشي على أرقام السيرفر مش نسختنا — لو حد تاني غيّر السعر في نفس اللحظة
     var savedTotal = srvOrder && srvOrder.total_cost != null ? Number(srvOrder.total_cost) : newTotal;
     ord.product_name=combined;
-    if(hasKnownChange) ord.total_cost=savedTotal;
+    if(sendTotal != null) ord.total_cost=savedTotal;
+    if(!noChange) ord.line_prices = lines;
     for(var i=0;i<all.length;i++){
       if(all[i].id===ord.id){
         all[i].product_name=combined;
-        if(hasKnownChange) all[i].total_cost=savedTotal;
+        if(sendTotal != null) all[i].total_cost=savedTotal;
         break;
       }
     }
+    // الحفظة الجاية تقارن بالمحفوظ الجديد — مش باللي كان وقت الفتح
+    if($id('prod-list')) $id('prod-list').querySelectorAll('.prod-price').forEach(function(inp){
+      inp.setAttribute('data-init', String(inp.value).trim());
+    });
     var msg = '✓ تم الحفظ';
-    if(hasKnownChange){
-      var sign = delta >= 0 ? '+' : '';
-      msg += ' — السعر: ' + num(savedTotal) + ' ج (' + sign + num(delta) + ' ج)';
-    }
+    if(sendTotal != null) msg += ' — الإجمالي: ' + num(savedTotal) + ' ج';
+    else if(!noChange && !allKnown) msg = '✓ المنتجات اتحفظت — بس الإجمالي ماتغيرش: فيه منتج من غير سعر';
     $id('prod-status').textContent = msg;
     $id('prod-status').className='save-status ok';
     setTimeout(function(){if($id('prod-status'))$id('prod-status').textContent='';},3500);
