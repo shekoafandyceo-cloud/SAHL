@@ -72,6 +72,13 @@ sahl/
 ├── CLAUDE.md          ← الملف ده
 ├── check.sh           ← wrapper · المنطق في tools/check.py
 ├── tools/check.py     ← فاحص ما قبل النشر (مش بيتنشر)
+├── tools/preview/     ← بنّاء معاينة أوفلاين بداتا وهمية للمالك (مش بيتنشر):
+│                        `python3 tools/preview/build-preview.py <خرج>` بيجمّعها
+│                        من app/ + overlay/ بمراسي بتفشل بصوت عالي لو الـmarkup
+│                        اتغير. ⚠️ preview-stub.js لازم يتحدث مع أي عمود/جدول
+│                        جديد بيدخل الواجهة (زي line_prices) — المعاينة بترندر
+│                        منه مش من الداتابيز. تسليمات المالك زيبات مرقمة:
+│                        sahl-app-vN (مطابقة لـapp/ بالبايت) + sahl-preview-vN.
 ├── app/               ← لوحة التاجر → Cloudflare Pages
 │   ├── index.html     ← markup بس (58KB)
 │   ├── _headers       ← CSP مشدّدة
