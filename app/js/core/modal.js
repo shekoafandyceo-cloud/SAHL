@@ -10,7 +10,7 @@ var _kd = null;
 
 // ── Custom Modal (replaces browser confirm/prompt) ──────────────
 export function showModal(opts){
-  // opts: { icon, title, sub, okLabel, okColor, input, inputValue, placeholder, onOk }
+  // opts: { icon, title, sub, okLabel, okColor, input, inputOptional, inputValue, placeholder, onOk }
   var bd=$id('cmodal-backdrop');
   var box=$id('cmodal-box');
   $id('cmodal-icon').textContent=opts.icon||'';
@@ -21,6 +21,8 @@ export function showModal(opts){
   if(opts.input){
     inputWrap.style.display='block';
     inp.placeholder=opts.placeholder||'';
+    // المدخل عنصر دائم — تحمير رفضة قديمة بيفضل لازق لو ماترجّعش هنا
+    inp.style.borderColor='';
     // قيمة مكتوبة سلفاً (اختيارية) — بتتحدّد كلها عند الفوكس عشان الكتابة
     // فوقها تمسحها على طول. الافتراضي فاضي زي ما كان.
     inp.value=(opts.inputValue!=null?String(opts.inputValue):'');
@@ -42,7 +44,7 @@ export function showModal(opts){
   var okHandler=function(){
     if(opts.input){
       var val=inp.value.trim();
-      if(!val){inp.style.borderColor='var(--red)';inp.focus();return;}
+      if(!val&&!opts.inputOptional){inp.style.borderColor='var(--red)';inp.focus();return;}
       close(); opts.onOk&&opts.onOk(val);
     } else {
       close(); opts.onOk&&opts.onOk();
@@ -59,7 +61,7 @@ export function showModal(opts){
   // Enter key submits — الهاندلر القديم بيتشال الأول
   if(inp){
     if(_kd) inp.removeEventListener('keydown', _kd);
-    _kd = function(e){ if(e.key==='Enter')okHandler(); };
+    _kd = function(e){ if(e.key==='Enter')okHandler(); else inp.style.borderColor=''; };
     inp.addEventListener('keydown', _kd);
   }
 }

@@ -127,6 +127,7 @@ export function manualShipFlow(){
     title: 'الأوردر اتشحن يدوي؟',
     sub: 'هيتعلّم «شحن» من غير ما نبعت حاجة لشركة الشحن.\nلو معاك رقم البوليصة (التتبع) حطه هنا — بيفعّل التتبع والجرد. ولو مفيش سيبه فاضي.',
     input: true,
+    inputOptional: true,   // «اختياري» في الـplaceholder لازم يبقى حقيقي
     placeholder: 'رقم التتبع (اختياري)',
     okLabel: 'تعليم كأنه اتشحن',
     okColor: 'linear-gradient(135deg,#2563eb,#1d4ed8)',

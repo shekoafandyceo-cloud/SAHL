@@ -188,6 +188,32 @@ async function openDetailOf(p, orderId){
   await p.close();
 }
 
+// ════ 2ب) اليدوي من غير تتبع — «اختياري» يعني اختياري ════
+// (باج المالك 8 أغسطس: المودال العام كان بيرفض أي خانة فاضية ويحمّرها،
+//  فالـplaceholder بيقول «اختياري» والضغطة بتنوّر أحمر ومفيش حاجة بتحصل)
+{
+  const p = await openApp({});
+  console.log('──── اليدوي من غير رقم تتبع ────');
+  await openDetailOf(p, 'o3');
+  await p.click('#da-bs');
+  await p.waitForSelector('#cmodal-box', { state:'visible', timeout:5000 });
+  await p.click('#cmodal-ok');            // الخانة فاضية عمداً
+  await p.waitForTimeout(500);
+  const r = await p.evaluate(() => ({
+    open: getComputedStyle(document.getElementById('cmodal-backdrop')).display !== 'none',
+    red: ((document.getElementById('cmodal-input')||{}).style||{}).borderColor || '',
+    rpc: (window.__RPC || []).filter(c => c.name === 'mark_shipped_manual').pop()
+  }));
+  ok(!r.open, 'المودال قبل الفاضي واتقفل');
+  ok(r.red === '', `والخانة ماتحمّرتش — «${r.red}»`);
+  ok(r.rpc && r.rpc.args.p_order_id === 'o3' && r.rpc.args.p_tracking === null,
+     `والـRPC اتنده بتتبع null — ${JSON.stringify(r.rpc && [r.rpc.args.p_order_id, r.rpc.args.p_tracking])}`);
+  const row = await p.evaluate(() => ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}));
+  ok(row.status === 'bosta_assigned' && !row.tracking_no,
+     `والأوردر اتعلّم «شحن» من غير تتبع — ${JSON.stringify([row.status, row.tracking_no || null])}`);
+  await p.close();
+}
+
 // ════ 3) أوردر له بوليصة = ولا زرار ════
 {
   const p = await openApp({});

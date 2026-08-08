@@ -149,6 +149,26 @@ const modal = await p.evaluate(() => ({
 ok(modal.shown !== 'none', 'خانة المبلغ ظاهرة');
 ok(modal.val === '10', `المبلغ مكتوب سلفاً بكل المستحق — «${modal.val}» [متوقع 10]`);
 ok(/هيتخصم من رصيده/.test(modal.sub), 'الرسالة بتقول إنه هيتخصم من رصيده');
+
+// ── ضابط: خانة المبلغ إجبارية — بعد ما مودال التتبع بقى inputOptional،
+//    لازم نتأكد إن الإجباري ماتفكّش معاه، وإن تحمير الرفض مابيلزقش ──
+await p.fill('#cmodal-input', '');
+await p.click('#cmodal-ok');
+await p.waitForTimeout(250);
+const rejected = await p.evaluate(() => ({
+  open: getComputedStyle(document.getElementById('cmodal-backdrop')).display !== 'none',
+  red: (document.getElementById('cmodal-input').style.borderColor || ''),
+  calls: (window.__RPC||[]).filter(c => c.name === 'settle_commission').length
+}));
+ok(rejected.open && rejected.calls === 0, 'المبلغ الفاضي اترفض — المودال فاضل مفتوح ومفيش نداء');
+ok(rejected.red.indexOf('red') >= 0, `والخانة اتحمّرت — «${rejected.red}»`);
+await p.click('#cmodal-cancel');
+await p.waitForTimeout(200);
+await p.click('.cm-user:nth-child(1) [data-cm-settle]');
+await p.waitForSelector('#cmodal-box', { state:'visible', timeout:5000 });
+ok(await p.evaluate(() => (document.getElementById('cmodal-input').style.borderColor || '') === ''),
+   'والتحمير مالزقش بعد القفل والفتح');
+
 await p.fill('#cmodal-input', '7');
 await p.click('#cmodal-ok');
 await p.waitForTimeout(400);
