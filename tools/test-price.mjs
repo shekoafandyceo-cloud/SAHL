@@ -181,6 +181,165 @@ const lastSave = (p) => p.evaluate(() =>
   await p.close();
 }
 
+// ════ 8) أوردر ويبهوك ملزوق بـ" - " — بيترندر صفوف مقسومة ════
+// الفاصل الحقيقي دايماً بعد قوس "(عدد N)" مقفول — splitProductSegments
+{
+  const p = await openApp();
+  await p.evaluate(() => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = 'منتج أ (عدد 1) - منظم درج المطبخ (عدد 2)';
+  });
+  console.log('──── أوردر ملزوق: القسمة النضيفة ────');
+  await openO1(p);
+  const rows = await p.evaluate(() =>
+    [...document.querySelectorAll('#prod-list .prod-item')].map(r => ({
+      name: r.querySelector('.prod-select').value,
+      qty: r.querySelector('.prod-qty').value
+    })));
+  ok(rows.length === 2, `صفين مش صف ملزوق — ${rows.length}`);
+  ok(rows[0] && rows[0].name === 'منتج أ' && rows[0].qty === '1',
+     `الأول: «${rows[0] && rows[0].name}» عدد ${rows[0] && rows[0].qty}`);
+  ok(rows[1] && rows[1].name === 'منظم درج المطبخ' && rows[1].qty === '2',
+     `والتاني: «${rows[1] && rows[1].name}» عدد ${rows[1] && rows[1].qty}`);
+  await p.close();
+}
+
+// ════ 9) الشرطة جوه الاسم ولاحقة الـvariant — مش منتجات وهمية ════
+{
+  const p = await openApp();
+  await p.evaluate(() => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = 'استاند امريكانا 4 دور - جزامة و شماعة (عدد 1)';
+  });
+  console.log('──── الشرطة جوه الاسم المركب ────');
+  await openO1(p);
+  let rows = await p.evaluate(() =>
+    [...document.querySelectorAll('#prod-list .prod-item .prod-select')].map(s => s.value));
+  ok(rows.length === 1 && rows[0] === 'استاند امريكانا 4 دور - جزامة و شماعة',
+     `الاسم المركب فضل صف واحد — ${JSON.stringify(rows)}`);
+  // لاحقة variant بعد القوس: بترجع تتلزق باسمها والكمية تتنقل لآخر السطر
+  await p.evaluate(() => {
+    document.getElementById('ovl').classList.remove('open');
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = 'ترولي 2 دور (عدد 1) - أسود';
+  });
+  await openO1(p);
+  const v = await p.evaluate(() => {
+    const r = document.querySelector('#prod-list .prod-item');
+    return { n: r.querySelector('.prod-select').value, q: r.querySelector('.prod-qty').value,
+             count: document.querySelectorAll('#prod-list .prod-item').length };
+  });
+  ok(v.count === 1 && v.n === 'ترولي 2 دور - أسود' && v.q === '1',
+     `«أسود» مش منتج — صف واحد «${v.n}» عدد ${v.q}`);
+  await p.close();
+}
+
+// ════ 9ب) قوس جوه الاسم قبل الشرطة — القسمة بعد قوس الكمية بس ════
+// (المراجعة العدائية: القسمة بعد أي ")" كانت بتفكك «ترولي (3 دور) - أسود»
+//  وبتكتب التفكيك في الداتابيز مع أول حفظ — الكمية بتهاجر للمنتج الوهمي)
+{
+  const p = await openApp();
+  await p.evaluate(() => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = 'ترولي (3 دور) - أسود (عدد 2)';
+  });
+  console.log('──── قوس جوه الاسم: مش نقطة قسمة ────');
+  await openO1(p);
+  let v = await p.evaluate(() => {
+    const r = document.querySelector('#prod-list .prod-item');
+    return { n: r.querySelector('.prod-select').value, q: r.querySelector('.prod-qty').value,
+             count: document.querySelectorAll('#prod-list .prod-item').length };
+  });
+  ok(v.count === 1 && v.n === 'ترولي (3 دور) - أسود' && v.q === '2',
+     `صف واحد سليم «${v.n}» عدد ${v.q}`);
+  // round-trip الحذف: صف تاني بيتحذف — الصف اللي مالمسوش لازم يفضل سليم
+  // (إعادة الرندر بتمر على collectProducts().join ← parseProducts تاني)
+  await p.evaluate(() => {
+    document.getElementById('ovl').classList.remove('open');
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = 'منتج أ (عدد 1) - ترولي (3 دور) - أسود (عدد 2)';
+  });
+  await openO1(p);
+  let rows = await p.evaluate(() =>
+    [...document.querySelectorAll('#prod-list .prod-item')].map(r => ({
+      n: r.querySelector('.prod-select').value, q: r.querySelector('.prod-qty').value })));
+  ok(rows.length === 2 && rows[1].n === 'ترولي (3 دور) - أسود' && rows[1].q === '2',
+     `الملزوق اتقسم صح رغم القوس الجوّاني — ${JSON.stringify(rows.map(r=>r.n))}`);
+  await p.click('#prod-list .prod-item:nth-child(1) .prod-del');
+  await p.waitForTimeout(250);
+  const after = await p.evaluate(() => {
+    const items = [...document.querySelectorAll('#prod-list .prod-item')];
+    return items.map(r => ({ n: r.querySelector('.prod-select').value,
+                             q: r.querySelector('.prod-qty').value }));
+  });
+  ok(after.length === 1 && after[0].n === 'ترولي (3 دور) - أسود' && after[0].q === '2',
+     `🔴 بعد الحذف الصف الباقي زي ما هو — «${after[0] && after[0].n}» عدد ${after[0] && after[0].q} [مش «أسود» بكمية مهاجرة]`);
+  await p.close();
+}
+
+// ════ 10) 🔴 سد الـupsell الوهمي: تعديل سعر على أوردر ملزوق ════
+// التمثيل اتغير (صف ملزوق ← صفين) بس البضاعة زي ما هي — لازم يتبعت
+// الاسم المخزن **نفسه** عشان مقارنة السيرفر تطلع صفر تغيير، وإلا أي
+// حفظة بتتعلم upsell وهمي لو الإجمالي زاد (عيلة أحداث إبراهيم الوهمية)
+{
+  const GLUED = 'منتج أ (عدد 1) - منظم درج المطبخ (عدد 2)';
+  const p = await openApp();
+  await p.evaluate((g) => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = g; o.total_cost = 500;
+  }, GLUED);
+  console.log('──── الملزوق: تعديل سعر بس ≠ تغيير بضاعة ────');
+  await openO1(p);
+  await p.fill('#prod-list .prod-item:nth-child(2) .prod-price', '200');
+  await p.click('#save-prod');
+  await p.waitForTimeout(400);
+  let s = await lastSave(p);
+  ok(s && s.args.p_product_name === GLUED,
+     '🔴 الاسم اتبعت زي ما هو مخزن — السيرفر مايشوفش «بضاعة اتغيرت»');
+  ok(s && s.args.p_total_cost === 1400,
+     `والإجمالي من الصفوف المقسومة: 1000 + 200×2 = 1400 — ${s && s.args.p_total_cost}`);
+  ok(s && JSON.stringify(s.args.p_prices) ===
+       JSON.stringify([{n:'منتج أ',q:1,p:1000},{n:'منظم درج المطبخ',q:2,p:200}]),
+     'والأسعار اتخزنت بأسماء الصفوف المقسومة');
+  // القفل والفتح: الأسعار بترجع على الصفوف المقسومة رغم إن الاسم المخزن ملزوق
+  await p.evaluate(() => { document.getElementById('ovl').classList.remove('open'); });
+  await openO1(p);
+  const back = await p.evaluate(() =>
+    [...document.querySelectorAll('#prod-list .prod-price')].map(i => i.value));
+  ok(JSON.stringify(back) === JSON.stringify(['1000','200']),
+     `بعد القفل والفتح الأسعار راجعة — ${JSON.stringify(back)}`);
+  await p.close();
+}
+
+// ════ 11) الملزوق من غير أي لمسة = مانبعتش تغيير · وإضافة فعلية = القسمة بتتكتب ════
+{
+  const GLUED = 'منتج أ (عدد 1) - منظم درج المطبخ (عدد 2)';
+  const p = await openApp();
+  await p.evaluate((g) => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.product_name = g;
+  }, GLUED);
+  console.log('──── الملزوق: حفظ فاضي vs إضافة حقيقية ────');
+  await openO1(p);
+  await p.click('#save-prod');
+  await p.waitForTimeout(400);
+  let s = await lastSave(p);
+  ok(s && s.args.p_product_name === GLUED && s.args.p_total_cost === null && s.args.p_prices === null,
+     `حفظ من غير لمسة: الاسم زي ما هو + null/null — ${s && JSON.stringify([s.args.p_total_cost, s.args.p_prices])}`);
+  // دلوقتي إضافة منتج فعلية — هنا بس التمثيل المقسوم النضيف يتكتب
+  await p.click('#prod-add');
+  await p.waitForTimeout(200);
+  await p.selectOption('#prod-list .prod-item:nth-child(3) .prod-select', { index: 1 });
+  await p.waitForTimeout(150);
+  await p.click('#save-prod');
+  await p.waitForTimeout(400);
+  s = await lastSave(p);
+  ok(s && s.args.p_product_name !== GLUED && s.args.p_product_name.indexOf('\n+ ') >= 0
+       && /منتج أ \(عدد 1\)\n\+ منظم درج المطبخ \(عدد 2\)/.test(s.args.p_product_name),
+     'إضافة فعلية: الاسم اتكتب بالتمثيل المقسوم — والسيرفر يشوف البضاعة المضافة بس');
+  await p.close();
+}
+
 await b.close();
 console.log(bad ? `\n❌ ${bad} مشكلة` : '\n✅ تمام');
 process.exit(bad ? 1 : 0);
