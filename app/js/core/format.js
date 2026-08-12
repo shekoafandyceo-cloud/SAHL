@@ -4,7 +4,12 @@ export function fmt(v){return v||'—';}
 
 export function short(s,n){s=s||'—';return s.length>n?s.slice(0,n)+'…':s;}
 
-export function num(n){return Number(n||0).toLocaleString('ar-EG-u-nu-latn');}
+// فواصل الأرقام لازم لاتينية ومن غير علامات اتجاه: بعض بيئات الـICU
+// (سفاري وغيرها) بتحقن ALM/RLM جنب فاصلة الألوف في تنسيق ar-EG، فالرقم
+// بيتكسر لمقاطع بتتقلب في سياق RTL — «4,208.92» بتتقري «208.92,4»
+// (اتشاف حي على جهاز المالك 11 أغسطس — نفس فخ التواريخ المشروح تحت).
+// en-US فواصلها ثابتة، وstripBidi ضمان تاني.
+export function num(n){return stripBidi(Number(n||0).toLocaleString('en-US'));}
 
 // الـlocale العربي بيحقن علامات اتجاه خفية (U+200F RLM · U+200E LRM · U+061C ALM)
 // بين مقاطع التاريخ. جوّه خلية direction:ltr العلامة بتفتح مقطع RTL جوّه سطر

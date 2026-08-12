@@ -184,5 +184,86 @@ for(const dark of [false, true]){
   ok(r.errs.length === 0, `صفر أخطاء صفحة${r.errs.length ? ' — ' + JSON.stringify(r.errs.slice(0,3)) : ''}`);
 }
 
+// ════ الأرقام مش بتتقلب في سياق الـRTL — محاكاة ICU عدائي ════
+// باج جهاز المالك (11 أغسطس): بيئات ICU معينة (سفاري وغيرها) بتحقن
+// ALM/RLM جنب فاصلة الألوف، فالمبلغ «4,208.92» كان بيتقري «208.92,4».
+// Chromium بتاعنا مابيحقنش، فبنحاكي الحقن بترقيع toLocaleString قبل
+// تحميل الموديولات — num() لازم تخرج نضيفة مهما الـICU حقن.
+// القياس بالهندسة (درس 30): textContent بيرجع الترتيب المنطقي فمايكشفش القلب.
+{
+  const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium' });
+  const p = await b.newPage({ viewport:{ width:1440, height:1100 } });
+  const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.addInitScript(`
+    (function(){
+      var orig = Number.prototype.toLocaleString;
+      Number.prototype.toLocaleString = function(){
+        // \\u061c بعد كل فاصلة — شكل الحقن اللي اتشاف على جهاز المالك
+        return orig.apply(this, arguments).replace(/,/g, ',\\u061c');
+      };
+    })();
+  `);
+  await p.addInitScript(STUB);
+  await p.goto(URL_, { waitUntil:'networkidle' });
+  await p.waitForSelector('#page-orders', { state:'visible' });
+  await p.waitForFunction(() => document.querySelectorAll('#tbody tr[data-id]').length > 0);
+  await p.evaluate(() => {
+    const o = (window.__ORDERS || []).filter(x => x.id === 'o1')[0];
+    o.total_cost = 4208.92;
+  });
+  await p.click('#tbody tr[data-id="o1"]');
+  await p.waitForSelector('#ovl.open', { state:'visible' });
+  await p.waitForSelector('#dcnt .dsec');
+  await p.waitForTimeout(300);
+
+  console.log('──── الأرقام في سياق RTL (بمحاكاة ICU حاقن) ────');
+  const r = await p.evaluate(() => {
+    const rows = [...document.querySelectorAll('.drow')];
+    const row = rows.find(x => (x.querySelector('.dkey')||{}).textContent === 'المبلغ');
+    if(!row) return { err:'مفيش صف المبلغ' };
+    const tn = row.querySelector('.dval').firstChild;
+    const digits = [];
+    for(let i=0;i<tn.textContent.length;i++){
+      const ch = tn.textContent[i];
+      if(ch >= '0' && ch <= '9'){
+        const rg = document.createRange();
+        rg.setStart(tn,i); rg.setEnd(tn,i+1);
+        digits.push({ ch, x: rg.getBoundingClientRect().x });
+      }
+    }
+    const visual = digits.slice().sort((a,b)=>a.x-b.x).map(d=>d.ch).join('');
+    return { text: tn.textContent, visual,
+             hasMark: /[‎‏؜]/.test(tn.textContent) };
+  });
+  ok(!r.err, r.err || 'صف المبلغ موجود');
+  ok(r.visual === '420892',
+     `ترتيب الأرقام البصري سليم — «${r.visual}» [المقلوب كان 208924]`);
+  ok(r.hasMark === false, 'ومفيش أي علامة اتجاه جوه النص المعروض');
+  // ضابط إن المحاكاة نفسها شغالة: نفس السترينج الملوث في نفس السياق لازم يتقلب
+  const ctl = await p.evaluate(() => {
+    const row = [...document.querySelectorAll('.drow')]
+      .find(x => (x.querySelector('.dkey')||{}).textContent === 'المبلغ');
+    const span = document.createElement('span');
+    span.textContent = (4208.92).toLocaleString('en-US') + ' ج.م';  // بيمر على الترقيع الملوث
+    row.appendChild(span);
+    const tn = span.firstChild;
+    const digits = [];
+    for(let i=0;i<tn.textContent.length;i++){
+      const ch = tn.textContent[i];
+      if(ch >= '0' && ch <= '9'){
+        const rg = document.createRange();
+        rg.setStart(tn,i); rg.setEnd(tn,i+1);
+        digits.push({ ch, x: rg.getBoundingClientRect().x });
+      }
+    }
+    const visual = digits.slice().sort((a,b)=>a.x-b.x).map(d=>d.ch).join('');
+    span.remove();
+    return visual;
+  });
+  ok(ctl !== '420892', `الضابط: السترينج الملوث بيتقلب فعلاً في نفس السياق — «${ctl}» [يعني الفحص اللي فوق بيثبت حماية num() مش براءة البيئة]`);
+  ok(errs.length === 0, `صفر أخطاء صفحة${errs.length ? ' — ' + JSON.stringify(errs.slice(0,2)) : ''}`);
+  await b.close();
+}
+
 console.log(bad ? `\n❌ ${bad} مشكلة` : '\n✅ كل الفحوص عدّت — النهاري والليلي');
 process.exit(bad ? 1 : 0);
