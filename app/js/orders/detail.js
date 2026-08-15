@@ -409,7 +409,7 @@ export function renderDetail(){
   // (because stockProducts.length > 0) and every COGS lookup returns 0
   // because wholesale_price is undefined on these rows.
   if(!stockProducts || !stockProducts.length){
-    sb.from('v_stock_products').select('id,name,current_qty,unit_price,wholesale_price').eq('tenant_id',currentTenantId).eq('active',true).order('current_qty',{ascending:false}).then(function(r){
+    sb.from('v_stock_products').select('id,name,current_qty,unit_price,wholesale_price,parent_id,variant_label').eq('tenant_id',currentTenantId).eq('active',true).order('current_qty',{ascending:false}).then(function(r){
       if(!r.error && r.data) stockSetProducts(r.data);
       // فتح أوردر تاني أثناء التحميل: رد A كان بيرسم منتجاته جوّه مودال B،
       // والحفظ بعدها كان بيكتب منتجات A على B

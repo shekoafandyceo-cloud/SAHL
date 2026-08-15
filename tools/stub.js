@@ -77,6 +77,9 @@
     var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
+    // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
+    // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
+    if(table === 'v_stock_products' && window.__STOCK) rows = window.__STOCK.slice();
     if(table === 'v_my_tenant'){
       // زرار «شحن أوتوماتيك» بيقرا العمود ده — الاختبار بيطفيه بـ__SHIP_API=false
       rows = rows.map(function(t){ return Object.assign({}, t, { has_shipping_api: window.__SHIP_API !== false }); });
@@ -111,6 +114,8 @@
     ['select','eq','in','is','not','gte','lt','lte','gt','ilike','or','order','range','limit','update','insert','delete','upsert'].forEach(function(m){
       api[m] = function(a, b){
         if(m === 'select') st.cols = a;
+        // تسجيل حمولة الكتابة — عشان الاختبارات تتأكد من اللي اتبعت فعلاً
+        if(m === 'insert' || m === 'update' || m === 'upsert') st.payload = a;
         if(m === 'gte' && a === 'created_at') st.gte = {col:a, val:b};
         if(m === 'lt'  && a === 'created_at') st.lt  = {col:a, val:b};
         if(m === 'eq'  && a === 'status')     st.eqStatus = b;
@@ -164,6 +169,10 @@
     from: builder,
     rpc: function(name, args){
       window.__calls.push({rpc:name, args:args||null});
+      // هوك اختياري: الاختبار يقدر يحاكي أثر RPC (زي transfer_stock بيحرّك
+      // __STOCK) — لو الهوك رجّع قيمة بتتبعت زي ما هي، غير كده السلوك القديم.
+      // ⚠ الاسم __RPC_HOOK عمداً — الاختبارات القديمة بتستخدم __RPC كمصفوفة تسجيل
+      if(typeof window.__RPC_HOOK === 'function'){ var hooked = window.__RPC_HOOK(name, args); if(hooked) return Promise.resolve(hooked); }
       if(name === 'sahl_orders_stats') return Promise.resolve({data: statsFor(args), error:null});
       if(name === 'wa_inbox_status')   return Promise.resolve({data:{verified:false}, error:null});
       return Promise.resolve({data:null, error:null});

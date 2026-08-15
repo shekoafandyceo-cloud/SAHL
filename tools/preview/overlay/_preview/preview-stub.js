@@ -99,12 +99,18 @@
     });
   }
 
-  // منتجات المخزون
+  // منتجات المخزون — أول منتج عيلة بخصائص (ألوان) عشان الميزة تبان في المعاينة
   var STOCK = PRODUCTS.map(function(nm, i){
     return { id:'prd-'+i, tenant_id:TENANT, name:nm, active:true,
-             current_qty: [46, 62, 9, 0, 109][i],
+             current_qty: [3, 62, 9, 0, 109][i],
              unit_price:  [615, 1000, 630, 450, 320][i],
-             wholesale_price: [380, 640, 395, 260, 190][i] };
+             wholesale_price: [380, 640, 395, 260, 190][i],
+             parent_id:null, variant_label:null };
+  });
+  [['أسود',28],['أبيض',12],['روز',3]].forEach(function(v, k){
+    STOCK.push({ id:'prd-0-v'+k, tenant_id:TENANT, name:PRODUCTS[0]+' — '+v[0], active:true,
+                 current_qty:v[1], unit_price:615, wholesale_price:380,
+                 parent_id:'prd-0', variant_label:v[0] });
   });
 
   // حركات المخزون — ده اللي عمود التاريخ بيتجرّب عليه

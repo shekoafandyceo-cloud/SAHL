@@ -24,10 +24,22 @@ export function stockSetMovements(v){ stockMovements = v || []; }
 export var stockProducts=[], stockMovements=[], currentStockTab='products';  // المخزون — الجولة بتبدّله بديمو
 export var stockMovementsCapped=false;   // القايمة عند سقف الـ500 — فيه أقدم مش محمّل
 
+// ── خصائص المنتجات (ألوان/مقاسات) ────────────────────────────────
+// الخاصية = صف بنت في stock_products (parent_id + variant_label)،
+// والاسم بيتولّد على السيرفر «أم — لابل». كمية الأم نفسها = «غير موزع».
+export function childrenOf(pid){
+  return (stockProducts||[]).filter(function(p){return p.parent_id===pid;});
+}
+export function hasVariants(pid){
+  for(var i=0;i<(stockProducts||[]).length;i++){if(stockProducts[i].parent_id===pid)return true;}
+  return false;
+}
+var expandedFamilies={};   // عيلة مفتوحة في الجدول — حالة جلسة بس
+
 // جيل التحميل — فتحتين متتاليتين بسرعة: رد أقدم كان بيستبدل المصفوفات
 // بعد الأحدث ويمسح اللي الـRealtime ضافه في النص
 var stockLoadGen=0;
-export function loadStock(){
+export function loadStock(cb){
   // During the guided tour, never hit Supabase — keep the injected demo data
   // so the cards/products/movements actually show something to learn from.
   if(tourActive){
@@ -36,6 +48,7 @@ export function loadStock(){
     updateStockStats();
     renderProducts();
     renderMovements();
+    if(cb)cb();
     return;
   }
   if(!ensureTenant()){veilDone('stock');return;}
@@ -54,6 +67,7 @@ export function loadStock(){
     renderProducts();
     veilDone('stock');
     if(stockMovements && stockMovements.length)renderMovements();
+    if(cb)cb();
   });
   // فلاج السقف — العدّاد والتنبؤ لازم يصارحوا إن في أقدم من كده
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(500).then(function(r){
@@ -66,19 +80,40 @@ export function loadStock(){
 }
 
 export function updateStockStats(){
-  $id('st-products').textContent=num(stockProducts.length);
+  // كارت «المنتجات» بيعدّ العيلات (الأم أو المنتج المستقل) — مش صفوف الخصائص
+  var families=stockProducts.filter(function(p){return !p.parent_id;});
+  $id('st-products').textContent=num(families.length);
   var totalQty=stockProducts.reduce(function(s,p){return s+(p.current_qty||0);},0);
   $id('st-qty').textContent=num(totalQty);
   var totalVal=stockProducts.reduce(function(s,p){return s+((p.current_qty||0)*(p.wholesale_price||0));},0);
   $id('st-value').textContent=num(totalVal)+' ج';
-  var empty=stockProducts.filter(function(p){return (p.current_qty||0)<=0;}).length;
+  // أم ليها خصائص وكمية «غير الموزع» بتاعتها صفر = حالة طبيعية مش نفاد —
+  // النفاد بيتعدّ على الخصائص نفسها والمنتجات المستقلة بس
+  var empty=stockProducts.filter(function(p){
+    if(!p.parent_id && hasVariants(p.id))return false;
+    return (p.current_qty||0)<=0;
+  }).length;
   $id('st-empty').textContent=num(empty);
 }
 
 export function renderProducts(){
   var q=($id('prod-search').value||'').trim().toLowerCase();
-  var list=stockProducts.filter(function(p){return !q||(p.name||'').toLowerCase().indexOf(q)>=0;});
-  $id('prod-count').textContent=list.length!==stockProducts.length?num(list.length)+' نتيجة':num(stockProducts.length)+' منتج';
+  var kidsByParent={};
+  stockProducts.forEach(function(p){
+    if(p.parent_id){(kidsByParent[p.parent_id]=kidsByParent[p.parent_id]||[]).push(p);}
+  });
+  var parents=stockProducts.filter(function(p){return !p.parent_id;});
+  // البحث بيطابق العيلة كلها: اسم الأم أو أي لابل/اسم بنت
+  function famMatch(p){
+    if(!q)return true;
+    if((p.name||'').toLowerCase().indexOf(q)>=0)return true;
+    return (kidsByParent[p.id]||[]).some(function(c){
+      return (c.name||'').toLowerCase().indexOf(q)>=0
+          || (c.variant_label||'').toLowerCase().indexOf(q)>=0;
+    });
+  }
+  var list=parents.filter(famMatch);
+  $id('prod-count').textContent=list.length!==parents.length?num(list.length)+' نتيجة':num(parents.length)+' منتج';
 
   if(!list.length){
     // بحث مش مطابق ≠ مفيش منتجات — الرسالة القديمة كانت بتقول
@@ -94,7 +129,14 @@ export function renderProducts(){
       sub:'سجّل منتجاتك عشان المخزون يتخصم أوتوماتيك مع كل أوردر بيخرج، وتعرف قيمة بضاعتك في أي لحظة.',
       act:'add-product', actLabel:'+ أضف أول منتج', adminOnly:true});return;}
 
+  function famQtyOf(p){
+    return (p.current_qty||0)+(kidsByParent[p.id]||[]).reduce(function(s,c){return s+(c.current_qty||0);},0);
+  }
+  // الترتيب بإجمالي العيلة — الفرز القديم من السيرفر كان على الصف الواحد
+  list=list.slice().sort(function(a,b){return famQtyOf(b)-famQtyOf(a);});
+
   var isAdmin = currentRole === 'admin';
+  function qtyCls(n){return n<=0?'zero':n<10?'low':'ok';}
   var h='<table><thead><tr>'
     +'<th>اسم المنتج</th>'
     +'<th>المخزون</th>'
@@ -104,22 +146,62 @@ export function renderProducts(){
     +(isAdmin?'<th></th>':'')
     +'</tr></thead><tbody>';
   list.forEach(function(p){
-    var qty=p.current_qty||0;
-    var qtyClass=qty<=0?'zero':qty<10?'low':'ok';
-    var val=qty*(p.wholesale_price||0);
-    h+='<tr>'
-      +'<td class="nm">'+esc(p.name)+'</td>'
-      +'<td><span class="qty-cell '+qtyClass+'">'+num(qty)+'</span></td>'
+    var kids=(kidsByParent[p.id]||[]).slice().sort(function(a,b){return (b.current_qty||0)-(a.current_qty||0);});
+    var fam=kids.length>0;
+    // مع البحث العيلات المطابقة بتتفتح لوحدها — نتيجة مخفية = بحث بيكدب
+    var open=fam&&(!!q||!!expandedFamilies[p.id]);
+    var famQty=famQtyOf(p);
+    var famVal=(p.current_qty||0)*(p.wholesale_price||0)
+      +kids.reduce(function(s,c){return s+((c.current_qty||0)*(c.wholesale_price||0));},0);
+    h+='<tr'+(fam?' class="fam-row" data-fam="'+p.id+'"':'')+'>'
+      +'<td class="nm">'+(fam?'<span class="fam-tg'+(open?' open':'')+'">▸</span>':'')+esc(p.name)
+      +(fam?'<span class="fam-count">'+num(kids.length)+' خصائص</span>':'')
+      +'</td>'
+      +'<td><span class="qty-cell '+qtyCls(famQty)+'">'+num(famQty)+'</span></td>'
       +(isAdmin?'<td class="price-cell">'+(p.wholesale_price?num(p.wholesale_price)+' ج':'—')+'</td>':'')
       +'<td class="price-cell">'+(p.unit_price?num(p.unit_price)+' ج':'—')+'</td>'
-      +(isAdmin?'<td class="price-cell">'+num(val)+' ج</td>':'')
+      +(isAdmin?'<td class="price-cell">'+num(famVal)+' ج</td>':'')
       +(isAdmin?'<td><button class="prod-edit-btn" data-id="'+p.id+'">✏️ تعديل</button></td>':'')
       +'</tr>';
+    if(fam){
+      kids.forEach(function(c){
+        var cq=c.current_qty||0;
+        h+='<tr class="var-row'+(open?'':' hid')+'" data-parent="'+p.id+'">'
+          +'<td class="nm var-nm">↳ '+esc(c.variant_label||'')+'</td>'
+          +'<td><span class="qty-cell '+qtyCls(cq)+'">'+num(cq)+'</span></td>'
+          +(isAdmin?'<td class="price-cell">'+(c.wholesale_price?num(c.wholesale_price)+' ج':'—')+'</td>':'')
+          +'<td class="price-cell">'+(c.unit_price?num(c.unit_price)+' ج':'—')+'</td>'
+          +(isAdmin?'<td class="price-cell">'+num(cq*(c.wholesale_price||0))+' ج</td>':'')
+          +(isAdmin?'<td><button class="prod-edit-btn" data-id="'+c.id+'">✏️ تعديل</button></td>':'')
+          +'</tr>';
+      });
+      // رصيد الأم نفسها = كمية لسه ماتوزعتش على الخصائص
+      if((p.current_qty||0)>0){
+        h+='<tr class="var-row'+(open?'':' hid')+'" data-parent="'+p.id+'">'
+          +'<td class="nm var-nm pool-nm" title="كمية متسجلة على المنتج نفسه من غير خاصية — وزعها من محرر المنتج">↳ غير موزع</td>'
+          +'<td><span class="qty-cell '+qtyCls(p.current_qty||0)+'">'+num(p.current_qty||0)+'</span></td>'
+          +(isAdmin?'<td class="price-cell">—</td>':'')
+          +'<td class="price-cell">—</td>'
+          +(isAdmin?'<td class="price-cell">—</td>':'')
+          +(isAdmin?'<td></td>':'')
+          +'</tr>';
+      }
+    }
   });
   h+='</tbody></table>';
   $id('prod-tbody').innerHTML=h;
   $id('prod-tbody').querySelectorAll('.prod-edit-btn').forEach(function(b){
-    b.addEventListener('click',function(){openProductEditor(b.getAttribute('data-id'));});
+    b.addEventListener('click',function(ev){
+      ev.stopPropagation();   // زرار التعديل جوه صف عيلة قابل للضغط
+      openProductEditor(b.getAttribute('data-id'));
+    });
+  });
+  $id('prod-tbody').querySelectorAll('.fam-row').forEach(function(r){
+    r.addEventListener('click',function(){
+      var pid=r.getAttribute('data-fam');
+      expandedFamilies[pid]=!expandedFamilies[pid];
+      renderProducts();
+    });
   });
 }
 
@@ -184,35 +266,139 @@ export function openProductEditor(id){
   if(id){for(var i=0;i<stockProducts.length;i++){if(stockProducts[i].id===id){p=stockProducts[i];break;}}}
   var isNew=!p;
   p=p||{name:'',current_qty:0,wholesale_price:0,unit_price:0};
+  var isChild=!!p.parent_id;
+  var parentRow=null;
+  if(isChild){for(var j=0;j<stockProducts.length;j++){if(stockProducts[j].id===p.parent_id){parentRow=stockProducts[j];break;}}}
+  var kids=(!isNew&&!isChild)?childrenOf(p.id):[];
   // نسخة مجمّدة من قيم لحظة الفتح: صف stockProducts نفسه بيتعدل في مكانه
   // من الـRealtime (Object.assign في startRealtime)، فالمقارنة وقت الحفظ
   // لازم تبقى ضد اللي التاجر شافه فعلاً وقت ما فتح المحرر
-  var orig={name:p.name||'', qty:p.current_qty||0, wholesale:p.wholesale_price||0, unit:p.unit_price||0};
+  var orig={name:p.name||'', label:p.variant_label||'', qty:p.current_qty||0, wholesale:p.wholesale_price||0, unit:p.unit_price||0};
 
-  $id('dtit').textContent=isNew?'إضافة منتج جديد':'تعديل المنتج';
+  $id('dtit').textContent=isNew?'إضافة منتج جديد':(isChild?'تعديل الخاصية':'تعديل المنتج');
+
+  // خانة الاسم: للخاصية بنعرض اسم الأم ثابت + خانة اللابل بس —
+  // الاسم الكامل بيتولّد على السيرفر ومايتبعتش أبداً من هنا
+  var nameField;
+  if(isChild){
+    nameField='<label class="slbl" style="text-align:right;display:block">المنتج الأم</label>'
+      +'<div class="sinp" style="direction:rtl;text-align:right;background:var(--sur);cursor:default">'+esc(parentRow?parentRow.name:'')+'</div>'
+      +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">اسم الخاصية (اللون / المقاس)</label>'
+      +'<input class="sinp" id="pe-label" type="text" value="'+esc(p.variant_label||'')+'" style="direction:rtl;text-align:right">';
+  } else {
+    nameField='<label class="slbl" style="text-align:right;display:block">اسم المنتج</label>'
+      +'<input class="sinp" id="pe-name" type="text" value="'+esc(p.name||'')+'" style="direction:rtl;text-align:right">';
+  }
+
+  // قسم الخصائص — للمنتج المحفوظ اللي مش خاصية بنفسه
+  var varSection='';
+  if(!isNew&&!isChild){
+    var poolQty=p.current_qty||0;
+    varSection='<div class="dsec" id="pe-vars">'
+      +'<label class="slbl" style="text-align:right;display:block">الخصائص (ألوان / مقاسات)'
+      +(kids.length?' <span class="fam-count">غير الموزع: '+num(poolQty)+'</span>':'')
+      +'</label>';
+    if(!kids.length){
+      varSection+='<div class="pe-var-hint">لو المنتج ده ليه ألوان أو مقاسات، ضيفها هنا — '
+        +'كل خاصية هيبقى ليها عدّاد مخزون لوحدها، والخصم الأوتوماتيكي هيروح للون اللي في الأوردر.</div>';
+    }
+    kids.slice().sort(function(a,b){return (b.current_qty||0)-(a.current_qty||0);}).forEach(function(c){
+      varSection+='<div class="pe-var-row" data-vid="'+c.id+'">'
+        +'<span class="pe-var-name">'+esc(c.variant_label||'')+'</span>'
+        +'<span class="pe-var-qty">'+num(c.current_qty||0)+'</span>'
+        +'<button class="pe-var-btn pe-var-give" data-vid="'+c.id+'" title="نقل كمية من غير الموزع للخاصية دي">⬅ توزيع</button>'
+        +((c.current_qty||0)>0?'<button class="pe-var-btn pe-var-take" data-vid="'+c.id+'" title="رجّع كمية من الخاصية دي لغير الموزع">↩ استرجاع</button>':'')
+        +'</div>';
+    });
+    varSection+='<div class="pe-var-add-row">'
+      +'<input class="sinp" id="pe-var-new" type="text" placeholder="مثلاً: أحمر · مقاس 85" style="direction:rtl;text-align:right;flex:1">'
+      +'<button class="pe-var-btn ok" id="pe-var-add">+ إضافة خاصية</button>'
+      +'</div>'
+      +'</div>';
+  }
+
   $id('dcnt').innerHTML='<div class="dsec">'
-    +'<label class="slbl" style="text-align:right;display:block">اسم المنتج</label>'
-    +'<input class="sinp" id="pe-name" type="text" value="'+esc(p.name||'')+'" style="direction:rtl;text-align:right">'
-    +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">'+(isNew?'الكمية الافتتاحية':'المخزون الحالي')+'</label>'
+    +nameField
+    +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">'
+    +(isNew?'الكمية الافتتاحية':(kids.length?'المخزون الحالي (غير الموزع)':'المخزون الحالي'))+'</label>'
     +'<input class="sinp" id="pe-qty" type="number" min="0" value="'+(p.current_qty||0)+'">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر الجملة (للقطعة الواحدة)</label>'
     +'<input class="sinp" id="pe-wholesale" type="number" min="0" step="0.01" value="'+(p.wholesale_price||0)+'">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر البيع للقطعة</label>'
     +'<input class="sinp" id="pe-unit" type="number" min="0" step="0.01" value="'+(p.unit_price||0)+'">'
     +'</div>'
+    +varSection
     +'<div class="dacts">'
     +(isNew?'':'<button class="abtn cn" id="pe-del">🗑️ حذف</button>')
     +'<button class="abtn ok" id="pe-save">💾 حفظ</button>'
     +'</div>';
 
+  // بعد أي عملية على الخصائص: تحميل من السيرفر (الاسم بيتولّد هناك) وإعادة فتح المحرر
+  function reloadAndReopen(){ loadStock(function(){ openProductEditor(p.id); }); }
+
+  // توزيع/استرجاع inline: الضغطة بتحوّل الزرار لخانة كمية + تأكيد
+  function wireTransferBtn(btn, fromId, toId){
+    btn.addEventListener('click',function(){
+      if(btn.getAttribute('data-armed')){return;}
+      btn.setAttribute('data-armed','1');
+      var row=btn.parentElement;
+      var inp=document.createElement('input');
+      inp.type='number';inp.min='1';inp.value='1';inp.className='sinp pe-var-qty-inp';
+      var go=document.createElement('button');
+      go.className='pe-var-btn ok';go.textContent='تم';
+      row.insertBefore(go,btn);row.insertBefore(inp,go);
+      inp.focus();inp.select();
+      go.addEventListener('click',function(){
+        var n=parseInt(inp.value)||0;
+        if(n<=0){toast('اكتب كمية أكبر من صفر','er');return;}
+        go.disabled=true;
+        sb.rpc('transfer_stock',{p_from:fromId,p_to:toId,p_qty:n}).then(function(r){
+          go.disabled=false;
+          if(r.error){toast('خطأ: '+r.error.message,'er');return;}
+          toast('تم النقل ✓','ok');
+          reloadAndReopen();
+        });
+      });
+    });
+  }
+
+  if(!isNew&&!isChild){
+    $id('dcnt').querySelectorAll('.pe-var-give').forEach(function(b){
+      wireTransferBtn(b, p.id, b.getAttribute('data-vid'));
+    });
+    $id('dcnt').querySelectorAll('.pe-var-take').forEach(function(b){
+      wireTransferBtn(b, b.getAttribute('data-vid'), p.id);
+    });
+    $id('pe-var-add').addEventListener('click',function(){
+      var btn=this;
+      if(btn.disabled)return;
+      var lbl=$id('pe-var-new').value.trim();
+      if(!lbl){toast('اكتب اسم الخاصية الأول (مثلاً: أحمر)','er');return;}
+      btn.disabled=true;
+      // الاسم مايتبعتش — السيرفر بيولّده «أم — لابل» ويمنع التكرار
+      sb.from('stock_products').insert({tenant_id:currentTenantId,parent_id:p.id,variant_label:lbl,
+        current_qty:0,wholesale_price:p.wholesale_price||0,unit_price:p.unit_price||0}).then(function(r){
+        btn.disabled=false;
+        if(r.error){
+          toast(r.error.code==='23505'?'الخاصية دي متسجلة بالفعل':'خطأ: '+r.error.message,'er');
+          return;
+        }
+        toast('اتضافت ✓ — وزّعلها كمية من غير الموزع','ok');
+        reloadAndReopen();
+      });
+    });
+  }
+
   $id('pe-save').addEventListener('click',function(){
     var btn=this;
     if(btn.disabled)return;   // دبل-تاب على شبكة بطيئة = منتجين مكررين
-    var name=$id('pe-name').value.trim();
+    var name=isChild?orig.name:$id('pe-name').value.trim();
+    var label=isChild?$id('pe-label').value.trim():'';
     var qty=parseInt($id('pe-qty').value)||0;
     var wholesale=parseFloat($id('pe-wholesale').value)||0;
     var unit=parseFloat($id('pe-unit').value)||0;
-    if(!name){toast('اسم المنتج مطلوب','er');return;}
+    if(isChild){ if(!label){toast('اسم الخاصية مطلوب','er');return;} }
+    else if(!name){toast('اسم المنتج مطلوب','er');return;}
     // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي
     if(qty<0||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
     var data, op;
@@ -224,7 +410,8 @@ export function openProductEditor(id){
       // current_qty دايماً كان بيرجّع كمية خصمها السكانر والمحرر مفتوح
       // (حفظ تعديل سعر = الكمية القديمة ترجع تتكتب فوق الخصم)
       data={};
-      if(name!==orig.name) data.name=name;
+      if(isChild){ if(label!==orig.label) data.variant_label=label; }
+      else if(name!==orig.name) data.name=name;
       if(qty!==orig.qty) data.current_qty=qty;
       if(wholesale!==orig.wholesale) data.wholesale_price=wholesale;
       if(unit!==orig.unit) data.unit_price=unit;
@@ -234,8 +421,11 @@ export function openProductEditor(id){
     btn.disabled=true;
     op.then(function(r){
       btn.disabled=false;
-      if(r.error){toast('خطأ: '+r.error.message,'er');return;}
-      toast(isNew?'تم إضافة المنتج ✓':'تم تحديث المنتج ✓','ok');
+      if(r.error){
+        toast(r.error.code==='23505'?'فيه منتج/خاصية بنفس الاسم بالفعل':'خطأ: '+r.error.message,'er');
+        return;
+      }
+      toast(isNew?'تم إضافة المنتج ✓':'تم التحديث ✓','ok');
       $id('ovl').classList.remove('open');
       loadStock();
     });
@@ -243,7 +433,14 @@ export function openProductEditor(id){
 
   if(!isNew){
     $id('pe-del').addEventListener('click',function(){
-      if(!confirm('حذف المنتج "'+p.name+'"؟ هتُحذف كل بياناته.'))return;
+      // حراسات قبل الحذف — الداتابيز بتمنع برضه (FK RESTRICT) بس الرسالة هنا أوضح
+      if(!isChild&&kids.length){
+        toast('المنتج ليه خصائص — امسح الخصائص الأول أو رجّع كمياتها','er');return;
+      }
+      if(isChild&&(p.current_qty||0)>0){
+        toast('الخاصية فيها كمية — رجّعها لغير الموزع الأول (زرار ↩ استرجاع عند الأم)','er');return;
+      }
+      if(!confirm((isChild?'حذف الخاصية "':'حذف المنتج "')+p.name+'"؟ هتُحذف كل بياناته.'))return;
       sb.from('stock_products').delete().eq('id',p.id).eq('tenant_id',currentTenantId).then(function(r){
         if(r.error){toast('خطأ: '+r.error.message,'er');return;}
         toast('تم الحذف','ok');
@@ -260,7 +457,17 @@ export function openMovementEditor(){
   if(!requireAdmin())return;
   if(!ensureTenant())return;
   $id('dtit').textContent='تسجيل حركة مخزون';
-  var prodOptions=stockProducts.map(function(p){return '<option value="'+p.id+'" data-name="'+esc(p.name)+'">'+esc(p.name)+' (متاح: '+(p.current_qty||0)+')</option>';}).join('');
+  // العيلة بتتعرض مع بعض: الأم (لو ليها خصائص بتتسمى «غير موزع») وبعدها بناتها —
+  // الحركة اليدوية بتختار الخاصية مباشرة فمفيش توجيه ولا لبس
+  var prodOptions='';
+  stockProducts.filter(function(p){return !p.parent_id;}).forEach(function(p){
+    var kids=childrenOf(p.id);
+    var label=kids.length?p.name+' (غير موزع)':p.name;
+    prodOptions+='<option value="'+p.id+'" data-name="'+esc(p.name)+'">'+esc(label)+' (متاح: '+(p.current_qty||0)+')</option>';
+    kids.forEach(function(c){
+      prodOptions+='<option value="'+c.id+'" data-name="'+esc(c.name)+'">↳ '+esc(c.name)+' (متاح: '+(c.current_qty||0)+')</option>';
+    });
+  });
   var _nowDate=new Date();
   var nowValue=_nowDate.getFullYear()+'-'+pad2(_nowDate.getMonth()+1)+'-'+pad2(_nowDate.getDate());
   $id('dcnt').innerHTML='<div class="dsec">'
@@ -366,7 +573,12 @@ export function recentQtyOutByProduct(days){
 
 export function stockForecastRows(){
   var out7=recentQtyOutByProduct(7);
-  var rows=(stockProducts||[]).map(function(p){
+  // أم ليها خصائص بتتستبعد: كميتها «غير موزع» مش مخزون بيع، وصفرها حالة
+  // طبيعية بعد التوزيع الكامل — من غير الاستبعاد كل عيلة موزعة بالكامل
+  // كانت هتطلع «نفد من المخزون» بالغلط. الإشارة الحقيقية على البنات نفسها.
+  var rows=(stockProducts||[]).filter(function(p){
+    return !(!p.parent_id && hasVariants(p.id));
+  }).map(function(p){
     var name=normalizeProductName(p.name);
     var qty=Number(p.current_qty||0)||0;
     var sold7=out7[name.toLowerCase()]||0;

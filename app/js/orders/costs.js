@@ -63,7 +63,7 @@ export function loadStockProductsForCosts(done){
                     stockProducts.some(function(p){ return p.hasOwnProperty('wholesale_price'); });
   if(hasFullData){done&&done();return;}
   sb.from('v_stock_products')
-    .select('id,name,current_qty,wholesale_price,unit_price,active')
+    .select('id,name,current_qty,wholesale_price,unit_price,active,parent_id,variant_label')
     .eq('tenant_id',currentTenantId)
     .eq('active',true)
     .then(function(r){

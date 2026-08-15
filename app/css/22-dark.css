@@ -52,6 +52,10 @@ html.dark .prod-del,html.dark .xcls,html.dark .auth-secondary-btn,html.dark .fil
 html.dark .vip-show-btn2,html.dark .merge-show-btn2{background:#1a2233;border-color:var(--brd);color:var(--txt);}
 html.dark .stock-tab{color:var(--muted);}
 html.dark .stock-tab.active{background:#e6ebf5;color:#0d1220;border-color:#e6ebf5;}
+html.dark .var-row td{background:rgba(255,255,255,.03);}
+html.dark .pe-var-btn{background:transparent;color:var(--muted);}
+html.dark .pe-var-btn:hover{background:rgba(255,255,255,.06);color:var(--txt);}
+html.dark .pe-var-btn.ok{background:rgba(16,185,129,.12);color:#6ee7b7;border-color:rgba(16,185,129,.35);}
 html.dark .period-btn.active,html.dark .aperiod-btn.active{background:var(--acc);color:#000;border-color:var(--acc);}
 html.dark .prod-add-btn{background:#151d30;border-color:#3a4763;color:var(--muted);}
 html.dark .prod-add-btn:hover,html.dark .prod-edit-btn:hover,html.dark .issue-action-btn:hover{color:var(--acc);border-color:var(--acc);background:rgba(255,159,28,.08);}
