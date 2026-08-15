@@ -145,6 +145,14 @@ export function manualShipFlow(){
           else toast('خطأ: ' + m,'er');
           return;
         }
+        // «الموظف يدوس ويمشي» — نفس عقد الأوتوماتيك: النافذة بتتقفل مع
+        // التأكيد. القفل لازم يسبق applyShipped: لو sel لسه شايل الأوردر،
+        // applyShipped هترندر التفاصيل تاني والنافذة تفضل مفتوحة
+        if(sel && sel.id === ord.id){
+          $id('ovl').classList.remove('open');
+          ordersSetSelected(null);
+          detailAbort();
+        }
         applyShipped(ord.id, 'bosta_assigned', trk || null);
         toast('اتعلّم «شحن»' + (trk ? ' ورقم التتبع اتسجل ✓' : ' ✓'),'ok');
       });

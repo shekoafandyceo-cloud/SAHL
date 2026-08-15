@@ -38,6 +38,11 @@ async function openApp(extra){
           window.__RPC.push({ name: name, args: args });
           if(name === 'mark_shipped_manual'){
             if(window.__MANUAL_ERR) return Promise.resolve({ data:null, error:{ message: window.__MANUAL_ERR } });
+            // محاكاة كتابة السيرفر: الـRPC الحقيقي بيحدّث صف الأوردر في الداتابيز،
+            // فأي refetch بعده (doFilter) لازم يرجّع الحالة الجديدة. من غير ده
+            // الفحص كان بيعدّي بالصدفة من تعديل sel بالمرجع (اتشال مع قفل النافذة)
+            var row = (window.__ORDERS || []).filter(function(o){ return o.id === (args && args.p_order_id); })[0];
+            if(row){ row.status = 'bosta_assigned'; if(args.p_tracking) row.tracking_no = args.p_tracking; }
             return Promise.resolve({ data:{ ok:true }, error:null });
           }
           return orig(name, args);
@@ -178,13 +183,21 @@ async function openDetailOf(p, orderId){
   ok(!!rpc, 'اتنده mark_shipped_manual');
   ok(rpc && rpc.args.p_order_id === 'o3' && rpc.args.p_tracking === 'TRK-MANUAL-77',
      `بالأوردر والتتبع (من غير مسافات) — ${JSON.stringify(rpc && [rpc.args.p_order_id, rpc.args.p_tracking])}`);
-  const after = await p.evaluate(() => ({
-    row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}),
-    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
-  }));
+  const after = await p.evaluate(async () => {
+    const st = await import('./js/orders/state.js');
+    const inFil = (st.fil || []).filter(x => x.id === 'o3')[0] || {};
+    return {
+      row: { status: inFil.status, tracking_no: inFil.tracking_no },
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
+    };
+  });
   ok(after.row.status === 'bosta_assigned' && after.row.tracking_no === 'TRK-MANUAL-77',
-     `الصف اتحدّث محلياً — ${after.row.status} / ${after.row.tracking_no}`);
+     `صف الجدول (fil) اتحدّث — ${after.row.status} / ${after.row.tracking_no}`);
   ok(/اتسجل/.test(after.toast), 'والرسالة بتأكد تسجيل التتبع');
+  // «الموظف يدوس ويمشي» — نافذة التفاصيل لازم تتقفل مع التأكيد زي الأوتوماتيك
+  // (باج المالك 15 أغسطس: كانت بتفضل مفتوحة على نفس الأوردر)
+  const ovlOpen = await p.evaluate(() => document.getElementById('ovl').classList.contains('open'));
+  ok(!ovlOpen, 'نافذة التفاصيل اتقفلت ورجّعتنا للجدول');
   await p.close();
 }
 
@@ -208,9 +221,14 @@ async function openDetailOf(p, orderId){
   ok(r.red === '', `والخانة ماتحمّرتش — «${r.red}»`);
   ok(r.rpc && r.rpc.args.p_order_id === 'o3' && r.rpc.args.p_tracking === null,
      `والـRPC اتنده بتتبع null — ${JSON.stringify(r.rpc && [r.rpc.args.p_order_id, r.rpc.args.p_tracking])}`);
-  const row = await p.evaluate(() => ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}));
+  const row = await p.evaluate(async () => {
+    const st = await import('./js/orders/state.js');
+    return (st.fil || []).filter(x => x.id === 'o3')[0] || {};
+  });
   ok(row.status === 'bosta_assigned' && !row.tracking_no,
      `والأوردر اتعلّم «شحن» من غير تتبع — ${JSON.stringify([row.status, row.tracking_no || null])}`);
+  const ovlOpen2 = await p.evaluate(() => document.getElementById('ovl').classList.contains('open'));
+  ok(!ovlOpen2, 'ونافذة التفاصيل اتقفلت هنا كمان');
   await p.close();
 }
 
