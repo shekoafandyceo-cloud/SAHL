@@ -5,7 +5,7 @@ import { walletStateCache } from '../billing/billing.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { shipIndicatorHtml } from './ship.js';
 import { $id, esc } from '../core/dom.js';
-import { fmt, fmtD, num, short } from '../core/format.js';
+import { fmt, fmtD, num, orderProps, short } from '../core/format.js';
 import { pRange } from '../finance/finance.js';
 import { tourActive } from '../tour/tour.js';
 import { printAwbForOrders } from './awb.js';
@@ -160,7 +160,12 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
       +'<td class="mn">'+lockMaybe(fmt(o.alt_phone))+'</td>'
       +'<td>'+lockMaybe(fmt(o.city))+'</td>'
       +'<td class="addr" title="'+addrTitle+'">'+lockMaybe(short(o.address,45))+'</td>'
-      +'<td class="pr" title="'+prodTitle+'">'+lockMaybe(short(o.product_name,30))+(!locked&&o['var']&&String(o['var']).trim()?'<span class="var-badge" title="اللون / المقاس: '+esc(String(o['var']))+'">'+esc(short(String(o['var']),18))+'</span>':'')+'</td>'
+      +'<td class="pr" title="'+prodTitle+'">'+lockMaybe(short(o.product_name,30))+(function(){
+         // الشارة بتعرض خصائص المنتج كاملة (manufacturer_note) مش أول prop بس
+         var pr=orderProps(o);
+         if(locked||!pr) return '';
+         return '<span class="var-badge" title="خصائص المنتج: '+esc(pr)+'">'+esc(short(pr,18))+'</span>';
+       })()+'</td>'
       +'<td class="pay'+(o.payment_stage==='paymob'?' paid':'')+'">'+(o.payment_stage==='paymob'?'<span class="pay-badge">مدفوع</span>':'<span class="pay-cod">COD</span>')+'</td>'
       +'<td><span class="badge '+statusClass(s)+'"><span class="bdot"></span>'+esc(statusLabel(s))+shipIndicatorHtml(o)+'</span></td>'
       +'<td class="timer-cell" data-deadline="'+getCallDeadline(o)+'" data-id="'+o.id+'"></td>'

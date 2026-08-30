@@ -16,13 +16,17 @@ import { all } from './state.js';
 
 export function orderCostSnapshotValue(o){
   // Supports multiple possible column names so n8n/Supabase can evolve without breaking the dashboard.
+  // 🔴 `orders.manufacturer_cost` **مستبعد عمداً** (قرار المالك 30 أغسطس): تكلفة
+  // المصنّع من اللاندنج معلومة للعرض بس ومش بتدخل حساب الأرباح — التكلفة بتيجي
+  // من snapshot الشحن أو من سعر جملة المخزون. أي مراجعة تقترح ضمّه هنا غلطانة.
+  // (وكان فيه مرشّح ميت اسمه `manufacturer_cost_snapshot` — عمود مش موجود في
+  //  الجدول أصلاً، واتشال عشان محدش «يصلّحه» لـmanufacturer_cost بالغلط.)
   var candidates = [
     o.inventory_cost_snapshot,
     o.inventory_value_snapshot,
     o.inventory_value_at_bosta,
     o.product_cost_snapshot,
-    o.products_cost_snapshot,
-    o.manufacturer_cost_snapshot
+    o.products_cost_snapshot
   ];
   for(var i=0;i<candidates.length;i++){
     var n=Number(candidates[i]||0);

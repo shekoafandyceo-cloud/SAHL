@@ -5,7 +5,7 @@ import { currentTenantId } from '../auth/auth.js';
 import { walletStateCache } from '../billing/billing.js';
 import { CANCELLED_STATUSES, CR, DELIVERED_STATUSES, STATUS_OPTIONS, statusClass, statusIn, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
-import { firstName, fmt, fmtD, fmtDT, money, normalizePhone, num, toLatinDigits } from '../core/format.js';
+import { firstName, fmt, fmtD, fmtDT, money, normalizePhone, num, orderProps, toLatinDigits } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -259,7 +259,12 @@ export function renderDetail(){
     +'</div>'
 
     +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">\uD83D\uDCE6</span>المنتجات</div>'
-    +((o['var']&&String(o['var']).trim())?'<div class="drow"><span class="dkey">اللون / المقاس</span>'+copyable(String(o['var']),'اللون/المقاس')+'</div>':'')
+    +(function(){
+       // خصائص المنتج كاملة من الويبهوك — سطر واحد بس: manufacturer_note
+       // بيشمل var كبادئة، فعرض الاتنين كان هيكرر «أبيض» و«أبيض 4 أدوار»
+       var pr=orderProps(o);
+       return pr?'<div class="drow"><span class="dkey">خصائص المنتج</span>'+copyable(pr,'خصائص المنتج')+'</div>':'';
+     })()
     +'<div class="prod-list" id="prod-list"></div>'
     +'<button class="prod-add-btn" id="prod-add">+ إضافة منتج آخر</button>'
     +'<div class="save-row" style="margin-top:10px"><button class="save-btn" id="save-prod">💾 حفظ المنتجات</button><button class="copy-prod-btn" id="copy-prod">📋 نسخ كل المنتجات</button><span class="save-status" id="prod-status"></span></div>'
@@ -269,6 +274,13 @@ export function renderDetail(){
     +dr('المبلغ','<span class="dval" style="color:var(--txt);font-weight:600">'+(o.total_cost?num(o.total_cost)+' ج.م':'—')+'</span>')
     +(isAdmin()?dr('تكلفة البضاعة','<span class="dval" style="color:var(--ora);font-weight:800">'+money(orderInventoryCost(o))+'</span>'):'')
     +(isAdmin()?dr('مصدر التكلفة','<span class="dval ar">'+esc(orderInventoryCostSource(o))+'</span>'):'')
+    // تكلفة المصنّع من اللاندنج — **معلومة للعرض بس** بقرار المالك (30 أغسطس):
+    // مش داخلة في حساب الأرباح ولا في تكلفة البضاعة. التسمية بتقول ده صراحةً
+    // عشان التاجر مايفتكرش إن الرقم ده هو اللي بيحرك الربح.
+    +((isAdmin()&&Number(o.manufacturer_cost||0)>0)
+      ?dr('تكلفة المصنّع <span style="font-size:.7rem;color:var(--muted)">(مش داخلة في الأرباح)</span>',
+          '<span class="dval">'+money(o.manufacturer_cost)+'</span>')
+      :'')
     +dr('الدفع','<span class="dval">'+esc(fmt(o.payment_stage))+'</span>')
     +dr('المنصة','<span class="dval">'+esc(fmt(o.platform))+'</span>')
     +dr('الحملة','<span class="dval" style="font-size:.76rem;direction:ltr">'+esc(fmt(o.campaign_name))+'</span>')

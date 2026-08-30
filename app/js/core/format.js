@@ -110,6 +110,18 @@ export function ymdAddDays(ymd, delta){
 
 export function money(v){return num(Math.round(Number(v||0)))+' ج';}
 
+// خصائص المنتج للعرض. `manufacturer_note` جاي من الويبهوك بكل الـprops
+// (لون + مقاس…) و`var` هو أول prop بس — فالأولوية للأشمل، و`var` fallback
+// للأوردرات القديمة (آلاف الأوردرات قبل 29 أغسطس مالهاش manufacturer_note).
+// ⚠️ الفصل بين الـprops مسافة جاية من n8n ومش قابل للتفكيك هنا — في
+// «مقاس 85 عرض» المسافات جوّه prop واحد. فبيتعرض كنص واحد زي ما وصل.
+export function orderProps(o){
+  if(!o) return '';
+  var full = String(o.manufacturer_note == null ? '' : o.manufacturer_note).trim();
+  if(full) return full;
+  return String(o['var'] == null ? '' : o['var']).trim();
+}
+
 export function val(o){return Number(o.total_cost||o.total||o.amount||0)||0;}
 
 export function toLatinDigits(v){

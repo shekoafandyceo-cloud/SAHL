@@ -27,7 +27,7 @@
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
       has_upsell:false, shipping_requested_at:null, line_prices:null,
-      'var':null
+      'var':null, manufacturer_note:null, manufacturer_cost:null
     }, o);
   }
   var ORDERS = [
@@ -94,6 +94,12 @@
       var sq = window.__SHIP_REQS || {};
       rows = rows.map(function(o){
         return sq[o.id] !== undefined ? Object.assign({}, o, {shipping_requested_at: sq[o.id]}) : o;
+      });
+      // خصائص المنتج/تكلفة المصنّع: {id:{manufacturer_note, manufacturer_cost, var}}
+      // بتتقرا **وقت الاستعلام** زي __SHIP_REQS — الحقن بعد التحميل بيوصل متأخر
+      var pr = window.__PROPS || {};
+      rows = rows.map(function(o){
+        return pr[o.id] ? Object.assign({}, o, pr[o.id]) : o;
       });
       var up = window.__UPSELL_IDS || [];
       if(up.length) rows = rows.map(function(o){

@@ -64,7 +64,6 @@
       address: ADDRS[i % ADDRS.length],
       product_name: prod + ' (عدد ' + qty + ')',
       total_cost: 615 + (i % 7) * 95,
-      manufacturer_note: null,
       status: st,
       payment_stage: i % 6 === 0 ? 'paymob' : 'cod',
       platform: PLATFORMS[i % PLATFORMS.length],
@@ -87,7 +86,10 @@
       cancel_reason: st === 'cancelled' ? 'العميلة غيّرت رأيها' : null,
       bosta_size:null, bosta_delivery_id:null, real_shipping_fee_at:null,
       stock_deducted_at:null, stock_returned_at:null, billed_at:null, wa_charged_at:null,
-      'var': i % 3 === 0 ? 'أسود / لارج' : null,
+      'var': i % 3 === 0 ? 'أسود' : null,
+      // خصائص المنتج كاملة من الويبهوك — المعاينة بترندر منها مش من الداتابيز
+      manufacturer_note: i % 3 === 0 ? 'أسود 4 أدوار' : (i % 3 === 1 ? 'مقاس 85 عرض' : null),
+      manufacturer_cost: i % 3 === 0 ? 375 : null,
       call_attempts: i % 4 === 0 ? [
         {time:'05/08/2026، 11:20', iso: iso(1,11,20), result:'no_answer', note:'', by:'سارة'},
         {time:'05/08/2026، 14:05', iso: iso(1,14,5),  result:'confirmed', note:'أكدت الأوردر', by:'سارة'}
