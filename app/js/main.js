@@ -80,7 +80,7 @@ import { cairoYMD, firstName, fmt, fmtD, fmtDT, fmtDateOnly, fmtMovementDate, fm
 import { BOSTA_EXPECTED_STATUSES, BOSTA_INVENTORY_STATUSES, BOSTA_OPERATION_STATUSES, BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, CR, DELIVERED_STATUSES, RETURNED_STATUSES, SL, STATUS_OPTIONS, normStatus, statusClass, statusIn, statusLabel } from './core/constants.js';
 
 import { swallow } from './core/log.js';
-import { DEFAULT_PAGE, onPopState, routeFromUrl, syncUrl } from './core/router.js';
+import { DEFAULT_PAGE, onPopState, probeDeepLinks, routeFromUrl, syncUrl } from './core/router.js';
 
 import { sb, setSb } from './core/supabase.js';
 
@@ -383,6 +383,7 @@ export function showPage(page, opts){
 // الصفحة الأولى بعد الدخول — بتتقرا من اللينك اللي التاجر فتحه.
 // بتتنادى من `loadTenantAndEnter` بعد ما اللوحة تبان.
 export function applyInitialRoute(){
+  probeDeepLinks();   // بيحدد إذا كنا هنكتب لينكات أصلاً — قبل أول showPage
   showPage(routeFromUrl() || DEFAULT_PAGE, { replace: true });
 }
 

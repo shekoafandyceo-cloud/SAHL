@@ -44,6 +44,39 @@ var BASE = (function(){
 
 export function routeBase(){ return BASE; }
 
+// 🔴 هل الاستضافة بتخدم اللينكات العميقة أصلاً؟
+// اللوحة على Cloudflare **Worker** مش Pages، و`_redirects` بإعادة كتابة 200
+// ميزة Pages — ممكن تتجاهل. ولو اتجاهلت، أي لينك بنكتبه هيدي 404 عند الريفريش،
+// يعني الميزة تبقى **ضارة** مش ناقصة. فالافتراضي إننا **مانلمسش الـURL** لحد
+// ما نثبت إن الاستضافة بتخدمه — ساعتها اللوحة بتتصرف زي ما كانت بالظبط.
+var deepLinksOk = false;
+var PROBE_KEY = 'sahl_deep_links_ok';
+
+export function deepLinksSupported(){ return deepLinksOk; }
+export function setDeepLinksSupported(v){ deepLinksOk = !!v; }
+
+// بيتنادى مرة واحدة وقت الإقلاع
+export function probeDeepLinks(){
+  // **الدليل القاطع**: اتحمّلنا على مسار مش ملف والصفحة اشتغلت → الاستضافة
+  // عملت fallback فعلاً. ده بيشمل المسار المعروف (/orders) والمجهول
+  // (/kalam-fady) — الاتنين بيثبتوا نفس الحاجة، فمفيش داعي لأي طلب شبكة.
+  var here = (typeof location !== 'undefined' && location.pathname) ? location.pathname : '/';
+  var rest = (BASE && here.indexOf(BASE) === 0) ? here.slice(BASE.length) : here;
+  rest = rest.replace(/^\/+/, '');
+  if(rest && rest !== 'index.html'){ deepLinksOk = true; return; }
+  try{
+    var cached = sessionStorage.getItem(PROBE_KEY);
+    if(cached === '1'){ deepLinksOk = true; return; }
+    if(cached === '0'){ deepLinksOk = false; return; }
+  }catch(e){ swallow('router/probe.cache', e); }
+  try{
+    fetch(BASE + 'orders', { method:'HEAD' }).then(function(r){
+      deepLinksOk = !!(r && r.ok);
+      try{ sessionStorage.setItem(PROBE_KEY, deepLinksOk ? '1' : '0'); }catch(e2){}
+    }).catch(function(){ deepLinksOk = false; });
+  }catch(e){ swallow('router/probe', e); }
+}
+
 export function slugForPage(page){
   return Object.prototype.hasOwnProperty.call(PAGE_SLUG, page) ? PAGE_SLUG[page] : null;
 }
@@ -73,6 +106,9 @@ export function routeUrl(page){
 // الإقلاع وفي تصحيح مسار ممنوع (موظف فتح /finance) عشان زرار الرجوع
 // مايرجّعهوش لمكان مرفوض في حلقة.
 export function syncUrl(page, replace){
+  // الاستضافة مش بتخدم اللينكات العميقة → مانكتبش لينك بيدي 404 لو اتعمله
+  // ريفريش. اللوحة بتفضل شغالة عادي على المسار اللي هي فيه.
+  if(!deepLinksOk) return;
   var url = routeUrl(page);
   // صفحة مالهاش slug (زي `issues` الميتة) — بنسيب الـURL زي ما هو بدل ما
   // نخترعله مسار مايفتحش

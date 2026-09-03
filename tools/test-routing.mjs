@@ -192,6 +192,45 @@ console.log('──── معايرات ────');
   await p.close();
 }
 
+// ════ 9) 🔴 استضافة من غير SPA fallback (الـWorker لو _redirects اتجاهلت) ════
+// اللوحة **مالهاش حق** تكتب لينك الاستضافة مش عارفة تخدمه — الريفريش عليه
+// بيدي 404 وده أسوأ من إن الميزة مش موجودة أصلاً.
+{
+  console.log('──── استضافة من غير fallback ────');
+  const NOFB = process.env.APP_PLAIN || 'http://127.0.0.1:8902';
+  const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+  const errs = [];
+  p.on('pageerror', e => errs.push(e.message));
+  await p.addInitScript(STUB);
+  await p.goto(NOFB + '/index.html', { waitUntil: 'networkidle' });
+  await p.waitForSelector('#app', { state: 'visible', timeout: 10000 });
+  await p.waitForTimeout(900);   // نسيب المجس يخلص
+
+  const before = await p.evaluate(() => location.pathname);
+  await p.click('#nav-stock');
+  await p.waitForTimeout(400);
+  const after = await p.evaluate(() => location.pathname);
+  const vis = await p.evaluate(() =>
+    ['orders','stock'].filter(n => { const el=document.getElementById('page-'+n);
+      return el && getComputedStyle(el).display !== 'none'; }));
+
+  ok(after === before,
+     `اللينك ما اتغيرش على استضافة مش داعمة — ${before} → ${after}`);
+  ok(vis.length === 1 && vis[0] === 'stock',
+     `واللوحة اشتغلت عادي والصفحة اتبدّلت — ${JSON.stringify(vis)}`);
+  ok(errs.length === 0, `وصفر أخطاء — ${errs[0] || 'نضيف'}`);
+
+  // والدليل إن السبب هو الاستضافة مش عطل عندنا: نفس الكود على سيرفر بيدعم
+  // الـfallback بيكتب اللينك (ضابط — درس 21)
+  const p2 = await open('/orders');
+  await p2.click('#nav-stock');
+  await p2.waitForTimeout(400);
+  ok(await urlPath(p2) === '/inventory',
+     'ضابط: نفس الكود على استضافة داعمة بيكتب اللينك — فالفرق من الاستضافة مش من عطل');
+  await p2.close();
+  await p.close();
+}
+
 await b.close();
 console.log(bad ? `\n❌ ${bad} مشكلة` : '\n✅ تمام');
 process.exit(bad ? 1 : 0);
