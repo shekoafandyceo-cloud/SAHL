@@ -439,7 +439,9 @@ export function renderDetail(){
   attachFieldEditors();
   var _cpb=$id('copy-prod');
   if(_cpb){ _cpb.addEventListener('click',function(){
-    var v=(sel['var']&&String(sel['var']).trim())?String(sel['var']).trim():'';
+    // خصائص المنتج كاملة زي العرض بالظبط — `sel['var']` كان أول prop بس
+    // فالمنسوخ كان بيتقطع («4 أدوار» بدل «4 أدوار مدور»). مصدر واحد للاتنين.
+    var v=orderProps(sel);
     var items=parseProductItems(sel.product_name||'');
     var txt=items.map(function(it){
       var line=it.name+' (عدد '+(it.qty||1)+')';

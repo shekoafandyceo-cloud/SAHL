@@ -130,6 +130,62 @@ const rowsOf = (p) => p.evaluate(() =>
   await p.close();
 }
 
+// ════ 4ب) زرار «نسخ كل المنتجات» ════
+// الباج (3 سبتمبر — بلاغ المالك): الزرار كان بيقرا `sel['var']` (أول prop بس)
+// فالمنسوخ كان «تيربو بريمو 5 دور (عدد 1) - 4 أدوار» بدل «… - 4 أدوار مدور».
+// v33 وحّدت عرض الخصائص في الجدول والتفاصيل **وفاتها مسار النسخ**.
+{
+  const p = await openApp();
+  console.log('──── نسخ كل المنتجات ────');
+
+  // التقاط النص المنسوخ بدل الكليبورد الحقيقي
+  const armClipboard = () => p.evaluate(() => {
+    window.__COPIED = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: function(t){ window.__COPIED.push(t); return Promise.resolve(); } }
+    });
+  });
+
+  async function copyFrom(orderId){
+    await openDetailOf(p, orderId);
+    await armClipboard();
+    await p.$eval('#copy-prod', el => el.scrollIntoView({ block:'center' }));
+    await p.waitForTimeout(120);
+    // درس 35: ضغطة حقيقية + hit-test — مش el.click()
+    const hit = await p.evaluate(() => {
+      const b = document.getElementById('copy-prod');
+      const r = b.getBoundingClientRect();
+      const el = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+      return !!(el && (el === b || b.contains(el) || el.contains(b)));
+    });
+    await p.click('#copy-prod');
+    await p.waitForTimeout(200);
+    const copied = await p.evaluate(() => (window.__COPIED || [])[0] || '');
+    await p.evaluate(() => { document.getElementById('ovl').classList.remove('open'); });
+    return { hit, copied };
+  }
+
+  const r1 = await copyFrom('o1');
+  ok(r1.hit, 'hit-test: زرار النسخ مش مدفون تحت أي حاجة');
+  ok(r1.copied.indexOf('أبيض 4 أدوار') >= 0,
+     `المنسوخ فيه الخصائص كاملة — «${r1.copied}»`);
+  ok(!/- أبيض$/.test(r1.copied) && !/- أبيض /.test(r1.copied.replace('أبيض 4 أدوار','')),
+     'ومش بيقطعها عند أول prop');
+  ok(r1.copied.indexOf('(عدد 1)') >= 0, 'والكمية زي ما هي في الفورمات');
+
+  // o2: أوردر قديم بلا manufacturer_note → لازم يقع على var
+  const r2 = await copyFrom('o2');
+  ok(r2.copied.indexOf('مقاس 85 عرض') >= 0,
+     `أوردر قديم: fallback على var شغال — «${r2.copied}»`);
+
+  // o3: مفيش خصائص خالص → الاسم من غير أي لاحقة
+  const r3 = await copyFrom('o3');
+  ok(r3.copied.length > 0 && r3.copied.indexOf(' - ') < 0,
+     `مفيش خصائص = مفيش فاصل معلّق — «${r3.copied}»`);
+  await p.close();
+}
+
 // ════ 5) الموظف ════
 {
   const p = await openApp({ role:'employee' });
@@ -189,6 +245,39 @@ console.log('──── معايرات ────');
   });
   ok(drift[0] !== drift[1],
      `معايرة ب: لو manufacturer_cost اتضمّت للتكلفة الرقم بينحرف (${drift[0]} → ${drift[1]}) — حارس الأرباح بيمسكها`);
+  await p.close();
+}
+
+// ════ 6ج) معايرة: رجوع زرار النسخ لـsel['var'] (الباج الأصلي بالحرف) ════
+{
+  const p = await b.newPage({ viewport:{ width:1440, height:900 } });
+  await p.addInitScript(`window.__PROPS = ${JSON.stringify(PROPS)};`);
+  await p.addInitScript(STUB);
+  await p.route('**/js/orders/detail.js', async r => {
+    const res = await r.fetch();
+    let body = await res.text();
+    body = body.replace(
+      'var v=orderProps(sel);',
+      "var v=(sel['var']&&String(sel['var']).trim())?String(sel['var']).trim():'';");
+    await r.fulfill({ response: res, body });
+  });
+  await p.goto(URL_, { waitUntil:'networkidle' });
+  await p.waitForSelector('#page-orders', { state:'visible' });
+  await p.waitForFunction(() => document.querySelectorAll('#tbody tr[data-id]').length > 0);
+  await openDetailOf(p, 'o1');
+  await p.evaluate(() => {
+    window.__COPIED = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: function(t){ window.__COPIED.push(t); return Promise.resolve(); } }
+    });
+  });
+  await p.$eval('#copy-prod', el => el.scrollIntoView({ block:'center' }));
+  await p.click('#copy-prod');
+  await p.waitForTimeout(200);
+  const copied = await p.evaluate(() => (window.__COPIED || [])[0] || '');
+  ok(copied.indexOf('أبيض 4 أدوار') < 0 && copied.indexOf('أبيض') >= 0,
+     `معايرة ج: برجوع sel['var'] المنسوخ بيتقطع عند أول prop («${copied}») — الفحص بيمسكه`);
   await p.close();
 }
 
