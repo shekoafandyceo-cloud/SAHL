@@ -14,14 +14,14 @@ set PORT=8899
 where py >nul 2>nul && (
   echo   بيشغّل السيرفر على http://localhost:%PORT%
   start "" http://localhost:%PORT%/index.html
-  py -3 -m http.server %PORT%
+  py -3 _preview\spa-server.py %PORT% .
   goto :eof
 )
 
 where python >nul 2>nul && (
   echo   بيشغّل السيرفر على http://localhost:%PORT%
   start "" http://localhost:%PORT%/index.html
-  python -m http.server %PORT%
+  python _preview\spa-server.py %PORT% .
   goto :eof
 )
 

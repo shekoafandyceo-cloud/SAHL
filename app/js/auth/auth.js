@@ -6,6 +6,8 @@ import { $id, esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
+// جسر مؤقت — دورة مقصودة وقانونية في ES modules (درس 19)
+import { applyInitialRoute } from '../main.js';
 import { loadAll } from '../orders/orders.js';
 import { ensureTenant } from '../orders/guards.js';
 import { realtimeChannel, realtimeSetChannel } from '../orders/state.js';
@@ -120,6 +122,9 @@ export function loadTenantAndEnter(){
       $id('app').style.cssText = 'display:flex;';   // الاتجاه والارتفاع من CSS (.sidenav layout) — مش inline (درس 27)
       maybeShowExpiryBanner(r.data, lockState);
       loadAll();
+      // القسم اللي التاجر فتح لينكه (app.sahlgedan.com/chats مثلاً) —
+      // بيتقرا بعد ما اللوحة تبان، فالدخول على لينك مباشر بيوصّل لمكانه
+      applyInitialRoute();
       // loadWalletState بتتنده جوّه loadAll() — النداء التاني هنا كان بيطلق
       // طلبين متزامنين لنفس الفيو والردود مالهاش ترتيب مضمون
       refreshSetupChecklist();  // كارت تجهيز المتجر — أدمن بس وبيقفل نفسه لما يكمل

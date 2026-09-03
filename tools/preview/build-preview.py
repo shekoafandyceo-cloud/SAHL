@@ -59,7 +59,8 @@ def main():
     idx.write_text(html, encoding='utf-8')
 
     print(f'✓ المعاينة اتبنت في {out}')
-    print('  جرّبها:  cd فولدر-الخرج && python3 -m http.server 8899')
+    print('  جرّبها:  cd فولدر-الخرج && python3 _preview/spa-server.py 8899 .')
+    print('  ⚠️ لازم السيرفر ده مش http.server — اللوحة بقى ليها لينك لكل قسم')
 
 
 if __name__ == '__main__':

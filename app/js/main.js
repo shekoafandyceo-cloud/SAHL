@@ -80,6 +80,7 @@ import { cairoYMD, firstName, fmt, fmtD, fmtDT, fmtDateOnly, fmtMovementDate, fm
 import { BOSTA_EXPECTED_STATUSES, BOSTA_INVENTORY_STATUSES, BOSTA_OPERATION_STATUSES, BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, CR, DELIVERED_STATUSES, RETURNED_STATUSES, SL, STATUS_OPTIONS, normStatus, statusClass, statusIn, statusLabel } from './core/constants.js';
 
 import { swallow } from './core/log.js';
+import { DEFAULT_PAGE, onPopState, routeFromUrl, syncUrl } from './core/router.js';
 
 import { sb, setSb } from './core/supabase.js';
 
@@ -339,7 +340,8 @@ function initApp(){
 
 
 
-export function showPage(page){
+export function showPage(page, opts){
+  var requested = page;   // اللي اتطلب فعلاً — للتفريق بين تنقّل عادي وتصحيح حارس
   // Finance and Issues are admin-only in code as well, not just hidden by CSS.
   if((page==='finance' || page==='issues' || page==='billing' || page==='analytics') && !isAdmin()){
     toast('القسم ده للأدمن فقط','er');
@@ -371,7 +373,21 @@ export function showPage(page){
   if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
   if(page==='inbox'){veilBegin('inbox');loadInbox();}
   if(page==='mycommission'){loadMyCommission();}
+  // الـURL بيتحدّث هنا **بعد** حراسات الأدمن فوق — يعني لو موظف طلب
+  // /finance واتحوّل لـorders، اللينك بيتصحّح معاه ومايفضلش بيكدب.
+  // بالاستبدال مش بالإضافة في الحالتين دول: تصحيح مسار ممنوع (عشان زرار
+  // الرجوع مايرجّعش لنفس المرفوض في حلقة)، والإقلاع.
+  if(!tourActive) syncUrl(page, (opts && opts.replace) || page !== requested);
 }
+
+// الصفحة الأولى بعد الدخول — بتتقرا من اللينك اللي التاجر فتحه.
+// بتتنادى من `loadTenantAndEnter` بعد ما اللوحة تبان.
+export function applyInitialRoute(){
+  showPage(routeFromUrl() || DEFAULT_PAGE, { replace: true });
+}
+
+// زرار الرجوع/الجاي في المتصفح — بيعرض الصفحة من غير ما يضيف مدخل جديد
+onPopState(function(page){ showPage(page, { replace: true }); });
 
 
 
