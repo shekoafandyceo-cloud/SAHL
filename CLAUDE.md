@@ -193,7 +193,25 @@ node test-routing.mjs                         # لينك لكل قسم: لينك
 
 ## النشر
 
-الفرونت على Cloudflare Pages **بـDirect Upload**. مشروعين منفصلين (لوحة التاجر / لوحة الأدمن).
+🔴 **لوحة التاجر على Cloudflare Worker (Static Assets) — مش Pages.** الملف ده كان
+مكتوب فيه «Pages» لشهور وده **غلط** — اتكشف 3 سبتمبر من سكرين شوت المالك:
+شاشة الرفع عنوانها «Upload static files to update your **Worker**» (درس 24: الوثيقة
+مش دليل). الفرق مش شكلي:
+- **`_headers` بيشتغل** على الاتنين — اتأكد حيّ: الـCSP نازلة فعلاً في هيدرز
+  `app.sahlgedan.com`.
+- ⚠️ **`_redirects` بإعادة كتابة `200` (SPA fallback) ميزة Pages** — على Workers
+  التوثيق بيقول الـrewrites بغير أكواد التحويل **مش مدعومة**. الطريقة الرسمية
+  على Workers هي `assets.not_found_handling: "single-page-application"` في
+  إعدادات الـWorker/wrangler. **يتأكد سلوكياً بـ`curl /orders` بعد أي نشر** —
+  الشكل مايثبتش (درس 26).
+- **رافع الداشبورد بيقول صراحةً**: «This uploader currently only supports static
+  assets (HTML, CSS, and JS files). We recommend using wrangler deploy» —
+  والمشروع فيه `fonts/` و`img/`.
+- 🔴 **الضغط على Deploy والملفات لسه بترفع = فشل صامت** (الزرار بيرمد ويرجع أزرق
+  من غير أي رسالة). `js/` لوحده 517 KB. **استنى كل السطور تخلص السبنر الأول.**
+  اتكشفت 3 سبتمبر: v35 اتضغط عليها Deploy وماوصلتش، وv34 فضلت على الهواء.
+
+لوحة الأدمن مشروع منفصل.
 
 **⚠️ الرفعة بتستبدل النشرة كلها.** مفيش رفع ملف واحد — بترفع الفولدر وهو بيبقى النشرة الجديدة.
 
