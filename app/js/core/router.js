@@ -4,8 +4,12 @@
 // (كل زرار وكل CTA بيعدّي عليها)، فالـURL بيتحدّث من جوّاها ومحدش تاني بيلمسه.
 // الموديول ده مالوش حالة غير الجذر، وبيتحسب مرة واحدة وقت التحميل.
 //
-// ⚠️ لازم يبقى معاه `_redirects` على Cloudflare Pages (`/* /index.html 200`) —
-// من غيره أي فتح مباشر لـ/orders بيدي 404 لأن Pages بيدوّر على ملف بالاسم ده.
+// ⚠️ الاستضافة **Cloudflare Worker** مش Pages. اللينكات العميقة محتاجة
+// `assets.not_found_handling: "single-page-application"` — **مش ملف `_redirects`**:
+// أي ملف `_redirects` بيخلي رفعة الداشبورد ترفض في صمت (مثبت بتجربة A/B)،
+// وقاعدة `/* /index.html` نفسها **مرفوضة بالاسم في parser بتاع Cloudflare**
+// (`hasWildcardToIndex` → "Infinite loop detected"). لحد ما يتفعّل، البوابة
+// تحت بتخلي اللوحة تتصرف زي ما كانت من غير ما تلمس الـURL.
 
 import { swallow } from './log.js';
 
@@ -39,7 +43,18 @@ export var DEFAULT_PAGE = 'orders';
 var BASE = (function(){
   var p = (typeof location !== 'undefined' && location.pathname) ? location.pathname : '/';
   var i = p.lastIndexOf('/');
-  return i >= 0 ? p.slice(0, i + 1) : '/';
+  var base = i >= 0 ? p.slice(0, i + 1) : '/';
+  // 🔴 `/orders/` بسلاش زايدة: آخر segment **slug مش مجلد**. من غير الشيلة دي
+  // الجذر بيبقى `/orders/` وكل لينك بعدها يطلع `/orders/finance` — لينك مخترع
+  // مايفتحش. (وأصول الصفحة نفسها بتتحل من عنوان المستند مش من هنا — دي مسؤولية
+  // تطبيع السلاش عند الاستضافة.)
+  // (من غير regex عمداً — `check.py` بيقرا `$` جوه الـregex كأنه اسم حر، درس 18)
+  var trimmed = base.slice(0, base.length - 1);
+  var lastSeg = trimmed.slice(trimmed.lastIndexOf('/') + 1);
+  if(lastSeg && Object.prototype.hasOwnProperty.call(ROUTES, lastSeg.toLowerCase())){
+    base = trimmed.slice(0, trimmed.length - lastSeg.length);
+  }
+  return base || '/';
 })();
 
 export function routeBase(){ return BASE; }
