@@ -26,9 +26,38 @@ export function waSenderTag(m, side){
   return '<span class="wa-sender">'+esc(n)+'</span><span class="wa-sender-sep"> · </span>';
 }
 
-export function waMsgInner(m, urlMap){
+// مختصر الرسالة المقتبسة — نفس تسميات تريجر «آخر رسالة» عشان يبقى شكل واحد
+function waQuoteSnippet(q){
+  if(q.type==='image'||q.type==='sticker') return '📷 صورة'+(q.body?(' · '+q.body):'');
+  if(q.type==='voice'||q.type==='audio')   return '🎤 رسالة صوتية';
+  if(q.type==='document')                  return '📎 '+(q.media_filename||'ملف');
+  if(q.type==='video')                     return '🎬 فيديو';
+  return q.body || q.type || '';
+}
+
+// 🔴 بلوك «رد على» — بيترسم بس لو الرسالة فيها `reply_to_wa_id`.
+// `byWamid` خريطة من الرسايل **المحمّلة** (أحدث 500 للمحادثة).
+// لو الرسالة المقتبسة مش فيها، بنقول «رسالة أقدم» **من غير ما نخترع نص**:
+// بيحصل لما تكون أقدم من الـ500، أو رسالة تأكيد آلية من n8n **مش متسجّلة
+// عندنا أصلاً** (كل الصادر المتسجّل ردود بشرية من اللوحة).
+export function waQuoteBlock(m, byWamid){
+  var rid = m && m.reply_to_wa_id;
+  if(!rid) return '';
+  var q = byWamid ? byWamid[rid] : null;
+  if(!q){
+    return '<div class="wa-quote wa-quote-lost">↩︎ رد على رسالة أقدم</div>';
+  }
+  var who = q.direction==='out' ? (q.sent_by_name || 'إحنا') : 'العميل';
+  return '<div class="wa-quote'+(q.direction==='out'?' out':'')+'">'
+    +'<span class="wa-quote-who">'+esc(who)+'</span>'
+    +'<span class="wa-quote-txt">'+esc(String(waQuoteSnippet(q)).slice(0,120))+'</span>'
+    +'</div>';
+}
+
+export function waMsgInner(m, urlMap, byWamid){
   var side=m.direction==='out'?'out':'in';
-  var inner='';
+  // الاقتباس **فوق** المحتوى زي واتساب بالظبط
+  var inner=waQuoteBlock(m, byWamid);
   if(m.media_path && (m.type==='image'||m.type==='sticker')){
     var u=urlMap[m.media_path];
     inner+= u?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img class="wa-img" src="'+esc(u)+'" loading="lazy"></a>':'<div class="wa-media-fail">📷 الصورة ماتحمّلتش</div>';

@@ -183,7 +183,7 @@ export function renderConvos(){
       +'<div class="wa-avatar">'+esc(waInitials(c.customer_name,c.customer_phone||c.wa_id))+'</div>'
       +'<div class="wa-conv-body">'
         +'<div class="wa-conv-top"><span class="wa-conv-name">'+esc(name)+'</span><span class="wa-conv-time">'+esc(waTimeShort(c.last_message_at))+'</span></div>'
-        +'<div class="wa-conv-bot"><span class="wa-conv-prev">'+esc(c.last_message_text||'')+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
+        +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
       +'</div></div>';
   }
@@ -269,7 +269,11 @@ export function renderMessages(msgs,scroll){
   // التقاط المحادثة وقت البدء — waResolveUrls غير متزامنة، ولو المستخدم
   // بدّل محادثة قبل ما توقيعات الميديا ترجع كانت رسايل A بتترسم جوه B
   var forConv = waActiveId;
-  if(!msgs.length){ box.innerHTML='<div class="wa-empty">مفيش رسايل في المحادثة دي</div>'; waRenderedCount=0; waRenderedState=[]; return; }
+  // خريطة معرّف واتساب → الرسالة، عشان بلوك «رد على» يلاقي المقتبسة.
+  // بتتبني من **كل** المحمّل مش من الجديد بس — الرد ساعات على رسالة قديمة.
+  var byWamid = {};
+  for(var w=0; w<msgs.length; w++){ if(msgs[w].wa_message_id) byWamid[msgs[w].wa_message_id]=msgs[w]; }
+  if(!msgs.length){ box.innerHTML='<div class="wa-empty">لسه مفيش رسايل — المحادثة دي اتفتحت مع أوردر العميل.<br>أول ما يبعت أي حاجة هتظهر هنا وتقدر ترد عليه.</div>'; waRenderedCount=0; waRenderedState=[]; return; }
   // تحديث تدريجي لو الرسائل المعروضة بادئة (prefix) من القائمة الجديدة → ما نعيدش بناء كل حاجة (يمنع القفز)
   var canInc = waRenderedState.length>0 && box.querySelector('.wa-msg') && msgs.length>=waRenderedState.length;
   if(canInc){ for(var i=0;i<waRenderedState.length;i++){ if(!msgs[i] || msgs[i].id!==waRenderedState[i].id){ canInc=false; break; } } }
@@ -291,7 +295,7 @@ export function renderMessages(msgs,scroll){
       waResolveUrls(npaths, function(urlMap){
         if(waActiveId!==forConv) return;   // المستخدم بدّل محادثة — رد قديم
         var pend=box.querySelectorAll('.wa-optimistic'); for(var pi=0;pi<pend.length;pi++){ waRevokeBubbleUrl(pend[pi]); if(pend[pi].parentNode) pend[pi].parentNode.removeChild(pend[pi]); }
-        var frag=''; for(var n=0;n<newMsgs.length;n++){ var m=newMsgs[n]; frag+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap)+'</div>'; }
+        var frag=''; for(var n=0;n<newMsgs.length;n++){ var m=newMsgs[n]; frag+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap,byWamid)+'</div>'; }
         box.insertAdjacentHTML('beforeend', frag);
         if(scroll || nearBottom) waScrollBottom(box);
       });
@@ -310,7 +314,7 @@ export function renderMessages(msgs,scroll){
     var html='';
     // النافذة عند السقف = فيه أقدم مش معروض — نقولها بدل ما يبان إن دي كل الرسائل
     if(msgs.length===500) html+='<div class="wa-cap-note">معروض أحدث 500 رسالة — الأقدم مش بيظهر هنا</div>';
-    for(var i=0;i<msgs.length;i++){ var m=msgs[i]; html+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap)+'</div>'; }
+    for(var i=0;i<msgs.length;i++){ var m=msgs[i]; html+='<div class="wa-msg '+(m.direction==='out'?'out':'in')+'" data-mid="'+esc(m.id)+'">'+waMsgInner(m,urlMap,byWamid)+'</div>'; }
     box.innerHTML=html;
     waRenderedCount=msgs.length;
     waRenderedState=msgs.map(function(m){return {id:m.id,status:m.status,direction:m.direction};});
@@ -345,7 +349,17 @@ export function waUpdateWindow(c){
   var lastIn=(c&&c.last_inbound_at)?new Date(c.last_inbound_at).getTime():0;
   var open=lastIn && (Date.now()-lastIn) < 24*3600*1000;
   var banner=$id('wa-window-closed'), row=$id('wa-compose-row');
-  if(banner) banner.style.display=open?'none':'block';
+  if(banner){
+    banner.style.display=open?'none':'block';
+    // 🔴 من 6 سبتمبر المحادثة بتظهر مع الأوردر قبل ما العميل يبعت أي حاجة
+    // (تريجر `wa_conv_on_order`). النص القديم «النافذة قفلت — العميل لازم
+    // يبعتلك رسالة **جديدة**» بيقرا غلط هنا: مفيش نافذة قفلت أصلاً، العميل
+    // لسه مبعتش ولا مرة. و`last_direction` بيتحط من تريجر الرسايل بس، فهو
+    // الفيصل الصح بين الحالتين.
+    if(!open) banner.textContent = (c && !c.last_direction)
+      ? '💬 العميل لسه مبعتش أي رسالة — واتساب مابيسمحش نبدأ إحنا. أول ما يبعت هتقدر ترد عليه.'
+      : '🔒 نافذة الرد (24 ساعة) قفلت — العميل لازم يبعتلك رسالة جديدة عشان تقدر ترد عليه.';
+  }
   if(row) row.style.display=open?'flex':'none';
 }
 

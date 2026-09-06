@@ -82,6 +82,17 @@
 .wa-msg-time{font-size:.66rem;color:var(--muted2);text-align:end;margin-top:3px;}
 /* اسم الموظف اللي رد — للصادر بس، وبيختفي خالص لو مفيش اسم */
 .wa-sender{font-weight:700;}
+/* بلوك «رد على» — شريط جانبي زي واتساب، وسطرين مقصوصين */
+.wa-quote{border-inline-start:3px solid var(--acc,#0ea5e9);background:rgba(15,23,42,.05);
+  border-radius:8px;padding:4px 8px;margin-bottom:5px;font-size:.76rem;line-height:1.45;
+  display:flex;flex-direction:column;gap:1px;}
+.wa-quote.out{border-inline-start-color:#16a34a;}
+.wa-quote-who{font-weight:700;opacity:.9;}
+.wa-quote-txt{opacity:.75;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+/* مالقيناش الرسالة المقتبسة — بنقول كده صراحةً بدل ما نخترع نص */
+.wa-quote-lost{opacity:.6;font-style:italic;}
+/* محادثة اتفتحت مع أوردر ولسه مفيهاش رسايل */
+.wa-conv-none{opacity:.6;font-style:italic;}
 .wa-sender-sep{opacity:.6;}
 .wa-empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:.86rem;line-height:1.7;}
 .wa-nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-inline-start:6px;background:var(--red);color:#fff;border-radius:999px;font-size:.7rem;font-weight:800;vertical-align:middle;line-height:1;}

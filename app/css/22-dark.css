@@ -202,6 +202,7 @@ html.dark .wa-conv.active{background:rgba(59,130,246,.14);}
 html.dark .wa-chat-head,html.dark .wa-compose{background:#141b2b;border-color:var(--brd);}
 html.dark .wa-msg.in{background:#1e2740;border-color:#2b3652;color:var(--txt);}
 html.dark .wa-msg.out{background:#0b4f3f;color:#e7fff5;}
+html.dark .wa-quote{background:rgba(255,255,255,.07);}
 html.dark .wa-qr,html.dark .wa-qr-add{background:#1a2233;border-color:var(--brd);color:var(--txt);}
 html.dark .wa-qr-panel,html.dark .wa-orders{background:#141b2b;border-color:var(--brd);}
 html.dark .wa-cmeta,html.dark .wa-lp,html.dark .wa-order{background:#161e30;border-color:var(--brd);}
