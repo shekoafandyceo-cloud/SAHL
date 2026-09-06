@@ -80,6 +80,9 @@
 .wa-doc{display:inline-block;color:var(--blue);text-decoration:none;font-weight:700;}
 .wa-media-fail{color:var(--muted);font-size:.82rem;font-style:italic;}
 .wa-msg-time{font-size:.66rem;color:var(--muted2);text-align:end;margin-top:3px;}
+/* اسم الموظف اللي رد — للصادر بس، وبيختفي خالص لو مفيش اسم */
+.wa-sender{font-weight:700;}
+.wa-sender-sep{opacity:.6;}
 .wa-empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:.86rem;line-height:1.7;}
 .wa-nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-inline-start:6px;background:var(--red);color:#fff;border-radius:999px;font-size:.7rem;font-weight:800;vertical-align:middle;line-height:1;}
 .wa-orders{border-bottom:1px solid var(--brd);background:#fbfcfe;flex-shrink:0;}

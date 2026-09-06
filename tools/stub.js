@@ -75,7 +75,8 @@
     // كده الاختبار يقدر يحقنها من غير ما يعتمد على ترتيب addInitScript،
     // والافتراضي [] عشان الاختبارات القديمة تفضل بنفس السلوك بالحرف.
     var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
-                commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL' };
+                commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL',
+                wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -189,7 +190,14 @@
       createSignedUrls: function(){ return Promise.resolve({data:[], error:null}); },
       upload: function(){ return Promise.resolve({data:null, error:{message:'stub'}}); }
     }; } },
-    functions: { invoke: function(){ return Promise.resolve({data:{ok:false}, error:null}); } }
+    functions: { invoke: function(slug, opts){
+      var body = (opts && opts.body) || {};
+      window.__FNCALLS = window.__FNCALLS || [];
+      window.__FNCALLS.push({ slug: slug, body: body });
+      // من غير __FN بيفضل السلوك القديم بالحرف (فشل ثابت) عشان الاختبارات القديمة
+      if(!window.__FN) return Promise.resolve({data:{ok:false}, error:null});
+      return Promise.resolve({ data: window.__FN(slug, body), error: null });
+    } }
   };
 
   // اعتراض نداءات Edge Functions — بيتفعّل بس لو الاختبار حط window.__FN

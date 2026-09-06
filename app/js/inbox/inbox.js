@@ -9,11 +9,11 @@ import { normalizePhone } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { waMsgInner, waTicks, waTimeShort } from './message-view.js';
+import { waMsgInner, waSenderTag, waTicks, waTimeShort } from './message-view.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
-import { currentTenantId } from '../auth/auth.js';
+import { currentTenantId, currentUser } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
 import { walletStateCache } from '../billing/billing.js';
 import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
@@ -404,7 +404,11 @@ export function waAppendOptimistic(text,kind,url,docName){
   if(kind==='image'&&url){ div.dataset.objurl=url; inner+='<img class="wa-img" src="'+url+'">'; if(text) inner+='<div class="wa-cap">'+esc(text)+'</div>'; }
   else if(kind==='doc'){ inner+='<span class="wa-doc">📎 '+esc(docName||'ملف')+'</span>'; if(text) inner+='<div class="wa-cap">'+esc(text)+'</div>'; }
   else { inner+='<div class="wa-text">'+esc(text)+'</div>'; }
-  inner+='<div class="wa-msg-time">⏳</div>';
+  // الاسم بيظهر من أول لحظة مش بعد ما السيرفر يرد — عشان مايتنطّش قدام الموظف.
+  // ده **عرض بس**: الاسم اللي بيتخزن بيتقرا من الـJWT جوه wa-send، والفرونت
+  // عمره ما بيبعت اسم (العمود ممنوع عليه بصلاحيات الأعمدة أصلاً).
+  var meName = (currentUser && currentUser.name) ? currentUser.name : '';
+  inner+='<div class="wa-msg-time">'+waSenderTag({ sent_by_name: meName }, 'out')+'⏳</div>';
   div.innerHTML=inner;
   box.appendChild(div);
   box.scrollTop=box.scrollHeight;
@@ -436,7 +440,12 @@ export function waSend(){
   function done(res){
     var d=(res&&res.data)?res.data:null; var err=(res&&res.error)?res.error:null;
     if(err||!d||!d.ok){ fail(d&&d.error?d.error:''); return; }
-    if(bubble){ var t=bubble.querySelector('.wa-msg-time'); if(t) t.innerHTML=esc(waTimeShort(new Date().toISOString()))+waTicks('sent'); bubble.classList.remove('wa-msg-pending'); }
+    if(bubble){ var t=bubble.querySelector('.wa-msg-time');
+      // الاسم من رد السيرفر (مصدر الحقيقة) وإلا اسمي المحلي — والاتنين ممكن
+      // يبقوا فاضيين فمايتكتبش حاجة
+      if(t) t.innerHTML=waSenderTag({ sent_by_name: (d.sent_by_name || (currentUser && currentUser.name) || '') }, 'out')
+                        +esc(waTimeShort(new Date().toISOString()))+waTicks('sent');
+      bubble.classList.remove('wa-msg-pending'); }
     waFetchConvos(false);
   }
   if(imgFile){

@@ -18,6 +18,14 @@ export function waTicks(status){
   return '<span class="wa-tick">✓</span>'; // sent / غير محدد
 }
 
+// وسم الاسم — بيرجّع سترينج فاضي لو مفيش اسم أو الرسالة واردة
+export function waSenderTag(m, side){
+  if(side !== 'out') return '';
+  var n = (m && m.sent_by_name) ? String(m.sent_by_name).trim() : '';
+  if(!n) return '';
+  return '<span class="wa-sender">'+esc(n)+'</span><span class="wa-sender-sep"> · </span>';
+}
+
 export function waMsgInner(m, urlMap){
   var side=m.direction==='out'?'out':'in';
   var inner='';
@@ -36,6 +44,11 @@ export function waMsgInner(m, urlMap){
   } else {
     inner+='<div class="wa-text">'+esc(m.body||'')+'</div>';
   }
-  inner+='<div class="wa-msg-time">'+esc(waTimeShort(m.wa_timestamp||m.created_at))+(side==='out'?waTicks(m.status):'')+'</div>';
+  // اسم الموظف اللي رد (طلب المالك 6 سبتمبر) — للصادر بس.
+  // 🔴 الرسايل قبل 6 سبتمبر 2026 مالهاش `sent_by_name` (548 رسالة وقت البناء)
+  // فبتتعرض **من غير أي اسم**. مفيش fallback ومفيش «موظف» ولا اسم المتجر —
+  // نسبة مخترعة أسوأ من مفيش نسبة، والتاجر بيقرا الشات ده عشان يحاسب.
+  inner+='<div class="wa-msg-time">'+waSenderTag(m, side)
+        +esc(waTimeShort(m.wa_timestamp||m.created_at))+(side==='out'?waTicks(m.status):'')+'</div>';
   return inner;
 }
