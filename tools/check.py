@@ -1126,6 +1126,30 @@ def check_route_pages():
         ok(u"\u0643\u0644 \u0627\u0644\u0640%d \u0642\u0633\u0645 \u0644\u064a\u0647 \u0635\u0641\u062d\u0629 \u0645\u0637\u0627\u0628\u0642\u0629 \u0644\u0640index.html \u0628\u0627\u0644\u0628\u0627\u064a\u062a" % len(names))
 
 
+def check_agents_md():
+    """`AGENTS.md` لازم يبقى مطابق للمتولّد من `CLAUDE.md`.
+
+    🔴 ليه فحص أصلاً؟ Codex بيقرا `AGENTS.md` وClaude بيقرا `CLAUDE.md`.
+    نسختين يدويتين **بينحرفوا حتماً** — وبعد شهر كل وكيل بيشتغل على حقيقة
+    مختلفة، وده أخطر من إن الملف مش موجود أصلاً (الوكيل ساعتها بيسأل).
+    نفس منطق صفحات الأقسام: مصدر واحد + توليد + فحص."""
+    print(u"\u2500\u2500 AGENTS.md")
+    gen = os.path.join(ROOT, "tools", "make-agents-md.py")
+    if not os.path.exists(gen):
+        err(u"tools/make-agents-md.py \u0645\u0634 \u0645\u0648\u062c\u0648\u062f")
+        return
+    try:
+        out = subprocess.run([sys.executable, gen, "--check"],
+                             capture_output=True, text=True, cwd=ROOT, timeout=60)
+    except Exception as e:
+        err(u"\u0645\u0627\u0642\u062f\u0631\u062a\u0634 \u0623\u0634\u063a\u0651\u0644 make-agents-md.py \u2014 %s" % e)
+        return
+    if out.returncode == 0:
+        ok(u"AGENTS.md \u0645\u062a\u0637\u0627\u0628\u0642 \u0645\u0639 CLAUDE.md")
+    else:
+        err((out.stdout or out.stderr or u"").strip() or u"AGENTS.md \u0645\u0646\u062d\u0631\u0641 \u0639\u0646 CLAUDE.md")
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -1138,6 +1162,8 @@ def main():
     check_carrier_naming()
     print()
     check_route_pages()
+    print()
+    check_agents_md()
     print()
     if errors:
         print("❌ %d مشكلة — ماتنشرش" % len(errors))
