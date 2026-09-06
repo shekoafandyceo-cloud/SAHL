@@ -27,17 +27,22 @@ const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })
 let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if (!c) bad++; };
 
+// ⚠️ الستب بيتحقن على الـ**context** مش على الصفحة: `page.addInitScript`
+// مابيوصلش للتاب اللي `window.open` بتفتحها، فتاب المحادثات كانت بتقف على
+// شاشة اللوجين والعنوان يفضل الافتراضي — عيب في الاختبار كان هيتقرا كعطل.
+// وبنفس المنطق `context.route` عشان المعايرات تلحق التابات الجديدة كمان.
 async function open(path, opts) {
   opts = opts || {};
-  const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  if (opts.role) await ctx.addInitScript(`window.__ROLE = '${opts.role}';`);
+  if (opts.pre) await ctx.addInitScript(opts.pre);
+  await ctx.addInitScript(STUB);
+  if (opts.route) await ctx.route('**/js/core/router.js', opts.route);
+  if (opts.routeMain) await ctx.route('**/js/main.js', opts.routeMain);
+  const p = await ctx.newPage();
   const errs = [], bad404 = [];
   p.on('pageerror', e => errs.push(e.message));
   p.on('response', r => { if (r.status() >= 400) bad404.push(r.status() + ' ' + r.url()); });
-  if (opts.role) await p.addInitScript(`window.__ROLE = '${opts.role}';`);
-  if (opts.pre) await p.addInitScript(opts.pre);
-  await p.addInitScript(STUB);
-  if (opts.route) await p.route('**/js/core/router.js', opts.route);
-  if (opts.routeMain) await p.route('**/js/main.js', opts.routeMain);
   await p.goto(ORIGIN + path, { waitUntil: 'networkidle' });
   await p.waitForSelector('#app', { state: 'visible', timeout: 10000 });
   await p.waitForTimeout(400);
@@ -98,9 +103,13 @@ const urlPath = (p) => p.evaluate(() => location.pathname);
   ok(await urlPath(p) === '/inventory', `الضغط على المخزون غيّر اللينك — ${await urlPath(p)}`);
   ok((await visiblePage(p))[0] === 'stock', 'والصفحة اتبدّلت فعلاً');
 
-  await p.click('#nav-inbox');
+  // ⚠️ «المحادثات» **مش** خطوة صالحة هنا: بقت بتفتح تاب لوحدها بالتصميم،
+  // فالتاب دي بتفضل مكانها صح. الفحص القديم كان بيستخدمها وبقى غلط لما
+  // الميزة كبرت (درس 38) — واستبدلناه بقسم بيفضل في نفس التاب.
+  // وسلوك تاب المحادثات نفسه متفحوص في القسم 11.
+  await p.click('#nav-settings');
   await p.waitForTimeout(350);
-  ok(await urlPath(p) === '/chats', `والمحادثات — ${await urlPath(p)}`);
+  ok(await urlPath(p) === '/settings', `والإعدادات — ${await urlPath(p)}`);
 
   await p.goBack();
   await p.waitForTimeout(400);
