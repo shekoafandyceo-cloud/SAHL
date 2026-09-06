@@ -92,19 +92,18 @@
   background:rgba(15,23,42,.08);}
 
 /* ════ الرد على رسالة ════ */
-/* 🔴 الزرار **جوه** الفقاعة وبـposition:absolute عشان مايزحّمش المحتوى،
-   والفقاعة بقت position:relative. مايتحطش بره الفقاعة عشان الـ.wa-msgs
-   عندها overflow-y:auto وكان هيتقص (نفس فخ زرار طيّ السايدبار — درس 31). */
-.wa-msg{position:relative;}
-.wa-reply-btn{position:absolute;top:2px;inset-inline-start:2px;z-index:2;
-  width:22px;height:22px;line-height:1;padding:0;border:0;border-radius:50%;
-  background:rgba(15,23,42,.10);color:inherit;font-size:.72rem;cursor:pointer;
-  opacity:0;transition:opacity .12s;}
-.wa-msg:hover .wa-reply-btn,.wa-reply-btn:focus-visible{opacity:1;}
-/* 🔴 على اللمس مفيش hover — الزرار يفضل ظاهر خفيف وإلا الميزة **مش موجودة**
-   على الموبايل خالص. (استعلام الإمكانية أدق من عرض الشاشة: تابلت بشاشة
-   عريضة ولمس بياخد نفس المعاملة.) */
-@media (hover:none){ .wa-reply-btn{opacity:.55;} }
+/* 🔴 الزرار **جوه سطر الوقت** مش عايم فوق الفقاعة: العوم كان بيغطي أول سطر
+   من النص على اللمس (مفيش hover فبيفضل ظاهر)، وبرّه الفقاعة كان هيتقص من
+   `overflow-y:auto` بتاعة `.wa-msgs` (درس 31).
+   وظاهر **دايماً** بشفافية خفيفة — سلوك واحد على الماوس واللمس، ومفيش
+   إزاحة تخطيط لما يوضح. */
+.wa-reply-btn{display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;margin-inline-start:6px;vertical-align:middle;
+  padding:0;border:0;border-radius:50%;background:rgba(15,23,42,.10);
+  color:inherit;font-size:.72rem;line-height:1;cursor:pointer;
+  opacity:.45;transition:opacity .12s,background .12s;}
+.wa-msg:hover .wa-reply-btn,.wa-reply-btn:hover,.wa-reply-btn:focus-visible{
+  opacity:1;background:rgba(15,23,42,.18);}
 
 /* معاينة الرد فوق خانة الكتابة */
 .wa-reply-bar{display:flex;align-items:center;gap:8px;padding:6px 12px;

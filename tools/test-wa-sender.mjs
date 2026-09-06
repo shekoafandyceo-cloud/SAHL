@@ -414,7 +414,13 @@ console.log('──── معايرات ────');
   const p = await openInbox();
   console.log('──── الموظف يرد على رسالة ────');
 
-  // 🔴 hit-test: الزرار مش مدفون تحت حاجة (درس 31/35)
+  // 🔴 hit-test (درس 31/35): الزرار مش مدفون تحت حاجة.
+  // ⚠️ لازم نسكرول للرسالة الأول — `elementFromPoint` بتشتغل بإحداثيات
+  // **الشاشة**، والفقاعة اللي فوق الطية بتدي إحداثيات واقعة على لوحة
+  // الأوردرات فوق الشات. الموظف نفسه بيسكرول للرسالة قبل ما يرد عليها،
+  // فالقياس من غير سكرول بيقيس حاجة تانية خالص (اتلسعنا فيها هنا).
+  await p.$eval('.wa-msg[data-mid="img1"]', el => el.scrollIntoView({ block: 'center' }));
+  await p.waitForTimeout(200);
   const hit = await p.evaluate(() => {
     const btn = document.querySelector('.wa-msg[data-mid="img1"] .wa-reply-btn');
     if (!btn) return { ok: false, why: 'مفيش زرار' };
@@ -422,9 +428,22 @@ console.log('──── معايرات ────');
     if (r.width < 8) return { ok: false, why: 'مقاس صفر' };
     const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return { ok: !!(at && (at === btn || btn.contains(at) || at.contains(btn))),
-             why: at ? at.className : 'مفيش عنصر' };
+             why: at ? (at.className || at.tagName) : 'مفيش عنصر',
+             w: Math.round(r.width) };
   });
-  ok(hit.ok, `زرار الرد على الفقاعة مش مدفون — ${hit.why}`);
+  ok(hit.ok, `زرار الرد على الفقاعة مش مدفون (${hit.w}px) — ${hit.why}`);
+
+  // 🔴 والزرار **مايغطيش** نص الرسالة — ده اللي خلّى العوم فوق الفقاعة يترفض
+  const overlap = await p.evaluate(() => {
+    const bub = document.querySelector('.wa-msg[data-mid="m1"]');
+    const btn = bub.querySelector('.wa-reply-btn');
+    const txt = bub.querySelector('.wa-text');
+    if (!btn || !txt) return { bad: true, why: 'ناقص عنصر' };
+    const a = btn.getBoundingClientRect(), t = txt.getBoundingClientRect();
+    const hit = !(a.right <= t.left || a.left >= t.right || a.bottom <= t.top || a.top >= t.bottom);
+    return { bad: hit, why: hit ? 'الزرار فوق النص' : 'مفيش تقاطع' };
+  });
+  ok(!overlap.bad, `والزرار مش فوق نص الرسالة — ${overlap.why}`);
 
   // ضغطة حقيقية (مش el.click)
   await p.hover('.wa-msg[data-mid="img1"]');

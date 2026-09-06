@@ -72,6 +72,14 @@ export function waQuoteBlock(m, byWamid, urlMap){
 // واتساب بيطلب معرّف الرسالة المقتبسة، فرسالة من غيره **مايتردش عليها**
 // — وزرار بيبان وهو مش شغال أسوأ من زرار مش موجود (درس 16).
 // data-act مش onclick: الـCSP بترفض الـinline في صمت.
+//
+// 🔴 مكانه **جوّه سطر الوقت** مش عايم فوق الفقاعة. النسخة الأولى كانت
+// `position:absolute` في ركن الفقاعة، وده كان بيغطّي **أول سطر من النص**
+// على الموبايل (اللمس مفيهوش hover فالزرار ظاهر دايماً). وبرّه الفقاعة
+// مكانش خيار: `.wa-msgs` عندها `overflow-y:auto` فأي حاجة خارجة بتتقص
+// (نفس فخ زرار طيّ السايدبار — درس 31).
+// وبكده كمان بقى **سلوك واحد** على الماوس واللمس: ظاهر خفيف وبيوضح
+// بالهوفر — بدل ما يبقى مخفي تماماً على الديسكتوب.
 function waReplyBtn(m){
   if(!m || !m.wa_message_id) return '';
   return '<button class="wa-reply-btn" type="button" data-act="wa-reply" data-mid="'
@@ -81,7 +89,7 @@ function waReplyBtn(m){
 export function waMsgInner(m, urlMap, byWamid){
   var side=m.direction==='out'?'out':'in';
   // الاقتباس **فوق** المحتوى زي واتساب بالظبط
-  var inner=waReplyBtn(m)+waQuoteBlock(m, byWamid, urlMap);
+  var inner=waQuoteBlock(m, byWamid, urlMap);
   if(m.media_path && (m.type==='image'||m.type==='sticker')){
     var u=urlMap[m.media_path];
     inner+= u?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img class="wa-img" src="'+esc(u)+'" loading="lazy"></a>':'<div class="wa-media-fail">📷 الصورة ماتحمّلتش</div>';
@@ -102,6 +110,7 @@ export function waMsgInner(m, urlMap, byWamid){
   // فبتتعرض **من غير أي اسم**. مفيش fallback ومفيش «موظف» ولا اسم المتجر —
   // نسبة مخترعة أسوأ من مفيش نسبة، والتاجر بيقرا الشات ده عشان يحاسب.
   inner+='<div class="wa-msg-time">'+waSenderTag(m, side)
-        +esc(waTimeShort(m.wa_timestamp||m.created_at))+(side==='out'?waTicks(m.status):'')+'</div>';
+        +esc(waTimeShort(m.wa_timestamp||m.created_at))+(side==='out'?waTicks(m.status):'')
+        +waReplyBtn(m)+'</div>';
   return inner;
 }
