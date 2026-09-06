@@ -31,6 +31,15 @@
 //      لوحدها مكانتش بتقول أنهي صورة)
 //  14) رد على صورة قديمة **في تحديث تدريجي** → الرابط الموقّع بيتحل كمان
 //  15) معايرة: شيل المصغّرة → فحص 13 يقع
+//
+// ── الموظف يرد على رسالة (7 سبتمبر) ──
+//  16) زرار «رد» على الفقاعة — موجود · مش مدفون · وضغطة حقيقية بتشتغل
+//  17) المعاينة بتظهر فوق الكتابة وبتوصف الرسالة الصح
+//  18) 🔴 الإرسال بيبعت `reply_to` = wamid بتاع الرسالة المختارة
+//  19) الفقاعة الفورية بتعرض الاقتباس قبل رد السيرفر
+//  20) 🔴 التصفير: نجاح الإرسال · زرار الإلغاء · **تبديل المحادثة**
+//  21) رسالة من غير wa_message_id → **مفيش زرار رد** (درس 16)
+//  22) معايرة: شيل التصفير عند تبديل المحادثة → فحص 20 يقع
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -117,6 +126,7 @@ async function openInbox(opts) {
   `);
   await ctx.addInitScript(STUB);
   if (opts.routeView) await ctx.route('**/js/inbox/message-view.js', opts.routeView);
+  if (opts.routeInbox) await ctx.route('**/js/inbox/inbox.js', opts.routeInbox);
   const p = await ctx.newPage();
   p.on('pageerror', e => { console.log('  ✗ pageerror:', e.message); bad++; });
   // 🔴 بندخل على **لينك المحادثات مباشرةً** مش بالضغط على زرار القايمة:
@@ -396,6 +406,173 @@ console.log('──── معايرات ────');
   });
   ok(q && !q.thumb && /📷/.test(q.txt),
      `معايرة د: من غير المصغّرة بترجع «${q && q.txt}» — الموظف مايعرفش أنهي صورة، وفحص 13 بيمسكها`);
+  await p.close();
+}
+
+// ════ 16 · 17 · 18 · 19) الموظف يرد على رسالة ════
+{
+  const p = await openInbox();
+  console.log('──── الموظف يرد على رسالة ────');
+
+  // 🔴 hit-test: الزرار مش مدفون تحت حاجة (درس 31/35)
+  const hit = await p.evaluate(() => {
+    const btn = document.querySelector('.wa-msg[data-mid="img1"] .wa-reply-btn');
+    if (!btn) return { ok: false, why: 'مفيش زرار' };
+    const r = btn.getBoundingClientRect();
+    if (r.width < 8) return { ok: false, why: 'مقاس صفر' };
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { ok: !!(at && (at === btn || btn.contains(at) || at.contains(btn))),
+             why: at ? at.className : 'مفيش عنصر' };
+  });
+  ok(hit.ok, `زرار الرد على الفقاعة مش مدفون — ${hit.why}`);
+
+  // ضغطة حقيقية (مش el.click)
+  await p.hover('.wa-msg[data-mid="img1"]');
+  await p.click('.wa-msg[data-mid="img1"] .wa-reply-btn');
+  await p.waitForTimeout(350);
+
+  const bar = await p.evaluate(() => {
+    const el = document.getElementById('wa-reply-bar');
+    if (!el) return null;
+    const q = el.querySelector('.wa-quote');
+    return {
+      shown: getComputedStyle(el).display !== 'none',
+      txt: q ? q.textContent.trim() : '',
+      thumb: !!el.querySelector('.wa-quote-thumb')
+    };
+  });
+  ok(bar && bar.shown, 'المعاينة ظهرت فوق خانة الكتابة');
+  ok(bar && /ترولي 3 دور/.test(bar.txt), `وبتوصف الرسالة الصح — «${bar && bar.txt}»`);
+  ok(bar && bar.thumb, 'وفيها مصغّرة الصورة — الموظف شايف هيرد على إيه');
+
+  // 🔴 الإرسال بيبعت المعرّف الصح
+  await p.fill('#wa-input', 'بـ1200 يافندم');
+  await p.click('#wa-send-btn');
+  await p.waitForTimeout(120);
+
+  const optimistic = await p.evaluate(() => {
+    const el = document.querySelector('#wa-msgs .wa-optimistic');
+    const q = el ? el.querySelector('.wa-quote') : null;
+    return { hasQuote: !!q, txt: q ? q.textContent.trim() : '' };
+  });
+  ok(optimistic.hasQuote, 'الفقاعة الفورية بتعرض الاقتباس قبل رد السيرفر');
+  ok(/ترولي 3 دور/.test(optimistic.txt), `وبنفس المحتوى — «${optimistic.txt}»`);
+
+  await p.waitForTimeout(900);
+  const call = await p.evaluate(() => {
+    const c = (window.__FNCALLS || []).filter(x => x.slug === 'wa-send');
+    return c.length ? c[c.length - 1].body : null;
+  });
+  ok(call && call.reply_to === 'wamid-IMG-1',
+     `🔴 الحمولة فيها reply_to = wamid بتاع الرسالة المختارة — ${call && call.reply_to}`);
+
+  // ════ 20أ) التصفير بعد نجاح الإرسال ════
+  const after = await p.evaluate(() => {
+    const el = document.getElementById('wa-reply-bar');
+    return el ? getComputedStyle(el).display !== 'none' : false;
+  });
+  ok(!after, 'والمعاينة اتصفّرت بعد الإرسال — مش هتلزق في الرسالة اللي بعدها');
+  await p.close();
+}
+
+// ════ 20ب) زرار الإلغاء ════
+{
+  const p = await openInbox();
+  await p.hover('.wa-msg[data-mid="m1"]');
+  await p.click('.wa-msg[data-mid="m1"] .wa-reply-btn');
+  await p.waitForTimeout(300);
+  await p.click('#wa-reply-cancel');
+  await p.waitForTimeout(200);
+  const gone = await p.evaluate(() => {
+    const el = document.getElementById('wa-reply-bar');
+    return el ? getComputedStyle(el).display === 'none' : true;
+  });
+  ok(gone, 'زرار الإلغاء بيقفل المعاينة');
+
+  // وبعد الإلغاء الإرسال مايبعتش reply_to
+  await p.fill('#wa-input', 'رسالة عادية');
+  await p.click('#wa-send-btn');
+  await p.waitForTimeout(900);
+  const call = await p.evaluate(() => {
+    const c = (window.__FNCALLS || []).filter(x => x.slug === 'wa-send');
+    return c.length ? c[c.length - 1].body : null;
+  });
+  ok(call && !call.reply_to, `وبعدها الرسالة بتتبعت من غير reply_to — ${JSON.stringify(call && call.reply_to)}`);
+  await p.close();
+}
+
+// ════ 20ج) 🔴 تبديل المحادثة بيصفّر الرد ════
+// السيناريو الخطر: الموظف يختار رسالة، يفتح محادثة تانية، ويكتب — الاقتباس
+// بتاع المحادثة القديمة كان هيتبعت مع رسالة في محادثة جديدة.
+{
+  const TWO = [
+    CONVOS[0],
+    { id: 'c2', tenant_id: TENANT, wa_id: '201000000002', customer_name: 'عميل تاني',
+      last_message_at: iso(1), last_inbound_at: iso(5), unread_count: 0, status: 'open',
+      last_direction: 'in' }
+  ];
+  const p = await openInbox({ convos: TWO });
+  await p.hover('.wa-msg[data-mid="m1"]');
+  await p.click('.wa-msg[data-mid="m1"] .wa-reply-btn');
+  await p.waitForTimeout(300);
+  const before = await p.evaluate(() => {
+    const el = document.getElementById('wa-reply-bar');
+    return el ? getComputedStyle(el).display !== 'none' : false;
+  });
+  ok(before, 'اخترنا رسالة في المحادثة الأولى والمعاينة ظاهرة');
+
+  // بدّل للمحادثة التانية
+  await p.click('#wa-list-body .wa-conv:nth-child(2)');
+  await p.waitForTimeout(700);
+  const cleared = await p.evaluate(() => {
+    const el = document.getElementById('wa-reply-bar');
+    return el ? getComputedStyle(el).display === 'none' : true;
+  });
+  ok(cleared, '🔴 وتبديل المحادثة صفّر الرد — مفيش اقتباس بيهاجر لمحادثة تانية');
+  await p.close();
+}
+
+// ════ 21) رسالة من غير wa_message_id → مفيش زرار ════
+{
+  const p = await openInbox();
+  const noBtn = await p.evaluate(() => {
+    // m2 و m3 في الداتا من غير wa_message_id
+    const a = document.querySelector('.wa-msg[data-mid="m2"] .wa-reply-btn');
+    const withId = document.querySelector('.wa-msg[data-mid="m1"] .wa-reply-btn');
+    return { none: !a, has: !!withId };
+  });
+  ok(noBtn.none, 'رسالة من غير معرّف واتساب → مفيش زرار رد (بدل زرار ميت)');
+  ok(noBtn.has, 'وضابط: اللي ليها معرّف عندها الزرار');
+  await p.close();
+}
+
+// ════ 22) معايرة: شيل التصفير عند تبديل المحادثة ════
+{
+  const TWO = [
+    CONVOS[0],
+    { id: 'c2', tenant_id: TENANT, wa_id: '201000000002', customer_name: 'عميل تاني',
+      last_message_at: iso(1), last_inbound_at: iso(5), unread_count: 0, status: 'open',
+      last_direction: 'in' }
+  ];
+  const p = await openInbox({
+    convos: TWO,
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      body = body.replace("  // 🔴 اقتباس من محادثة قديمة في محادثة جديدة = رد على رسالة مش موجودة\n  waClearReplyTo();", "");
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await p.hover('.wa-msg[data-mid="m1"]');
+  await p.click('.wa-msg[data-mid="m1"] .wa-reply-btn');
+  await p.waitForTimeout(300);
+  await p.click('#wa-list-body .wa-conv:nth-child(2)');
+  await p.waitForTimeout(700);
+  const still = await p.evaluate(() => {
+    const el = document.getElementById('wa-reply-bar');
+    return el ? getComputedStyle(el).display !== 'none' : false;
+  });
+  ok(still, 'معايرة هـ: من غير التصفير الاقتباس بيفضل ظاهر في المحادثة التانية — فحص 20ج بيمسكها');
   await p.close();
 }
 

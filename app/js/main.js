@@ -43,7 +43,7 @@ import { applyDepletionLock, billingTopupFile, loadBilling, loadMyTopupRequests,
 
 import { currentStockTab, initStockButtons, initStockTabs, loadStock, openMovementEditor, openProductEditor, openStockProductByName, parseMovementDate, recentQtyOutByProduct, renderMovements, renderProducts, renderSmartStockAlerts, stockForecastRows, stockMovements, stockProducts, stockSetMovements, stockSetProducts, updateStockStats } from './stock/stock.js';
 
-import { WA_LABELS, handleWaRealtime, initInbox, loadInbox, openConversation, renderConvos, renderMessages, waActiveId, waAppendOptimistic, waBuildFilters, waClearImage, waConvMatches, waConvos, waDateShort, waDeleteQuickReply, waEnsureNotifyPermission, waFetchConvos, waFetchMessages, waFilter, waInitials, waLabelColor, waLoadConvMeta, waLoadOrders, waLoadQuickReplies, waMarkRead, waNotify, waPendingDoc, waPendingImage, waPickFile, waPickImage, waPollTimer, waQuickReplies, waRefreshNavBadge, waRenderConvLabels, waRenderLabelPicker, waRenderQuickReplies, waRenderedCount, waRenderedState, waResolveUrls, waSaveNote, waSaveQuickReply, waScrollBottom, waSearchQuery, waSend, waSetFilter, waSetNavBadge, waToggleLabel, waUpdateWindow, waUrlCache } from './inbox/inbox.js';
+import { WA_LABELS, handleWaRealtime, initInbox, loadInbox, openConversation, renderConvos, renderMessages, waActiveId, waAppendOptimistic, waBuildFilters, waClearImage, waConvMatches, waConvos, waDateShort, waDeleteQuickReply, waEnsureNotifyPermission, waFetchConvos, waFetchMessages, waFilter, waInitials, waLabelColor, waLoadConvMeta, waLoadOrders, waLoadQuickReplies, waMarkRead, waNotify, waPendingDoc, waPendingImage, waPickFile, waPickImage, waPollTimer, waQuickReplies, waRefreshNavBadge, waRenderConvLabels, waRenderLabelPicker, waRenderQuickReplies, waRenderedCount, waRenderedState, waResolveUrls, waSaveNote, waSetReplyTo, waSaveQuickReply, waScrollBottom, waSearchQuery, waSend, waSetFilter, waSetNavBadge, waToggleLabel, waUpdateWindow, waUrlCache } from './inbox/inbox.js';
 
 import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.js';
 
@@ -136,7 +136,10 @@ var CLICK_ACTIONS = {
     var a = document.querySelector('.tnav-btn.active');
     showPage(a ? a.getAttribute('data-page') : 'orders');
   },
-  'dark-toggle':   function(){ darkToggle(); }
+  'dark-toggle':   function(){ darkToggle(); },
+  // «رد على رسالة» في شات الواتساب — الزرار بيتولّد مع كل فقاعة، والموزّع
+  // واحد على document فبيلحق المتولّد زي الثابت
+  'wa-reply':      function(el){ waSetReplyTo(el.getAttribute('data-mid')); }
 };
 function initClickActions(){
   document.addEventListener('click', function(ev){

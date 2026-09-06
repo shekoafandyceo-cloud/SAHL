@@ -203,6 +203,10 @@ html.dark .wa-chat-head,html.dark .wa-compose{background:#141b2b;border-color:va
 html.dark .wa-msg.in{background:#1e2740;border-color:#2b3652;color:var(--txt);}
 html.dark .wa-msg.out{background:#0b4f3f;color:#e7fff5;}
 html.dark .wa-quote{background:rgba(255,255,255,.07);}
+html.dark .wa-reply-btn{background:rgba(255,255,255,.14);}
+html.dark .wa-reply-bar{background:rgba(255,255,255,.04);}
+html.dark .wa-reply-cancel{background:rgba(255,255,255,.10);}
+html.dark .wa-reply-cancel:hover{background:rgba(255,255,255,.18);}
 html.dark .wa-qr,html.dark .wa-qr-add{background:#1a2233;border-color:var(--brd);color:var(--txt);}
 html.dark .wa-qr-panel,html.dark .wa-orders{background:#141b2b;border-color:var(--brd);}
 html.dark .wa-cmeta,html.dark .wa-lp,html.dark .wa-order{background:#161e30;border-color:var(--brd);}

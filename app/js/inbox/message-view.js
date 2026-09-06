@@ -68,10 +68,20 @@ export function waQuoteBlock(m, byWamid, urlMap){
     +'</div>';
 }
 
+// 🔴 زرار «رد» — بيظهر بس لو الرسالة ليها `wa_message_id`.
+// واتساب بيطلب معرّف الرسالة المقتبسة، فرسالة من غيره **مايتردش عليها**
+// — وزرار بيبان وهو مش شغال أسوأ من زرار مش موجود (درس 16).
+// data-act مش onclick: الـCSP بترفض الـinline في صمت.
+function waReplyBtn(m){
+  if(!m || !m.wa_message_id) return '';
+  return '<button class="wa-reply-btn" type="button" data-act="wa-reply" data-mid="'
+    + esc(m.id) + '" title="رد على الرسالة دي" aria-label="رد على الرسالة دي">↩︎</button>';
+}
+
 export function waMsgInner(m, urlMap, byWamid){
   var side=m.direction==='out'?'out':'in';
   // الاقتباس **فوق** المحتوى زي واتساب بالظبط
-  var inner=waQuoteBlock(m, byWamid, urlMap);
+  var inner=waReplyBtn(m)+waQuoteBlock(m, byWamid, urlMap);
   if(m.media_path && (m.type==='image'||m.type==='sticker')){
     var u=urlMap[m.media_path];
     inner+= u?'<a href="'+esc(u)+'" target="_blank" rel="noopener"><img class="wa-img" src="'+esc(u)+'" loading="lazy"></a>':'<div class="wa-media-fail">📷 الصورة ماتحمّلتش</div>';
