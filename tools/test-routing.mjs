@@ -14,6 +14,9 @@
 //   7) الجولة مابتلوّثش تاريخ المتصفح
 //   8) معايرات: (أ) تعطيل syncUrl → الفحوص بتقع · (ب) شيل تصحيح الحارس →
 //      اللينك بيكدب على الموظف
+//   9) استضافة من غير دعم → اللينك مايتلمسش (+ ضابط)
+//  10) عنوان التاب لكل قسم — وبيتصحّح مع حارس الأدمن زي اللينك
+//  11) 🔴 المحادثات بتفتح في تاب لوحدها، و**نفس التاب** لو اتفتحت تاني
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -228,6 +231,149 @@ console.log('──── معايرات ────');
   ok(await urlPath(p2) === '/inventory',
      'ضابط: نفس الكود على استضافة داعمة بيكتب اللينك — فالفرق من الاستضافة مش من عطل');
   await p2.close();
+  await p.close();
+}
+
+// ════ 10) عنوان التاب ════
+{
+  console.log('──── عنوان التاب ────');
+  const T = [['/orders','الطلبات'], ['/inventory','المخزون'], ['/chats','المحادثات'],
+             ['/finance','الماليات'], ['/settings','الإعدادات']];
+  for (const [path, want] of T) {
+    const p = await open(path);
+    const t = await p.title();
+    ok(t.indexOf(want) === 0, `${path} → التاب اسمها «${want}» — «${t}»`);
+    await p.close();
+  }
+
+  // بيتغير مع التنقّل مش بس مع أول تحميل
+  const p = await open('/orders');
+  await p.click('#nav-stock'); await p.waitForTimeout(350);
+  ok((await p.title()).indexOf('المخزون') === 0, `والضغط على المخزون غيّر العنوان — «${await p.title()}»`);
+  await p.goBack(); await p.waitForTimeout(400);
+  ok((await p.title()).indexOf('الطلبات') === 0, `وزرار الرجوع رجّع العنوان — «${await p.title()}»`);
+  await p.close();
+
+  // 🔴 نفس منطق اللينك: العنوان بيتحدّث **بعد** الحارس مش قبله
+  const pe = await open('/finance', { role: 'employee' });
+  ok((await pe.title()).indexOf('الطلبات') === 0,
+     `موظف فتح /finance → العنوان «الطلبات» مش «الماليات» — «${await pe.title()}»`);
+  await pe.close();
+}
+
+// ════ 10ب) معايرة: العنوان قبل الحارس (عنوان بيكدب) ════
+{
+  const p = await open('/finance', {
+    role: 'employee',
+    routeMain: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      // الشكل الغلط: العنوان من اللي **اتطلب** مش اللي اتعرض
+      body = body.replace('setPageTitle(page);', 'setPageTitle(requested);');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  ok((await p.title()).indexOf('الماليات') === 0,
+     `معايرة ج: بالعنوان قبل الحارس التاب بتقول «الماليات» والصفحة أوردرات — الفحص فوق بيمسكها`);
+  await p.close();
+}
+
+// ════ 11) 🔴 المحادثات في تاب لوحدها ════
+{
+  console.log('──── تاب المحادثات ────');
+  const p = await open('/orders');
+
+  // الضغطة الأولى: تاب جديدة على /chats
+  const [tab1] = await Promise.all([
+    p.waitForEvent('popup', { timeout: 8000 }).catch(() => null),
+    p.click('#nav-inbox')
+  ]);
+  await p.waitForTimeout(500);
+  ok(!!tab1, 'الضغط على المحادثات فتح تاب جديدة');
+  if (tab1) {
+    await tab1.waitForLoadState('domcontentloaded').catch(() => {});
+    await tab1.waitForTimeout(900);
+    ok(tab1.url().endsWith('/chats'), `والتاب الجديدة على /chats — ${tab1.url()}`);
+    ok((await tab1.title()).indexOf('المحادثات') === 0, `واسمها «المحادثات» — «${await tab1.title()}»`);
+  }
+  // 🔴 والتاب الأصلية **ما اتحركتش** — ده بيت القصيد
+  ok(await urlPath(p) === '/orders', `والتاب الأصلية فضلت على الأوردرات — ${await urlPath(p)}`);
+  ok((await visiblePage(p))[0] === 'orders', 'والصفحة فيها لسه الأوردرات');
+
+  // الضغطة التانية: **نفس** التاب مش تالتة
+  const ctx = p.context();
+  const before = ctx.pages().length;
+  await p.click('#nav-inbox');
+  await p.waitForTimeout(1200);
+  ok(ctx.pages().length === before,
+     `الضغطة التانية ما فتحتش تاب زيادة — ${before} → ${ctx.pages().length}`);
+
+  // وباقي الأقسام في نفس التاب زي ما هي
+  await p.click('#nav-stock'); await p.waitForTimeout(350);
+  ok(await urlPath(p) === '/inventory' && ctx.pages().length === before,
+     'والأقسام التانية لسه بتفتح في نفس التاب');
+  await p.close();
+  if (tab1) await tab1.close();
+}
+
+// ════ 11ب) الرجوع للتنقّل العادي لما التاب مش مضمونة ════
+{
+  // استضافة مش بتخدم اللينكات → التاب الجديدة كانت هتطلّع 404. المتوقع:
+  // تنقّل عادي في نفس التاب — **مش** زرار ميت (درس 16)
+  const NOFB = process.env.APP_PLAIN || 'http://127.0.0.1:8902';
+  const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+  await p.addInitScript(STUB);
+  await p.goto(NOFB + '/index.html', { waitUntil: 'networkidle' });
+  await p.waitForSelector('#app', { state: 'visible', timeout: 10000 });
+  await p.waitForTimeout(900);
+  const n0 = p.context().pages().length;
+  const [pop] = await Promise.all([
+    p.waitForEvent('popup', { timeout: 2500 }).catch(() => null),
+    p.click('#nav-inbox')
+  ]);
+  await p.waitForTimeout(400);
+  ok(!pop && p.context().pages().length === n0, 'استضافة مش داعمة: ما اتفتحتش تاب');
+  ok((await visiblePage(p))[0] === 'inbox', 'والمحادثات اتفتحت في نفس التاب — الزرار عمل حاجة');
+  await p.close();
+}
+
+// ════ 11ج) الموبايل: تنقّل عادي مش تاب جديدة ════
+{
+  const p = await b.newPage({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await p.addInitScript(STUB);
+  await p.goto(ORIGIN + '/orders', { waitUntil: 'networkidle' });
+  await p.waitForSelector('#app', { state: 'visible', timeout: 10000 });
+  await p.waitForTimeout(500);
+  const n0 = p.context().pages().length;
+  const [pop] = await Promise.all([
+    p.waitForEvent('popup', { timeout: 2500 }).catch(() => null),
+    p.click('#nav-inbox')
+  ]);
+  await p.waitForTimeout(400);
+  ok(!pop && p.context().pages().length === n0, 'موبايل: ما اتفتحتش تاب جديدة');
+  ok((await visiblePage(p))[0] === 'inbox', 'والمحادثات اتفتحت في نفس التاب');
+  await p.close();
+}
+
+// ════ 11د) معايرة: من غير اسم ثابت للتاب كل ضغطة بتفتح واحدة جديدة ════
+{
+  const p = await open('/orders', {
+    route: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      // الشكل الساذج: تاب جديدة كل مرة بدل إعادة استخدام تاب بالاسم
+      body = body.replace("var OWN_TAB = { inbox: 'sahl-chats' };",
+                          "var OWN_TAB = { inbox: '_blank' };");
+      await r.fulfill({ response: res, body });
+    }
+  });
+  const ctx = p.context();
+  await p.click('#nav-inbox'); await p.waitForTimeout(900);
+  const afterFirst = ctx.pages().length;
+  await p.click('#nav-inbox'); await p.waitForTimeout(900);
+  ok(ctx.pages().length > afterFirst,
+     `معايرة د: بـ_blank الضغطة التانية فتحت تاب تالتة (${afterFirst} → ${ctx.pages().length}) — فحص «نفس التاب» بيمسكها`);
+  for (const pg of ctx.pages()) if (pg !== p) await pg.close().catch(() => {});
   await p.close();
 }
 

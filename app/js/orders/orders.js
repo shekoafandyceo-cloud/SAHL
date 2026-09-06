@@ -8,6 +8,7 @@ import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES } from 
 import { $id } from '../core/dom.js';
 import { cairoYMD, normalizePhone, num, ymdAddDays } from '../core/format.js';
 import { swallow } from '../core/log.js';
+import { openOwnTab } from '../core/router.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { handleWaRealtime, waRefreshNavBadge } from '../inbox/inbox.js';
@@ -575,7 +576,14 @@ export function initNav(){
   if($id('nav-billing'))$id('nav-billing').addEventListener('click',function(){showPage('billing');});
   if($id('nav-settings'))$id('nav-settings').addEventListener('click',function(){showPage('settings');});
   if($id('nav-analytics'))$id('nav-analytics').addEventListener('click',function(){showPage('analytics');});
-  if($id('nav-inbox'))$id('nav-inbox').addEventListener('click',function(){showPage('inbox');});
+  // 🔴 المحادثات ليها **تاب لوحدها** (طلب المالك 6 سبتمبر) — عشان تفضل مفتوحة
+  // قدام الموظف طول اليوم. `openOwnTab` بترجّع false في كل حالة مش مضمونة
+  // (موبايل · حاجب نوافذ · استضافة مش بتخدم اللينكات) وساعتها بننقل عادي —
+  // الزرار لازم يعمل حاجة دايماً (درس 16).
+  if($id('nav-inbox'))$id('nav-inbox').addEventListener('click',function(){
+    if(openOwnTab('inbox')) return;
+    showPage('inbox');
+  });
   // زرار «عمولتي» (للموظف اللي عمولته مفعّلة) — الأزرار هنا متوصّلة
   // بالـID واحد واحد، وأي زرار جديد في القايمة **لازم** يتضاف هنا
   // وإلا الضغطة بتروح في الفراغ من غير أي خطأ (حصلت فعلاً)

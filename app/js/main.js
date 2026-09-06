@@ -80,7 +80,7 @@ import { cairoYMD, firstName, fmt, fmtD, fmtDT, fmtDateOnly, fmtMovementDate, fm
 import { BOSTA_EXPECTED_STATUSES, BOSTA_INVENTORY_STATUSES, BOSTA_OPERATION_STATUSES, BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, CR, DELIVERED_STATUSES, RETURNED_STATUSES, SL, STATUS_OPTIONS, normStatus, statusClass, statusIn, statusLabel } from './core/constants.js';
 
 import { swallow } from './core/log.js';
-import { DEFAULT_PAGE, onPopState, probeDeepLinks, routeFromUrl, syncUrl } from './core/router.js';
+import { DEFAULT_PAGE, claimOwnTab, onPopState, probeDeepLinks, routeFromUrl, setPageTitle, syncUrl } from './core/router.js';
 
 import { sb, setSb } from './core/supabase.js';
 
@@ -373,10 +373,17 @@ export function showPage(page, opts){
   if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
   if(page==='inbox'){veilBegin('inbox');loadInbox();}
   if(page==='mycommission'){loadMyCommission();}
+  // بالاستبدال مش بالإضافة في حالتين: تصحيح مسار ممنوع (عشان زرار الرجوع
+  // مايرجّعش لنفس المرفوض في حلقة)، والإقلاع.
+  // عنوان التاب بيتحدّث مع الصفحة المعروضة فعلاً (بعد الحراسات) — نفس منطق
+  // الـURL بالظبط: تاب بتقول «الماليات» وفيها أوردرات = عنوان بيكدب.
+  // ومابيتستثناش في الجولة: بيوصف اللي باين قدام التاجر وده صح في الحالتين.
+  setPageTitle(page);
+  // اسم التاب (للمحادثات) — مستثنى في الجولة عشان مرورها على المحادثات
+  // مايخطفش دور «تاب الشات» لتاب التاجر اللي شغال عليها
+  if(!tourActive) claimOwnTab(page);
   // الـURL بيتحدّث هنا **بعد** حراسات الأدمن فوق — يعني لو موظف طلب
-  // /finance واتحوّل لـorders، اللينك بيتصحّح معاه ومايفضلش بيكدب.
-  // بالاستبدال مش بالإضافة في الحالتين دول: تصحيح مسار ممنوع (عشان زرار
-  // الرجوع مايرجّعش لنفس المرفوض في حلقة)، والإقلاع.
+  // /finance واتحوّل لorders، اللينك بيتصحّح معاه ومايفضلش بيكدب.
   if(!tourActive) syncUrl(page, (opts && opts.replace) || page !== requested);
 }
 

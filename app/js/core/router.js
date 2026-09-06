@@ -42,6 +42,97 @@ var PAGE_SLUG = {};
 
 export var DEFAULT_PAGE = 'orders';
 
+// عنوان التاب لكل صفحة — **نفس تسميات القايمة بالحرف** عشان اللي في التاب
+// يطابق اللي التاجر دايس عليه. المفتاح اسم الصفحة الداخلي مش الـslug.
+// (صفحة `issues` الميتة مالهاش عنوان — بتقع على الافتراضي.)
+var PAGE_TITLES = {
+  orders:       'الطلبات',
+  stock:        'المخزون',
+  inbox:        'المحادثات',
+  finance:      'الماليات',
+  analytics:    'إحصائيات الأداء',
+  billing:      'المحفظة',
+  settings:     'الإعدادات',
+  mycommission: 'عمولتي'
+};
+var BRAND = 'سهل';
+var DEFAULT_TITLE = 'سهل — لوحة التحكم';
+
+// 🔴 صفحات الأقسام نسخ **بالبايت** من `index.html` (فحص في check.py)، فالعنوان
+// الثابت في الـmarkup واحد فيهم كلهم — التفريق لازم يبقى من هنا وقت التشغيل.
+// يعني قبل اللوجين التاب بتقول العنوان العام، وبعد ما اللوحة تبان بتتسمّى.
+export function setPageTitle(page){
+  var t = Object.prototype.hasOwnProperty.call(PAGE_TITLES, page) ? PAGE_TITLES[page] : null;
+  try{ document.title = t ? (t + ' · ' + BRAND) : DEFAULT_TITLE; }
+  catch(e){ swallow('router/setPageTitle', e); }
+}
+
+// ════ تاب مستقلة للمحادثات (طلب المالك 6 سبتمبر) ════
+// الصفحة → **اسم ثابت للتاب**. الاسم هو المهم: `window.open` باسم بيعيد
+// استخدام نفس التاب، فالضغط 10 مرات بيركّز تاب واحدة مش بيفتح 10.
+var OWN_TAB = { inbox: 'sahl-chats' };
+
+function ownTabName(page){
+  return Object.prototype.hasOwnProperty.call(OWN_TAB, page) ? OWN_TAB[page] : null;
+}
+
+function isOwnTabName(v){
+  for(var k in OWN_TAB){
+    if(Object.prototype.hasOwnProperty.call(OWN_TAB, k) && OWN_TAB[k] === v) return true;
+  }
+  return false;
+}
+
+// التاب اللي بتعرض المحادثات بتاخد الاسم لنفسها، وبتسيبه لما تخرج منها.
+// من غير ده، تاب اتفتحت على اللينك مباشرةً (`/chats`) مش هيبقى ليها اسم،
+// فتاب تانية تدوس «المحادثات» تفتح تاب تالتة بدل ما تركّز اللي مفتوحة.
+// وبنمسح الاسم **بس لو إحنا اللي حطيناه** — مش بنلمس اسم حطه حد تاني.
+export function claimOwnTab(page){
+  var name = ownTabName(page);
+  try{
+    if(name) window.name = name;
+    else if(isOwnTabName(window.name)) window.name = '';
+  }catch(e){ swallow('router/claimOwnTab', e); }
+}
+
+// بترجّع `true` يعني «اتعامل معاها — ماتنقلش في نفس التاب».
+// كل مخرج بـ`false` هنا معناه ارجع للتنقّل العادي — الزرار **لازم** يعمل
+// حاجة في كل الحالات (درس 16: الزرار اللي مايعملش حاجة أسوأ من الخطأ).
+export function openOwnTab(page){
+  var name = ownTabName(page);
+  if(!name) return false;
+
+  // إحنا التاب دي أصلاً — الضغطة مالهاش معنى، ومانعملش loadInbox على الفاضي
+  try{ if(window.name === name) return true; }catch(e){ swallow('router/ownTab.name', e); }
+
+  // الاستضافة مش بتخدم اللينكات العميقة → التاب الجديدة هتطلّع 404
+  if(!deepLinksOk) return false;
+  var url = routeUrl(page);
+  if(!url) return false;
+
+  // 🔴 الموبايل: تاب جديدة هناك معناها الموظف يخرج من اللوحة ومايعرفش يرجع
+  // غير من مبدّل التابات. التنقّل العادي أوضح — نفس حد الـ768 بتاع الشِل.
+  try{
+    if(window.matchMedia && window.matchMedia('(max-width: 768px)').matches) return false;
+  }catch(e){ swallow('router/ownTab.mq', e); }
+
+  var w = null;
+  // URL فاضية عن قصد: بتركّز التاب الموجودة **من غير ما تنقّلها**، فلو فيه
+  // رد نصّه مكتوب مايضيعش. لو مفيش تاب بالاسم ده بتتفتح فاضية ونودّيها.
+  try{ w = window.open('', name); }catch(e){ swallow('router/ownTab.open', e); }
+  if(!w) return false;   // حاجب النوافذ — نرجع للتنقّل العادي
+
+  try{
+    var cur = w.location.href;
+    if(!cur || cur === 'about:blank') w.location.href = url;
+  }catch(e){
+    swallow('router/ownTab.href', e);
+    try{ w.location.href = url; }catch(e2){ swallow('router/ownTab.href2', e2); }
+  }
+  try{ w.focus(); }catch(e){ swallow('router/ownTab.focus', e); }
+  return true;
+}
+
 // جذر التطبيق — **بيتحسب مرة واحدة** من أول URL وبعدها إحنا اللي بنتحكم في
 // كل تنقّل، فمفيش انحراف. بيشتغل على الجذر (app.sahlgedan.com/) وعلى أي
 // مجلد فرعي (المعاينة المحلية) بنفس المنطق.
