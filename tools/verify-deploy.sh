@@ -32,11 +32,13 @@ while IFS= read -r f; do
   case "$rel" in
     *.html) ;;                                     # HTML متوقع منه HTML
     *)
-      if printf '%s' "$ct" | grep -qi "text/html"; then
-        echo "  ✗ $rel → $code $ct — الملف ناقص والـfallback رجّع الصفحة مكانه"
+      # الترتيب مقصود: صفحة الخطأ نفسها HTML، فلو فحصنا النوع الأول كل 404
+      # هيتقال عليه «fallback ابتلعه» — تشخيص غلط لعطل حقيقي.
+      if [ "$code" -ge 400 ] 2>/dev/null; then
+        echo "  ✗ $rel → $code — الملف مش موجود على النشرة"
         bad=$((bad+1))
-      elif [ "$code" -ge 400 ] 2>/dev/null; then
-        echo "  ✗ $rel → $code — مش موجود"
+      elif printf '%s' "$ct" | grep -qi "text/html"; then
+        echo "  ✗ $rel → $code $ct — ناقص والـfallback رجّع الصفحة مكانه في صمت"
         bad=$((bad+1))
       fi ;;
   esac
@@ -44,12 +46,41 @@ done < <(find "$ROOT" -type f)
 
 echo "── فحصت $n ملف"
 
-# الضابط: لينك قسم لازم يرجّع HTML (بعد تفعيل الـSPA) — والأصول لأ (درس 21)
-orders_ct=$(curl -s -o /dev/null -w '%{content_type}' "$BASE/orders")
-orders_code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/orders")
-echo "── /orders → $orders_code $orders_ct"
-if [ "$orders_code" = "404" ]; then
-  echo "   ℹ️ الـSPA لسه مش مفعّل — اللوحة بتشتغل من غير لينكات عميقة (مقصود)"
+# ════ لينكات الأقسام ════
+# 🔴 «كله أو مفيش»: `probeDeepLinks` بتفتح البوابة أول ما /orders ترد 200،
+# وبعدها الراوتر بيكتب لينك **لكل** قسم. فقسم واحد ناقص = لينك بيتكتب
+# وبيدي 404 عند الريفريش. الفحص لازم يمر على كلهم مش على /orders بس.
+# والـslugs بتتقرا من الراوتر نفسه — لستة مكتوبة هنا كانت هتنحرف في صمت.
+ROUTER="$(cd "$(dirname "$0")/.." && pwd)/app/js/core/router.js"
+slugs=$(sed -n '/var ROUTES = {/,/};/p' "$ROUTER" | sed -n 's/^  \([A-Za-z][A-Za-z0-9_]*\) *:.*/\1/p')
+echo "── لينكات الأقسام"
+served=0; miss=0
+for s in $slugs; do
+  c=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/$s")
+  t=$(curl -s -o /dev/null -w '%{content_type}' "$BASE/$s")
+  case "$c$t" in
+    200*text/html*) served=$((served+1)) ;;
+    *) echo "  ✗ /$s → $c $t"; miss=$((miss+1)) ;;
+  esac
+done
+if [ "$miss" -eq 0 ] && [ "$served" -gt 0 ]; then
+  echo "  ✓ كل الـ$served قسم بيرد 200 — اللينكات العميقة شغالة"
+elif [ "$served" -eq 0 ]; then
+  echo "  ℹ️ ولا قسم بيرد — اللينكات العميقة مش مفعّلة، واللوحة شغالة من غيرها (مقصود)"
+else
+  echo "  ❌ $miss قسم ناقص و$served شغال — **أسوأ حالة**: البوابة بتفتح"
+  echo "     والراوتر بيكتب لينكات الأقسام الناقصة وبتدي 404 عند الريفريش."
+  echo "     الحل: python3 tools/make-route-pages.py وإعادة الرفع كاملة."
+  bad=$((bad+miss))
+fi
+
+# ضابط (درس 21): مسار مالوش ملف لازم يفضل 404 — الدليل إن شبكة الأمان حية
+ghost=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/kalam-fady-mesh-mawgood")
+if [ "$ghost" = "404" ]; then
+  echo "  ✓ ضابط: مسار مجهول لسه بيدي 404 — يعني ملف ناقص هيبان مش هيتبلع"
+else
+  echo "  ⚠️ مسار مجهول رجّع $ghost مش 404 — فيه fallback شغال، وأي ملف ناقص"
+  echo "     هيرجع الصفحة بـ200 في صمت. شبكة الأمان «كله أو مفيش» مش مضمونة."
 fi
 
 csp=$(curl -sI "$BASE/" | grep -ci "content-security-policy")

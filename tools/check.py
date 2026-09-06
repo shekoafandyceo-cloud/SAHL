@@ -1035,6 +1035,17 @@ def _visible_part(rel, line):
     return _strip_js_comment(line) if rel.endswith(".js") else line
 
 
+def route_slugs():
+    """slugs الأقسام من `router.js` — مصدر واحد للحقيقة، مش لستة متكررة."""
+    router = os.path.join(ROOT, "app", "js", "core", "router.js")
+    if not os.path.exists(router):
+        return []
+    m = re.search(r"var ROUTES = \{(.*?)\};", read(router), re.S)
+    if not m:
+        return []
+    return re.findall(r"^\s*([A-Za-z][A-Za-z0-9_]*)\s*:", m.group(1), re.M)
+
+
 def check_carrier_naming():
     """أي ظهور جديد لـ«بوسطة» في نص معروض = فشل.
 
@@ -1042,9 +1053,14 @@ def check_carrier_naming():
     حروف مش المقصودة (درس 28)."""
     print("\u2500\u2500 \u062a\u0633\u0645\u064a\u0629 \u0634\u0631\u0643\u0629 \u0627\u0644\u0634\u062d\u0646")
     bad, comments = [], 0
+    # صفحات الأقسام (`orders.html` …) نسخ بالبايت من `index.html` وبيتأكد
+    # من تطابقها في `check_route_pages` — فحصها هنا بيكرر كل استثناء 8 مرات
+    skip = set(s + ".html" for s in route_slugs())
     for dirpath, _dirs, files in os.walk(os.path.join(ROOT, "app")):
         for fn in sorted(files):
             if not fn.endswith((".js", ".html", ".css")):
+                continue
+            if dirpath == os.path.join(ROOT, "app") and fn in skip:
                 continue
             full = os.path.join(dirpath, fn)
             rel = os.path.relpath(full, ROOT).replace(os.sep, "/")
@@ -1071,6 +1087,45 @@ def check_carrier_naming():
         ok("\u0645\u0641\u064a\u0634 \u00ab" + CARRIER_WORD + "\u00bb \u0641\u064a \u0623\u064a \u0646\u0635 \u0645\u0639\u0631\u0648\u0636 (%d \u0643\u0648\u0645\u0646\u062a \u0645\u0633\u0645\u0648\u062d + %d \u0645\u0648\u0636\u0639 \u0641\u064a \u0643\u0627\u0631\u062a \u0627\u0644\u0631\u0628\u0637)" % (comments, len(CARRIER_ALLOWED)))
 
 
+def check_route_pages():
+    """كل قسم في الراوتر لازم يكون ليه ملف `<slug>.html` مطابق لـ`index.html`.
+
+    🔴 ليه «كل أو مفيش»؟ `probeDeepLinks` بتفتح البوابة أول ما `/orders` ترد
+    200، وبعدها الراوتر بيكتب لينك **لكل** قسم. فقسم واحد من غير ملف = لينك
+    بيتكتب وبيدي 404 عند الريفريش — أسوأ من إن الميزة مش موجودة.
+
+    والتطابق بالبايت مقصود: الملفات دي نسخ، ولو `index.html` اتعدّلت من غير
+    ما تتولّد تاني، التاجر اللي داخل على /chats بيشوف **نسخة قديمة من اللوحة**
+    من غير أي خطأ في أي مكان. `python3 tools/make-route-pages.py` بيصلّحها."""
+    print(u"\u2500\u2500 \u0635\u0641\u062d\u0627\u062a \u0627\u0644\u0623\u0642\u0633\u0627\u0645")
+    router = os.path.join(ROOT, "app", "js", "core", "router.js")
+    index = os.path.join(ROOT, "app", "index.html")
+    if not os.path.exists(router) or not os.path.exists(index):
+        err(u"\u0645\u0644\u0641 \u0627\u0644\u0631\u0627\u0648\u062a\u0631 \u0623\u0648 index.html \u0645\u0634 \u0645\u0648\u062c\u0648\u062f")
+        return
+    names = route_slugs()
+    if not names:
+        err(u"\u0645\u0627\u0644\u0642\u064a\u062a\u0634 ROUTES \u0641\u064a router.js")
+        return
+    with open(index, "rb") as f:
+        want = f.read()
+    missing, stale = [], []
+    for s in names:
+        path = os.path.join(ROOT, "app", s + ".html")
+        if not os.path.exists(path):
+            missing.append(s + ".html")
+            continue
+        with open(path, "rb") as f:
+            if f.read() != want:
+                stale.append(s + ".html")
+    if missing:
+        err(u"\u0635\u0641\u062d\u0627\u062a \u0623\u0642\u0633\u0627\u0645 \u0646\u0627\u0642\u0635\u0629 (\u0644\u064a\u0646\u0643\u0647\u0627 \u0647\u064a\u062f\u064a 404 \u0639\u0646\u062f \u0627\u0644\u0631\u064a\u0641\u0631\u064a\u0634): " + ", ".join(missing) + u"\n     \u0627\u0644\u062d\u0644: python3 tools/make-route-pages.py")
+    if stale:
+        err(u"\u0635\u0641\u062d\u0627\u062a \u0623\u0642\u0633\u0627\u0645 \u0642\u062f\u064a\u0645\u0629 \u0645\u0634 \u0645\u0637\u0627\u0628\u0642\u0629 \u0644\u0640index.html: " + ", ".join(stale) + u"\n     \u0627\u0644\u062d\u0644: python3 tools/make-route-pages.py")
+    if not missing and not stale:
+        ok(u"\u0643\u0644 \u0627\u0644\u0640%d \u0642\u0633\u0645 \u0644\u064a\u0647 \u0635\u0641\u062d\u0629 \u0645\u0637\u0627\u0628\u0642\u0629 \u0644\u0640index.html \u0628\u0627\u0644\u0628\u0627\u064a\u062a" % len(names))
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -1081,6 +1136,8 @@ def main():
         check_html(t)
         print()
     check_carrier_naming()
+    print()
+    check_route_pages()
     print()
     if errors:
         print("❌ %d مشكلة — ماتنشرش" % len(errors))

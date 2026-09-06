@@ -4,12 +4,17 @@
 // (كل زرار وكل CTA بيعدّي عليها)، فالـURL بيتحدّث من جوّاها ومحدش تاني بيلمسه.
 // الموديول ده مالوش حالة غير الجذر، وبيتحسب مرة واحدة وقت التحميل.
 //
-// ⚠️ الاستضافة **Cloudflare Worker** مش Pages. اللينكات العميقة محتاجة
-// `assets.not_found_handling: "single-page-application"` — **مش ملف `_redirects`**:
-// أي ملف `_redirects` بيخلي رفعة الداشبورد ترفض في صمت (مثبت بتجربة A/B)،
-// وقاعدة `/* /index.html` نفسها **مرفوضة بالاسم في parser بتاع Cloudflare**
-// (`hasWildcardToIndex` → "Infinite loop detected"). لحد ما يتفعّل، البوابة
-// تحت بتخلي اللوحة تتصرف زي ما كانت من غير ما تلمس الـURL.
+// ⚠️ الاستضافة **Cloudflare Worker** مش Pages، والآلية **صفحة حقيقية لكل قسم**
+// (`app/orders.html` وأخواتها — نسخ بالبايت من `index.html` بيتولّدوا بـ
+// `tools/make-route-pages.py`). الاستضافة بتشيل امتداد `.html` تلقائياً
+// وبتشيل السلاش الزايدة كمان (اتقاس حيّ: `/probe/` → 307 → `/probe`)، فعنوان
+// المستند بيفضل من غير سلاش والمسارات النسبية بتتحل من الجذر صح.
+//
+// ❌ **مش** `_redirects` (بيخلي رفعة الداشبورد ترفض في صمت — تجربة A/B) ولا
+// `assets.not_found_handling` (بيحتاج wrangler، **وبيخلي أي ملف ناقص يرجع
+// الصفحة بـ200** فشبكة الأمان «كله أو مفيش» بتموت).
+//
+// والبوابة تحت بتتأكد إن الاستضافة بتخدم فعلاً قبل ما نكتب أي لينك.
 
 import { swallow } from './log.js';
 
@@ -79,15 +84,17 @@ export function probeDeepLinks(){
   var rest = (BASE && here.indexOf(BASE) === 0) ? here.slice(BASE.length) : here;
   rest = rest.replace(/^\/+/, '');
   if(rest && rest !== 'index.html'){ deepLinksOk = true; return; }
+  // 🔴 الكاش **للنتيجة الموجبة بس**. لو كاشينا السالبة كمان، تاب مفتوح من قبل
+  // ما الاستضافة تبقى داعمة كان هيفضل قافل البوابة طول عمره — والمجس نفسه
+  // طلب HEAD واحد على 404، تكلفته صفر عملياً. فالميزة بتولّع لوحدها أول
+  // ريفريش بعد النشر بدل ما تستنى تاب جديد.
   try{
-    var cached = sessionStorage.getItem(PROBE_KEY);
-    if(cached === '1'){ deepLinksOk = true; return; }
-    if(cached === '0'){ deepLinksOk = false; return; }
+    if(sessionStorage.getItem(PROBE_KEY) === '1'){ deepLinksOk = true; return; }
   }catch(e){ swallow('router/probe.cache', e); }
   try{
     fetch(BASE + 'orders', { method:'HEAD' }).then(function(r){
       deepLinksOk = !!(r && r.ok);
-      try{ sessionStorage.setItem(PROBE_KEY, deepLinksOk ? '1' : '0'); }catch(e2){}
+      if(deepLinksOk){ try{ sessionStorage.setItem(PROBE_KEY, '1'); }catch(e2){} }
     }).catch(function(){ deepLinksOk = false; });
   }catch(e){ swallow('router/probe', e); }
 }

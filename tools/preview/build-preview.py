@@ -58,7 +58,15 @@ def main():
         html = html.replace(old, new)
     idx.write_text(html, encoding='utf-8')
 
-    print(f'✓ المعاينة اتبنت في {out}')
+    # 🔴 صفحات الأقسام (`orders.html` …) نسخ من `index.html`، والتحويلة فوق
+    # طبّقت على الأصل بس. من غير السطور دي المعاينة بتشيل 8 نسخ **غير محوّلة**
+    # (لسه بتنده جوجل فونتس ومن غير علامة «[معاينة]») — والمالك اللي يفتح
+    # /chats في المعاينة يشوف صفحة مختلفة عن اللي في /.
+    routes = [f for f in out.glob('*.html') if f.name != 'index.html']
+    for f in routes:
+        f.write_text(html, encoding='utf-8')
+
+    print(f'✓ المعاينة اتبنت في {out} ({len(routes)} صفحة قسم اتحوّلت معاها)')
     print('  جرّبها:  cd فولدر-الخرج && python3 _preview/spa-server.py 8899 .')
     print('  ⚠️ لازم السيرفر ده مش http.server — اللوحة بقى ليها لينك لكل قسم')
 
