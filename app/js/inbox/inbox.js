@@ -9,7 +9,7 @@ import { normalizePhone } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { waMsgInner, waQuoteBlock, waSenderTag, waTicks, waTimeShort } from './message-view.js';
+import { waMetaRow, waMsgInner, waQuoteBlock, waSenderTag, waTimeShort } from './message-view.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
@@ -322,7 +322,7 @@ export function renderMessages(msgs,scroll){
     for(var i=0;i<waRenderedState.length;i++){
       if(msgs[i].direction==='out' && msgs[i].status!==waRenderedState[i].status){
         var tEl=box.querySelector('.wa-msg[data-mid="'+msgs[i].id+'"] .wa-msg-time');
-        if(tEl) tEl.innerHTML=esc(waTimeShort(msgs[i].wa_timestamp||msgs[i].created_at))+waTicks(msgs[i].status);
+        if(tEl) tEl.innerHTML=waMetaRow(msgs[i], 'out');   // السطر كامل مش الوقت بس
       }
     }
     // 2) ضيف الرسائل الجديدة في الآخر بس
@@ -482,6 +482,7 @@ export function waAppendOptimistic(text,kind,url,docName){
   // عمره ما بيبعت اسم (العمود ممنوع عليه بصلاحيات الأعمدة أصلاً).
   var meName = (currentUser && currentUser.name) ? currentUser.name : '';
   inner+='<div class="wa-msg-time">'+waSenderTag({ sent_by_name: meName }, 'out')+'⏳</div>';
+  // (⏳ بدل الوقت عمداً — الرسالة لسه ماتبعتتش فمفيش وقت حقيقي نكتبه)
   div.innerHTML=inner;
   box.appendChild(div);
   box.scrollTop=box.scrollHeight;
@@ -522,8 +523,12 @@ export function waSend(){
     if(bubble){ var t=bubble.querySelector('.wa-msg-time');
       // الاسم من رد السيرفر (مصدر الحقيقة) وإلا اسمي المحلي — والاتنين ممكن
       // يبقوا فاضيين فمايتكتبش حاجة
-      if(t) t.innerHTML=waSenderTag({ sent_by_name: (d.sent_by_name || (currentUser && currentUser.name) || '') }, 'out')
-                        +esc(waTimeShort(new Date().toISOString()))+waTicks('sent');
+      // مفيش `wa_message_id` لسه فمفيش زرار رد — وده صح: مانقدرش نرد على
+      // رسالة معرّفها عندنا لسه ماوصلش. أول جلب بيرجّع الصف كامل بالزرار.
+      if(t) t.innerHTML=waMetaRow({
+        direction:'out', status:'sent', wa_timestamp:new Date().toISOString(),
+        sent_by_name: (d.sent_by_name || (currentUser && currentUser.name) || '')
+      }, 'out');
       bubble.classList.remove('wa-msg-pending'); }
     waFetchConvos(false);
   }

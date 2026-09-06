@@ -40,6 +40,12 @@
 //  20) 🔴 التصفير: نجاح الإرسال · زرار الإلغاء · **تبديل المحادثة**
 //  21) رسالة من غير wa_message_id → **مفيش زرار رد** (درس 16)
 //  22) معايرة: شيل التصفير عند تبديل المحادثة → فحص 20 يقع
+//
+// ── تاريخ ووقت كامل تحت كل رسالة (7 سبتمبر) ──
+//  23) 🔴 شكل واحد دايماً: تاريخ + ساعة ودقيقة — مفيش «أمس» ولا تاريخ لوحده
+//  24) وعلامات bidi متشالة (لزق تاريخ بوقت بيفككها)
+//  25) 🔴 تحديث حالة الرسالة (✓✓) **مايشيلش** اسم الموظف ولا زرار الرد
+//  26) معايرة: رجّع السطر للوقت+التيكات بس → فحص 25 يقع
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -592,6 +598,106 @@ console.log('──── معايرات ────');
     return el ? getComputedStyle(el).display !== 'none' : false;
   });
   ok(still, 'معايرة هـ: من غير التصفير الاقتباس بيفضل ظاهر في المحادثة التانية — فحص 20ج بيمسكها');
+  await p.close();
+}
+
+// ════ 23 · 24) تاريخ ووقت كامل ════
+{
+  const p = await openInbox();
+  console.log('──── تاريخ ووقت تحت كل رسالة ────');
+
+  const metas = await p.evaluate(() =>
+    [...document.querySelectorAll('#wa-msgs .wa-msg')].map(el => ({
+      mid: el.getAttribute('data-mid'),
+      t: (el.querySelector('.wa-msg-time') || {}).textContent || ''
+    })));
+
+  // الشكل: DD/MM/YYYY · HH:MM ص|م — في **كل** رسالة من غير استثناء
+  const RE = /\d{2}\/\d{2}\/\d{4}\s*·\s*\d{1,2}:\d{2}/;
+  const missing = metas.filter(x => !RE.test(x.t));
+  ok(missing.length === 0,
+     `🔴 كل الرسايل (${metas.length}) تحتها تاريخ + ساعة ودقيقة — ${missing.length ? 'ناقص في ' + JSON.stringify(missing[0]) : 'كلها'}`);
+
+  const relative = metas.filter(x => /أمس|اليوم|من\s|منذ/.test(x.t));
+  ok(relative.length === 0,
+     `ومفيش أي صيغة نسبية («أمس»…) — ${relative.length ? relative[0].t : 'ولا واحدة'}`);
+
+  // 🔴 علامات الاتجاه: لزق تاريخ بوقت بيفكك الترتيب لو ماتشالتش (فخ
+  // fmtStoredDateTime في حركات المخزون)
+  const bidi = await p.evaluate(() =>
+    [...document.querySelectorAll('#wa-msgs .wa-msg-time')]
+      .filter(el => /[\u200e\u200f\u061c]/.test(el.textContent)).length);
+  ok(bidi === 0, `وصفر علامات bidi في سطر الوقت — ${bidi}`);
+
+  // ومحادثة القايمة سايبة نسبية عن قصد (عمود ضيّق)
+  const convTime = await p.evaluate(() => {
+    const el = document.querySelector('#wa-list-body .wa-conv-time');
+    return el ? el.textContent.trim() : '';
+  });
+  ok(convTime.length > 0 && !RE.test(convTime),
+     `وقايمة المحادثات سايبة مختصرة عن قصد — «${convTime}»`);
+  await p.close();
+}
+
+// ════ 25) 🔴 تحديث الحالة مايشيلش الاسم ولا زرار الرد ════
+// السيناريو: الرسالة اتبعتت (✓) وبعدين وصلت (✓✓). التحديث الجراحي كان
+// بيعيد كتابة السطر بالوقت والتيكات بس.
+{
+  const p = await openInbox();
+  console.log('──── تحديث الحالة ────');
+
+  const before = await p.evaluate(() => {
+    const el = document.querySelector('.wa-msg[data-mid="m1"]');
+    return { sender: !!el.querySelector('.wa-sender'), btn: !!el.querySelector('.wa-reply-btn') };
+  });
+  ok(before.sender && before.btn, 'قبل التحديث: الاسم وزرار الرد موجودين');
+
+  // نغيّر حالة m1 من read لـdelivered ونخلي الـpoll يعدّي
+  await p.evaluate(() => {
+    window.__WA_MSGS = (window.__WA_MSGS || []).map(m =>
+      m.id === 'm1' ? Object.assign({}, m, { status: 'delivered' }) : m);
+  });
+  await p.evaluate(async () => {
+    const m = await import('./js/inbox/inbox.js');
+    m.waFetchMessages('c1', false, true);
+  });
+  await p.waitForTimeout(1200);
+
+  const after = await p.evaluate(() => {
+    const el = document.querySelector('.wa-msg[data-mid="m1"]');
+    const t = el.querySelector('.wa-msg-time');
+    return {
+      sender: el.querySelector('.wa-sender') ? el.querySelector('.wa-sender').textContent.trim() : null,
+      btn: !!el.querySelector('.wa-reply-btn'),
+      txt: t ? t.textContent.trim() : ''
+    };
+  });
+  ok(after.sender === 'محمود',
+     `🔴 وبعد تحديث الحالة الاسم لسه موجود — «${after.sender}»`);
+  ok(after.btn, 'وزرار الرد لسه موجود');
+  ok(/\d{2}\/\d{2}\/\d{4}/.test(after.txt), `والتاريخ لسه كامل — «${after.txt}»`);
+  await p.close();
+}
+
+// ════ 26) معايرة: السطر يرجع وقت + تيكات بس ════
+{
+  const p = await openInbox({
+    routeView: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      // الشكل القديم اللي كان بيمسح الاسم والزرار
+      body = body.replace(
+        "  return waSenderTag(m, side)\n    + esc(waTimeFull(m.wa_timestamp || m.created_at))\n    + (side==='out' ? waTicks(m.status) : '')\n    + waReplyBtn(m);",
+        "  return esc(waTimeFull(m.wa_timestamp || m.created_at)) + (side==='out' ? waTicks(m.status) : '');");
+      await r.fulfill({ response: res, body });
+    }
+  });
+  const gone = await p.evaluate(() => {
+    const el = document.querySelector('.wa-msg[data-mid="m1"]');
+    return { sender: !!el.querySelector('.wa-sender'), btn: !!el.querySelector('.wa-reply-btn') };
+  });
+  ok(!gone.sender && !gone.btn,
+     'معايرة و: بالسطر القديم (وقت+تيكات بس) الاسم وزرار الرد بيختفوا — فحص 25 بيمسكها');
   await p.close();
 }
 

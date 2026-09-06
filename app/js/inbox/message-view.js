@@ -1,14 +1,35 @@
 // بناء HTML فقاعة الرسالة وعلامات القراءة
 
 import { esc } from '../core/dom.js';
+import { stripBidi } from '../core/format.js';
 
+// قايمة المحادثات بس — العمود ضيّق والنسبي مفيد هناك («أمس» أوضح من تاريخ
+// كامل في سطر فيه اسم العميل كمان)
 export function waTimeShort(iso){
   if(!iso) return '';
   var d=new Date(iso), now=new Date();
-  if(d.toDateString()===now.toDateString()) return d.toLocaleTimeString('ar-EG-u-nu-latn',{hour:'2-digit',minute:'2-digit'});
+  if(d.toDateString()===now.toDateString()) return stripBidi(d.toLocaleTimeString('ar-EG-u-nu-latn',{hour:'2-digit',minute:'2-digit'}));
   var y=new Date(now); y.setDate(now.getDate()-1);
   if(d.toDateString()===y.toDateString()) return 'أمس';
-  return d.toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit'});
+  return stripBidi(d.toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit'}));
+}
+
+// 🔴 تحت كل رسالة: **تاريخ كامل + ساعة ودقيقة، شكل واحد دايماً** (طلب المالك
+// 7 سبتمبر). مفيش «أمس» ولا «من أسبوع» ولا تاريخ من غير وقت — التاجر بيرجع
+// للشات عشان يعرف الكلام ده حصل امتى بالظبط، والنسبي بيخليه يحسب بدل ما يقرا.
+// والسنة كاملة عن قصد: «06/09» في شات من سنة فاتت بيكدب.
+//
+// ⚠️ `stripBidi` مش تزويق: `ar-EG` بتحقن علامات اتجاه (\u200e \u200f \u061c)
+// جوّه المخرج، ولما تاريخ ووقت يتلزقوا في سطر واحد العلامات دي بتفكك الترتيب
+// وتبعّد الأرقام عن بعضها. ده بالظبط اللي حصل في تاريخ حركات المخزون
+// (`fmtStoredDateTime` كانت الوحيدة اللي مابتشيلهاش).
+export function waTimeFull(iso){
+  if(!iso) return '';
+  var d=new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  var date=stripBidi(d.toLocaleDateString('ar-EG-u-nu-latn',{day:'2-digit',month:'2-digit',year:'numeric'}));
+  var time=stripBidi(d.toLocaleTimeString('ar-EG-u-nu-latn',{hour:'2-digit',minute:'2-digit'}));
+  return date+' · '+time;
 }
 
 export function waTicks(status){
@@ -86,6 +107,20 @@ function waReplyBtn(m){
     + esc(m.id) + '" title="رد على الرسالة دي" aria-label="رد على الرسالة دي">↩︎</button>';
 }
 
+// 🔴 السطر اللي تحت الرسالة — **مصدر واحد**.
+// كان متكرر في 3 أماكن: الرسم الأصلي، وتحديث الحالة الجراحي (✓✓/مقروءة)،
+// وتأكيد الفقاعة الفورية. والاتنين التانيين كانوا بيكتبوا **الوقت والتيكات
+// بس**، فأول ما حالة رسالة تتحدث كان **اسم الموظف وزرار الرد يختفوا منها**
+// — باج صامت، الرسالة تفضل شكلها سليم وناقصها حاجتين.
+// (نفس عيلة باج «نسخ كل المنتجات»: وحّدنا مصدر عرض وفات علينا مستهلك.)
+export function waMetaRow(m, side){
+  side = side || (m && m.direction==='out' ? 'out' : 'in');
+  return waSenderTag(m, side)
+    + esc(waTimeFull(m.wa_timestamp || m.created_at))
+    + (side==='out' ? waTicks(m.status) : '')
+    + waReplyBtn(m);
+}
+
 export function waMsgInner(m, urlMap, byWamid){
   var side=m.direction==='out'?'out':'in';
   // الاقتباس **فوق** المحتوى زي واتساب بالظبط
@@ -109,8 +144,6 @@ export function waMsgInner(m, urlMap, byWamid){
   // 🔴 الرسايل قبل 6 سبتمبر 2026 مالهاش `sent_by_name` (548 رسالة وقت البناء)
   // فبتتعرض **من غير أي اسم**. مفيش fallback ومفيش «موظف» ولا اسم المتجر —
   // نسبة مخترعة أسوأ من مفيش نسبة، والتاجر بيقرا الشات ده عشان يحاسب.
-  inner+='<div class="wa-msg-time">'+waSenderTag(m, side)
-        +esc(waTimeShort(m.wa_timestamp||m.created_at))+(side==='out'?waTicks(m.status):'')
-        +waReplyBtn(m)+'</div>';
+  inner+='<div class="wa-msg-time">'+waMetaRow(m, side)+'</div>';
   return inner;
 }
