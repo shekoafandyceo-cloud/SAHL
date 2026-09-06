@@ -22,7 +22,7 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 
 const STUB = fs.readFileSync(new URL('./stub.js', import.meta.url), 'utf8');
-const URL_ = process.env.APP_URL || 'http://127.0.0.1:8899/index.html';
+const ORIGIN = process.env.APP_ORIGIN || 'http://127.0.0.1:8899';
 
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 let bad = 0;
@@ -65,17 +65,26 @@ async function openInbox(opts) {
     window.__WA_MSGS   = ${JSON.stringify(opts.msgs || MSGS)};
     window.__FN = function(slug, body){
       // ردّ wa-send: الاسم بييجي **من السيرفر** — والاختبار بيخليه مختلف عن
-      // الاسم المحلي عمداً عشان يثبت مين اللي بيكسب
-      return { ok:true, message_id:'wamid-1', row_id:'new1', sent_by_name:'اسم السيرفر' };
+      // الاسم المحلي عمداً عشان يثبت مين اللي بيكسب.
+      // ⏱️ بتأخير 400ms عشان الحالة المؤقتة تبقى **مرصودة**: رد فوري بيخلي
+      // الفقاعة تتأكد قبل ما الاختبار يبص، فيبان كأن الاسم المحلي مش بيتعرض.
+      return new Promise(function(res){
+        setTimeout(function(){
+          res({ ok:true, message_id:'wamid-1', row_id:'new1', sent_by_name:'اسم السيرفر' });
+        }, 400);
+      });
     };
   `);
   await ctx.addInitScript(STUB);
   if (opts.routeView) await ctx.route('**/js/inbox/message-view.js', opts.routeView);
   const p = await ctx.newPage();
   p.on('pageerror', e => { console.log('  ✗ pageerror:', e.message); bad++; });
-  await p.goto(URL_, { waitUntil: 'networkidle' });
-  await p.waitForSelector('#page-orders', { state: 'visible', timeout: 10000 });
-  await p.click('#nav-inbox');
+  // 🔴 بندخل على **لينك المحادثات مباشرةً** مش بالضغط على زرار القايمة:
+  // من 6 سبتمبر الزرار بيفتح **تاب لوحدها** (openOwnTab)، فالصفحة الحالية
+  // عمرها ما بتروح للإنبوكس والانتظار بيقع في timeout. سلوك تاب المحادثات
+  // نفسه متفحوص في `test-routing`.
+  await p.goto(ORIGIN + '/chats', { waitUntil: 'networkidle' });
+  await p.waitForSelector('#page-inbox', { state: 'visible', timeout: 10000 });
   await p.waitForTimeout(600);
   // افتح المحادثة
   await p.waitForSelector('#wa-list-body .wa-conv', { timeout: 8000 });
@@ -129,7 +138,7 @@ const metaOf = (p, mid) => p.evaluate((id) => {
   await p.fill('#wa-input', 'رد بالتجربة');
   // الفقاعة الفورية قبل ما السيرفر يرد
   await p.evaluate(() => document.getElementById('wa-send-btn').click());
-  await p.waitForTimeout(60);
+  await p.waitForTimeout(120);   // جوّه نافذة الـ400ms
   const optimistic = await p.evaluate(() => {
     const el = document.querySelector('#wa-msgs .wa-optimistic');
     if (!el) return null;
@@ -140,7 +149,7 @@ const metaOf = (p, mid) => p.evaluate((id) => {
      `الفقاعة الفورية بتعرض اسمي من أول لحظة — «${optimistic && optimistic.sender}»`);
 
   // بعد رد السيرفر
-  await p.waitForTimeout(700);
+  await p.waitForTimeout(900);   // بعد ما الرد يوصل
   const settled = await p.evaluate(() => {
     const el = document.querySelector('#wa-msgs .wa-optimistic');
     if (!el) return null;

@@ -196,7 +196,12 @@
       window.__FNCALLS.push({ slug: slug, body: body });
       // من غير __FN بيفضل السلوك القديم بالحرف (فشل ثابت) عشان الاختبارات القديمة
       if(!window.__FN) return Promise.resolve({data:{ok:false}, error:null});
-      return Promise.resolve({ data: window.__FN(slug, body), error: null });
+      // ⚠️ `__FN` مسموح يرجّع **Promise** — الـEdge Function الحقيقية بتاخد وقت،
+      // ورد فوري بيخلي الحالة المؤقتة (الفقاعة المعلّقة) مستحيل مراقبتها فيبان
+      // كأنها مش موجودة. الرد الفوري لسه شغال زي ما هو لو رجّع object عادي.
+      return Promise.resolve(window.__FN(slug, body)).then(function(d){
+        return { data: d, error: null };
+      });
     } }
   };
 
