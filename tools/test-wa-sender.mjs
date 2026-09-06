@@ -27,6 +27,10 @@
 //  11) محادثة اتعملت مع الأوردر ولسه مفيهاش رسايل: البانر بيقول «العميل لسه
 //      مبعتش» مش «النافذة قفلت»، وخانة الكتابة مقفولة
 //  12) معايرة: خلي المجهول يعرض نص مخترع → فحص 9 يقع
+//  13) 🔴 رد على **صورة** → مصغّرة الصورة نفسها ظاهرة (بلاغ المالك: «📷 صورة»
+//      لوحدها مكانتش بتقول أنهي صورة)
+//  14) رد على صورة قديمة **في تحديث تدريجي** → الرابط الموقّع بيتحل كمان
+//  15) معايرة: شيل المصغّرة → فحص 13 يقع
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -65,7 +69,15 @@ const MSGS = [
     status: null, wa_message_id: 'wamid-IN-9', reply_to_wa_id: 'wamid-OUT-1' },
   { id: 'r2', tenant_id: TENANT, conversation_id: 'c1', direction: 'in', type: 'text',
     body: 'ايوة اكد', is_read: true, created_at: iso(0), wa_timestamp: iso(0),
-    status: null, wa_message_id: 'wamid-IN-10', reply_to_wa_id: 'wamid-MAFEESH' }
+    status: null, wa_message_id: 'wamid-IN-10', reply_to_wa_id: 'wamid-MAFEESH' },
+  // img1: صورة منتج بعتها الموظف · r3: العميل بيرد عليها بيسأل عن سعرها
+  { id: 'img1', tenant_id: TENANT, conversation_id: 'c1', direction: 'out', type: 'image',
+    body: 'ترولي 3 دور', is_read: true, created_at: iso(4), wa_timestamp: iso(4),
+    status: 'read', sent_by_name: 'محمود', wa_message_id: 'wamid-IMG-1',
+    media_path: 't1/c1/prod.jpg' },
+  { id: 'r3', tenant_id: TENANT, conversation_id: 'c1', direction: 'in', type: 'text',
+    body: 'ده بكام؟', is_read: true, created_at: iso(0), wa_timestamp: iso(0),
+    status: null, wa_message_id: 'wamid-IN-11', reply_to_wa_id: 'wamid-IMG-1' }
 ];
 
 // محادثة اتعملت مع الأوردر — مفيش أي رسالة، و`last_direction` فاضي
@@ -78,7 +90,11 @@ const CONVO_NEW = [{
 async function openInbox(opts) {
   opts = opts || {};
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  // صورة حقيقية (1×1 PNG) عشان `naturalWidth > 0` يبقى دليل فعلي إن
+  // المصغّرة اتحمّلت — وسم <img> بمصدر مكسور بيعدّي من أي فحص شكلي
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   await ctx.addInitScript(`
+    window.__MEDIA = { 't1/c1/prod.jpg': '${PNG}' };
     window.__WA_CONVOS = ${JSON.stringify(opts.convos || CONVOS)};
     // بوابة الإنبوكس: الستب بيرجّع wa_inbox_status = {verified:false} فالصفحة
     // بتتقفل قبل ما ترسم أي محادثة. الهوك بيفتحها بس — من غير أي سلوك تاني.
@@ -309,6 +325,77 @@ console.log('──── معايرات ────');
   });
   ok(q && !q.lost && /تأكيد الطلب/.test(q.txt),
      `معايرة ج: بنص مخترع الرسالة المجهولة بقت «${q && q.txt}» — فحص 9 بيمسكها`);
+  await p.close();
+}
+
+// ════ 13) 🔴 رد على صورة → المصغّرة ════
+{
+  const p = await openInbox();
+  console.log('──── رد على صورة ────');
+  const q = await p.evaluate(() => {
+    const el = document.querySelector('#wa-msgs .wa-msg[data-mid="r3"] .wa-quote');
+    if (!el) return null;
+    const img = el.querySelector('.wa-quote-thumb');
+    return {
+      hasThumb: !!img,
+      src: img ? img.getAttribute('src') : null,
+      // 🔴 الدليل إن المصغّرة **اتحمّلت فعلاً** مش بس الوسم موجود
+      loaded: img ? (img.complete && img.naturalWidth > 0) : false,
+      w: img ? Math.round(img.getBoundingClientRect().width) : 0,
+      txt: el.textContent.trim()
+    };
+  });
+  ok(q && q.hasThumb, 'رد على صورة → المصغّرة موجودة في بلوك الرد');
+  ok(q && q.w >= 20, `وليها مقاس حقيقي على الشاشة — ${q && q.w}px`);
+  ok(q && q.loaded, `🔴 والصورة **اتحمّلت فعلاً** مش وسم فاضي — naturalWidth>0`);
+  ok(q && /ترولي 3 دور/.test(q.txt),
+     `والكابشن ظاهر جنبها فالموظف يعرف المنتج — «${q && q.txt}»`);
+  ok(q && !/📷/.test(q.txt), 'والأيقونة اتشالت — الصورة نفسها بتقول إنها صورة');
+  await p.close();
+}
+
+// ════ 14) رد جديد على صورة قديمة (تحديث تدريجي) ════
+// السيناريو الحقيقي: الشات مفتوح، والعميل بيرد **دلوقتي** على صورة بعتناها
+// من شوية. المسار التدريجي كان بيحل ميديا الرسايل الجديدة بس.
+{
+  const p = await openInbox({ msgs: MSGS.filter(m => m.id !== 'r3') });
+  const before = await p.evaluate(() =>
+    document.querySelectorAll('#wa-msgs .wa-msg').length);
+  // الرسالة الجديدة بتوصل من الـpoll
+  await p.evaluate((rows) => { window.__WA_MSGS = rows; }, MSGS);
+  await p.evaluate(async () => {
+    const m = await import('./js/inbox/inbox.js');
+    m.waFetchMessages('c1', false, true);
+  });
+  await p.waitForTimeout(1200);
+  const q = await p.evaluate(() => {
+    const el = document.querySelector('#wa-msgs .wa-msg[data-mid="r3"] .wa-quote');
+    const img = el ? el.querySelector('.wa-quote-thumb') : null;
+    return { added: document.querySelectorAll('#wa-msgs .wa-msg').length,
+             loaded: img ? (img.complete && img.naturalWidth > 0) : false };
+  });
+  ok(q.added > before, `الرسالة الجديدة اتضافت تدريجياً — ${before} → ${q.added}`);
+  ok(q.loaded, '🔴 ومصغّرة الصورة القديمة اتحلّت كمان — مش وسم مكسور');
+  await p.close();
+}
+
+// ════ 15) معايرة: شيل المصغّرة ════
+{
+  const p = await openInbox({
+    routeView: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      body = body.replace("if((q.type==='image'||q.type==='sticker') && q.media_path && urlMap && urlMap[q.media_path]){",
+                          "if(false){");
+      await r.fulfill({ response: res, body });
+    }
+  });
+  const q = await p.evaluate(() => {
+    const el = document.querySelector('#wa-msgs .wa-msg[data-mid="r3"] .wa-quote');
+    return el ? { thumb: !!el.querySelector('.wa-quote-thumb'), txt: el.textContent.trim() } : null;
+  });
+  ok(q && !q.thumb && /📷/.test(q.txt),
+     `معايرة د: من غير المصغّرة بترجع «${q && q.txt}» — الموظف مايعرفش أنهي صورة، وفحص 13 بيمسكها`);
   await p.close();
 }
 

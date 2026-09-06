@@ -187,7 +187,16 @@
     channel: function(){ return chan; },
     removeChannel: function(){},
     storage: { from: function(){ return {
-      createSignedUrls: function(){ return Promise.resolve({data:[], error:null}); },
+      // ⚠️ الافتراضي **روابط فاضية** زي ما كان بالحرف — الاختبارات القديمة
+      // بتعتمد إن الصور مابتترسمش. الاختبار اللي محتاج صورة حقيقية بيحقن
+      // `window.__MEDIA` = {مسار: رابط}، ومن غيره مفيش أي تغيير في السلوك.
+      createSignedUrls: function(paths){
+        var m = window.__MEDIA || {}, out = [];
+        for(var i=0;i<(paths||[]).length;i++){
+          if(m[paths[i]]) out.push({ path: paths[i], signedUrl: m[paths[i]] });
+        }
+        return Promise.resolve({data: out, error: null});
+      },
       upload: function(){ return Promise.resolve({data:null, error:{message:'stub'}}); }
     }; } },
     functions: { invoke: function(slug, opts){

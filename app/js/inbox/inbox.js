@@ -291,7 +291,15 @@ export function renderMessages(msgs,scroll){
     waRenderedCount=msgs.length;
     if(newMsgs.length){
       var nearBottom=(box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
-      var npaths=[]; for(var n=0;n<newMsgs.length;n++){ if(newMsgs[n].media_path) npaths.push(newMsgs[n].media_path); }
+      // 🔴 مش بس ميديا الرسايل الجديدة: لو رسالة جديدة **رد على صورة قديمة**،
+      // مسار الصورة القديمة لازم يتحل كمان وإلا المصغّرة بتطلع فاضية.
+      // (الرسم الكامل تحت بيحل كل المحادثة فمش محتاج ده.)
+      var npaths=[];
+      for(var n=0;n<newMsgs.length;n++){
+        if(newMsgs[n].media_path) npaths.push(newMsgs[n].media_path);
+        var qm = newMsgs[n].reply_to_wa_id ? byWamid[newMsgs[n].reply_to_wa_id] : null;
+        if(qm && qm.media_path && npaths.indexOf(qm.media_path) < 0) npaths.push(qm.media_path);
+      }
       waResolveUrls(npaths, function(urlMap){
         if(waActiveId!==forConv) return;   // المستخدم بدّل محادثة — رد قديم
         var pend=box.querySelectorAll('.wa-optimistic'); for(var pi=0;pi<pend.length;pi++){ waRevokeBubbleUrl(pend[pi]); if(pend[pi].parentNode) pend[pi].parentNode.removeChild(pend[pi]); }
