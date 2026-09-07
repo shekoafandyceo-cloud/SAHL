@@ -141,7 +141,11 @@
       whatsapp_phone_id:'', whatsapp_token:'', shipping_api_key:'b_preview_key', has_shipping_api:true,
       telegram_chat_id:'', telegram_chat_id_set_at:null, error_notify_chat:'',
       whatsapp_confirmation_enabled:true,
-      webhook_secret:'preview-webhook-secret', wa_webhook_secret:'preview-wa-secret' }],
+      webhook_secret:'preview-webhook-secret', wa_webhook_secret:'preview-wa-secret',
+      // قالب متابعة الأوردر — من غيره الزرار بيفضل على لينك واتساب القديم
+      // في المعاينة والمالك مايشوفش الميزة الجديدة خالص
+      wa_followup_template:'order_shipping_confirm_ar', wa_followup_lang:'ar_EG',
+      wa_followup_body:'أهلاً {{1}}، بخصوص طلبك رقم {{2}}.\n\nحاولنا نتصل بحضرتك عشان نأكد شحن الطلب ومقدرناش نوصلك.\n\nالطلب: {{3}}\n\nردّ على الرسالة دي لو تحب نشحن الطلب أو تلغيه، وهنكمّل على طول.' }],
     tenant_subscription_state: [{ id:TENANT, computed_status:'active', days_remaining:30 }],
     wallet_state: [{ tenant_id:TENANT, wallet_balance:340, overdraft_limit:0, available:340,
       orders_used_cycle:46, max_orders:null, orders_remaining:null, overage_debt:0,
@@ -352,7 +356,19 @@
       createSignedUrls: function(){ return Promise.resolve({ data:[], error:null }); },
       upload: function(){ return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }
     }; } },
-    functions: { invoke: function(){ return Promise.resolve({ data:{ ok:false, message:'وضع المعاينة' }, error:null }); } }
+    functions: { invoke: function(slug, opts){
+      // قالب متابعة الأوردر: بنحاكي النجاح عشان المالك يشوف المسار كامل في
+      // المعاينة (مودال التأكيد ← «اتبعتت متابعة» على الأوردر). الرد الثابت
+      // بـok:false كان بيوريه رسالة فشل بس.
+      if(slug === 'wa-followup'){
+        var oid = (opts && opts.body && opts.body.order_id) || null;
+        var row = TABLES.orders.filter(function(o){ return o.id === oid; })[0];
+        var at = new Date().toISOString();
+        if(row) row.wa_followup_sent_at = at;
+        return Promise.resolve({ data:{ ok:true, sent_at:at, message_id:'wamid-preview' }, error:null });
+      }
+      return Promise.resolve({ data:{ ok:false, message:'وضع المعاينة' }, error:null });
+    } }
   };
 
   // موظفين وهميين — نداء Edge Function `tenant-staff` بيتعمله اعتراض هنا

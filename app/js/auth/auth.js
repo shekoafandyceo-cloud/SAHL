@@ -81,12 +81,16 @@ export function showSubscriptionLock(t, reason){
 export function loadTenantAndEnter(){
   if(!ensureTenant())return;
   // v_my_tenant: الـ view بيفلتر بالتاجر جواه وبيحجب المفاتيح عن غير الأدمن.
+  // 🔴 القايمة دي أخطر قايمة أعمدة في المشروع: أي عمود هنا **مش مقروء** من
+  // `authenticated` بيخلي الاستعلام كله يفشل، والتاجر يشوف «حصلت مشكلة في
+  // تحميل بيانات الحساب» ومايدخلش خالص. اتأكد من أي عمود جديد بانتحال موظف
+  // حقيقي قبل ما تضيفه — مش بقراءة تعريف الفيو.
   // tenant_subscription_state: حالة الاشتراك محسوبة بساعة السيرفر (computed_status
   // وdays_remaining) — الحكم بيها مش بساعة جهاز التاجر: ساعة متأخرة كانت بتفتح
   // حساب منتهي، ومتقدمة كانت بتقفل حساب دافع.
   Promise.all([
     sb.from('v_my_tenant')
-      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price,has_shipping_api')
+      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price,has_shipping_api,wa_followup_template,wa_followup_body')
       .eq('id', currentTenantId)
       .single(),
     sb.from('tenant_subscription_state')

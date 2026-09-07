@@ -1,12 +1,13 @@
 // نافذة تفاصيل الأوردر
 
 import { parseProductItems } from '../analytics/product-match.js';
-import { currentTenantId } from '../auth/auth.js';
+import { currentTenant, currentTenantId } from '../auth/auth.js';
 import { walletStateCache } from '../billing/billing.js';
 import { CANCELLED_STATUSES, CR, DELIVERED_STATUSES, STATUS_OPTIONS, statusClass, statusIn, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
 import { firstName, fmt, fmtD, fmtDT, money, normalizePhone, num, orderProps, toLatinDigits } from '../core/format.js';
 import { swallow } from '../core/log.js';
+import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { showPage } from '../main.js';
@@ -97,6 +98,92 @@ export function buildWaUrl(o){
   var fn=firstName(o.customer_name);
   var msg='استاذة '+fn+' صباح الخير يافندم .. حاولنا نتصل بحضرتك بخصوص الاوردر بس مكانش في رد .. حضرتك تحبي نشحن الاوردر يافندم ؟\n\nالاوردر : '+(o.product_name||'');
   return 'https://web.whatsapp.com/send?phone=20'+phone+'&text='+encodeURIComponent(msg);
+}
+
+// ════════ رسالة متابعة الأوردر بقالب معتمد (7 سبتمبر) ════════
+//
+// 🔴 ليه ده موجود أصلاً: اللينك اللي فوق بيفتح WhatsApp Web على **جهاز الموظف**،
+// يعني الرسالة بتخرج من رقمه الشخصي. ده اللي بياخد Ban كل شوية والتاجر يقعد
+// 24 ساعة مش عارف يرد على حد. القالب بيخلي الإرسال من رقم الـAPI بتاع المتجر.
+//
+// والأهم: القالب هو **الطريقة الوحيدة المسموحة** عند واتساب للكلام بره نافذة
+// الـ24 ساعة — والعميل اللي مردش على التليفون غالباً مبعتش حاجة أصلاً، فنافذته
+// مقفولة. `wa-send` بترفض ده صح، وعشان كده القالب في Edge Function لوحدها.
+//
+// التاجر اللي مالوش قالب مظبوط (Trendose والباقي) بيفضل على اللينك القديم زي
+// ما هو — ميزة ناقصة أحسن من زرار بيرمي خطأ.
+
+export function waFollowupReady(o){
+  return !!(o && currentTenant
+    && currentTenant.wa_followup_template
+    && currentTenant.wa_followup_body
+    && normalizePhone(o.phone));
+}
+
+// رسم القالب للمعاينة. **نفس منطق `renderTemplate` في `wa-followup`**: لفة
+// واحدة بـregex — لا `replaceAll` (الـ`$` في اسم المنتج ليه معنى خاص في نص
+// البديل فبيتشوّه) ولا تعويض على مراحل (قيمة جوّاها `{{2}}` كانت هتتعوّض هي كمان).
+export function waFollowupPreview(o){
+  var body=(currentTenant && currentTenant.wa_followup_body)||'';
+  // الترتيب والقيم لازم يطابقوا الـEdge Function بالحرف — هي اللي بتبعت فعلاً،
+  // ودي **معاينة** بس. اختلاف هنا = الموظف بيوافق على نص غير اللي هيوصل العميل.
+  var vals=[ firstName(o.customer_name)||'حضرتك',
+             String(o.order_uid==null?'':o.order_uid).trim()||'—',
+             (o.product_name||'').trim()||'—' ];
+  return body.replace(/\{\{([1-9]\d?)\}\}/g,function(m,i){
+    var v=vals[Number(i)-1];
+    return v===undefined?m:v;
+  });
+}
+
+export function waFollowupFlow(){
+  var o=sel; if(!o) return;
+  if(!waFollowupReady(o)){ toast('قالب المتابعة مش مظبوط للمتجر','er'); return; }
+
+  var sentBefore=o.wa_followup_sent_at
+    ? '\n\n⚠️ اتبعتله متابعة قبل كده: '+fmtD(o.wa_followup_sent_at) : '';
+
+  showModal({
+    icon:'📩',
+    title:'إرسال رسالة متابعة للعميل؟',
+    // النص المرسوم بالكامل — الموظف بيوافق على اللي العميل هيقراه فعلاً مش على
+    // «رسالة متابعة». وبتتبعت بفلوس، فالغموض هنا غالي.
+    sub:'الرسالة اللي هتوصل العميل:\n\n«'+waFollowupPreview(o)+'»\n\n'
+       +'هتخرج من رقم واتساب المتجر (مش من موبايلك)، وهتظهر في الشاتات.'+sentBefore,
+    okLabel:'ابعت الرسالة',
+    onOk:function(){ sendWaFollowup(o); }
+  });
+}
+
+function sendWaFollowup(o){
+  if(!sb){ toast('غير متصل بالسيرفر','er'); return; }
+  var btn=$id('wa-follow-btn');
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; }
+  sb.functions.invoke('wa-followup',{ body:{ order_id:o.id } }).then(function(r){
+    var d=(r&&r.data)||null;
+    if(d&&d.ok){
+      // الصف بيتحدّث محلياً عشان العلامة تبان من غير جولة سيرفر تانية
+      patchOrderField(o.id,{wa_followup_sent_at:d.sent_at});
+      toast('الرسالة اتبعتت ✓','ok');
+      if(sel&&sel.id===o.id) renderDetail();
+      return;
+    }
+    if(btn){ btn.disabled=false; btn.style.opacity=''; }
+    var e=(d&&d.error)||'';
+    // 🔴 السبب الحقيقي بيتعرض زي ما هو: التاجر مايقدرش يصلّح إعداد مايعرفش إيه
+    // فيه. أشيع حالة متوقعة دلوقتي: القالب لسه «In review» عند ميتا.
+    if(e==='too_soon')            toast('اتبعتت من ثواني — استنى شوية قبل ما تبعت تاني','er');
+    else if(e==='no_template'||e==='no_template_body') toast('قالب المتابعة مش مظبوط في إعدادات المتجر','er');
+    else if(e==='no_wa_config')   toast('واتساب مش مربوط للمتجر','er');
+    else if(e==='bad_phone')      toast('رقم العميل مش مفهوم — راجع الموبايل','er');
+    else if(e==='not_allowed')    toast('الأوردر ده مش بتاع متجرك','er');
+    else if(e==='template_failed')toast('واتساب رفض الرسالة: '+((d&&d.detail)||'سبب غير معروف'),'er');
+    else                          toast('الرسالة ماتبعتتش — حاول تاني','er');
+  }).catch(function(err){
+    if(btn){ btn.disabled=false; btn.style.opacity=''; }
+    swallow('waFollowup/invoke',err);
+    toast('الرسالة ماتبعتتش — حاول تاني','er');
+  });
 }
 
 export function openDetail(id){
@@ -234,7 +321,13 @@ export function renderDetail(){
 
   $id('dcnt').innerHTML=
     // WhatsApp button at top
-    (waUrl?'<a class="wa-btn" id="wa-btn" href="'+esc(waUrl)+'" target="_blank" rel="noopener"><span class="wa-ico">📩</span> إرسال رسالة واتساب للعميل</a>':'')
+    // 🔴 القالب **بيستبدل** اللينك الشخصي مايتعرضش جنبه: وجود الاتنين معناه
+    // الموظف هيدوس على اللي اتعوّد عليه ويرجع يبعت من موبايله — وده اللي
+    // الميزة كلها اتعملت تمنعه.
+    (waFollowupReady(o)
+      ? '<button class="wa-btn" id="wa-follow-btn"><span class="wa-ico">📩</span> إرسال رسالة متابعة للعميل</button>'
+        +(o.wa_followup_sent_at?'<div class="wa-sent-note">✓ اتبعتت متابعة: '+esc(fmtD(o.wa_followup_sent_at))+'</div>':'')
+      : (waUrl?'<a class="wa-btn" id="wa-btn" href="'+esc(waUrl)+'" target="_blank" rel="noopener"><span class="wa-ico">📩</span> إرسال رسالة واتساب للعميل</a>':''))
     +cxBanner
     +vipBanner
 
@@ -396,6 +489,7 @@ export function renderDetail(){
   $id('da-ok').addEventListener('click',function(){doUpdate('confirmed');});
   if($id('da-bs'))$id('da-bs').addEventListener('click',function(){manualShipFlow();});
   wireShipControls();
+  if($id('wa-follow-btn'))$id('wa-follow-btn').addEventListener('click',function(){waFollowupFlow();});
   $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);});});
   $id('da-up').addEventListener('click',function(){
     var v=$id('dsel').value;

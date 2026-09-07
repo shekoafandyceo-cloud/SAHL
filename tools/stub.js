@@ -27,6 +27,7 @@
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
       has_upsell:false, shipping_requested_at:null, line_prices:null,
+      wa_followup_sent_at:null,
       'var':null, manufacturer_note:null, manufacturer_cost:null
     }, o);
   }
@@ -84,6 +85,10 @@
     if(table === 'v_my_tenant'){
       // زرار «شحن أوتوماتيك» بيقرا العمود ده — الاختبار بيطفيه بـ__SHIP_API=false
       rows = rows.map(function(t){ return Object.assign({}, t, { has_shipping_api: window.__SHIP_API !== false }); });
+      // إعدادات المتجر اللي الاختبار عايز يزوّدها (قالب المتابعة مثلاً).
+      // الافتراضي **فاضي** عن قصد: من غيره كل اختبار قديم كان هيلاقي إعداد
+      // مالوش لازمة عنده. وبيتقرا وقت الاستعلام مش وقت التحميل.
+      if(window.__TENANT) rows = rows.map(function(t){ return Object.assign({}, t, window.__TENANT); });
     }
     if(table === 'orders'){
       // شارة الـupsell: الاختبار بيحقن `window.__UPSELL_IDS` وإحنا بنقراها **وقت
