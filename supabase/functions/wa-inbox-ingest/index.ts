@@ -71,13 +71,27 @@ async function applyReferral(
   sb: any, conversationId: string, firstTs: string | null, last: any, lastTs: string | null,
 ): Promise<void> {
   const stamp = lastTs || new Date().toISOString();
-  await sb.from("wa_conversations").update({
-    ctwa_clid:        asText(last?.ctwa_clid),
-    ctwa_ad_id:       asText(last?.source_id),
-    ctwa_headline:    asText(last?.headline),
-    ctwa_source_type: asText(last?.source_type),
-    ctwa_last_at:     stamp,
-  }).eq("id", conversationId);
+
+  // 🔴 حقل غايب **مامعناهوش «امسح اللي عندك»**.
+  // النسخة الأولى كانت بتبعت كل الحقول مع بعض، فـ`asText(undefined)` بترجع null
+  // والـUPDATE بيدعس القيمة المحفوظة. وده بيضيّع `ctwa_clid` **للأبد**:
+  // توثيق ميتا بيقول حرفياً إن الحقل ده «omitted entirely for messages
+  // originating from an ad in WhatsApp Status» — وStatus بيتحط تلقائي في
+  // Advantage+ placements. فالسيناريو: العميل يدوس إعلان في الفيد (clid اتسجّل)
+  // → بعدين يدوس إعلان في الـStatus (referral من غير clid) → الـclid يتمسح →
+  // Conversions API مايقدرش ينسب الأوردر للإعلان. وميتا بتبعت الـclid **مرة
+  // واحدة بس** بعد الضغط، فمفيش طريقة نجيبه تاني.
+  // (اتقاس: UPDATE بالشكل القديم حوّل clid من قيمة لـNULL في ترانزاكشن راجعة.)
+  const patch: Record<string, string> = { ctwa_last_at: stamp };
+  const keep = (col: string, v: unknown) => {
+    const t = asText(v);
+    if (t !== null) patch[col] = t;   // موجود → بيستبدل · غايب → القديم بيفضل
+  };
+  keep("ctwa_clid",        last?.ctwa_clid);
+  keep("ctwa_ad_id",       last?.source_id);
+  keep("ctwa_headline",    last?.headline);
+  keep("ctwa_source_type", last?.source_type);
+  await sb.from("wa_conversations").update(patch).eq("id", conversationId);
 
   // أول مرة بس — لو العميل رجع من إعلان تاني مابنمسحش تاريخ أول دخول
   await sb.from("wa_conversations")
@@ -158,9 +172,9 @@ async function processPayload(payload: any, secret: string): Promise<void> {
     const ts = m?.timestamp ? new Date(Number(m.timestamp) * 1000).toISOString() : null;
     // «رد على رسالة»: واتساب بيبعت context.id = معرّف الرسالة المقتبسة.
     // بنخزّن المعرّف بس — واتساب **مابيبعتش نص** الرسالة المقتبسة،
-    // فالواجهة بتحلّه من الرسايل المحمّلة. ولو مالقتهاش (رسالة أقدم من
-    // الـ500، أو رسالة تأكيد آلية من n8n مش متسجّلة عندنا) بتقول «رد على
-    // رسالة أقدم» من غير ما تخترع نص.
+    // فالواجهة بتحلّه من الرسايل المحمّلة في الشات. ولو مالقتهاش (رسالة
+    // أقدم من المحمّل، أو رسالة تأكيد آلية من n8n مش متسجّلة عندنا)
+    // بتقول «رد على رسالة أقدم» من غير ما تخترع نص.
     const replyTo: string | null = m?.context?.id ?? null;
     // referral موجود بس لو الرسالة جاية من إعلان CTWA
     const referral = m?.referral ?? null;
