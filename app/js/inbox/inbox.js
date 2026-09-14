@@ -147,6 +147,30 @@ export function waSetFilter(f){
   renderConvos();
 }
 
+// شارة «جه من إعلان» — البيانات من wa_conversations.ctwa_* اللي
+// كانت بتوصل المتصفح وتترمي. 🔴 **العنوان بس — مفيش معرّف إعلان**
+// (قرار المالك 14 سبتمبر): الموظف بيرد على عميل، مش بيحلل حملات.
+export function waCtwaText(c){
+  if(!c) return '';
+  var h=String(c.ctwa_headline==null?'':c.ctwa_headline).trim();
+  if(h) return h;
+  // فيه إعلان بس من غير عنوان — ميتا مش دايماً بتبعت headline.
+  // بنقول الحقيقة من غير عنوان مخترع (نفس قاعدة «رد على رسالة أقدم»).
+  if(c.ctwa_ad_id||c.ctwa_clid) return 'جه من إعلان';
+  return '';
+}
+
+// بتتنادى من فتح المحادثة **ومن renderConvos** — العميل ممكن يدوس على
+// الإعلان والشات مفتوح قدام الموظف، فالشارة لازم تظهر مع أول جلب مش عند إعادة الفتح.
+export function waUpdateCtwa(c){
+  var box=$id('wa-chat-ctwa'); if(!box) return;
+  var t=waCtwaText(c);
+  if(!t){ box.style.display='none'; box.textContent=''; box.removeAttribute('title'); return; }
+  box.style.display='';
+  box.textContent='📣 '+t;
+  box.title='العميل دخل من إعلان واتساب';
+}
+
 export function renderConvos(){
   var body=$id('wa-list-body'); if(!body) return;
   var totalUnread=0, unreadConvs=0, labelCounts={};
@@ -185,6 +209,7 @@ export function renderConvos(){
         +'<div class="wa-conv-top"><span class="wa-conv-name">'+esc(name)+'</span><span class="wa-conv-time">'+esc(waTimeShort(c.last_message_at))+'</span></div>'
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
+        +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="العميل دخل من إعلان واتساب">📣 <span>'+esc(waCtwaText(c))+'</span></div>'):'')
       +'</div></div>';
   }
   // مؤشر النقص: القايمة عند السقف = فيه أقدم مش معروض ولا بيدخل البحث
@@ -192,7 +217,7 @@ export function renderConvos(){
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
   for(var j=0;j<items.length;j++){ items[j].addEventListener('click',function(){ openConversation(this.getAttribute('data-id')); }); }
-  if(waActiveId){ var ac=waConvos.filter(function(x){return x.id===waActiveId;})[0]; if(ac) waUpdateWindow(ac); }
+  if(waActiveId){ var ac=waConvos.filter(function(x){return x.id===waActiveId;})[0]; if(ac){ waUpdateWindow(ac); waUpdateCtwa(ac); } }
 }
 
 export function openConversation(id){
@@ -206,6 +231,8 @@ export function openConversation(id){
     $id('wa-chat-phone').textContent=c.customer_phone||c.wa_id;
     $id('wa-chat-avatar').textContent=waInitials(c.customer_name,c.customer_phone||c.wa_id);
   }
+  // محادثة مش موجودة في القايمة = مفيش شارة، مش شارة اللي قبليها
+  waUpdateCtwa(c);
   renderConvos();
   // فقاعات optimistic لسه شغالة (صورة بتترفع): المسح المباشر بـinnerHTML
   // كان بيرمي الـDOM من غير revoke فالـobjectURL يفضل معلّق في الذاكرة

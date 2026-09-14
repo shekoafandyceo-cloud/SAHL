@@ -133,6 +133,60 @@
     });
   }
 
+  // صندوق المحادثات — 4 محادثات بتغطي الحالات اللي المالك محتاج يشوفها:
+  // إعلان بعنوان · محادثة عادية · إعلان من غير عنوان · محادثة اتعملت مع الأوردر
+  // ولسه مفيهاش رسايل. 🔴 معرّف الإعلان موجود في الداتا عمداً — الواجهة
+  // المفروض **ماتعرضهوش**، فلو بان في المعاينة يبقى فيه حاجة غلط.
+  var WA_CONVOS = [
+    { id:'wc1', tenant_id:TENANT, wa_id:'201001234501', customer_name:'منى عبد الرحمن',
+      customer_phone:'01001234501', last_message_at:iso(0,13,40), last_inbound_at:iso(0,13,40),
+      last_message_text:'الترولي ده متاح بكام؟', last_message_type:'text', last_direction:'in',
+      unread_count:2, status:'open', labels:['مهتم'], note:null, created_at:iso(1,10,0),
+      ctwa_clid:'ARBxq9…preview', ctwa_ad_id:'120212345678900123',
+      ctwa_headline:'خصم 30% على ترولي المطبخ 5 أدوار',
+      ctwa_source_type:'ad', ctwa_first_at:iso(1,10,0), ctwa_last_at:iso(0,13,40) },
+    { id:'wc2', tenant_id:TENANT, wa_id:'201001234502', customer_name:'سارة إبراهيم',
+      customer_phone:'01001234502', last_message_at:iso(0,11,5), last_inbound_at:iso(0,11,5),
+      last_message_text:'تمام، مستنياه', last_message_type:'text', last_direction:'out',
+      unread_count:0, status:'open', labels:null, note:null, created_at:iso(3,10,0),
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_source_type:null,
+      ctwa_first_at:null, ctwa_last_at:null },
+    { id:'wc3', tenant_id:TENANT, wa_id:'201001234503', customer_name:'هدى مصطفى',
+      customer_phone:'01001234503', last_message_at:iso(1,19,20), last_inbound_at:iso(1,19,20),
+      last_message_text:'عايزة أطلب', last_message_type:'text', last_direction:'in',
+      unread_count:0, status:'open', labels:null, note:null, created_at:iso(1,19,0),
+      ctwa_clid:'ARZm4…preview', ctwa_ad_id:'120298765432100987', ctwa_headline:null,
+      ctwa_source_type:'ad', ctwa_first_at:iso(1,19,0), ctwa_last_at:iso(1,19,20) },
+    { id:'wc4', tenant_id:TENANT, wa_id:'201001234504', customer_name:'نورهان سيد',
+      customer_phone:'01001234504', last_message_at:iso(0,9,30), last_inbound_at:null,
+      last_message_text:null, last_message_type:null, last_direction:null,
+      unread_count:0, status:'open', labels:null, note:null, created_at:iso(0,9,30),
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_source_type:null,
+      ctwa_first_at:null, ctwa_last_at:null }
+  ];
+  var WA_MSGS = [
+    { id:'wm1', tenant_id:TENANT, conversation_id:'wc1', direction:'in', type:'text',
+      body:'شفت الإعلان على فيسبوك', is_read:true, created_at:iso(0,13,38),
+      wa_timestamp:iso(0,13,38), status:null, wa_message_id:'wamid.p1' },
+    { id:'wm2', tenant_id:TENANT, conversation_id:'wc1', direction:'out', type:'text',
+      body:'أهلاً بحضرتك 👋 تحت أمرك', is_read:true, created_at:iso(0,13,39),
+      wa_timestamp:iso(0,13,39), status:'read', sent_by:'s2', sent_by_name:'سارة إبراهيم',
+      wa_message_id:'wamid.p2' },
+    { id:'wm3', tenant_id:TENANT, conversation_id:'wc1', direction:'in', type:'text',
+      body:'الترولي ده متاح بكام؟', is_read:false, created_at:iso(0,13,40),
+      wa_timestamp:iso(0,13,40), status:null, wa_message_id:'wamid.p3', reply_to_wa_id:'wamid.p2' },
+    { id:'wm4', tenant_id:TENANT, conversation_id:'wc2', direction:'in', type:'text',
+      body:'الأوردر وصل إمتى؟', is_read:true, created_at:iso(0,11,0),
+      wa_timestamp:iso(0,11,0), status:null, wa_message_id:'wamid.p4' },
+    { id:'wm5', tenant_id:TENANT, conversation_id:'wc2', direction:'out', type:'text',
+      body:'تمام، مستنياه', is_read:true, created_at:iso(0,11,5),
+      wa_timestamp:iso(0,11,5), status:'delivered', sent_by:'s3', sent_by_name:'عمر حسن',
+      wa_message_id:'wamid.p5' },
+    { id:'wm6', tenant_id:TENANT, conversation_id:'wc3', direction:'in', type:'text',
+      body:'عايزة أطلب', is_read:true, created_at:iso(1,19,20),
+      wa_timestamp:iso(1,19,20), status:null, wa_message_id:'wamid.p6' }
+  ];
+
   var TABLES = {
     user_profiles: [{ id:UID, tenant_id:TENANT, role:'admin', active:true, full_name:'أدمن المعاينة', is_super_admin:false }],
     v_my_tenant: [{ id:TENANT, slug:'preview', store_name:'متجر المعاينة', active:true, plan:'payg',
@@ -178,7 +232,7 @@
     v_stock_products: STOCK,
     stock_products: STOCK,
     stock_movements: MOVES,
-    wa_conversations: [], wa_messages: [], wa_quick_replies: [],
+    wa_conversations: WA_CONVOS, wa_messages: WA_MSGS, wa_quick_replies: [],
     plans: [], wallet_transactions: [], topup_requests: [], expenses: [],
     platform_settings: [{ key:'telegram_bot_username', value:'sahl_operations_bot' },
                         { key:'vfcash_number', value:'01000000000' }]
@@ -229,6 +283,11 @@
       if(st.eqPhone)  rows = rows.filter(function(o){ return o.phone === st.eqPhone; });
       rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     }
+    // رسايل الشات: من غير الفلتر ده كل محادثة كانت بتعرض رسايل كل المحادثات
+    if(t === 'wa_messages'){
+      if(st.eqConv) rows = rows.filter(function(m){ return m.conversation_id === st.eqConv; });
+      rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
+    }
     if(t === 'stock_movements') rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     return rows;
   }
@@ -242,7 +301,7 @@
           if(m === 'select') st.cols = a;
           if(m === 'gte' && a === 'created_at') st.gte = b;
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
-          if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; }
+          if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
           return api;
         };
@@ -346,7 +405,9 @@
       return Promise.resolve({ data:{ ok:true }, error:null });
     }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
-      if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:false, has_number:false, has_token:false, sahl_ready:false, wa_enabled:true }, error:null });
+      // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
+      // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
+      if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:true, has_number:true, has_token:true, sahl_ready:false, wa_enabled:true }, error:null });
       if(name === 'get_notify_prefs')  return Promise.resolve({ data:{}, error:null });
       return Promise.resolve({ data:null, error:null });
     },
