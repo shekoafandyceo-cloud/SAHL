@@ -1150,6 +1150,36 @@ def check_agents_md():
         err((out.stdout or out.stderr or u"").strip() or u"AGENTS.md \u0645\u0646\u062d\u0631\u0641 \u0639\u0646 CLAUDE.md")
 
 
+def check_functions_mirror():
+    """مرآة `supabase/functions/` — ترميز سليم · مفيش أسرار · العقود موجودة.
+
+    🔴 المرآة مش مصدر — الحقيقة على Supabase. فالفحص ده مابيقارنش
+    بالحيّ (مفيش CLI ولا توكن هنا) — بيمسك فساد النقل: ترميز مكسور
+    (حصل في wa-inbox-ingest v7) · ملف مقصوص · سر متحقون · نسخة قديمة."""
+    print(u"\u2500\u2500 مرآة Edge Functions")
+    chk = os.path.join(ROOT, "tools", "check-functions.py")
+    if not os.path.exists(chk):
+        err(u"tools/check-functions.py مش موجود")
+        return
+    try:
+        out = subprocess.run([sys.executable, chk],
+                             capture_output=True, text=True, cwd=ROOT, timeout=60)
+    except Exception as e:
+        err(u"ماقدرتش أشغّل check-functions.py — %s" % e)
+        return
+    body = (out.stdout or u"").rstrip()
+    if out.returncode == 0:
+        tail = [l for l in body.splitlines() if l.strip()]
+        ok(u"الـ%d دالة سليمة وكل العقود الموثّقة موجودة" % (len(tail) - 1))
+    else:
+        for line in body.splitlines():
+            if u"\u2717" in line or line.strip().startswith(u"✗"):
+                err(line.strip().lstrip(u"✗ "))
+        if not errors:
+            err(u"مرآة Edge Functions فشلت من غير تفصيل")
+
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -1164,6 +1194,8 @@ def main():
     check_route_pages()
     print()
     check_agents_md()
+    print()
+    check_functions_mirror()
     print()
     if errors:
         print("❌ %d مشكلة — ماتنشرش" % len(errors))
