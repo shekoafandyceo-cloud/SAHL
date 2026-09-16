@@ -414,6 +414,10 @@ export function openConversation(id){
   if($id('wa-input')){ $id('wa-input').value=''; $id('wa-input').style.height='auto'; }
   // 🔴 اقتباس من محادثة قديمة في محادثة جديدة = رد على رسالة مش موجودة
   waClearReplyTo();
+  // 🔴 ونفس الحكاية للرد الجاهز المحضّر: تختار رد بصور، تفتح محادثة
+  // تانية، تدوس إرسال — فيروح لعميل تاني خالص. والسيرفر **مش** هيرفضه
+  // (المسارات بتاعة نفس المتجر)، فالحارس هنا هو الوحيد.
+  waClearPendingQr();
 }
 
 // جيل جلب الرسائل — الحارس القديم (convId===waActiveId) بيحمي من محادثة
@@ -600,7 +604,7 @@ export function waUpdateWindow(c){
   if(row) row.style.display=open?'flex':'none';
   // المعاينة جزء من الكتابة — لو الكتابة مقفولة تختفي معاها بدل ما تفضل
   // معلّقة فوق بانر «مش هتقدر ترد»
-  if(!open) waClearReplyTo();
+  if(!open){ waClearReplyTo(); waClearPendingQr(); }
 }
 
 export function waPickImage(e){
@@ -609,6 +613,7 @@ export function waPickImage(e){
   if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); e.target.value=''; return; }
   if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
   waPendingImage=f; waPendingDoc=null;
+  waClearPendingQr();   // مرفق بالإيد بيكسب على الرد الجاهز — نيّة أحدث
   var df=$id('wa-docfile'); if(df) df.value='';
   var prev=$id('wa-attach-preview');
   var url=URL.createObjectURL(f);
@@ -621,6 +626,7 @@ export function waPickImage(e){
 export function waPickFile(e){
   var f=e.target.files&&e.target.files[0];
   if(!f) return;
+  waClearPendingQr();   // مرفق بالإيد بيكسب على الرد الجاهز — نيّة أحدث
   // لو صورة، عاملها معاملة الصور (تظهر inline للعميل)
   if(/^image\//.test(f.type)){
     if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
@@ -682,6 +688,9 @@ export function waSend(){
   if(!waActiveId||!sb) return;
   var input=$id('wa-input');
   var text=(input.value||'').trim();
+  // رد جاهز بصور: مسار مستقل (صور بالتسلسل وبعدين الكلام) — بس من نفس
+  // الزرار عشان الموظف مايتعلمش سلوكين
+  if(waPendingQr){ waSendQuickReply(text); return; }
   if(!waPendingImage && !waPendingDoc && !text) return;
   var convAtSend=waActiveId;
   // 🔴 بنلقط الرد **قبل** ما نصفّره — الإرسال غير متزامن والموظف ممكن
@@ -702,6 +711,9 @@ export function waSend(){
     if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvById(convAtSend)); }
     else if(code==='upload'){ toast('فشل رفع الملف','er'); }
     else if(code==='bad_reply_target'){ toast('الرسالة اللي بتحاول ترد عليها مش في المحادثة دي','er'); }
+    // حارس مسار الميديا في `wa-send` (v8) — المفروض ماتوصلش للموظف أبداً
+    // لأن اللوحة بتبني المسار بنفسها، فظهورها معناها فيه حاجة غلط في الرفع
+    else if(code==='bad_media_path'){ toast('الملف مش من ملفات متجرك — جرّب ترفعه تاني','er'); }
     else if(code==='reply_failed'){ toast('واتساب رفض الرد على الرسالة دي (غالباً قديمة) — ابعتها كرسالة عادية','er'); }
     else { toast('الرسالة ماتبعتتش — حاول تاني','er'); }
     if(text && !$id('wa-input').value) $id('wa-input').value=text;
@@ -738,6 +750,69 @@ export function waSend(){
   } else {
     sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,text:text,reply_to:replyAtSend}}).then(done).catch(function(){ fail(''); });
   }
+}
+
+// 🔴 الإرسال **بالتسلسل** — `await` ورا بعض مش بالتوازي. لو خرجوا سوا،
+// ترتيب وصولهم عند العميل مش مضمون: الصورة التانية ممكن توصل قبل الأولى
+// والكلام قبل الصور. والترتيب هنا هو المعلومة نفسها (صور المنتج وبعدها
+// السعر).
+//
+// 🔴 والنص بيتبعت **رسالة مستقلة في الآخر** (قرار المالك 16 سبتمبر) مش
+// كـcaption على أول صورة.
+//
+// ⚠️ ولو صورة في النص وقعت، **بنقف** — مانكملش. العميل استلم صورتين من
+// تلاتة وكلام بيتكلم عن التالتة = رسالة بتلخبط أكتر من رسالة ماوصلتش،
+// والموظف بيشوف الغلط ويقرر.
+export function waSendQuickReply(text){
+  var convAtSend=waActiveId;
+  var med=waPendingQr.media.slice();
+  var replyAtSend=(waReplyTo && waReplyTo.wa_message_id) ? waReplyTo.wa_message_id : null;
+  var input=$id('wa-input');
+  if(input){ input.value=''; input.style.height='auto'; }
+  waClearPendingQr();
+  waClearReplyTo();
+  var btn=$id('wa-send-btn'); if(btn) btn.disabled=true;
+  var sent=0;
+  function done(){
+    if(btn) btn.disabled=false;
+    waFetchMessages(convAtSend,false,false);
+    waFetchConvos(false);
+  }
+  function fail(code){
+    if(btn) btn.disabled=false;
+    if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvById(convAtSend)); }
+    else if(code==='bad_media_path') toast('صور الرد الجاهز مش من ملفات متجرك — امسح الرد واعمله تاني','er');
+    else if(sent>0) toast('اتبعت '+sent+' من '+med.length+' صورة وبعدين وقف — الباقي مااتبعتش','er');
+    else toast('الرد الجاهز مااتبعتش — حاول تاني','er');
+    // اللي مااتبعتش بيرجع للخانة عشان الموظف يقرر — مش بيضيع في صمت
+    if(text && input && !input.value) input.value=text;
+    waFetchMessages(convAtSend,false,false);
+    waFetchConvos(false);
+  }
+  var i=0;
+  function next(){
+    if(waActiveId!==convAtSend){ done(); return; }   // الموظف بدّل المحادثة
+    if(i>=med.length){
+      if(!text){ done(); return; }
+      sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,text:text}})
+        .then(function(res){
+          var d=(res&&res.data)?res.data:null;
+          if(!d||!d.ok){ fail(d&&d.error?d.error:''); return; }
+          done();
+        }).catch(function(){ fail(''); });
+      return;
+    }
+    var m=med[i];
+    // الاقتباس على أول رسالة بس — رد على نفس الرسالة 3 مرات تزحّم الشات
+    var payload={conversation_id:convAtSend, image_path:m.path};
+    if(i===0 && replyAtSend) payload.reply_to=replyAtSend;
+    sb.functions.invoke('wa-send',{body:payload}).then(function(res){
+      var d=(res&&res.data)?res.data:null;
+      if(!d||!d.ok){ fail(d&&d.error?d.error:''); return; }
+      sent++; i++; next();
+    }).catch(function(){ fail(''); });
+  }
+  next();
 }
 
 // ----- realtime + عدّاد التبويب (مرحلة 3) -----
@@ -779,11 +854,18 @@ export var waQuickReplies=[];
 
 export function waLoadQuickReplies(){
   if(!sb||!currentTenantId) return;
-  sb.from('wa_quick_replies').select('id,body').eq('tenant_id',currentTenantId).order('sort',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
+  sb.from('wa_quick_replies').select('id,body,media').eq('tenant_id',currentTenantId).order('sort',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
     if(r.error) return;
     waQuickReplies=r.data||[];
     waRenderQuickReplies();
   });
+}
+
+// عدد صور الرد — الشكل المخزّن مصفوفة، والصف القديم بيرجّع `[]` من
+// الـdefault. أي قيمة مش مصفوفة بتتقري صفر بدل ما ترمي.
+export function waQrMedia(q){
+  var m=(q&&q.media);
+  return (m && m.length && typeof m.length==='number') ? m : [];
 }
 
 export function waRenderQuickReplies(){
@@ -791,18 +873,25 @@ export function waRenderQuickReplies(){
   var html='';
   for(var i=0;i<waQuickReplies.length;i++){
     var q=waQuickReplies[i];
-    html+='<span class="wa-qr" data-qid="'+esc(q.id)+'"><span class="wa-qr-txt">'+esc(q.body)+'</span><span class="wa-qr-del" data-del="'+esc(q.id)+'" title="حذف">✕</span></span>';
+    var med=waQrMedia(q);
+    var body=String(q.body==null?'':q.body).trim();
+    // رد صور بس: النص فاضي عن قصد (الـCHECK في الداتابيز بيسمح بده طالما
+    // فيه صور). شريحة من غير أي نص = شريحة مايعرفش حد هي إيه.
+    var label=body || (med.length?('صور بس ('+med.length+')'):'—');
+    html+='<span class="wa-qr" data-qid="'+esc(q.id)+'">'
+      +(med.length?('<span class="wa-qr-badge">📎'+med.length+'</span>'):'')
+      +'<span class="wa-qr-txt">'+esc(label)+'</span>'
+      +'<span class="wa-qr-del" data-del="'+esc(q.id)+'" title="حذف">✕</span></span>';
   }
   if(!waQuickReplies.length) html+='<span class="wa-qr-empty">مفيش ردود جاهزة لسه — اكتب رد واحفظه 👇</span>';
   html+='<button class="wa-qr-add" id="wa-qr-add">＋ احفظ اللي مكتوب</button>';
+  html+='<button class="wa-qr-add" id="wa-qr-new-media">🖼️ رد بصور</button>';
   p.innerHTML=html;
   var chips=p.querySelectorAll('.wa-qr');
   for(var j=0;j<chips.length;j++){
     chips[j].addEventListener('click',function(e){
       if(e.target && e.target.getAttribute && e.target.getAttribute('data-del')) return;
-      var qid=this.getAttribute('data-qid');
-      var item=waQuickReplies.filter(function(x){return x.id===qid;})[0];
-      if(item){ var inp=$id('wa-input'); if(inp){ inp.value=item.body; inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px'; inp.focus(); } }
+      waUseQuickReply(this.getAttribute('data-qid'));
     });
   }
   var dels=p.querySelectorAll('.wa-qr-del');
@@ -811,13 +900,168 @@ export function waRenderQuickReplies(){
   }
   var add=$id('wa-qr-add');
   if(add) add.addEventListener('click',waSaveQuickReply);
+  var addm=$id('wa-qr-new-media');
+  if(addm) addm.addEventListener('click',waQrEditorOpen);
+}
+
+// ----- استخدام رد جاهز -----
+// 🔴 **مفيش إرسال بضغطة واحدة.** الرد بصور بيتحط «محضّر» فوق خانة الكتابة
+// والموظف بيدوس إرسال — زي الواتساب بيزنس بالظبط. ضغطة واحدة كانت تبعت
+// 3 رسايل لعميل حقيقي من غير رجعة، والشريحة جنب شرايح تانية في لوحة
+// بتتفتح بضغطة.
+export var waPendingQr=null;
+
+export function waUseQuickReply(qid){
+  var item=waQuickReplies.filter(function(x){return x.id===qid;})[0];
+  if(!item) return;
+  var inp=$id('wa-input');
+  if(inp){ inp.value=String(item.body==null?'':item.body); inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px'; inp.focus(); }
+  var med=waQrMedia(item);
+  if(!med.length){ waClearPendingQr(); return; }
+  // مرفق مختار بالإيد + رد جاهز بصور = نيّتين مختلفتين على نفس الضغطة.
+  // آخر اختيار بيكسب، والتاني بيتشال **صراحةً** مش بيفضل معلّق.
+  waClearImage();
+  waPendingQr={ id:item.id, media:med.slice() };
+  waRenderPendingQr();
+}
+
+export function waClearPendingQr(){
+  waPendingQr=null;
+  var bar=$id('wa-qr-staged'); if(bar){ bar.style.display='none'; }
+  var body=$id('wa-qr-staged-body'); if(body) body.innerHTML='';
+}
+
+export function waRenderPendingQr(){
+  var bar=$id('wa-qr-staged'), body=$id('wa-qr-staged-body');
+  if(!bar||!body||!waPendingQr) return;
+  var med=waPendingQr.media;
+  body.innerHTML='<span class="wa-qr-staged-txt">🖼️ رد جاهز — '+med.length+' صورة هتتبعت قبل الكلام</span>';
+  bar.style.display='flex';
+  // المصغّرات بتتحل بروابط موقّعة زي أي ميديا تانية — الوسم بيتحط بعد
+  // ما الرابط ينزل عشان مايبانش مكسور (نفس فخ مصغّرة الرد المقتبس)
+  var paths=[];
+  for(var i=0;i<med.length;i++){ if(med[i] && med[i].path) paths.push(med[i].path); }
+  if(!paths.length || !sb) return;
+  sb.storage.from('wa-media').createSignedUrls(paths,3600).then(function(res){
+    if(!waPendingQr || !res || !res.data) return;
+    var imgs='';
+    for(var j=0;j<res.data.length;j++){
+      var u=res.data[j] && res.data[j].signedUrl;
+      if(u) imgs+='<img src="'+esc(u)+'" alt="">';
+    }
+    if(imgs) body.innerHTML=imgs+body.innerHTML;
+  });
+}
+
+// ----- محرر الرد بصور -----
+// الصور بتترفع **وقت الحفظ** مرة واحدة على `<tenant>/quick-replies/…`،
+// وبعدها كل إرسال بيستخدم نفس المسار — مفيش رفع مع كل رسالة.
+// (سياسة الـStorage الموجودة بتعزل بأول مجلد = المتجر، فمفيش سياسة جديدة.)
+var waQrEdFiles=[], waQrEdUrls=[];
+
+export function waQrEditorOpen(){
+  var ed=$id('wa-qr-editor'); if(!ed) return;
+  waQrEditorReset();
+  var t=$id('wa-qr-ed-text');
+  // اللي مكتوب في خانة الشات بيتنقل للمحرر — الموظف غالباً كاتب الرد فعلاً
+  var inp=$id('wa-input');
+  if(t){ t.value=inp?(inp.value||''):''; }
+  ed.style.display='block';
+  if(t) t.focus();
+}
+
+export function waQrEditorClose(){
+  var ed=$id('wa-qr-editor'); if(ed) ed.style.display='none';
+  waQrEditorReset();
+}
+
+function waQrEditorReset(){
+  // blob URLs المعاينة لازم تترجع وإلا بتتراكم مع كل فتح
+  for(var i=0;i<waQrEdUrls.length;i++){ try{ URL.revokeObjectURL(waQrEdUrls[i]); }catch(e){} }
+  waQrEdFiles=[]; waQrEdUrls=[];
+  var t=$id('wa-qr-ed-text'); if(t) t.value='';
+  var f=$id('wa-qr-ed-file'); if(f) f.value='';
+  waQrEditorThumbs();
+}
+
+export function waQrEditorPick(e){
+  var f=e.target.files&&e.target.files[0];
+  e.target.value='';
+  if(!f) return;
+  if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); return; }
+  if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); return; }
+  // السقف 5 — نفس الـCHECK في الداتابيز. كل صورة رسالة واتساب مستقلة
+  // (مفيش «ألبوم» في الـAPI)، فرد بـ12 صورة = 12 رسالة على العميل.
+  if(waQrEdFiles.length>=5){ toast('الحد 5 صور للرد الواحد','er'); return; }
+  waQrEdFiles.push(f);
+  waQrEdUrls.push(URL.createObjectURL(f));
+  waQrEditorThumbs();
+}
+
+function waQrEditorThumbs(){
+  var box=$id('wa-qr-ed-thumbs'); if(!box) return;
+  var html='';
+  for(var i=0;i<waQrEdUrls.length;i++){
+    html+='<span class="wa-qr-thumb"><img src="'+esc(waQrEdUrls[i])+'" alt="">'
+      +'<button class="wa-qr-thumb-x" data-idx="'+i+'" title="شيل">✕</button></span>';
+  }
+  box.innerHTML=html;
+  var xs=box.querySelectorAll('.wa-qr-thumb-x');
+  for(var j=0;j<xs.length;j++){
+    xs[j].addEventListener('click',function(){
+      var idx=parseInt(this.getAttribute('data-idx'),10);
+      if(isNaN(idx)) return;
+      try{ URL.revokeObjectURL(waQrEdUrls[idx]); }catch(e){}
+      waQrEdFiles.splice(idx,1); waQrEdUrls.splice(idx,1);
+      waQrEditorThumbs();
+    });
+  }
+}
+
+export function waQrEditorSave(){
+  if(!sb||!currentTenantId) return;
+  var t=$id('wa-qr-ed-text');
+  var body=t?(t.value||'').trim():'';
+  if(!body && !waQrEdFiles.length){ toast('اكتب نص أو ضيف صورة','er'); return; }
+  var btn=$id('wa-qr-ed-save');
+  if(btn){ btn.disabled=true; btn.textContent='بيحفظ…'; }
+  function fail(m){
+    if(btn){ btn.disabled=false; btn.textContent='احفظ الرد'; }
+    toast(m||'الحفظ مانفعش — حاول تاني','er');
+  }
+  // الرفع **بالتسلسل** عشان الترتيب اللي الموظف شافه في المحرر هو نفسه
+  // اللي العميل هيشوفه
+  var media=[], i=0;
+  function next(){
+    if(i>=waQrEdFiles.length){ save(); return; }
+    var f=waQrEdFiles[i];
+    var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
+    var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;
+    sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
+      if(up.error){ fail('فشل رفع الصورة'); return; }
+      media.push({path:path,mime:f.type,name:f.name});
+      i++; next();
+    }).catch(function(){ fail('فشل رفع الصورة'); });
+  }
+  function save(){
+    sb.from('wa_quick_replies').insert({tenant_id:currentTenantId,body:body,media:media})
+      .select('id,body,media').single().then(function(r){
+        if(btn){ btn.disabled=false; btn.textContent='احفظ الرد'; }
+        if(r.error){ toast('الحفظ مانفعش — حاول تاني','er'); return; }
+        waQuickReplies.push(r.data);
+        waQrEditorClose();
+        waRenderQuickReplies();
+        toast('الرد اتحفظ ✅','ok');
+      });
+  }
+  next();
 }
 
 export function waSaveQuickReply(){
   var inp=$id('wa-input'); var body=inp?(inp.value||'').trim():'';
   if(!body){ toast('اكتب الرد الأول في الخانة','er'); return; }
   if(!sb||!currentTenantId) return;
-  sb.from('wa_quick_replies').insert({tenant_id:currentTenantId,body:body}).select('id,body').single().then(function(r){
+  sb.from('wa_quick_replies').insert({tenant_id:currentTenantId,body:body,media:[]}).select('id,body,media').single().then(function(r){
     if(r.error){ toast('الحفظ مانفعش — حاول تاني','er'); return; }
     waQuickReplies.push(r.data); waRenderQuickReplies(); toast('اتحفظ كرد جاهز ✅','ok');
   });
@@ -971,7 +1215,15 @@ export function initInbox(){
   if($id('wa-input'))$id('wa-input').addEventListener('keydown',function(e){
     if(e.key==='Escape' && waReplyTo){ e.preventDefault(); waClearReplyTo(); }
   });
-  if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',function(){ var p=$id('wa-qr-panel'); if(p) p.classList.toggle('open'); });
+  if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',function(){
+    var p=$id('wa-qr-panel'); if(p) p.classList.toggle('open');
+    if(p && !p.classList.contains('open')) waQrEditorClose();
+  });
+  if($id('wa-qr-ed-cancel'))$id('wa-qr-ed-cancel').addEventListener('click',waQrEditorClose);
+  if($id('wa-qr-ed-addimg'))$id('wa-qr-ed-addimg').addEventListener('click',function(){ var f=$id('wa-qr-ed-file'); if(f) f.click(); });
+  if($id('wa-qr-ed-file'))$id('wa-qr-ed-file').addEventListener('change',waQrEditorPick);
+  if($id('wa-qr-ed-save'))$id('wa-qr-ed-save').addEventListener('click',waQrEditorSave);
+  if($id('wa-qr-staged-cancel'))$id('wa-qr-staged-cancel').addEventListener('click',waClearPendingQr);
   if($id('wa-docattach'))$id('wa-docattach').addEventListener('click',function(){ var f=$id('wa-docfile'); if(f) f.click(); });
   if($id('wa-docfile'))$id('wa-docfile').addEventListener('change',waPickFile);
   if($id('wa-label-btn'))$id('wa-label-btn').addEventListener('click',function(){ var lp=$id('wa-label-picker'); if(!lp) return; var show=lp.style.display==='none'; if(show){ var conv=waConvById(waActiveId); waRenderLabelPicker(conv); } lp.style.display=show?'flex':'none'; this.classList.toggle('on',show); });

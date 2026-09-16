@@ -77,7 +77,8 @@
     // والافتراضي [] عشان الاختبارات القديمة تفضل بنفس السلوك بالحرف.
     var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL',
-                wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS' };
+                wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS',
+                wa_quick_replies:'__QR' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -150,6 +151,7 @@
         if(m === 'select') st.cols = a;
         // تسجيل حمولة الكتابة — عشان الاختبارات تتأكد من اللي اتبعت فعلاً
         if(m === 'insert' || m === 'update' || m === 'upsert') st.payload = a;
+        if(m === 'insert') st.inserted = true;
         if(m === 'gte' && a === 'created_at') st.gte = {col:a, val:b};
         if(m === 'lt'  && a === 'created_at') st.lt  = {col:a, val:b};
         if(m === 'eq'  && a === 'status')     st.eqStatus = b;
@@ -168,6 +170,15 @@
       window.__calls.push(JSON.parse(JSON.stringify(st)));
       if(window.__failOrders && table === 'orders' && String(st.cols||'').indexOf('created_at') >= 0){
         return Promise.resolve({data:null, error:{message:'شبكة مقطوعة (اختبار)'}}).then(res);
+      }
+      // 🔴 `insert().select().single()` لازم يرجّع **الصف المُدخل**. الستب
+      // كان بيرجّع `rows[0]` يعني **صف قديم عشوائي** من نفس الجدول — أي
+      // اختبار بيقرا رد الإدخال كان بيشوف داتا مالهاش علاقة، وده بيخلي
+      // الفحص يعدّي أو يقع لأسباب مالهاش علاقة بالكود.
+      if(st.inserted && st.single){
+        var ins = st.payload && st.payload.length ? st.payload[0] : st.payload;
+        var row = Object.assign({id:'new-'+(window.__calls.length)}, ins||{});
+        return Promise.resolve({data: project([row], st.cols)[0], error:null}).then(res);
       }
       var rows = project(rowsFor(table, st), st.cols);
       var out = st.single ? {data: rows[0] || null, error:null} : {data: rows, error:null, count: rows.length};
@@ -227,7 +238,16 @@
         }
         return Promise.resolve({data: out, error: null});
       },
-      upload: function(){ return Promise.resolve({data:null, error:{message:'stub'}}); }
+      // ⚠️ الافتراضي **فشل** زي ما كان بالحرف. الاختبار اللي بيجرّب مسار
+      // رفع بيشغّل `window.__UPLOAD_OK=true`، والمسارات بتتسجّل في
+      // `__UPLOADS` عشان الفحص يتأكد من **شكل المسار** اللي اتبعت فعلاً
+      // (عزل المتجر بيعتمد على أول مجلد).
+      upload: function(path){
+        window.__UPLOADS = window.__UPLOADS || [];
+        window.__UPLOADS.push(path);
+        if(!window.__UPLOAD_OK) return Promise.resolve({data:null, error:{message:'stub'}});
+        return Promise.resolve({data:{path:path}, error:null});
+      }
     }; } },
     functions: { invoke: function(slug, opts){
       var body = (opts && opts.body) || {};

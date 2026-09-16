@@ -45,6 +45,22 @@ Deno.serve(async (req: Request) => {
     const conv = convRes.data;
     if (!conv) return J({ ok: false, error: "not_allowed" }, 403);
 
+    // 1أ‌ب) 🔴 **مسار الميديا جاي من المتصفح فمايتصدّقش.** الرابط الموقّع
+    // بيتعمل بـservice، يعني بيتخطى سياسة الـStorage اللي بتعزل بأول مجلد
+    // (= معرّف المتجر). من غير الحارس ده موظف يبعت مسار بتاع **متجر تاني**
+    // في `image_path`، وإحنا نوقّعه ونبعته لرقم هو بيتحكم فيه — تسريب
+    // ميديا بين التجار بضغطة. نفس منطق `bad_reply_target`: **رفض صريح**.
+    // (والمسارات اللي اللوحة بتبنيها كلها `<tenant_id>/…` أصلاً، سواء
+    // مرفق المحادثة أو صور الردود الجاهزة.)
+    const mediaPath = imagePath || documentPath;
+    if (mediaPath) {
+      const prefix = `${conv.tenant_id}/`;
+      if (typeof mediaPath !== "string" || !mediaPath.startsWith(prefix) || mediaPath.includes("..")) {
+        console.error("wa-send bad media path", String(mediaPath).slice(0, 80));
+        return J({ ok: false, error: "bad_media_path" }, 400);
+      }
+    }
+
     // 1ب) 🔴 مين اللي بيبعت؟ **من التوكن مش من الـbody**.
     // لو الاسم جه من الطلب، أي حد يقدر ينسب رسالته لزميله. والعمودين دول
     // متمنوعين على `authenticated` بصلاحيات الأعمدة، فده المسار الوحيد ليهم.

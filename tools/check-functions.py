@@ -155,6 +155,9 @@ CONTRACTS = [
      and '.eq("wa_message_id", replyTo)' in s),
     ("wa-send", u"النسبة من التوكن مش من الـbody",
      lambda s: "auth.getUser()" in s and "body?.sent_by" not in s),
+    ("wa-send", u"حارس مسار الميديا `bad_media_path` (عزل التجار)",
+     lambda s: "bad_media_path" in s and "mediaPath.startsWith(prefix)" in s
+     and "`${conv.tenant_id}/`" in s),
     ("wa-send", u"حارس نافذة الـ24 ساعة",
      lambda s: "window_closed" in s and "24 * 3600 * 1000" in s),
     ("wa-followup", u"الحمولة `order_id` بس — مفيش نص من المتصفح",
