@@ -117,6 +117,28 @@
       if(st.eqStatus) rows = rows.filter(function(o){ return o.status === st.eqStatus; });
       if(st.inStatus) rows = rows.filter(function(o){ return st.inStatus.indexOf(o.status) >= 0; });
     }
+    if(table === 'wa_conversations'){
+      // 🔴 نسخ الصفوف: PostgREST بيرجّع JSON جديد كل طلب، والستب كان
+      // بيرجّع **نفس المراجع** فأي خاصية الكود بيكتبها على صف بتظهر في
+      // نتيجة أي استعلام تاني — ستب بيخبّي ويكشف حاجات مش حقيقية.
+      rows = rows.map(function(c){ return Object.assign({}, c); });
+      // 🔴 والستب لازم يقطع **زي السيرفر**: من غير ده فلتر بيقرا من المحمّل
+      // وفلتر بيستعلم من السيرفر بيدّوا نفس النتيجة، والاختبار مايثبتش حاجة
+      // (درس 33 — ستب بيرجّع كل حاجة مهما طلب الكود = فحص أعمى).
+      if(st.or && st.or.indexOf('ctwa_') >= 0){
+        rows = rows.filter(function(c){
+          return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
+        });
+      }
+      if(st.order === 'last_message_at'){
+        var asc = !!(st.orderOpts && st.orderOpts.ascending);
+        rows.sort(function(a,b){
+          var r = String(a.last_message_at||'').localeCompare(String(b.last_message_at||''));
+          return asc ? r : -r;
+        });
+      }
+      if(st.limit) rows = rows.slice(0, st.limit);
+    }
     return rows;
   }
 
@@ -134,6 +156,9 @@
         if(m === 'eq'  && a === 'id')         st.eqId = b;
         if(m === 'in'  && a === 'status')     st.inStatus = b;
         if(m === 'range'){ st.from = a; st.to = b; }
+        if(m === 'order'){ st.order = a; st.orderOpts = b; }
+        if(m === 'limit'){ st.limit = a; }
+        if(m === 'or'){ st.or = a; }
         return api;
       };
     });

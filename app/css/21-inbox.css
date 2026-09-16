@@ -42,6 +42,7 @@
    مش يوسّع الهيدر ويزق زرار الرجوع برّه الشاشة على الموبايل */
 .wa-chat-id{min-width:0;}
 .wa-ctwa{display:inline-flex;align-items:center;max-width:100%;margin-top:3px;padding:1px 8px;border-radius:999px;background:#eef4ff;border:1px solid #cddffb;color:#1d4ed8;font-size:.68rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wa-fad.active{background:#1d4ed8;border-color:#1d4ed8;}
 .wa-conv-ctwa{display:flex;align-items:center;gap:3px;margin-top:3px;min-width:0;font-size:.66rem;font-weight:800;color:#1d4ed8;}
 .wa-conv-ctwa span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 /* الشارة بقت لينك لما يكون فيه source_url — ومن غيره عنصر <a> بلا href

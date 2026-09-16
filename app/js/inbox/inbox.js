@@ -50,6 +50,9 @@ export function loadInbox(){
   waEnsureNotifyPermission();
   waLoadQuickReplies();
   waBuildFilters();
+  // عدّاد شارة الإعلانات لازم يبقى صح **من أول رسمة** مش بعد الضغط —
+  // رقم على الـchip بيتغير لما تدوس عليه = رقم بيكدب قبل الضغطة.
+  waFetchAdConvos();
   waFetchConvos(true);
   if(waPollTimer) clearInterval(waPollTimer);
   waPollTimer=setInterval(function(){
@@ -103,6 +106,7 @@ export var waSearchQuery='', waFilter='all';
 
 export function waConvMatches(c){
   if(waFilter==='unread' && !((c.unread_count||0)>0)) return false;
+  if(waFilter==='ctwa' && !waIsFromAd(c)) return false;
   if(waFilter.indexOf('label:')===0){
     var want=waFilter.slice(6);
     if(!(c.labels && c.labels.indexOf(want)>=0)) return false;
@@ -122,7 +126,10 @@ export function waConvMatches(c){
 export function waBuildFilters(){
   var box=$id('wa-filters'); if(!box) return;
   var html='<button class="wa-filter'+(waFilter==='all'?' active':'')+'" data-f="all">الكل</button>'
-    +'<button class="wa-filter'+(waFilter==='unread'?' active':'')+'" id="wa-filter-unread" data-f="unread">غير مقروءة</button>';
+    +'<button class="wa-filter'+(waFilter==='unread'?' active':'')+'" id="wa-filter-unread" data-f="unread">غير مقروءة</button>'
+    // 📣 chip نظام مش تصنيف — بيتحسب من أعمدة `ctwa_*` مش من `labels[]`
+    +'<button class="wa-filter wa-fad'+(waFilter==='ctwa'?' active':'')+'" id="wa-filter-ctwa" data-f="ctwa"'
+    +' title="المحادثات اللي العميل دخلها من إعلان Click-to-WhatsApp">📣 جه من إعلان</button>';
   for(var i=0;i<WA_LABELS.length;i++){
     var L=WA_LABELS[i]; var fv='label:'+L.k; var on=(waFilter===fv);
     html+='<button class="wa-filter wa-flabel'+(on?' active':'')+'" data-f="'+esc(fv)+'" data-label="'+esc(L.k)+'"'+(on?(' style="background:'+L.c+';border-color:transparent;color:#fff"'):'')+'>'+esc(L.k)+'</button>';
@@ -134,6 +141,10 @@ export function waBuildFilters(){
 
 export function waSetFilter(f){
   waFilter=f;
+  // الجلب عند التبديل بس — الصفوف الأقدم من أحدث 200 مابتتغيرش كتير،
+  // والـpoll العادي (كل 20 ثانية) بيجيب أي محادثة إعلان جديدة لأنها بتبقى
+  // في الأحدث أصلاً.
+  if(f==='ctwa') waFetchAdConvos();
   var chips=document.querySelectorAll('#wa-filters .wa-filter');
   for(var i=0;i<chips.length;i++){
     var fv=chips[i].getAttribute('data-f'); var on=(fv===f);
@@ -228,20 +239,86 @@ export function waUpdateCtwa(c){
   }
 }
 
+// ----- فلتر «جه من إعلان» -----
+// 🔴 ده **مش label**: الـlabels بيكتبها الموظف في `labels[]`، وأعمدة
+// `ctwa_*` مقفولة عن المتصفح عمداً (14 سبتمبر) عشان النسبة ماتتزوّرش.
+// فهو chip نظام زي «غير مقروءة» — مالوش مدخل في `WA_LABELS` ولا في
+// `waToggleLabel`.
+//
+// 🔴 الشرط بيطابق **اللي الشارة بتظهر عليه** بالحرف + `ctwa_first_at`
+// (العلامة الوحيدة اللي `applyReferral` بتكتبها مع أي referral مهما كانت
+// الحقول التانية فاضية). لو الشرطين اتفرّقوا، هتلاقي محادثة عليها شارة 📣
+// ومش بتظهر في الفلتر — وده فلتر بيكدب.
+export function waIsFromAd(c){
+  return !!(c && (c.ctwa_first_at || c.ctwa_ad_id || c.ctwa_clid || c.ctwa_ad_body || c.ctwa_headline));
+}
+
+// نفس الشرط بلغة PostgREST — **لازم يفضلوا متطابقين**
+var WA_AD_OR = 'ctwa_first_at.not.is.null,ctwa_ad_id.not.is.null,ctwa_clid.not.is.null,ctwa_ad_body.not.is.null,ctwa_headline.not.is.null';
+
+// 🔴 القايمة بتجيب **أحدث 200 محادثة بس** (`waFetchConvos`)، والفلترة
+// بتحصل على المحمّل في الذاكرة. يعني فلتر يقرا من `waConvos` لوحدها
+// بيقول «عندك محادثتين من إعلان» والداتابيز فيها 9 — **والباقي بيختفي في
+// صمت** (درس 6: الفلترة والترتيب مرتبطين). فالفلتر ده بيستعلم من
+// **السيرفر** بشرطه، والنتيجة بتتحط في مصفوفة **منفصلة**.
+//
+// ⚠️ **ومابتتدمجش في `waConvos`.** جرّبنا الدمج وطلع إن ترتيب وصول
+// الاستعلامين هو اللي بيحدد النتيجة: الإعلانات لو نزلت الأول بتتعلّم
+// «إضافية»، وبعدين الجلب العادي بيجيب نفس الصفوف ضمن الـ200 فتتشال منه —
+// واختفت محادثتين من القايمة العادية في الاختبار. بالفصل، `waConvos`
+// بتفضل **نسخة السيرفر زي ما هي** فعدّادات غير المقروء والتصنيفات وشارة
+// القايمة الجانبية مالهاش أي علاقة بالفلتر ده.
+export var waAdExtra=[], waAdCapped=false;
+
+// 🔴 البحث بالـid لازم يشوف الاتنين: صف من الفلتر مالوش مدخل هنا، الضغط
+// عليه بيفتح الشات وهيدره فاضل بتاع المحادثة اللي قبلها — اسم عميل فوق
+// شات عميل تاني (نفس عيلة «الشارة المعلّقة» اللي اتصلحت 14 سبتمبر).
+export function waConvById(id){
+  if(!id) return undefined;
+  for(var i=0;i<waConvos.length;i++){ if(waConvos[i].id===id) return waConvos[i]; }
+  for(var j=0;j<waAdExtra.length;j++){ if(waAdExtra[j].id===id) return waAdExtra[j]; }
+  return undefined;
+}
+
+export function waFetchAdConvos(){
+  if(!sb||!currentTenantId) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
+    .or(WA_AD_OR)
+    .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200)
+    .then(function(r){
+      if(r.error) return;   // الفلتر بيفضل على المحمّل — أحسن من قايمة فاضية
+      waAdExtra=r.data||[];
+      waAdCapped=(waAdExtra.length===200);
+      // لو الجلب الأساسي لسه مانزلش، الرسم هنا بيعرض **الإعلانات بس**
+      // كأنها القايمة كلها — ومضة قايمة غلط. `waFetchConvos` بترسم
+      // بنفسها أول ما تنزل.
+      if(waConvos.length) renderConvos();
+    });
+}
+
 export function renderConvos(){
   var body=$id('wa-list-body'); if(!body) return;
-  var totalUnread=0, unreadConvs=0, labelCounts={};
+  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={};
   for(var k=0;k<waConvos.length;k++){
+    if(waIsFromAd(waConvos[k])) adIds[waConvos[k].id]=1;
     var u=waConvos[k].unread_count||0; totalUnread+=u; if(u>0)unreadConvs++;
     var ls=waConvos[k].labels||[];
     for(var li=0;li<ls.length;li++){ labelCounts[ls[li]]=(labelCounts[ls[li]]||0)+1; }
   }
+  // ⚠️ عدّاد الإعلانات وحده هو اللي بيضم الأقدم من الـ200 — غير المقروء
+  // والتصنيفات بيفضلوا على نسخة السيرفر زي ما هي.
+  for(var ax=0;ax<waAdExtra.length;ax++) adIds[waAdExtra[ax].id]=1;
+  var adCount=0;
+  for(var ak in adIds){ if(Object.prototype.hasOwnProperty.call(adIds,ak)) adCount++; }
   $id('wa-list-title').textContent= totalUnread>0 ? ('المحادثات • '+totalUnread+' غير مقروء') : 'المحادثات';
   waSetNavBadge(totalUnread);
   var uf=$id('wa-filter-unread'); if(uf) uf.textContent= unreadConvs>0 ? ('غير مقروءة ('+unreadConvs+')') : 'غير مقروءة';
+  var af=$id('wa-filter-ctwa');
+  if(af) af.textContent= adCount>0 ? ('📣 جه من إعلان ('+adCount+(waAdCapped?'+':'')+')') : '📣 جه من إعلان';
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
   for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+')') : lk; }
-  if(!waConvos.length){
+  if(!waConvos.length && !waAdExtra.length){
     // النفاد مش "مفيش محادثات" — الرسالة الغلط كانت بتوحي إن البيانات ضاعت
     if(walletStateCache && walletStateCache.is_depleted){ body.innerHTML=WA_LOCK_MSG; return; }
     body.innerHTML=emptyState({icon:'💬',
@@ -249,9 +326,23 @@ export function renderConvos(){
       sub:'أول ما عميل يرد على رسالة التأكيد أو يبعتلك على واتساب، المحادثة هتظهر هنا.'}); return; }
   var list=[];
   for(var x=0;x<waConvos.length;x++){ if(waConvMatches(waConvos[x])) list.push(waConvos[x]); }
+  if(waFilter==='ctwa'){
+    // الإعلانات اللي بره أحدث 200 بتتضاف **هنا بس** — الفلتر ده وحده
+    // هو اللي استعلم عنها، وباقي الفلاتر لسه على نسخة الـ200.
+    var seen={};
+    for(var y=0;y<list.length;y++) seen[list[y].id]=1;
+    for(var z=0;z<waAdExtra.length;z++){
+      if(!seen[waAdExtra[z].id] && waConvMatches(waAdExtra[z])) list.push(waAdExtra[z]);
+    }
+    list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
+  }
   if(!list.length){
     var emptyMsg='مفيش نتائج للبحث';
     if(waFilter==='unread') emptyMsg='مفيش رسائل غير مقروءة 🎉';
+    // 🔴 السياق ضروري هنا: المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش
+    // بيانات إعلان **حتى لو جت من إعلان فعلاً** — من غير السطر ده التاجر
+    // بيقرا «صفر» على إنها عطل في الميزة.
+    else if(waFilter==='ctwa') emptyMsg='مفيش محادثات جاية من إعلان لسه<br><span style="font-size:.76rem">المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش بيانات إعلان حتى لو جت من إعلان.</span>';
     else if(waFilter.indexOf('label:')===0) emptyMsg='مفيش محادثات بالتصنيف ده';
     body.innerHTML='<div class="wa-empty">'+emptyMsg+'</div>'; return;
   }
@@ -272,7 +363,12 @@ export function renderConvos(){
       +'</div></div>';
   }
   // مؤشر النقص: القايمة عند السقف = فيه أقدم مش معروض ولا بيدخل البحث
-  if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — الأقدم مش بيظهر هنا ولا في البحث</div>';
+  // 🔴 ملاحظة السقف غلط وقت فلتر الإعلانات: الفلتر ده بيستعلم من السيرفر
+  // بشرطه فبيشوف الأقدم كمان. نص «الأقدم مش بيظهر» هنا كان هيخلي التاجر
+  // يفتكر إن فيه إعلانات مخفية وهي معروضة.
+  if(waFilter==='ctwa'){
+    if(waAdCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة من إعلانات — الأقدم مش هنا</div>';
+  } else if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — الأقدم مش بيظهر هنا ولا في البحث</div>';
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
   for(var j=0;j<items.length;j++){ items[j].addEventListener('click',function(){ openConversation(this.getAttribute('data-id')); }); }
@@ -283,12 +379,12 @@ export function renderConvos(){
   for(var al=0;al<adLinks.length;al++){
     adLinks[al].addEventListener('click',function(e){ e.stopPropagation(); });
   }
-  if(waActiveId){ var ac=waConvos.filter(function(x){return x.id===waActiveId;})[0]; if(ac){ waUpdateWindow(ac); waUpdateCtwa(ac); } }
+  if(waActiveId){ var ac=waConvById(waActiveId); if(ac){ waUpdateWindow(ac); waUpdateCtwa(ac); } }
 }
 
 export function openConversation(id){
   waActiveId=id; waRenderedCount=0;
-  var c=waConvos.filter(function(x){return x.id===id;})[0];
+  var c=waConvById(id);
   $id('wa-chat-empty').style.display='none';
   $id('wa-chat-inner').style.display='flex';
   $id('wa-wrap').classList.add('show-chat');
@@ -468,7 +564,7 @@ export function waMarkRead(convId){
   if(!sb||!currentTenantId) return;
   sb.from('wa_messages').update({is_read:true}).eq('conversation_id',convId).eq('direction','in').eq('is_read',false).then(function(){});
   sb.from('wa_conversations').update({unread_count:0}).eq('id',convId).eq('tenant_id',currentTenantId).then(function(r){
-    if(!r||!r.error){ for(var i=0;i<waConvos.length;i++){ if(waConvos[i].id===convId){ waConvos[i].unread_count=0; break; } } renderConvos(); }
+    if(!r||!r.error){ var cc=waConvById(convId); if(cc) cc.unread_count=0; renderConvos(); }
   });
 }
 
@@ -603,7 +699,7 @@ export function waSend(){
   function fail(code){
     waRevokeBubbleUrl(bubble);
     if(bubble&&bubble.parentNode) bubble.parentNode.removeChild(bubble);
-    if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvos.filter(function(x){return x.id===convAtSend;})[0]); }
+    if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvById(convAtSend)); }
     else if(code==='upload'){ toast('فشل رفع الملف','er'); }
     else if(code==='bad_reply_target'){ toast('الرسالة اللي بتحاول ترد عليها مش في المحادثة دي','er'); }
     else if(code==='reply_failed'){ toast('واتساب رفض الرد على الرسالة دي (غالباً قديمة) — ابعتها كرسالة عادية','er'); }
@@ -669,7 +765,7 @@ export function waNotify(m){
   var inboxOpen=$id('page-inbox') && $id('page-inbox').style.display!=='none';
   var viewing = !document.hidden && inboxOpen && m.conversation_id===waActiveId;
   if(viewing) return;
-  var conv=waConvos.filter(function(x){return x.id===m.conversation_id;})[0];
+  var conv=waConvById(m.conversation_id);
   var who = conv ? (conv.customer_name||conv.customer_phone||conv.wa_id) : 'عميل';
   var preview = m.body || (m.type==='image'?'📷 صورة':((m.type==='voice'||m.type==='audio')?'🎤 رسالة صوتية':(m.type==='document'?'📎 ملف':'رسالة جديدة')));
   try{
@@ -781,7 +877,7 @@ export function waRenderLabelPicker(conv){
 }
 
 export function waToggleLabel(label){
-  var conv=waConvos.filter(function(x){return x.id===waActiveId;})[0];
+  var conv=waConvById(waActiveId);
   if(!conv||!sb) return;
   var labels=(conv.labels||[]).slice();
   var idx=labels.indexOf(label);
@@ -792,7 +888,7 @@ export function waToggleLabel(label){
 }
 
 export function waSaveNote(){
-  var conv=waConvos.filter(function(x){return x.id===waActiveId;})[0];
+  var conv=waConvById(waActiveId);
   if(!conv||!sb) return;
   var ni=$id('wa-note-input'); var val=ni?(ni.value||'').trim():'';
   conv.note=val;
@@ -878,7 +974,7 @@ export function initInbox(){
   if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',function(){ var p=$id('wa-qr-panel'); if(p) p.classList.toggle('open'); });
   if($id('wa-docattach'))$id('wa-docattach').addEventListener('click',function(){ var f=$id('wa-docfile'); if(f) f.click(); });
   if($id('wa-docfile'))$id('wa-docfile').addEventListener('change',waPickFile);
-  if($id('wa-label-btn'))$id('wa-label-btn').addEventListener('click',function(){ var lp=$id('wa-label-picker'); if(!lp) return; var show=lp.style.display==='none'; if(show){ var conv=waConvos.filter(function(x){return x.id===waActiveId;})[0]; waRenderLabelPicker(conv); } lp.style.display=show?'flex':'none'; this.classList.toggle('on',show); });
+  if($id('wa-label-btn'))$id('wa-label-btn').addEventListener('click',function(){ var lp=$id('wa-label-picker'); if(!lp) return; var show=lp.style.display==='none'; if(show){ var conv=waConvById(waActiveId); waRenderLabelPicker(conv); } lp.style.display=show?'flex':'none'; this.classList.toggle('on',show); });
   if($id('wa-note-btn'))$id('wa-note-btn').addEventListener('click',function(){ var nb=$id('wa-note-box'); if(!nb) return; var show=nb.style.display==='none'; nb.style.display=show?'flex':'none'; this.classList.toggle('on',show); if(show){ var ni=$id('wa-note-input'); if(ni) ni.focus(); } });
   if($id('wa-note-save'))$id('wa-note-save').addEventListener('click',waSaveNote);
   if($id('wa-orders-head'))$id('wa-orders-head').addEventListener('click',function(){var b=$id('wa-orders-body'),a=$id('wa-orders-arrow');if(!b)return;var collapsed=b.classList.toggle('collapsed');if(a)a.textContent=collapsed?'▸':'▾';});

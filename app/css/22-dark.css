@@ -201,6 +201,7 @@ html.dark .wa-conv:hover{background:#1b2337;}
 html.dark .wa-conv.active{background:rgba(59,130,246,.14);}
 html.dark .wa-chat-head,html.dark .wa-compose{background:#141b2b;border-color:var(--brd);}
 html.dark .wa-ctwa{background:rgba(59,130,246,.16);border-color:rgba(59,130,246,.34);color:#9ec0ff;}
+html.dark .wa-fad.active{background:#2a5cc4;border-color:#2a5cc4;color:#fff;}
 html.dark .wa-conv-ctwa{color:#9ec0ff;}
 html.dark .wa-ctwa.is-link:hover{background:rgba(59,130,246,.26);border-color:rgba(59,130,246,.5);}
 html.dark .wa-msg.in{background:#1e2740;border-color:#2b3652;color:var(--txt);}
