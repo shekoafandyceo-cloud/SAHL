@@ -320,6 +320,19 @@
       if(st.eqConv) rows = rows.filter(function(m){ return m.conversation_id === st.eqConv; });
       rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     }
+    // 🔴 فلتر «جه من إعلان» بيستعلم من السيرفر بـ`or(ctwa_*)`. الستب
+    // مكانش بيطبّقه فكان بيرجّع **كل** المحادثات، والشارة بتعد 4 والفلتر
+    // بيعرض 2 — بالظبط «الرقم اللي بيكدب» اللي الميزة اتبنت تمنعه.
+    // (الـsmoke test على المعاينة هو اللي مسكها.)
+    if(t === 'wa_conversations'){
+      if(st.or && st.or.indexOf('ctwa_') >= 0){
+        rows = rows.filter(function(c){
+          return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
+        });
+      }
+      rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
+      if(st.limit) rows = rows.slice(0, st.limit);
+    }
     if(t === 'stock_movements') rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     return rows;
   }
@@ -335,6 +348,8 @@
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
           if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
+          if(m === 'or')    st.or = a;
+          if(m === 'limit') st.limit = a;
           return api;
         };
       });
