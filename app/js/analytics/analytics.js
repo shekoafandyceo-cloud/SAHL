@@ -121,7 +121,10 @@ export function initAnalyticsTabs(){
 export function renderFinancePlatforms(){
   if(!$id('finplat-tbody')) return;
   var orders = ordersInRange(getAnalyticsRange());
-  var PLAT = { fb:{name:'Facebook',ic:'📘'}, ig:{name:'Instagram',ic:'📸'}, tiktok:{name:'TikTok',ic:'🎵'} };
+  // `whatsapp` = أوردر اتسجّل يدوي من صندوق المحادثات (`create_manual_order`).
+  // من غير المدخل ده كان بيتجمّع تحت «أخرى» والتاجر مايعرفش كام أوردر جه
+  // من الشات — وده السبب الوحيد لإضافة القيمة للـCHECK أصلاً.
+  var PLAT = { fb:{name:'Facebook',ic:'📘'}, ig:{name:'Instagram',ic:'📸'}, tiktok:{name:'TikTok',ic:'🎵'}, whatsapp:{name:'واتساب (يدوي)',ic:'💬'} };
   var by = {};
   orders.forEach(function(o){
     var key = PLAT[o.platform] ? o.platform : 'other';

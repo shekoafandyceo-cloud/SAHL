@@ -358,8 +358,27 @@
             </div>
           </div>
           <div class="wa-orders" id="wa-orders" style="display:none">
-            <div class="wa-orders-head" id="wa-orders-head"><span id="wa-orders-title">📦 أوردرات العميل</span><span class="wa-oarrow" id="wa-orders-arrow">▾</span></div>
+            <div class="wa-orders-head" id="wa-orders-head"><span id="wa-orders-title">📦 أوردرات العميل</span><button class="wa-neworder-btn" id="wa-neworder-btn" title="سجّل طلب للعميل ده">➕ طلب جديد</button><span class="wa-oarrow" id="wa-orders-arrow">▾</span></div>
             <div class="wa-orders-body" id="wa-orders-body"></div>
+          </div>
+          <div class="wa-neworder" id="wa-neworder" style="display:none">
+            <div class="wa-no-head">➕ طلب جديد من الشات<button class="wa-qr-ed-x" id="wa-no-cancel" title="إلغاء">✕</button></div>
+            <div class="wa-no-grid">
+              <label class="wa-no-f"><span>اسم العميل *</span><input id="wa-no-name" type="text" autocomplete="off"></label>
+              <label class="wa-no-f"><span>التليفون *</span><input id="wa-no-phone" type="tel" inputmode="numeric" autocomplete="off"></label>
+              <label class="wa-no-f"><span>تليفون تاني</span><input id="wa-no-alt" type="tel" inputmode="numeric" autocomplete="off"></label>
+              <label class="wa-no-f"><span>المحافظة</span><input id="wa-no-city" type="text" autocomplete="off"></label>
+              <label class="wa-no-f wa-no-wide"><span>العنوان * (10 حروف على الأقل)</span><textarea id="wa-no-address" rows="2"></textarea></label>
+              <label class="wa-no-f"><span>المنتج *</span><input id="wa-no-product" type="text" list="wa-no-prodlist" autocomplete="off"><datalist id="wa-no-prodlist"></datalist></label>
+              <label class="wa-no-f"><span>الكمية</span><input id="wa-no-qty" type="number" min="1" step="1" value="1"></label>
+              <label class="wa-no-f"><span>اللون / المقاس</span><input id="wa-no-var" type="text" autocomplete="off"></label>
+              <label class="wa-no-f"><span>الإجمالي (ج) *</span><input id="wa-no-total" type="number" min="0" step="1" inputmode="decimal"></label>
+              <label class="wa-no-f wa-no-wide"><span>ملاحظات</span><input id="wa-no-notes" type="text" autocomplete="off"></label>
+            </div>
+            <div class="wa-no-foot">
+              <span class="wa-no-note">الطلب بيتسجّل <b>قيد الانتظار</b> ومفيش رسالة تأكيد آلية — العميل قدامك في الشات.</span>
+              <button class="wa-qr-ed-save" id="wa-no-save">سجّل الطلب</button>
+            </div>
           </div>
           <div class="wa-msgs" id="wa-msgs"></div>
           <div class="wa-compose" id="wa-compose">

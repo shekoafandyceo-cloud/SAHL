@@ -18,6 +18,7 @@ import { tourActive } from '../tour/tour.js';
 import { walletStateCache } from '../billing/billing.js';
 import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
 import { openDetail } from '../orders/detail.js';
+import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { ensureTenant } from '../orders/guards.js';
 
 export var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
@@ -418,6 +419,10 @@ export function openConversation(id){
   // تانية، تدوس إرسال — فيروح لعميل تاني خالص. والسيرفر **مش** هيرفضه
   // (المسارات بتاعة نفس المتجر)، فالحارس هنا هو الوحيد.
   waClearPendingQr();
+  // 🔴 والفورم كمان: تفتحها لعميل، تبدّل المحادثة، تدوس «سجّل» — فيتسجّل
+  // أوردر باسم وتليفون العميل اللي فات على شات عميل تاني. الحقول بتتعبّى
+  // من المحادثة وقت الفتح، فسيبها مفتوحة = بيانات قديمة على شاشة جديدة.
+  waNewOrderClose();
 }
 
 // جيل جلب الرسائل — الحارس القديم (convId===waActiveId) بيحمي من محادثة
@@ -1158,6 +1163,110 @@ export function waRefreshNavBadge(){
   });
 }
 
+// ═══ «إنشاء طلب» يدوي من الشات (طلب المالك 16 سبتمبر) ═══
+// العميل بيطلب على الواتساب ويكتب بياناته، والموظف بيسجّل الأوردر زي أي
+// أوردر جاي من اللاندنج.
+//
+// 🔴 **كل الحراسات على السيرفر** في `create_manual_order` (SECURITY DEFINER):
+// `tenant_id` من الـJWT · الحالة متسمّرة `pending` · رقم الطلب في نطاق
+// `W-` منفصل عن ترقيم اللاندنج · cooldown 90 ثانية. اللي هنا **راحة
+// للموظف بس** — رسالة أوضح قبل ما يستنى الشبكة، مش حاجز.
+export function waNewOrderOpen(){
+  var box=$id('wa-neworder'); if(!box) return;
+  var conv=waConvById(waActiveId); if(!conv) return;
+  // البيانات اللي إحنا متأكدين منها بتتعبّى من المحادثة — ده كل الفرق
+  // بين «فورم» و«فورم من الشات»
+  var nm=$id('wa-no-name'); if(nm) nm.value=String(conv.customer_name||'').trim();
+  var ph=$id('wa-no-phone');
+  if(ph){
+    // `wa_id` بيبقى `20xxxxxxxxxx` والأوردرات متخزّنة محلي `01xxxxxxxxx`
+    // (4,051 من 4,076 صف — اتقاس). السيرفر بيطبّع برضه، بس الموظف لازم
+    // يشوف الرقم بالشكل اللي بيتعامل بيه.
+    var raw=String(conv.customer_phone||conv.wa_id||'').replace(/\D/g,'');
+    ph.value = (raw.length===12 && raw.indexOf('20')===0) ? ('0'+raw.slice(2)) : raw;
+  }
+  ['wa-no-alt','wa-no-city','wa-no-address','wa-no-product','wa-no-var','wa-no-total','wa-no-notes']
+    .forEach(function(id){ var e=$id(id); if(e) e.value=''; });
+  var q=$id('wa-no-qty'); if(q) q.value='1';
+  box.style.display='block';
+  waNewOrderProducts();
+  if(nm) nm.focus();
+}
+
+export function waNewOrderClose(){ var b=$id('wa-neworder'); if(b) b.style.display='none'; }
+
+// قايمة المنتجات من المخزون — الاسم لازم يطابق `stock_products` وإلا
+// التكلفة والخصم مش هيلاقوا المنتج (فيه تنبيه في صفحة issues بيرصد ده).
+// بنعرض الأسماء الكاملة زي ما هي، والموظف يقدر يكتب اسم بره القايمة.
+function waNewOrderProducts(){
+  var dl=$id('wa-no-prodlist'); if(!dl) return;
+  function fill(){
+    var html='';
+    for(var i=0;i<stockProducts.length;i++){
+      var n=stockProducts[i] && stockProducts[i].name;
+      if(n) html+='<option value="'+esc(n)+'"></option>';
+    }
+    dl.innerHTML=html;
+  }
+  if(stockProducts && stockProducts.length){ fill(); return; }
+  if(!sb||!currentTenantId) return;
+  sb.from('v_stock_products').select('id,name,current_qty,unit_price,wholesale_price,parent_id,variant_label')
+    .eq('tenant_id',currentTenantId).eq('active',true).order('current_qty',{ascending:false}).then(function(r){
+      if(!r.error && r.data) stockSetProducts(r.data);
+      fill();
+    });
+}
+
+export function waNewOrderSave(){
+  if(!sb) return;
+  var conv=waConvById(waActiveId); if(!conv) return;
+  var val=function(id){ var e=$id(id); return e?(e.value||'').trim():''; };
+  var name=val('wa-no-name'), phone=val('wa-no-phone'), address=val('wa-no-address');
+  var product=val('wa-no-product'), total=val('wa-no-total');
+  var qty=parseInt(val('wa-no-qty'),10); if(!qty||qty<1) qty=1;
+  if(!name){ toast('اكتب اسم العميل','er'); return; }
+  if(!phone){ toast('اكتب تليفون العميل','er'); return; }
+  if(address.length<10){ toast('العنوان قصير — شركة الشحن بترفضه','er'); return; }
+  if(!product){ toast('اكتب المنتج','er'); return; }
+  if(total===''||isNaN(Number(total))||Number(total)<0){ toast('اكتب إجمالي صحيح','er'); return; }
+
+  // نفس صيغة n8n بالحرف: «الاسم (عدد N)». أي شكل تاني بيكسر
+  // `parseProductItems` ومحرر المنتجات في نافذة التفاصيل.
+  var productName=product+' (عدد '+qty+')';
+  var btn=$id('wa-no-save');
+  if(btn){ btn.disabled=true; btn.textContent='بيسجّل…'; }
+  sb.rpc('create_manual_order',{
+    p_customer_name:name, p_phone:phone, p_city:val('wa-no-city'), p_address:address,
+    p_product_name:productName, p_total_cost:Number(total),
+    p_alt_phone:val('wa-no-alt')||null, p_customer_notes:val('wa-no-notes')||null,
+    p_var:val('wa-no-var')||null
+  }).then(function(r){
+    if(btn){ btn.disabled=false; btn.textContent='سجّل الطلب'; }
+    var d=r&&r.data;
+    if(r&&r.error){ toast('الطلب مااتسجّلش — حاول تاني','er'); return; }
+    if(!d||!d.ok){
+      var e=d&&d.error;
+      // كل رفض بيتقال بسببه الحقيقي — «حصلت مشكلة» بتخلي الموظف يعيد
+      // المحاولة بنفس البيانات الغلط
+      if(e==='duplicate') toast('فيه طلب لنفس الرقم اتسجّل من شوية — راجع القايمة','er');
+      else if(e==='bad_phone') toast('رقم التليفون مش مظبوط','er');
+      else if(e==='bad_alt_phone') toast('التليفون التاني مش مظبوط','er');
+      else if(e==='short_address') toast('العنوان قصير — شركة الشحن بترفضه','er');
+      else if(e==='bad_total') toast('الإجمالي مش صحيح','er');
+      else if(e==='not_allowed') toast('حسابك مش مفعّل على متجر','er');
+      else toast('الطلب مااتسجّلش — حاول تاني','er');
+      return;
+    }
+    toast('الطلب اتسجّل ✅ رقم '+d.order_uid,'ok');
+    waNewOrderClose();
+    // كارت أوردرات العميل بيدوّر بالتليفون فالطلب الجديد بيظهر لوحده
+    waLoadOrders(waConvById(waActiveId));
+  }).catch(function(){
+    if(btn){ btn.disabled=false; btn.textContent='سجّل الطلب'; }
+    toast('الطلب مااتسجّلش — حاول تاني','er');
+  });
+}
+
 // ----- أوردرات العميل جوّه الشات -----
 export function waDateShort(iso){
   if(!iso) return '';
@@ -1224,6 +1333,15 @@ export function initInbox(){
   if($id('wa-qr-ed-file'))$id('wa-qr-ed-file').addEventListener('change',waQrEditorPick);
   if($id('wa-qr-ed-save'))$id('wa-qr-ed-save').addEventListener('click',waQrEditorSave);
   if($id('wa-qr-staged-cancel'))$id('wa-qr-staged-cancel').addEventListener('click',waClearPendingQr);
+  if($id('wa-neworder-btn'))$id('wa-neworder-btn').addEventListener('click',function(e){
+    // الزرار جوّه هيدر بيطوي الكارت بالضغط — من غير ده الفورم بتفتح والكارت
+    // بيتطوي في نفس اللحظة
+    e.stopPropagation();
+    var b=$id('wa-neworder');
+    if(b && b.style.display!=='none') waNewOrderClose(); else waNewOrderOpen();
+  });
+  if($id('wa-no-cancel'))$id('wa-no-cancel').addEventListener('click',waNewOrderClose);
+  if($id('wa-no-save'))$id('wa-no-save').addEventListener('click',waNewOrderSave);
   if($id('wa-docattach'))$id('wa-docattach').addEventListener('click',function(){ var f=$id('wa-docfile'); if(f) f.click(); });
   if($id('wa-docfile'))$id('wa-docfile').addEventListener('change',waPickFile);
   if($id('wa-label-btn'))$id('wa-label-btn').addEventListener('click',function(){ var lp=$id('wa-label-picker'); if(!lp) return; var show=lp.style.display==='none'; if(show){ var conv=waConvById(waActiveId); waRenderLabelPicker(conv); } lp.style.display=show?'flex':'none'; this.classList.toggle('on',show); });
