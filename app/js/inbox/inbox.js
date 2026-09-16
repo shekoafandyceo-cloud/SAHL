@@ -9,6 +9,7 @@ import { normalizePhone } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
+import { showModal } from '../core/modal.js';
 import { waMetaRow, waMsgInner, waQuoteBlock, waSenderTag, waTimeShort } from './message-view.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
@@ -50,6 +51,7 @@ export function loadInbox(){
   clearInboxLock();   // القفل overlay — بيتشال من غير reload أول ما التوثيق يثبت
   waEnsureNotifyPermission();
   waLoadQuickReplies();
+  waLoadStartTemplates();
   waBuildFilters();
   // عدّاد شارة الإعلانات لازم يبقى صح **من أول رسمة** مش بعد الضغط —
   // رقم على الـchip بيتغير لما تدوس عليه = رقم بيكدب قبل الضغطة.
@@ -1368,6 +1370,144 @@ export function waLoadOrders(conv){
     });
 }
 
+// ═══ «شات جديد» — بدء محادثة مع رقم عمره ما كلّمنا (طلب المالك 16 سبتمبر) ═══
+// العميل بيكلّم التاجر على الموبايل ويقوله «ابعتلي على واتساب». واتساب
+// مابيسمحش نبدأ إحنا برسالة عادية — نافذة الـ24 ساعة مافتحتش أصلاً لأن
+// العميل عمره ما بعت حاجة. القالب هو الطريق الوحيد.
+//
+// 🔴 **كل الحراسات على السيرفر** في `wa-start`: التصريح بقراية القالب
+// بتوكن المستخدم عبر RLS · النص وقيم المتغيرات من الداتابيز مش من هنا ·
+// النافذة المفتوحة بترفض (رسالة عادية ببلاش) · قالب واحد لكل رقم كل 24
+// ساعة · قفل النفاد. اللي هنا **راحة للموظف بس**، مش حاجز.
+export var waStartTpls=[];
+
+export function waLoadStartTemplates(){
+  if(!sb||!currentTenantId) return;
+  sb.from('wa_start_templates').select('id,label,body,params,template_name,lang')
+    .eq('tenant_id',currentTenantId).eq('enabled',true).order('label')
+    .then(function(r){
+      if(r.error){ swallow('wa_start_templates',r.error); return; }
+      waStartTpls=r.data||[];
+      waNewChatFillTpls();
+      // 🔴 مفيش قالب مسجّل = الزرار مايبانش خالص (درس 16). زرار بيفتح
+      // فورم مالهاش ولا قالب = وعد كاذب، والموظف بيدوس ومايحصلش حاجة.
+      var b=$id('wa-newchat-btn');
+      if(b) b.style.display = waStartTpls.length ? '' : 'none';
+      if(!waStartTpls.length) waNewChatClose();
+    });
+}
+
+export function waStartTplById(id){
+  for(var i=0;i<waStartTpls.length;i++){ if(waStartTpls[i].id===id) return waStartTpls[i]; }
+  return null;
+}
+
+// 🔴 نسخة طبق الأصل من `renderTemplate` في `wa-start` — **لازم يفضلوا
+// متطابقين**. المعاينة اللي الموظف بيوافق عليها لازم تبقى بالحرف هي اللي
+// ميتا هتبعتها؛ أي انحراف = مودال بيكدب على رسالة بفلوس.
+// و`replace` بمرة واحدة مش `replaceAll` لسببين: الـ`$` في نص البديل ليه
+// معنى خاص (`$&` و`$'`)، والتعويض على مراحل بيخلي قيمة جوّاها `{{2}}`
+// تتعوّض هي كمان في اللفة اللي بعديها.
+export function waStartRender(t){
+  if(!t) return '';
+  var vals = Array.isArray(t.params) ? t.params : [];
+  return String(t.body||'').replace(/\{\{([1-9]\d?)\}\}/g, function(m,i){
+    var v = vals[Number(i)-1];
+    return v===undefined ? m : String(v);
+  });
+}
+
+function waNewChatFillTpls(){
+  var sel=$id('wa-nc-tpl'); if(!sel) return;
+  var keep=sel.value;
+  var html='';
+  for(var i=0;i<waStartTpls.length;i++){
+    html+='<option value="'+esc(waStartTpls[i].id)+'">'+esc(waStartTpls[i].label||waStartTpls[i].template_name||'قالب')+'</option>';
+  }
+  sel.innerHTML=html;
+  if(keep && waStartTplById(keep)) sel.value=keep;
+  waNewChatPreview();
+}
+
+export function waNewChatPreview(){
+  var sel=$id('wa-nc-tpl'), box=$id('wa-nc-prev');
+  if(!box) return;
+  // `textContent` مش `innerHTML` — النص جاي من الداتابيز وبيتعرض زي ما هو
+  box.textContent = waStartRender(waStartTplById(sel?sel.value:''));
+}
+
+export function waNewChatOpen(){
+  var box=$id('wa-newchat'); if(!box) return;
+  if(!waStartTpls.length){ toast('مفيش قالب مسجّل لبدء المحادثات','er'); return; }
+  var ph=$id('wa-nc-phone'); if(ph) ph.value='';
+  var nm=$id('wa-nc-name'); if(nm) nm.value='';
+  box.style.display='flex';
+  waNewChatFillTpls();
+  if(ph) ph.focus();
+}
+
+export function waNewChatClose(){ var b=$id('wa-newchat'); if(b) b.style.display='none'; }
+
+export function waNewChatSend(){
+  if(!sb) return;
+  var ph=$id('wa-nc-phone'), nm=$id('wa-nc-name'), sel=$id('wa-nc-tpl');
+  var phone=ph?(ph.value||'').trim():'';
+  var name=nm?(nm.value||'').trim():'';
+  var tpl=waStartTplById(sel?sel.value:'');
+  // فحص خفيف بس: التطبيع الحقيقي على السيرفر بنفس دالة تريجر المحادثات،
+  // وهو اللي بيقرر. هنا بنمنع الضغطة الفاضية مش أكتر.
+  if(phone.replace(/\D/g,'').length<10){ toast('اكتب رقم صحيح','er'); return; }
+  if(!tpl){ toast('اختار القالب','er'); return; }
+
+  // 🔴 مودال بالنص المرسوم كامل — الرسالة بفلوس وبتوصل عميل حقيقي،
+  // فالموظف بيوافق على **اللي العميل هيقراه** مش على «رسالة بدء محادثة».
+  // نفس عقد مودال متابعة الأوردر بالحرف.
+  showModal({
+    icon:'💬',
+    title:'تبعت للرقم '+phone+'؟',
+    sub:waStartRender(tpl)+'\n\n— رسالة قالب مدفوعة من رقم المتجر.',
+    okLabel:'ابعت',
+    onOk:function(){
+      var btn=$id('wa-nc-send');
+      if(btn){ btn.disabled=true; btn.textContent='بيبعت…'; }
+      var restore=function(){ if(btn){ btn.disabled=false; btn.textContent='ابعت'; } };
+      sb.functions.invoke('wa-start',{body:{phone:phone,template_id:tpl.id,name:name||null}})
+        .then(function(res){
+          restore();
+          var d=(res&&res.data)?res.data:null;
+          if(!d||!d.ok){
+            var e=d&&d.error;
+            // كل رفض بيتقال بسببه الحقيقي — «حصلت مشكلة» بتخلي الموظف
+            // يعيد المحاولة بنفس الإدخال الغلط
+            if(e==='window_open'){
+              toast('العميل ده كلّمنا في آخر 24 ساعة — ابعتله رسالة عادية ببلاش','er');
+              waNewChatClose();
+              if(d.conversation_id){ waFetchConvos(false); openConversation(d.conversation_id); }
+            }
+            else if(e==='too_soon'){ toast('اتبعتله قالب في آخر 24 ساعة — استنى','er'); if(d.conversation_id) openConversation(d.conversation_id); }
+            else if(e==='bad_phone') toast('الرقم مش مظبوط','er');
+            else if(e==='no_wa_config') toast('الواتساب مش مركّب على المتجر','er');
+            else if(e==='depleted') toast('الرصيد خلص — اشحن عشان تبعت','er');
+            else if(e==='not_allowed') toast('حسابك مش مفعّل على متجر','er');
+            else if(e==='template_disabled') toast('القالب ده متوقف','er');
+            else if(e==='bad_template_params') toast('إعداد القالب مش مظبوط — راجع متغيراته','er');
+            // سبب ميتا الحقيقي (قالب تحت المراجعة · لغة غلط · رقم مش على
+            // واتساب) — التاجر مايقدرش يصلّح إعداد مايعرفش إيه فيه
+            else if(e==='template_failed') toast('واتساب رفض: '+(d.detail||'سبب غير معروف'),'er');
+            else toast('الرسالة ماتبعتتش — حاول تاني','er');
+            return;
+          }
+          toast('الرسالة اتبعتت ✅','ok');
+          waNewChatClose();
+          // الشات بيتفتح على طول — ده كل الهدف من الزرار
+          waFetchConvos(false);
+          if(d.conversation_id) openConversation(d.conversation_id);
+        })
+        .catch(function(){ restore(); toast('الرسالة ماتبعتتش — حاول تاني','er'); });
+    }
+  });
+}
+
 // تفاعلات صندوق المحادثات
 export function initInbox(){
   if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
@@ -1395,6 +1535,13 @@ export function initInbox(){
     var b=$id('wa-neworder');
     if(b && b.style.display!=='none') waNewOrderClose(); else waNewOrderOpen();
   });
+  if($id('wa-newchat-btn'))$id('wa-newchat-btn').addEventListener('click',function(){
+    var b=$id('wa-newchat');
+    if(b && b.style.display!=='none') waNewChatClose(); else waNewChatOpen();
+  });
+  if($id('wa-nc-cancel'))$id('wa-nc-cancel').addEventListener('click',waNewChatClose);
+  if($id('wa-nc-tpl'))$id('wa-nc-tpl').addEventListener('change',waNewChatPreview);
+  if($id('wa-nc-send'))$id('wa-nc-send').addEventListener('click',waNewChatSend);
   if($id('wa-no-cancel'))$id('wa-no-cancel').addEventListener('click',waNewOrderClose);
   if($id('wa-no-save'))$id('wa-no-save').addEventListener('click',waNewOrderSave);
   if($id('wa-docattach'))$id('wa-docattach').addEventListener('click',function(){ var f=$id('wa-docfile'); if(f) f.click(); });

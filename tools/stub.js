@@ -66,7 +66,7 @@
     v_stock_products: [{id:'p1', name:'منتج أ', current_qty:10, unit_price:1000, wholesale_price:600, active:true, tenant_id:TENANT}],
     stock_products: [],
     stock_movements: [],
-    wa_conversations: [], wa_messages: [], wa_quick_replies: [],
+    wa_conversations: [], wa_messages: [], wa_quick_replies: [], wa_start_templates: [],
     plans: [], wallet_transactions: [], topup_requests: [], expenses: [],
     platform_settings: [{key:'vfcash_number', value:'01000000000'}]
   };
@@ -78,7 +78,8 @@
     var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL',
                 wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS',
-                wa_quick_replies:'__QR', ctwa_ads:'__AD_NAMES' };
+                wa_quick_replies:'__QR', ctwa_ads:'__AD_NAMES',
+                wa_start_templates:'__START_TPLS' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])

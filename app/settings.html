@@ -332,9 +332,20 @@
     <p class="settings-help" style="margin:0 0 14px">كل رسائل عملائك في مكان واحد — غير المقروء واضح عشان مايفوتكش حاجة.</p>
     <div class="wa-wrap" id="wa-wrap">
       <div class="wa-list" id="wa-list-pane">
-        <div class="wa-list-head"><span id="wa-list-title">المحادثات</span><button class="wa-refresh" id="wa-refresh" title="تحديث">↻</button></div>
+        <div class="wa-list-head"><span id="wa-list-title">المحادثات</span><button class="wa-newchat-btn" id="wa-newchat-btn" style="display:none" title="ابعت قالب لرقم عمره ما كلّمنا">➕ شات جديد</button><button class="wa-refresh" id="wa-refresh" title="تحديث">↻</button></div>
         <div class="wa-search-bar"><input type="text" id="wa-search" class="wa-search" placeholder="🔍 بحث بالاسم أو الرقم…"></div>
         <div class="wa-filters" id="wa-filters"></div>
+        <div class="wa-newchat" id="wa-newchat" style="display:none">
+          <div class="wa-nc-head">➕ شات جديد<button class="wa-qr-ed-x" id="wa-nc-cancel" title="إلغاء">✕</button></div>
+          <label class="wa-nc-f"><span>رقم العميل *</span><input id="wa-nc-phone" type="tel" inputmode="numeric" autocomplete="off" placeholder="01xxxxxxxxx"></label>
+          <label class="wa-nc-f"><span>الاسم (للصندوق بس — مش بيتبعت)</span><input id="wa-nc-name" type="text" autocomplete="off"></label>
+          <label class="wa-nc-f"><span>القالب *</span><select id="wa-nc-tpl"></select></label>
+          <div class="wa-nc-prev" id="wa-nc-prev"></div>
+          <div class="wa-nc-foot">
+            <span class="wa-nc-note">رسالة <b>مدفوعة</b> بتخرج من رقم المتجر. استخدمها بس لما العميل يطلب منك تكلّمه.</span>
+            <button class="wa-qr-ed-save" id="wa-nc-send">ابعت</button>
+          </div>
+        </div>
         <div class="wa-list-body" id="wa-list-body"><div class="wa-empty">جاري التحميل…</div></div>
       </div>
       <div class="wa-chat" id="wa-chat-pane">

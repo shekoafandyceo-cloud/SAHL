@@ -204,6 +204,10 @@ html.dark .wa-ctwa{background:rgba(59,130,246,.16);border-color:rgba(59,130,246,
 html.dark .wa-neworder{background:#151d2c;}
 html.dark .wa-neworder-btn{background:#1a2233;}
 html.dark .wa-no-f input,html.dark .wa-no-f textarea{background:#0f1622;border-color:var(--brd);color:var(--txt);}
+html.dark .wa-newchat{background:#151d2c;}
+html.dark .wa-newchat-btn{background:#1a2233;}
+html.dark .wa-nc-f input,html.dark .wa-nc-f select{background:#0f1622;border-color:var(--brd);color:var(--txt);}
+html.dark .wa-nc-prev{background:#0f1622;border-color:var(--brd);}
 html.dark .wa-qr-editor{background:#151d2c;}
 html.dark .wa-qr-ed-text{background:#0f1622;border-color:var(--brd);color:var(--txt);}
 html.dark .wa-qr-ed-add,html.dark .wa-qr-badge{background:#1a2233;}

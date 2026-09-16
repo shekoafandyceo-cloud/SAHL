@@ -265,6 +265,13 @@
     stock_products: STOCK,
     stock_movements: MOVES,
     wa_conversations: WA_CONVOS, wa_messages: WA_MSGS, wa_quick_replies: WA_QR,
+    // قوالب «شات جديد» — من غير الصف ده الزرار مايبانش خالص في المعاينة
+    // (الواجهة بتخفيه لما مفيش قالب مسجّل)، فالمالك مايقدرش يجرّب الميزة.
+    wa_start_templates: [
+      { id:'st1', tenant_id:TENANT, label:'بدء شات', template_name:'chat_start_ar',
+        lang:'ar_EG', enabled:true, params:['عتبة دوت كوم'],
+        body:'أهلاً حضرتك 👋\nدي رسالة من {{1}} بخصوص طلب حضرتك إننا نكلمك على واتساب.\nتقدر ترد على الرسالة دي وهنكمل معاك من هنا على طول.' }
+    ],
     // 🔴 الإعلانين دول ليهم **نفس الكوبي** عمداً (زي `FOMO HOOK` و`realone`
     // على الحي) — عشان المعاينة تثبت إن الاسم هو اللي بيفرّق مش النص.
     ctwa_ads: [
@@ -530,6 +537,34 @@
           reply_to_wa_id: bd.reply_to || null, wa_message_id:nid, referral:null });
         return Promise.resolve({ data:{ ok:true, message_id:nid, row_id:nid,
           sent_by_name:'أدمن المعاينة', reply_to: bd.reply_to || null }, error:null });
+      }
+      // «شات جديد»: بنعمل محادثة حقيقية في المعاينة وندخّل فيها الرسالة،
+      // عشان المالك يشوف المسار كامل (مودال ← الشات بيتفتح وفيه القالب)
+      // بدل رسالة فشل.
+      if(slug === 'wa-start'){
+        var sb_ = (opts && opts.body) || {};
+        var tpl_ = TABLES.wa_start_templates.filter(function(t){ return t.id === sb_.template_id; })[0];
+        var txt_ = tpl_ ? String(tpl_.body||'').replace(/\{\{([1-9]\d?)\}\}/g, function(m,i){
+          var v = (tpl_.params||[])[Number(i)-1]; return v===undefined ? m : String(v);
+        }) : '';
+        var digits_ = String(sb_.phone||'').replace(/\D/g,'');
+        var waid_ = digits_.length===11 && digits_.charAt(0)==='0' ? '20'+digits_.slice(1) : digits_;
+        var cid_ = 'wc-prev-' + (WA_CONVOS.length + 1);
+        var at_ = new Date().toISOString();
+        WA_CONVOS.unshift({ id:cid_, tenant_id:TENANT, wa_id:waid_, customer_name:(sb_.name||null),
+          customer_phone:'0'+waid_.slice(2), last_message_at:at_, last_message_text:txt_.split('\n')[0],
+          last_message_type:'template', last_direction:'out', unread_count:0, status:'open',
+          last_inbound_at:null, labels:null, note:null, ctwa_clid:null, ctwa_ad_id:null,
+          ctwa_headline:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null,
+          ctwa_ad_body:null, ctwa_source_url:null });
+        var mid_ = 'wm-prev-' + (WA_MSGS.length + 1);
+        WA_MSGS.push({ id:mid_, tenant_id:TENANT, conversation_id:cid_, direction:'out',
+          type:'template', body:txt_, media_path:null, media_mime:null, media_filename:null,
+          is_read:true, created_at:at_, wa_timestamp:at_, status:'sent',
+          sent_by:'preview-user', sent_by_name:'أدمن المعاينة',
+          reply_to_wa_id:null, wa_message_id:mid_, referral:null });
+        return Promise.resolve({ data:{ ok:true, conversation_id:cid_, message_id:mid_,
+          wa_id:waid_, body:txt_ }, error:null });
       }
       if(slug === 'wa-followup'){
         var oid = (opts && opts.body && opts.body.order_id) || null;
