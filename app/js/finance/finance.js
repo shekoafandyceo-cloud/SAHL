@@ -43,13 +43,28 @@ export var unmatchedCogsItems = [];
 // ═══════════════════════════════════════════════════════════════
 // ════════════════ FINANCE SECTION (admin only) ═════════════════
 // ═══════════════════════════════════════════════════════════════
-export var SHIPPING_COST_DEFAULT = 85;
-
-// سعر الشحن الحقيقي من Bosta (شامل VAT) لو اتسجّل، وإلا الافتراضي 85
+// 🔴 **مفيش سعر شحن افتراضي — اتشال خالص (16 سبتمبر، طلب المالك).**
+// كان فيه `SHIPPING_COST_DEFAULT = 85` محفور هنا، وأي أوردر مالوش تكلفة
+// حقيقية كان بيتحسب بيه. ده كان **رقم بوسطة** محفور في الفرونت، ومع
+// الانتقال لـJ&T بقى كذب مركّب: تعريفة مختلفة تماماً بتتحسب بسعر شركة
+// اتلغى التعاقد معاها.
+// دلوقتي: التكلفة المسجّلة أو **صفر**. وصفر هنا **مش ادّعاء إن الشحن ببلاش** —
+// عشان كده `unknownShippingCount` بتتعد والواجهة بتقول العدد صراحةً فوق
+// تفصيلة التكاليف. الرقم يظهر والسياق يظهر معاه (درس 36)، وأي رقم مخترع
+// أسوأ من رقم ناقص معلوم (نفس قاعدة نسبة الموظف والشارة).
 export function orderShippingCost(o){
   var f = parseFloat(o && o.real_shipping_fee);
-  return (isFinite(f) && f > 0) ? f : SHIPPING_COST_DEFAULT;
+  return (isFinite(f) && f > 0) ? f : 0;
 }
+
+export function orderShippingUnknown(o){
+  var f = parseFloat(o && o.real_shipping_fee);
+  return !(isFinite(f) && f > 0);
+}
+
+// عدد الأوردرات اللي الشحن بيتخصم عليها (مسلّم + مرتجع) ومالهاش تكلفة
+// مسجّلة — بتتحسب في `renderFinanceOverview` وبتتعرض كبانر.
+export var unknownShippingCount = 0;
 
 export var financeCurrentTab = 'overview';
 
@@ -128,10 +143,17 @@ export function renderFinanceOverview(){
   // الشحن بيتخصم لما الأوردر يتسلّم أو يرجع مرتجع فقط — دول الحالتين اللي
   // بوسطة بتحاسب عليهم فعلاً. الملغي والفاشل و Exception (تأجيل/رفض مؤقت)
   // لسه ماتحسمتش، ولما تحسم هتبقى إما تسليم أو مرتجع ويتخصم وقتها.
-  var lostOrdersShipping = orders.filter(function(o){
+  var returnedOrders = orders.filter(function(o){
     return statusIn(o.status, RETURNED_STATUSES);
-  }).reduce(function(s,o){ return s + orderShippingCost(o); }, 0);
+  });
+  var lostOrdersShipping = returnedOrders.reduce(function(s,o){ return s + orderShippingCost(o); }, 0);
   shippingCost += lostOrdersShipping;
+
+  // الأوردرات اللي المفروض اتخصم عليها شحن ومالهاش تكلفة مسجّلة.
+  // من غير العدّ ده رقم «تكلفة الشحن» بيبقى ناقص **في صمت** — وده بالظبط
+  // اللي الـ85 كانت بتخبّيه.
+  unknownShippingCount = deliveredOrders.concat(returnedOrders)
+    .filter(orderShippingUnknown).length;
 
   // Manual expenses by category
   var expSalaries  = expenses.filter(function(e){return e.category==='مرتبات';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
@@ -187,7 +209,7 @@ export function renderFinanceOverview(){
   var costRows = [
     {label:'💰 المتحصل (إيرادات فعلية)', value:collected, isRevenue:true, tip:'إجمالي قيمة الأوردرات Delivered فقط في الفترة المختارة.'},
     {label:'🏭 تكلفة المنتجات (جملة)', value:-manufacturerCost, alwaysShow:true, tip:'الأولوية للـ Snapshot المحفوظ وقت الشحن. لو مش موجود، بيتحسب Live من سعر الجملة الحالي في المخزون × الكمية.'},
-    {label:'🚚 تكلفة الشحن الحقيقية (شامل المرتجع)', value:-shippingCost, tip:'سعر الشحن الحقيقي من Bosta (شامل VAT) لكل أوردر اتسلّم، وللي لسه ماجبناش سعره الحقيقي بنحسبه 85 جنيه. وبيتحسب كمان لكل أوردر مرتجع أو فاشل عنده رقم تتبع لأن الشحنة خرجت فعلاً.'},
+    {label:'🚚 تكلفة الشحن الحقيقية (شامل المرتجع)', value:-shippingCost, tip:'التكلفة الفعلية المسجّلة من شركة الشحن لكل أوردر اتسلّم أو رجع مرتجع — الشحنة خرجت في الحالتين. الأوردر اللي تكلفته لسه ماوصلتش مش داخل في الرقم ده، وعدده مكتوب فوق.'},
     {label:'👤 مرتبات', value:-expSalaries, tip:'مصاريف فئة المرتبات المسجلة يدويًا في الفترة.'},
     {label:'📱 إعلانات فيسبوك', value:-expAds, tip:'مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة.'},
     {label:'📦 تغليف', value:-expPackaging, tip:'مصاريف التغليف المسجلة يدويًا في تبويب المصاريف.'},
@@ -197,6 +219,16 @@ export function renderFinanceOverview(){
     {label:'💎 صافي الربح', value:netProfit, isProfit:true, tip:'صافي الربح النهائي بعد خصم كل التكاليف والمصاريف من المتحصل فعلاً.'}
   ];
   var html = '';
+
+  // بانر تكلفة الشحن الناقصة — نفس منطق بانر المنتجات غير المطابقة.
+  // 🔴 من غيره، شيل الافتراضي بيخلي «تكلفة الشحن» تنقص من غير أي إشارة
+  // والأرباح تطلع **أعلى** من الحقيقة — نفس الخطر بالمقلوب.
+  if(unknownShippingCount > 0){
+    html += '<div style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px dashed rgba(234,88,12,.5);border-radius:14px;padding:14px 18px;margin-bottom:14px;">'
+      + '<div style="font-weight:800;margin-bottom:4px;">⚠️ '+num(unknownShippingCount)+' أوردر تكلفة شحنه لسه مش مسجّلة</div>'
+      + '<div style="color:var(--muted);font-size:.85rem;line-height:1.6;">مش داخلة في «تكلفة الشحن الحقيقية» تحت، يعني الربح المعروض <b>أعلى من الحقيقي</b> بمقدارها. التكلفة بتتسجّل أول ما شركة الشحن ترجّعها.</div>'
+      + '</div>';
+  }
 
   // Warning banner — show ABOVE the breakdown if any products couldn't be matched to stock
   if(unmatchedCogsItems.length > 0){
