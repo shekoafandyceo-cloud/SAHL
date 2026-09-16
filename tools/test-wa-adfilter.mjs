@@ -254,7 +254,10 @@ console.log('──── المعايرات ────');
       const res = await r.fetch();
       let body = await res.text();
       body = body.replace("  if(f==='ctwa') waFetchAdConvos();", '');
-      body = body.replace('  waFetchAdConvos();\n  waFetchConvos(true);', '  waFetchConvos(true);');
+      // ⚠️ المعايرة بتستهدف **سطر النداء** فبتبوظ لو اتغير حواليه حاجة.
+      // حصل فعلاً لما `waFetchAdNames()` اتضافت بينهم — المعايرة عدّت من
+      // غير ما تشيل حاجة وطلعت 3 بدل 2، فبانت كأنها وقعت وهي اللي بايتة.
+      body = body.replace(/^\s*waFetchAdConvos\(\);\s*$/m, '');
       await r.fulfill({ response: res, body });
     }
   });

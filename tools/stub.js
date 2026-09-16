@@ -78,7 +78,7 @@
     var DYN = { stock_movements:'__MOVEMENTS', upsell_events:'__CM_EVENTS',
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL',
                 wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS',
-                wa_quick_replies:'__QR' };
+                wa_quick_replies:'__QR', ctwa_ads:'__AD_NAMES' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])

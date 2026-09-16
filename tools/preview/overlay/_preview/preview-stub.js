@@ -265,6 +265,12 @@
     stock_products: STOCK,
     stock_movements: MOVES,
     wa_conversations: WA_CONVOS, wa_messages: WA_MSGS, wa_quick_replies: WA_QR,
+    // 🔴 الإعلانين دول ليهم **نفس الكوبي** عمداً (زي `FOMO HOOK` و`realone`
+    // على الحي) — عشان المعاينة تثبت إن الاسم هو اللي بيفرّق مش النص.
+    ctwa_ads: [
+      { tenant_id:TENANT, ad_id:'120212345678900123', ad_name:'KitchenOrganizer' },
+      { tenant_id:TENANT, ad_id:'120298765432100987', ad_name:'FOMO HOOK' }
+    ],
     plans: [], wallet_transactions: [], topup_requests: [], expenses: [],
     platform_settings: [{ key:'telegram_bot_username', value:'sahl_operations_bot' },
                         { key:'vfcash_number', value:'01000000000' }]

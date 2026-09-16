@@ -3,8 +3,16 @@
 // «امكانية عمل saved reply بصورتين وكلام زي الواتساب بيزنس، بدل ما احنا
 // عاملينها دلوقتي كلام بس.»
 //
-// 🔴 قرار المالك على الترتيب: **الصور الأول والكلام رسالة مستقلة في الآخر**
-// (مش caption على أول صورة).
+// 🔴🔴 **العقد اتغيّر بعد تجربة حية (16 سبتمبر).** النسخة الأولى بعتت الصور
+// بالتسلسل وبعدها الكلام رسالة مستقلة — والمالك شاف عند العميل:
+// صورة ← كلام ← صورة. نداءاتنا كانت مرتبة (اتقاس من `wa_messages`:
+// 19:13:37 · 19:13:39 · 19:13:41) والترتيب اتقلب **عند ميتا**، وده موثّق:
+// «the order in which messages are delivered is not guaranteed to match
+//  the order of your API requests».
+// فالفحص القديم («مفيش caption» + «الكلام رسالة مستقلة») كان بيثبت إن
+// **نداءاتنا** مرتبة — حقيقي ومالوش علاقة باللي بيوصل للعميل (درس 26).
+// العقد الجديد: **الكلام caption على آخر صورة** فيستحيل يتوسط،
+// وفوق 1024 حرف (حد ميتا) بيرجع رسالة مستقلة.
 //
 // 🔴 والقرار التاني في التصميم: **مفيش إرسال بضغطة واحدة**. الرد بصور
 // بيتحط «محضّر» فوق خانة الكتابة والموظف بيدوس إرسال — زي الواتساب
@@ -15,7 +23,7 @@
 //   2) رد صور بس (نص فاضي) بيعرض تسمية مفهومة مش شريحة فاضية
 //   3) 🔴 الضغط على رد بصور **مابيبعتش** — بيحضّر بس
 //   4) الضغط بيحط النص في الخانة والصور في الشريط المحضّر
-//   5) 🔴 الإرسال: الصور **بالتسلسل وبالترتيب** وبعدها الكلام رسالة مستقلة
+//   5) 🔴 الإرسال: الصور بالترتيب و**الكلام caption على آخر واحدة**
 //   6) 🔴 مسار الصورة في الرفع بيبدأ بمعرّف المتجر — عزل الـStorage
 //   7) 🔴 تبديل المحادثة بيصفّر الرد المحضّر (فخ «الاقتباس اللزق»)
 //   8) اختيار مرفق بالإيد بيلغي الرد المحضّر (نيّتين على نفس الضغطة)
@@ -26,7 +34,8 @@
 //      المنشور نفسه (نفس أسلوب فحص `keep()` في إصلاح 14 سبتمبر)
 //  13) معايرات:
 //      (أ) خلي الضغط يبعت على طول      → فحص 3 يقع
-//      (ب) ابعت الصور بالتوازي         → فحص 5 يقع (الترتيب مضمون؟)
+//      (ب) ابعت الصور بالتوازي         → فحص 5 يقع
+//      (هـ) رجّع الكلام رسالة مستقلة     → فحص 5ج/5د يقعوا
 //      (ج) شيل تصفير تبديل المحادثة    → فحص 7 يقع
 //      (د) شيل بادئة المتجر من المسار  → فحص 6 يقع + الحارس بيرفض
 import { chromium } from 'playwright';
@@ -176,14 +185,16 @@ const staged = (p) => p.evaluate(() => {
   const sent = await p.evaluate(() => window.__SENT.map(s => ({
     img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null
   })));
-  ok(sent.length === 3, `5أ) اتبعت 3 رسايل (صورتين + كلام): ${sent.length}`);
+  // 🔴 رسالتين مش تلاتة — الكلام جزء من آخر صورة
+  ok(sent.length === 2, `5أ) اتبعت رسالتين بس (صورتين والكلام راكب التانية): ${sent.length}`);
   ok(sent[0] && sent[0].img === P1 && sent[1] && sent[1].img === P2,
      `5ب) 🔴 الصور بالترتيب اللي الموظف شافه`);
-  // 🔴 قرار المالك: الكلام رسالة مستقلة في الآخر مش caption
-  ok(sent[0] && !sent[0].cap && sent[1] && !sent[1].cap,
-     '5ج) 🔴 مفيش caption على أي صورة');
-  ok(sent[2] && sent[2].text === 'السعر 320ج بعد الخصم' && !sent[2].img,
-     `5د) 🔴 والكلام رسالة مستقلة في الآخر — وبالنص المعدّل: «${sent[2] && sent[2].text}»`);
+  // 🔴 الفحص الحاكم: الكلام **مستحيل** يبقى رسالة لوحده — لأنه لو كده
+  // ميتا ممكن تسلّمه في نص الصور (اللي حصل فعلاً في التجربة الحية)
+  ok(!sent.some(m => m.text && !m.img),
+     '5ج) 🔴 مفيش أي رسالة نص لوحدها — الكلام مايقدرش يتوسط الصور');
+  ok(sent[1] && sent[1].cap === 'السعر 320ج بعد الخصم' && !sent[0].cap,
+     `5د) 🔴 والكلام caption على **آخر** صورة بس: «${sent[1] && sent[1].cap}»`);
   const after = await staged(p);
   ok(after && !after.shown, '5هـ) والشريط المحضّر اتصفّر بعد الإرسال');
 
@@ -394,6 +405,50 @@ console.log('──── المعايرات ────');
   const ups = await p.evaluate(() => window.__UPLOADS || []);
   ok(ups[0] && ups[0].indexOf(TENANT + '/') !== 0,
      `معايرة د: من غير البادئة المسار بقى «${ups[0]}» — فحص 6ب بيمسكها وحارس wa-send بيرفضه`);
+  await p.close();
+}
+
+// (هـ) رجّع الشكل القديم (الكلام رسالة مستقلة) → فحص 5ج/5د لازم يقعوا.
+// دي المعايرة اللي **مكانتش موجودة** وسابت الباج يوصل للعميل.
+{
+  const p = await openInbox({
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      body = body.replace('  var asCaption = !!(text && med.length && text.length<=WA_CAPTION_MAX);',
+                          '  var asCaption = false;');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await p.click('.wa-qr[data-qid="q2"]');
+  await p.waitForTimeout(500);
+  await p.click('#wa-send-btn');
+  await p.waitForTimeout(1200);
+  const sent = await p.evaluate(() => window.__SENT.map(s => ({
+    img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null })));
+  ok(sent.length === 3 && sent.some(m => m.text && !m.img),
+     `معايرة هـ: بالشكل القديم رجعت ${sent.length} رسايل والكلام لوحده — فحص 5ج بيمسكها`);
+  await p.close();
+}
+
+// (و) نص أطول من حد ميتا (1024) → لازم يرجع رسالة مستقلة، مايتبعتش caption
+// ميتا بترفضه (رسالة اترفضت أسوأ من رسالة بترتيب مش مظبوط)
+{
+  const LONG = 'ن'.repeat(1100);
+  const p = await openInbox({
+    qr: [{ id: 'q2', tenant_id: TENANT, body: LONG,
+           media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' },
+                   { path: P2, mime: 'image/jpeg', name: 'a2.jpg' }] }]
+  });
+  await p.click('.wa-qr[data-qid="q2"]');
+  await p.waitForTimeout(500);
+  await p.click('#wa-send-btn');
+  await p.waitForTimeout(1400);
+  const sent = await p.evaluate(() => window.__SENT.map(s => ({
+    img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null })));
+  const caps = sent.filter(m => m.cap);
+  ok(sent.length === 3 && caps.length === 0 && sent[2] && sent[2].text && sent[2].text.length > 1024,
+     `فحص 13) نص فوق 1024 حرف رجع رسالة مستقلة (${sent.length} رسايل · ${caps.length} caption) — ميتا مابترفضوش`);
   await p.close();
 }
 

@@ -98,6 +98,7 @@ async function openInbox(opts) {
     window.__WA_CONVOS = ${JSON.stringify(opts.convos || CONVOS)};
     window.__WA_MSGS   = ${JSON.stringify(opts.msgs || MSGS)};
     // بوابة الإنبوكس: الستب بيرجّع wa_inbox_status = {verified:false}
+    window.__AD_NAMES = ${JSON.stringify(opts.adNames || [])};
     window.__RPC_HOOK = function(name){
       if(name === 'wa_inbox_status') return { data:{ verified:true }, error:null };
       return null;
@@ -362,6 +363,69 @@ const openConv = async (p, id) => {
   ok(colors.light.head !== colors.dark.head && colors.light.row !== colors.dark.row,
      `12) الليلي ليه تجاوز فعلي (نهاري ${colors.light.row} ← ليلي ${colors.dark.row})`);
   await p.close();
+}
+
+// ════ 13 — اسم الإعلان من Meta (بلاغ المالك 16 سبتمبر مساءً) ════
+// 🔴 إعلانين مختلفين ممكن يبقى ليهم **نفس الكوبي بالحرف** — اتقاس على
+// الحي: `FOMO HOOK` و`realone` نص إعلانهم واحد، فالشارة كانت بتقول نفس
+// الكلام على الاتنين. نفس درس 44 على مستوى أعمق: `headline` مكانش مميّز،
+// و`body` كمان مش مميّز. الاسم مش بييجي في الـwebhook فبييجي من `ctwa_ads`.
+{
+  const SAME_BODY = 'القطعة اللي هتنظم بيتك كله.. مش المطبخ بس!';
+  const AD_A = '120250918845800034', AD_B = '120250918831800034';
+  const twins = [
+    Object.assign(base('t1', '21', 1), {
+      ctwa_ad_id: AD_A, ctwa_clid: 'ARx1', ctwa_ad_body: SAME_BODY,
+      ctwa_first_at: iso(50), ctwa_last_at: iso(1) }),
+    Object.assign(base('t2', '22', 2), {
+      ctwa_ad_id: AD_B, ctwa_clid: 'ARx2', ctwa_ad_body: SAME_BODY,
+      ctwa_first_at: iso(60), ctwa_last_at: iso(2) })
+  ];
+  const names = [
+    { tenant_id: TENANT, ad_id: AD_A, ad_name: 'FOMO HOOK' },
+    { tenant_id: TENANT, ad_id: AD_B, ad_name: 'realone' }
+  ];
+
+  console.log('──── اسم الإعلان ────');
+  // (أ) من غير أسماء: الشارتين بنفس النص — ده الباج اللي المالك بلّغه
+  {
+    const p = await openInbox({ convos: twins, msgs: [] });
+    const a = await rowBadge(p, 't1'), b2 = await rowBadge(p, 't2');
+    ok(a && b2 && a.txt === b2.txt,
+       `13أ) من غير أسماء الشارتين متطابقتين — ده الباج: «${a && a.txt}»`);
+    await p.close();
+  }
+  // (ب) بالأسماء: كل إعلان بقى ليه اسمه
+  {
+    const p = await openInbox({ convos: twins, msgs: [], adNames: names });
+    await p.waitForTimeout(400);
+    const a = await rowBadge(p, 't1'), b2 = await rowBadge(p, 't2');
+    ok(a && a.txt.indexOf('FOMO HOOK') >= 0, `13ب) 🔴 الأول بقى «${a && a.txt}»`);
+    ok(b2 && b2.txt.indexOf('realone') >= 0, `13ج) 🔴 والتاني «${b2 && b2.txt}»`);
+    ok(a && b2 && a.txt !== b2.txt, '13د) 🔴 والاتنين مختلفين — المالك بقى يفرّق');
+    // الاسم بيكسب على الكوبي، والكوبي بيفضل في التلميح
+    ok(a && a.txt.indexOf('القطعة اللي') < 0, '13هـ) الكوبي مابقاش في الشارة');
+    const tip = await p.evaluate(() => {
+      const el = document.querySelector('.wa-conv[data-id="t1"] .wa-conv-ctwa');
+      return el ? el.getAttribute('title') : '';
+    });
+    ok(tip.indexOf('FOMO HOOK') >= 0 && tip.indexOf('القطعة اللي') >= 0,
+       '13و) والتلميح فيه الاسم والكوبي كامل');
+    // 🔴 والمعرّف لسه عمره ما بيتعرض (قرار 14 سبتمبر)
+    const pageTxt = await p.evaluate(() => document.body.innerText);
+    ok(pageTxt.indexOf(AD_A) < 0 && pageTxt.indexOf(AD_B) < 0,
+       '13ز) 🔴 ومعرّف الإعلان لسه مش بيتعرض في أي مكان');
+    await p.close();
+  }
+  // (ج) إعلان مالوش اسم في الجدول → بيرجع للكوبي مش بيفضل فاضي
+  {
+    const p = await openInbox({ convos: twins, msgs: [], adNames: [names[0]] });
+    await p.waitForTimeout(400);
+    const b2 = await rowBadge(p, 't2');
+    ok(b2 && b2.has && b2.txt.indexOf('القطعة اللي') >= 0,
+       `13ح) إعلان مالوش اسم رجع للكوبي: «${b2 && b2.txt}»`);
+    await p.close();
+  }
 }
 
 // ════════════════ المعايرات ════════════════

@@ -54,6 +54,7 @@ export function loadInbox(){
   // عدّاد شارة الإعلانات لازم يبقى صح **من أول رسمة** مش بعد الضغط —
   // رقم على الـchip بيتغير لما تدوس عليه = رقم بيكدب قبل الضغطة.
   waFetchAdConvos();
+  waFetchAdNames();
   waFetchConvos(true);
   if(waPollTimer) clearInterval(waPollTimer);
   waPollTimer=setInterval(function(){
@@ -176,8 +177,39 @@ function waFirstLine(v){
   for(var i=0;i<lines.length;i++){ var L=lines[i].trim(); if(L) return L; }
   return '';
 }
+// 🔴 اسم الإعلان في Meta — **مش بييجي في الـwebhook خالص**، فبييجي من
+// جدول `ctwa_ads`. السبب من بلاغ حي (16 سبتمبر): إعلانين مختلفين ممكن
+// يبقى ليهم **نفس الكوبي بالحرف** — `FOMO HOOK` و`realone` نص إعلانهم
+// واحد، فالشارة كانت بتقول نفس الكلام على الاتنين والمالك مش قادر يفرّق.
+// نفس درس 44 بس على مستوى أعمق: نقلنا من `headline` لـ`body` لأن الأول
+// مكانش مميّز، والتاني كمان مش مميّز.
+export var waAdNames={};
+
+export function waFetchAdNames(){
+  if(!sb||!currentTenantId) return;
+  sb.from('ctwa_ads').select('ad_id,ad_name').eq('tenant_id',currentTenantId).then(function(r){
+    if(r.error||!r.data) return;   // فشل الجلب بيرجّعنا للكوبي — مش قايمة فاضية
+    var m={};
+    for(var i=0;i<r.data.length;i++){
+      var n=String(r.data[i].ad_name==null?'':r.data[i].ad_name).trim();
+      if(r.data[i].ad_id && n) m[r.data[i].ad_id]=n;
+    }
+    waAdNames=m;
+    renderConvos();
+    var ac=waConvById(waActiveId); if(ac) waUpdateCtwa(ac);
+  });
+}
+
+export function waAdName(c){
+  if(!c||!c.ctwa_ad_id) return '';
+  return waAdNames[c.ctwa_ad_id]||'';
+}
+
 export function waCtwaText(c){
   if(!c) return '';
+  // الاسم الأول — هو الوحيد المضمون إنه مميّز بين إعلانين
+  var nm=waAdName(c);
+  if(nm) return nm;
   var b=waFirstLine(c.ctwa_ad_body);
   if(b) return b;
   // الإعلانات اللي اتلقطت قبل 16 سبتمبر مالهاش body متخزّن، والـheadline
@@ -206,7 +238,11 @@ export function waCtwaUrl(c){
 export function waCtwaTitle(c){
   var full=String((c&&c.ctwa_ad_body)==null?'':c.ctwa_ad_body).trim();
   var url=waCtwaUrl(c);
+  var nm=waAdName(c);
+  // الشارة بتعرض الاسم بس (سطر واحد) — فالتلميح هو المكان اللي الكوبي
+  // بيبان فيه كامل، وبيفضل مهم لأن إعلانين ممكن يشتركوا في الكوبي
   var t=full ? ('نص الإعلان:\n'+full) : 'العميل دخل من إعلان واتساب';
+  if(nm) t = 'الإعلان: '+nm+(full?('\n\n'+t):'');
   if(url) t+='\n\n🔗 افتح الإعلان: '+url;
   return t;
 }
@@ -757,20 +793,37 @@ export function waSend(){
   }
 }
 
-// 🔴 الإرسال **بالتسلسل** — `await` ورا بعض مش بالتوازي. لو خرجوا سوا،
-// ترتيب وصولهم عند العميل مش مضمون: الصورة التانية ممكن توصل قبل الأولى
-// والكلام قبل الصور. والترتيب هنا هو المعلومة نفسها (صور المنتج وبعدها
-// السعر).
+// 🔴🔴 **ميتا مابتضمنش ترتيب التسليم — موثّق بالحرف:**
+// «When sending a series of messages, the order in which messages are
+//  delivered is **not guaranteed to match the order of your API requests**»
+// والطريقة الوحيدة المضمونة في التوثيق هي انتظار `delivered` في الـwebhook
+// قبل كل رسالة — **ومرفوضة هنا** لأن موبايل العميل لو مقفول التأكيد
+// مابيجيش والرد ميكملش خالص.
 //
-// 🔴 والنص بيتبعت **رسالة مستقلة في الآخر** (قرار المالك 16 سبتمبر) مش
-// كـcaption على أول صورة.
+// النسخة الأولى بعتت الصور بالتسلسل وبعدها الكلام رسالة مستقلة، وده اتجرّب
+// حيّ (16 سبتمبر) **وطلع غلط عند العميل**: صورة ← كلام ← صورة. نداءاتنا
+// كانت مرتبة (اتقاس: 19:13:37 · 19:13:39 · 19:13:41) والترتيب اتقلب عند
+// ميتا. المعايرة اللي كانت موجودة بتثبت إن **نداءاتنا** مرتبة — وده حقيقي
+// ومالوش علاقة باللي بيوصل للعميل (درس 26 بالحرف).
+//
+// 🔴 الشكل الحالي (قرار المالك بعد البلاغ): **الكلام caption على آخر صورة**.
+// كده عدد الرسايل N مش N+1، والكلام **مستحيل** يتوسط الصور لأنه جزء من
+// رسالة واحدة معاها. الصور ممكن تتبدل بين بعضها — ضرر شكلي مقبول.
+//
+// ⚠️ وحد الـcaption عند ميتا **1024 حرف** (موثّق). النص الأطول من كده
+// بيرجع رسالة مستقلة في الآخر — رسالة اتبعتت بترتيب مش مظبوط أحسن من
+// رسالة ميتا ترفضها وماتوصلش أصلاً.
 //
 // ⚠️ ولو صورة في النص وقعت، **بنقف** — مانكملش. العميل استلم صورتين من
 // تلاتة وكلام بيتكلم عن التالتة = رسالة بتلخبط أكتر من رسالة ماوصلتش،
 // والموظف بيشوف الغلط ويقرر.
+var WA_CAPTION_MAX=1024;   // حد ميتا الموثّق للـcaption
+
 export function waSendQuickReply(text){
   var convAtSend=waActiveId;
   var med=waPendingQr.media.slice();
+  // الكلام بيركب آخر صورة طالما داخل الحد، وغير كده بيتبعت لوحده
+  var asCaption = !!(text && med.length && text.length<=WA_CAPTION_MAX);
   var replyAtSend=(waReplyTo && waReplyTo.wa_message_id) ? waReplyTo.wa_message_id : null;
   var input=$id('wa-input');
   if(input){ input.value=''; input.style.height='auto'; }
@@ -787,7 +840,7 @@ export function waSendQuickReply(text){
     if(btn) btn.disabled=false;
     if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvById(convAtSend)); }
     else if(code==='bad_media_path') toast('صور الرد الجاهز مش من ملفات متجرك — امسح الرد واعمله تاني','er');
-    else if(sent>0) toast('اتبعت '+sent+' من '+med.length+' صورة وبعدين وقف — الباقي مااتبعتش','er');
+    else if(sent>0) toast('اتبعت '+sent+' من '+med.length+' صورة وبعدين وقف — الباقي والكلام مااتبعتوش','er');
     else toast('الرد الجاهز مااتبعتش — حاول تاني','er');
     // اللي مااتبعتش بيرجع للخانة عشان الموظف يقرر — مش بيضيع في صمت
     if(text && input && !input.value) input.value=text;
@@ -798,7 +851,8 @@ export function waSendQuickReply(text){
   function next(){
     if(waActiveId!==convAtSend){ done(); return; }   // الموظف بدّل المحادثة
     if(i>=med.length){
-      if(!text){ done(); return; }
+      // الكلام راكب آخر صورة خلاص — مفيش رسالة تانية
+      if(!text || asCaption){ done(); return; }
       sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,text:text}})
         .then(function(res){
           var d=(res&&res.data)?res.data:null;
@@ -810,6 +864,7 @@ export function waSendQuickReply(text){
     var m=med[i];
     // الاقتباس على أول رسالة بس — رد على نفس الرسالة 3 مرات تزحّم الشات
     var payload={conversation_id:convAtSend, image_path:m.path};
+    if(asCaption && i===med.length-1) payload.caption=text;
     if(i===0 && replyAtSend) payload.reply_to=replyAtSend;
     sb.functions.invoke('wa-send',{body:payload}).then(function(res){
       var d=(res&&res.data)?res.data:null;
