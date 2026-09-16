@@ -48,6 +48,9 @@ const AD_ID = '120212345678900123';
 const PAGE_NAME = '3ataba.com - عتبة دوت كوم';
 const AD_BODY = '🙄 مطبخك زحمة والرُخامة مليانة مواعين وأدوات؟\nالحل عندنا 👇\n✨ منظم المطبخ المتكامل فوق الحوض ✨';
 const AD_LINE1 = '🙄 مطبخك زحمة والرُخامة مليانة مواعين وأدوات؟';
+const AD_URL = 'https://fb.me/d4Q8q6Tid';
+// 🔴 العنوان جاي من حمولة خارجية — `javascript:` في href بيتنفّذ عند الضغط
+const EVIL_URL = 'javascript:window.__PWNED_URL=1';
 
 const base = (id, n, mins) => ({
   id, tenant_id: TENANT, wa_id: '2010000000' + n, customer_name: 'عميل ' + n,
@@ -62,8 +65,13 @@ const base = (id, n, mins) => ({
 const CONVOS = [
   Object.assign(base('c1', '01', 1), {
     ctwa_clid: 'ARAaBbCc123', ctwa_ad_id: AD_ID, ctwa_headline: PAGE_NAME,
-    ctwa_ad_body: AD_BODY,
+    ctwa_ad_body: AD_BODY, ctwa_source_url: AD_URL,
     ctwa_source_type: 'ad', ctwa_first_at: iso(90), ctwa_last_at: iso(1)
+  }),
+  // c5: ميتا (أو أي حد بيقدر يكتب) بعتت عنوان خبيث
+  Object.assign(base('c5', '05', 15), {
+    ctwa_ad_id: AD_ID, ctwa_ad_body: 'إعلان بعنوان خبيث',
+    ctwa_source_url: EVIL_URL, ctwa_source_type: 'ad'
   }),
   // c4: التقاط قديم (قبل 16 سبتمبر) — مفيش body، الـheadline هي المتاح
   Object.assign(base('c4', '04', 12), {
@@ -191,6 +199,52 @@ const openConv = async (p, id) => {
   ok(hitHead === 'ظاهر', `6أ) شارة الهيدر مش مدفونة (${hitHead})`);
   const hitRow = await hitTest(p, '.wa-conv[data-id="c1"] .wa-conv-ctwa');
   ok(hitRow === 'ظاهر', `6ب) شارة صف القايمة مش مدفونة (${hitRow})`);
+
+  // ════ لينك الإعلان ════
+  console.log('──── لينك الإعلان ────');
+  const link = await p.evaluate(() => {
+    const e = document.getElementById('wa-chat-ctwa');
+    return { tag: e.tagName, href: e.getAttribute('href'),
+             target: e.getAttribute('target'), rel: e.getAttribute('rel'),
+             tip: e.getAttribute('title') || '' };
+  });
+  ok(link.tag === 'A' && link.href === AD_URL,
+     `L1) شارة الهيدر لينك على الإعلان (${link.tag} · ${link.href})`);
+  ok(link.target === '_blank' && /noopener/.test(link.rel || ''),
+     `L2) بتفتح في تاب جديدة بـnoopener (rel=${link.rel})`);
+  ok(link.tip.indexOf(AD_URL) >= 0 && link.tip.indexOf('الحل عندنا') >= 0,
+     `L3) التلميح فيه نص الإعلان **والعنوان**`);
+
+  // 🔴 الأمان: عنوان مش http(s) مايترسمش كـhref أبداً
+  await openConv(p, 'c5');
+  const evil = await p.evaluate(() => {
+    const e = document.getElementById('wa-chat-ctwa');
+    const row = document.querySelector('.wa-conv[data-id="c5"] .wa-conv-ad-link');
+    return { href: e.getAttribute('href'), shown: getComputedStyle(e).display !== 'none',
+             rowLink: !!row, pwned: !!window.__PWNED_URL };
+  });
+  ok(!evil.href && !evil.rowLink && !evil.pwned,
+     `L4) 🔴 عنوان javascript: اترفض — مفيش href ومفيش لينك في الصف`);
+  ok(evil.shown, `L5) والشارة نفسها لسه بتظهر (النص أهم من اللينك)`);
+
+  // 🔴 الضغط على لينك الصف مايبدّلش المحادثة
+  await openConv(p, 'c2');
+  const before2 = await p.evaluate(() => {
+    const a = document.querySelector('.wa-conv.active');
+    return a ? a.getAttribute('data-id') : null;
+  });
+  await p.evaluate(() => {
+    const l = document.querySelector('.wa-conv[data-id="c1"] .wa-conv-ad-link');
+    if (l) { l.removeAttribute('target'); l.setAttribute('href', 'javascript:void 0'); }
+  });
+  await p.click('.wa-conv[data-id="c1"] .wa-conv-ad-link');
+  await p.waitForTimeout(350);
+  const after2 = await p.evaluate(() => {
+    const a = document.querySelector('.wa-conv.active');
+    return a ? a.getAttribute('data-id') : null;
+  });
+  ok(before2 === 'c2' && after2 === 'c2',
+     `L6) 🔴 ضغطة لينك الإعلان مابدّلتش المحادثة (${before2} → ${after2})`);
 
   // ════ 7 — تبديل المحادثة ════
   console.log('──── تبديل المحادثة ────');
@@ -396,6 +450,49 @@ console.log('──── المعايرات ────');
   const r3 = await rowBadge(p, 'c3');
   ok(r3 && r3.has && /\d{6,}/.test(r3.txt),
      `معايرة د: بعنوان مخترع الصف بقى «${r3 && r3.txt}» — فحص 3 بيمسكها`);
+  await p.close();
+}
+
+// (هـ) شيل حارس http(s) → فحص L4 لازم يقع
+{
+  const p = await openInbox({
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      body = body.replace("  return /^https?:\\/\\//i.test(u) ? u : '';", '  return u;');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await openConv(p, 'c5');
+  const h = await p.evaluate(() => (document.getElementById('wa-chat-ctwa').getAttribute('href') || ''));
+  ok(h.indexOf('javascript:') === 0,
+     `معايرة هـ: من غير الحارس الـhref بقى «${h}» — فحص L4 بيمسكها`);
+  await p.close();
+}
+
+// (و) شيل stopPropagation → فحص L6 لازم يقع
+{
+  const p = await openInbox({
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      body = body.replace("    adLinks[al].addEventListener('click',function(e){ e.stopPropagation(); });", '');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await openConv(p, 'c2');
+  await p.evaluate(() => {
+    const l = document.querySelector('.wa-conv[data-id="c1"] .wa-conv-ad-link');
+    if (l) { l.removeAttribute('target'); l.setAttribute('href', 'javascript:void 0'); }
+  });
+  await p.click('.wa-conv[data-id="c1"] .wa-conv-ad-link');
+  await p.waitForTimeout(350);
+  const act = await p.evaluate(() => {
+    const a = document.querySelector('.wa-conv.active');
+    return a ? a.getAttribute('data-id') : null;
+  });
+  ok(act === 'c1',
+     `معايرة و: من غير stopPropagation الضغطة بدّلت المحادثة لـ${act} — فحص L6 بيمسكها`);
   await p.close();
 }
 

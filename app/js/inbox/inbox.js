@@ -179,10 +179,24 @@ export function waCtwaText(c){
   return '';
 }
 
+// 🔴 العنوان جاي من حمولة خارجية (ميتا) — `javascript:` في href **بيتنفّذ
+// عند الضغط**، فالمرور من غير فحص = XSS بضغطة واحدة. بنسمح بـhttp/https بس.
+// (ومابنعتمدش على `new URL` لوحدها: بترضى بـjavascript: عادي.)
+export function waCtwaUrl(c){
+  var u=String((c&&c.ctwa_source_url)==null?'':c.ctwa_source_url).trim();
+  if(!u) return '';
+  return /^https?:\/\//i.test(u) ? u : '';
+}
+
 // التلميح بيشيل نص الإعلان **كامل** — السطر الأول بيعرّف، والباقي بيأكّد.
+// ومعاه العنوان: التلميح نفسه مايتضغطش (خاصية title مش HTML)، بس الشارة
+// بقت لينك — فده بيقول للموظف إنها تتفتح وبيوريه رايحة فين قبل ما يدوس.
 export function waCtwaTitle(c){
   var full=String((c&&c.ctwa_ad_body)==null?'':c.ctwa_ad_body).trim();
-  return full ? ('نص الإعلان:\n'+full) : 'العميل دخل من إعلان واتساب';
+  var url=waCtwaUrl(c);
+  var t=full ? ('نص الإعلان:\n'+full) : 'العميل دخل من إعلان واتساب';
+  if(url) t+='\n\n🔗 افتح الإعلان: '+url;
+  return t;
 }
 
 // بتتنادى من فتح المحادثة **ومن renderConvos** — العميل ممكن يدوس على
@@ -190,10 +204,28 @@ export function waCtwaTitle(c){
 export function waUpdateCtwa(c){
   var box=$id('wa-chat-ctwa'); if(!box) return;
   var t=waCtwaText(c);
-  if(!t){ box.style.display='none'; box.textContent=''; box.removeAttribute('title'); return; }
+  if(!t){
+    box.style.display='none'; box.textContent='';
+    box.removeAttribute('title'); box.removeAttribute('href');
+    box.removeAttribute('target'); box.removeAttribute('rel');
+    box.classList.remove('is-link');
+    return;
+  }
   box.style.display='';
   box.textContent='📣 '+t;
   box.title=waCtwaTitle(c);
+  var url=waCtwaUrl(c);
+  if(url){
+    box.setAttribute('href',url);
+    box.setAttribute('target','_blank');
+    // noopener إلزامي مع target=_blank — من غيره الصفحة المفتوحة
+    // بتوصل لـwindow.opener وتقدر تنقّل لوحة التاجر لأي مكان
+    box.setAttribute('rel','noopener noreferrer');
+    box.classList.add('is-link');
+  } else {
+    box.removeAttribute('href'); box.removeAttribute('target');
+    box.removeAttribute('rel'); box.classList.remove('is-link');
+  }
 }
 
 export function renderConvos(){
@@ -234,7 +266,9 @@ export function renderConvos(){
         +'<div class="wa-conv-top"><span class="wa-conv-name">'+esc(name)+'</span><span class="wa-conv-time">'+esc(waTimeShort(c.last_message_at))+'</span></div>'
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
-        +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span></div>'):'')
+        +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span>'
+        +(waCtwaUrl(c)?('<a class="wa-conv-ad-link" href="'+esc(waCtwaUrl(c))+'" target="_blank" rel="noopener noreferrer" title="افتح الإعلان على فيسبوك">↗</a>'):'')
+        +'</div>'):'')
       +'</div></div>';
   }
   // مؤشر النقص: القايمة عند السقف = فيه أقدم مش معروض ولا بيدخل البحث
@@ -242,6 +276,13 @@ export function renderConvos(){
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
   for(var j=0;j<items.length;j++){ items[j].addEventListener('click',function(){ openConversation(this.getAttribute('data-id')); }); }
+  // 🔴 لينك الإعلان جوّه صف قابل للضغط: من غير stopPropagation الضغطة بتفتح
+  // الإعلان **وتبدّل المحادثة** في نفس الوقت — الموظف بيروح لشات تاني من غير
+  // ما يقصد وهو بصّ على تاب جديدة، فمايلاحظش.
+  var adLinks=body.querySelectorAll('.wa-conv-ad-link');
+  for(var al=0;al<adLinks.length;al++){
+    adLinks[al].addEventListener('click',function(e){ e.stopPropagation(); });
+  }
   if(waActiveId){ var ac=waConvos.filter(function(x){return x.id===waActiveId;})[0]; if(ac){ waUpdateWindow(ac); waUpdateCtwa(ac); } }
 }
 

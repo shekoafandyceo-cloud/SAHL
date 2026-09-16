@@ -307,6 +307,22 @@ export import from as default extends super static get set
 """.split())
 
 
+# كلمات مفتاحية ممكن ييجي بعدها regex literal. من غيرها `return /^https?:...`
+# بتتقرا **قسمة** — فجوة اتكشفت 16 سبتمبر: الفاحص طلّع «https مش معرّف» على
+# كود سليم. (نفس عيلة درس 22: الفاحص أعمى بنفس طريقة الكود — والإنذار الكاذب
+# أخطر من مفيش فاحص لأنك بتتعوّد تتجاهله، درس 9.)
+REGEX_PRECEDING_KW = frozenset(
+    "return typeof instanceof in of case do else void delete new yield await throw".split()
+)
+
+
+def _regex_after_keyword(out):
+    """آخر كلمة اتكتبت في الخرج — لو كلمة مفتاحية يبقى الـ`/` بداية regex."""
+    tail = "".join(out[-24:]).rstrip()
+    m = re.search(r"([A-Za-z_$][A-Za-z0-9_$]*)$", tail)
+    return bool(m) and m.group(1) in REGEX_PRECEDING_KW
+
+
 def js_strip(src):
     """يشيل الكومنتات والسترينجات والـregex literals، ويحافظ على عدد الأسطر."""
     out = []
@@ -340,7 +356,7 @@ def js_strip(src):
             i = j + 1
             prev = "val"
             continue
-        if c == "/" and prev in ("", "op"):
+        if c == "/" and (prev in ("", "op") or _regex_after_keyword(out)):
             j, ok = i + 1, False
             while j < n and src[j] != "\n":
                 if src[j] == "\\":

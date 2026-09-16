@@ -97,6 +97,11 @@ async function applyReferral(
   // إعلان اسمه KitchenOrganizer — يعني نفس النص على كل إعلانات المتجر.
   // الـ`body` فيه كوبي الإعلان، وسطر واحد منه بيدي الموظف الإجابة فوراً.
   keep("ctwa_ad_body",     last?.body);
+  // لينك الإعلان المباشر — الشارة في الصندوق بتبقى لينك عليه.
+  // إعلانين لنفس المنتج بكوبي متشابه مابيتفرّقوش بالنص لوحده.
+  // ⚠️ الواجهة بتتحقق إنه http(s) قبل ما ترسمه — القيمة جاية من حمولة
+  // خارجية و`javascript:` في href بيتنفّذ عند الضغط.
+  keep("ctwa_source_url",  last?.source_url);
   await sb.from("wa_conversations").update(patch).eq("id", conversationId);
 
   // أول مرة بس — لو العميل رجع من إعلان تاني مابنمسحش تاريخ أول دخول
