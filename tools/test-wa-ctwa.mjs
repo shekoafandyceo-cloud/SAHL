@@ -43,7 +43,11 @@ const iso = (minsAgo) => new Date(now - minsAgo * 60000).toISOString();
 // 🔴 معرّف إعلان حقيقي الشكل: 17 خانة (درس 40 — أكبر من MAX_SAFE_INTEGER
 // فبييجي من ميتا كـstring). الفحص بيدوّر عليه في الصفحة كلها.
 const AD_ID = '120212345678900123';
-const HEADLINE = 'خصم 30% على ترولي المطبخ';
+// 🔴 من الالتقاط الحي 16 سبتمبر: ميتا بتحط **اسم الصفحة** في headline —
+// نفس النص على كل إعلانات المتجر. الـbody هو اللي بيعرّف الإعلان.
+const PAGE_NAME = '3ataba.com - عتبة دوت كوم';
+const AD_BODY = '🙄 مطبخك زحمة والرُخامة مليانة مواعين وأدوات؟\nالحل عندنا 👇\n✨ منظم المطبخ المتكامل فوق الحوض ✨';
+const AD_LINE1 = '🙄 مطبخك زحمة والرُخامة مليانة مواعين وأدوات؟';
 
 const base = (id, n, mins) => ({
   id, tenant_id: TENANT, wa_id: '2010000000' + n, customer_name: 'عميل ' + n,
@@ -57,8 +61,14 @@ const base = (id, n, mins) => ({
 // c1: إعلان بعنوان · c2: عادية · c3: إعلان من غير عنوان
 const CONVOS = [
   Object.assign(base('c1', '01', 1), {
-    ctwa_clid: 'ARAaBbCc123', ctwa_ad_id: AD_ID, ctwa_headline: HEADLINE,
+    ctwa_clid: 'ARAaBbCc123', ctwa_ad_id: AD_ID, ctwa_headline: PAGE_NAME,
+    ctwa_ad_body: AD_BODY,
     ctwa_source_type: 'ad', ctwa_first_at: iso(90), ctwa_last_at: iso(1)
+  }),
+  // c4: التقاط قديم (قبل 16 سبتمبر) — مفيش body، الـheadline هي المتاح
+  Object.assign(base('c4', '04', 12), {
+    ctwa_clid: 'ARold77', ctwa_ad_id: AD_ID, ctwa_headline: PAGE_NAME,
+    ctwa_ad_body: null, ctwa_source_type: 'ad'
   }),
   base('c2', '02', 5),
   Object.assign(base('c3', '03', 9), {
@@ -136,8 +146,22 @@ const openConv = async (p, id) => {
   console.log('──── الشارة في قايمة المحادثات ────');
 
   const r1 = await rowBadge(p, 'c1');
-  ok(r1 && r1.has && r1.txt.indexOf(HEADLINE) >= 0,
-     `1) صف الإعلان فيه الشارة بالعنوان: «${r1 && r1.txt}»`);
+  ok(r1 && r1.has && r1.txt.indexOf(AD_LINE1) >= 0,
+     `1) صف الإعلان بيعرض **سطر الإعلان**: «${r1 && r1.txt}»`);
+  // 🔴 الفحص الحاكم: اسم الصفحة مايظهرش طالما فيه body — ده الباج اللي
+  // المالك بلّغه («مش عارف من أنهي إعلان»)
+  ok(r1 && r1.txt.indexOf('3ataba.com') < 0,
+     `1ب) 🔴 اسم الصفحة مابقاش يكسب على نص الإعلان`);
+  // السطر التاني والتالت مايتحشروش في الشارة
+  ok(r1 && r1.txt.indexOf('الحل عندنا') < 0 && r1.txt.indexOf('\n') < 0,
+     `1ج) السطر الأول بس — باقي الكوبي مش في الشارة`);
+  // والتلميح فيه النص كامل
+  const tip = await p.evaluate(() => {
+    const el = document.querySelector('.wa-conv[data-id="c1"] .wa-conv-ctwa');
+    return el ? el.getAttribute('title') : null;
+  });
+  ok(tip && tip.indexOf('الحل عندنا') >= 0 && tip.indexOf('منظم المطبخ') >= 0,
+     `1د) التلميح فيه نص الإعلان كامل`);
 
   const r2 = await rowBadge(p, 'c2');
   ok(r2 && !r2.has, '2) المحادثة العادية من غير أي شارة');
@@ -155,8 +179,13 @@ const openConv = async (p, id) => {
   // ════ 5 · 6 — الهيدر والـhit-test ════
   console.log('──── الشارة في المحادثة المفتوحة ────');
   const h1 = await headBadge(p);
-  ok(h1 && h1.shown && h1.txt.indexOf(HEADLINE) >= 0,
-     `5) هيدر المحادثة بيعرض الشارة: «${h1 && h1.txt}»`);
+  ok(h1 && h1.shown && h1.txt.indexOf(AD_LINE1) >= 0 && h1.txt.indexOf('3ataba.com') < 0,
+     `5) هيدر المحادثة بيعرض سطر الإعلان: «${h1 && h1.txt}»`);
+
+  // ════ fallback: التقاط قديم من غير body ════
+  const r4 = await rowBadge(p, 'c4');
+  ok(r4 && r4.has && r4.txt.indexOf(PAGE_NAME) >= 0,
+     `5ب) التقاط قديم بلا body → الـheadline fallback: «${r4 && r4.txt}»`);
 
   const hitHead = await hitTest(p, '#wa-chat-ctwa');
   ok(hitHead === 'ظاهر', `6أ) شارة الهيدر مش مدفونة (${hitHead})`);
@@ -304,7 +333,7 @@ console.log('──── المعايرات ────');
     const el = document.getElementById('wa-chat-ctwa');
     return { txt: el.textContent.trim(), shown: getComputedStyle(el).display !== 'none' };
   });
-  ok(g.shown && g.txt.indexOf(HEADLINE) >= 0,
+  ok(g.shown && g.txt.indexOf(AD_LINE1) >= 0,
      `معايرة أ: من غير التصفير الشارة فضلت «${g.txt}» على محادثة تانية — فحص 7ب بيمسكها`);
   await p.close();
 }
@@ -315,14 +344,14 @@ console.log('──── المعايرات ────');
     routeInbox: async r => {
       const res = await r.fetch();
       let body = await res.text();
-      body = body.replace('  if(h) return h;', '  if(h) return h+" · "+c.ctwa_ad_id;');
+      body = body.replace('  var b=waFirstLine(c.ctwa_ad_body);\n  if(b) return b;', '');
       await r.fulfill({ response: res, body });
     }
   });
   await openConv(p, 'c1');
-  const pageTxt = await p.evaluate(() => document.getElementById('page-inbox').innerHTML);
-  ok(pageTxt.indexOf(AD_ID) >= 0,
-     'معايرة ب: بعرض الـad_id المعرّف بان في الصفحة — فحص 4 بيمسكها');
+  const rb = await rowBadge(p, 'c1');
+  ok(rb && rb.txt.indexOf('3ataba.com') >= 0 && rb.txt.indexOf(AD_LINE1) < 0,
+     `معايرة ب: بترتيب قديم (headline الأول) الشارة رجعت «${rb && rb.txt}» — فحص 1ب بيمسكها`);
   await p.close();
 }
 

@@ -143,25 +143,28 @@
       last_message_text:'الترولي ده متاح بكام؟', last_message_type:'text', last_direction:'in',
       unread_count:2, status:'open', labels:['مهتم'], note:null, created_at:iso(1,10,0),
       ctwa_clid:'ARBxq9…preview', ctwa_ad_id:'120212345678900123',
-      ctwa_headline:'خصم 30% على ترولي المطبخ 5 أدوار',
+      // ميتا بتحط **اسم الصفحة** في headline — محطوط هنا زي الواقع
+      // عشان المعاينة تثبت إن الشارة بتعرض نص الإعلان مش اسم الصفحة
+      ctwa_headline:'3ataba.com - عتبة دوت كوم',
+      ctwa_ad_body:'🙄 مطبخك زحمة والرُخامة مليانة مواعين وأدوات؟\nالحل عندنا 👇\n✨ منظم المطبخ المتكامل فوق الحوض ✨',
       ctwa_source_type:'ad', ctwa_first_at:iso(1,10,0), ctwa_last_at:iso(0,13,40) },
     { id:'wc2', tenant_id:TENANT, wa_id:'201001234502', customer_name:'سارة إبراهيم',
       customer_phone:'01001234502', last_message_at:iso(0,11,5), last_inbound_at:iso(0,11,5),
       last_message_text:'تمام، مستنياه', last_message_type:'text', last_direction:'out',
       unread_count:0, status:'open', labels:null, note:null, created_at:iso(3,10,0),
-      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_source_type:null,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null, ctwa_source_type:null,
       ctwa_first_at:null, ctwa_last_at:null },
     { id:'wc3', tenant_id:TENANT, wa_id:'201001234503', customer_name:'هدى مصطفى',
       customer_phone:'01001234503', last_message_at:iso(1,19,20), last_inbound_at:iso(1,19,20),
       last_message_text:'عايزة أطلب', last_message_type:'text', last_direction:'in',
       unread_count:0, status:'open', labels:null, note:null, created_at:iso(1,19,0),
-      ctwa_clid:'ARZm4…preview', ctwa_ad_id:'120298765432100987', ctwa_headline:null,
+      ctwa_clid:'ARZm4…preview', ctwa_ad_id:'120298765432100987', ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_type:'ad', ctwa_first_at:iso(1,19,0), ctwa_last_at:iso(1,19,20) },
     { id:'wc4', tenant_id:TENANT, wa_id:'201001234504', customer_name:'نورهان سيد',
       customer_phone:'01001234504', last_message_at:iso(0,9,30), last_inbound_at:null,
       last_message_text:null, last_message_type:null, last_direction:null,
       unread_count:0, status:'open', labels:null, note:null, created_at:iso(0,9,30),
-      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_source_type:null,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null, ctwa_source_type:null,
       ctwa_first_at:null, ctwa_last_at:null }
   ];
   var WA_MSGS = [

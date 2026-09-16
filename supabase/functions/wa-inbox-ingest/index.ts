@@ -91,6 +91,12 @@ async function applyReferral(
   keep("ctwa_ad_id",       last?.source_id);
   keep("ctwa_headline",    last?.headline);
   keep("ctwa_source_type", last?.source_type);
+  // 🔴 نص الإعلان نفسه — ده اللي بيعرّف الإعلان للموظف.
+  // اتقاس على أول التقاط حي (16 سبتمبر): `headline` اللي ميتا بتبعتها
+  // طلعت **اسم الصفحة** مش اسم الإعلان — «3ataba.com - عتبة دوت كوم» على
+  // إعلان اسمه KitchenOrganizer — يعني نفس النص على كل إعلانات المتجر.
+  // الـ`body` فيه كوبي الإعلان، وسطر واحد منه بيدي الموظف الإجابة فوراً.
+  keep("ctwa_ad_body",     last?.body);
   await sb.from("wa_conversations").update(patch).eq("id", conversationId);
 
   // أول مرة بس — لو العميل رجع من إعلان تاني مابنمسحش تاريخ أول دخول

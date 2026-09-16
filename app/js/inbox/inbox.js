@@ -148,16 +148,41 @@ export function waSetFilter(f){
 }
 
 // شارة «جه من إعلان» — البيانات من wa_conversations.ctwa_* اللي
-// كانت بتوصل المتصفح وتترمي. 🔴 **العنوان بس — مفيش معرّف إعلان**
+// كانت بتوصل المتصفح وتترمي. 🔴 **مفيش معرّف إعلان في العرض أبداً**
 // (قرار المالك 14 سبتمبر): الموظف بيرد على عميل، مش بيحلل حملات.
+//
+// 🔴 **الترتيب اتغيّر 16 سبتمبر بعد أول التقاط حي.** كان `headline` هو
+// المصدر، وأول إعلان حقيقي كشف إن ميتا بتحط فيه **اسم الصفحة**:
+// «3ataba.com — عتبة دوت كوم» على إعلان اسمه KitchenOrganizer. يعني نفس
+// النص على كل إعلانات المتجر — شارة موجودة وبتقول صفر معلومة.
+// `referral.body` (كوبي الإعلان) هو اللي بيعرّفه فعلاً، وسطر واحد منه
+// بيدي الموظف الإجابة فوراً. درس 26 حرفياً: الشكل اتراجع والسلوك لأ.
+function waFirstLine(v){
+  var t=String(v==null?'':v).replace(/\u200e|\u200f|\u061c/g,'').trim();
+  if(!t) return '';
+  var lines=t.split(/[\r\n]+/);
+  for(var i=0;i<lines.length;i++){ var L=lines[i].trim(); if(L) return L; }
+  return '';
+}
 export function waCtwaText(c){
   if(!c) return '';
+  var b=waFirstLine(c.ctwa_ad_body);
+  if(b) return b;
+  // الإعلانات اللي اتلقطت قبل 16 سبتمبر مالهاش body متخزّن، والـheadline
+  // أحسن من لا حاجة. ⚠️ عينة واحدة بس هي اللي أثبتت إنه اسم الصفحة —
+  // ماينفعش نشيله على أساس إنه غلط دايماً.
   var h=String(c.ctwa_headline==null?'':c.ctwa_headline).trim();
   if(h) return h;
-  // فيه إعلان بس من غير عنوان — ميتا مش دايماً بتبعت headline.
-  // بنقول الحقيقة من غير عنوان مخترع (نفس قاعدة «رد على رسالة أقدم»).
+  // فيه إعلان بس مفيش أي نص — ميتا مش دايماً بتبعت body ولا headline.
+  // بنقول الحقيقة من غير نص مخترع (نفس قاعدة «رد على رسالة أقدم»).
   if(c.ctwa_ad_id||c.ctwa_clid) return 'جه من إعلان';
   return '';
+}
+
+// التلميح بيشيل نص الإعلان **كامل** — السطر الأول بيعرّف، والباقي بيأكّد.
+export function waCtwaTitle(c){
+  var full=String((c&&c.ctwa_ad_body)==null?'':c.ctwa_ad_body).trim();
+  return full ? ('نص الإعلان:\n'+full) : 'العميل دخل من إعلان واتساب';
 }
 
 // بتتنادى من فتح المحادثة **ومن renderConvos** — العميل ممكن يدوس على
@@ -168,7 +193,7 @@ export function waUpdateCtwa(c){
   if(!t){ box.style.display='none'; box.textContent=''; box.removeAttribute('title'); return; }
   box.style.display='';
   box.textContent='📣 '+t;
-  box.title='العميل دخل من إعلان واتساب';
+  box.title=waCtwaTitle(c);
 }
 
 export function renderConvos(){
@@ -209,7 +234,7 @@ export function renderConvos(){
         +'<div class="wa-conv-top"><span class="wa-conv-name">'+esc(name)+'</span><span class="wa-conv-time">'+esc(waTimeShort(c.last_message_at))+'</span></div>'
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
-        +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="العميل دخل من إعلان واتساب">📣 <span>'+esc(waCtwaText(c))+'</span></div>'):'')
+        +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span></div>'):'')
       +'</div></div>';
   }
   // مؤشر النقص: القايمة عند السقف = فيه أقدم مش معروض ولا بيدخل البحث
