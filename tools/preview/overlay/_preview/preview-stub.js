@@ -170,6 +170,32 @@
       ctwa_source_url:null, ctwa_source_type:null,
       ctwa_first_at:null, ctwa_last_at:null }
   ];
+  // ردود جاهزة — واحد نصي وواحد بصور وواحد صور بس، عشان المالك يجرّب
+  // الشكل التالت (اللي نصه فاضي) اللي شريحته بتقول «صور بس (N)».
+  // ⚠️ المسارات وهمية والمعاينة بتخدم صورها من `PREVIEW_MEDIA` تحت —
+  // من غيرها المصغّرات بتبان مكسورة والميزة تتقري «معطّلة».
+  var QR_IMG1 = 'preview/quick-replies/kitchen-1.png';
+  var QR_IMG2 = 'preview/quick-replies/kitchen-2.png';
+  var WA_QR = [
+    { id:'qr1', tenant_id:TENANT, body:'أهلاً بحضرتك 👋 تحت أمرك', media:[], sort:0 },
+    { id:'qr2', tenant_id:TENANT, body:'دي صور المنتج — السعر 450ج والشحن مجاني',
+      media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' },
+             { path:QR_IMG2, mime:'image/png', name:'kitchen-2.png' }], sort:1 },
+    { id:'qr3', tenant_id:TENANT, body:'',
+      media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' }], sort:2 }
+  ];
+  // صور المعاينة — SVG مرسوم inline عشان الملف يفضل مستقل من غير أصول خارجية
+  function previewImg(label, color){
+    return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240">' +
+      '<rect width="240" height="240" fill="' + color + '"/>' +
+      '<text x="120" y="128" font-family="sans-serif" font-size="20" fill="#fff" ' +
+      'text-anchor="middle">' + label + '</text></svg>');
+  }
+  var PREVIEW_MEDIA = {};
+  PREVIEW_MEDIA[QR_IMG1] = previewImg('صورة منتج 1', '#2563eb');
+  PREVIEW_MEDIA[QR_IMG2] = previewImg('صورة منتج 2', '#7c3aed');
+
   var WA_MSGS = [
     { id:'wm1', tenant_id:TENANT, conversation_id:'wc1', direction:'in', type:'text',
       body:'شفت الإعلان على فيسبوك', is_read:true, created_at:iso(0,13,38),
@@ -238,7 +264,7 @@
     v_stock_products: STOCK,
     stock_products: STOCK,
     stock_movements: MOVES,
-    wa_conversations: WA_CONVOS, wa_messages: WA_MSGS, wa_quick_replies: [],
+    wa_conversations: WA_CONVOS, wa_messages: WA_MSGS, wa_quick_replies: WA_QR,
     plans: [], wallet_transactions: [], topup_requests: [], expenses: [],
     platform_settings: [{ key:'telegram_bot_username', value:'sahl_operations_bot' },
                         { key:'vfcash_number', value:'01000000000' }]
@@ -410,6 +436,37 @@
       if(args.p_tracking) mo.tracking_no = args.p_tracking;
       return Promise.resolve({ data:{ ok:true }, error:null });
     }
+    // «إنشاء طلب» من الشات — بنكتب صف فعلي في داتا المعاينة عشان المالك
+    // يشوف الطلب بيظهر في كارت أوردرات العميل وفي جدول الأوردرات، ويشوف
+    // شكل الترقيم `W-n`. الحراسات هنا نسخة مبسّطة من اللي على السيرفر.
+    if(name === 'create_manual_order'){
+      var d = String((args && args.p_phone) || '').replace(/[^0-9]/g,'');
+      var loc = (d.length === 12 && d.indexOf('20') === 0) ? ('0' + d.slice(2))
+              : (d.length === 11 && d.charAt(0) === '0') ? d
+              : (d.length === 10) ? ('0' + d) : null;
+      if(!loc) return Promise.resolve({ data:{ ok:false, error:'bad_phone' }, error:null });
+      if(String((args&&args.p_address)||'').trim().length < 10)
+        return Promise.resolve({ data:{ ok:false, error:'short_address' }, error:null });
+      var mx = 0;
+      TABLES.orders.forEach(function(o){
+        var m = /^W-([0-9]+)$/.exec(String(o.order_uid||''));
+        if(m && +m[1] > mx) mx = +m[1];
+      });
+      var uid = 'W-' + (mx + 1);
+      var nowIso = new Date().toISOString();
+      var row = { id:'mo-' + uid, tenant_id:TENANT, order_uid:uid, tracking_no:null,
+        customer_name:args.p_customer_name, phone:loc, alt_phone:args.p_alt_phone||null,
+        city:args.p_city||null, address:args.p_address, product_name:args.p_product_name,
+        total_cost:args.p_total_cost, status:'pending', payment_stage:'cod',
+        platform:'whatsapp', campaign_name:null, var:args.p_var||null,
+        customer_notes:args.p_customer_notes||null, internal_notes:null,
+        created_at:nowIso, status_changed_at:nowIso, created_by:'preview-user',
+        call_attempts:[], status_log:[], has_upsell:false, shipping_cost:85,
+        shipping_requested_at:null, awb_print_count:0, line_prices:null,
+        manufacturer_note:null, manufacturer_cost:null, wa_followup_sent_at:null };
+      TABLES.orders.unshift(row);
+      return Promise.resolve({ data:{ ok:true, order_id:row.id, order_uid:uid }, error:null });
+    }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
@@ -420,13 +477,39 @@
     channel: function(){ return chan; },
     removeChannel: function(){},
     storage: { from: function(){ return {
-      createSignedUrls: function(){ return Promise.resolve({ data:[], error:null }); },
+      // ⚠️ كانت بترجّع [] دايماً، فمصغّرات الرد الجاهز كانت بتبان **مكسورة**
+      // والمالك يقرا الميزة على إنها معطّلة. دلوقتي بتخدم من `PREVIEW_MEDIA`.
+      createSignedUrls: function(paths){
+        var out = [];
+        for(var i=0;i<(paths||[]).length;i++){
+          if(PREVIEW_MEDIA[paths[i]]) out.push({ path:paths[i], signedUrl:PREVIEW_MEDIA[paths[i]] });
+        }
+        return Promise.resolve({ data: out, error:null });
+      },
       upload: function(){ return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }
     }; } },
     functions: { invoke: function(slug, opts){
       // قالب متابعة الأوردر: بنحاكي النجاح عشان المالك يشوف المسار كامل في
       // المعاينة (مودال التأكيد ← «اتبعتت متابعة» على الأوردر). الرد الثابت
       // بـok:false كان بيوريه رسالة فشل بس.
+      // الردود الجاهزة بصور: كل صورة نداء لـwa-send. بنحاكي النجاح
+      // ونضيف الرسايل للشات عشان المالك يشوف الترتيب الفعلي (صور وبعدها
+      // الكلام) — الرد الثابت بـok:false كان بيوريه فشل بس.
+      if(slug === 'wa-send'){
+        var bd = (opts && opts.body) || {};
+        var cid = bd.conversation_id;
+        var nid = 'wm-prev-' + (WA_MSGS.length + 1);
+        WA_MSGS.push({ id:nid, tenant_id:TENANT, conversation_id:cid, direction:'out',
+          type: bd.image_path ? 'image' : (bd.document_path ? 'document' : 'text'),
+          body: bd.image_path ? (bd.caption || null) : (bd.text || null),
+          media_path: bd.image_path || bd.document_path || null, media_mime:null,
+          media_filename:null, is_read:true, created_at:new Date().toISOString(),
+          wa_timestamp:new Date().toISOString(), status:'sent',
+          sent_by:'preview-user', sent_by_name:'أدمن المعاينة',
+          reply_to_wa_id: bd.reply_to || null, wa_message_id:nid, referral:null });
+        return Promise.resolve({ data:{ ok:true, message_id:nid, row_id:nid,
+          sent_by_name:'أدمن المعاينة', reply_to: bd.reply_to || null }, error:null });
+      }
       if(slug === 'wa-followup'){
         var oid = (opts && opts.body && opts.body.order_id) || null;
         var row = TABLES.orders.filter(function(o){ return o.id === oid; })[0];
