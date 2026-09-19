@@ -27,7 +27,6 @@ var ROUTES = {
   chats:        'inbox',
   finance:      'finance',
   analytics:    'analytics',
-  billing:      'billing',
   settings:     'settings',
   mycommission: 'mycommission'
 };
@@ -51,7 +50,6 @@ var PAGE_TITLES = {
   inbox:        'المحادثات',
   finance:      'الماليات',
   analytics:    'إحصائيات الأداء',
-  billing:      'المحفظة',
   settings:     'الإعدادات',
   mycommission: 'عمولتي'
 };

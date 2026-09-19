@@ -29,7 +29,7 @@ import { getCallDeadline, goPage, parseStatusLog, RANK_GOOD, RANK_MID, renderTab
 
 import { _suspending, applyTenantBranding, bootstrapTenantIfNeeded, currentRole, currentTenant, currentTenantId, currentUser, doLogin, doLogout, doSignup, fetchProfileAndEnter, forceSuspendLogout, hasTenant, initLoginForm, initSignupForm, loadTenantAndEnter, loginErrorMessage, resetTenantBranding, showAuthView, showSubscriptionLock, signupErrorMessage, tenantDisplayName } from './auth/auth.js';
 
-import { TOUR_KEY, initTourResize, markTourDone, tourActive, tourBackupAndInject, tourDone, tourFinish, tourMaybeAutoStart, tourNext, tourPrev, tourRender, tourReopenWelcome, tourRestore, tourSavedHTML, tourStart, tourStep, tourSteps } from './tour/tour.js';
+import { TOUR_KEY, initTourResize, markTourDone, tourActive, tourBackupAndInject, tourDone, tourFinish, tourMaybeAutoStart, tourNext, tourPrev, tourRender, tourRestore, tourSavedHTML, tourStart, tourStep, tourSteps } from './tour/tour.js';
 
 import { deleteExpense, expensesInRange, financeChartInstance, financeChartManual, financeChartPeriod, financeCurrentTab, financeExpenses, financeSetExpenses, fmtMoney, initFinanceAndIssues, isConfirmedForFinance, loadFinance, openExpenseEditor, orderShippingCost, pRange, renderExpenses, renderFinance, renderFinanceChart, renderFinanceOverview, unmatchedCogsItems } from './finance/finance.js';
 
@@ -114,12 +114,10 @@ var CLICK_ACTIONS = {
   'tour-next':   function(){ tourNext(); },
   'tour-prev':   function(){ tourPrev(); },
   'tour-finish': function(){ tourFinish(); },
-  'tour-reopen': function(){ tourReopenWelcome(); },
   'plan-select': function(el){ selectPlan(el.getAttribute('data-plan')); },
   // CTAs بتوع الحالات الفاضية (core/empty.js)
   'goto-settings': function(){ showPage('settings'); },
   'goto-stock':    function(){ showPage('stock'); },
-  'goto-billing':  function(){ showPage('billing'); },
   'setup-dismiss': function(){ setupDismiss(); },
   'add-product':   function(){ var b=$id('add-product-btn'); if(b)b.click(); },
   'add-expense':   function(){ var b=$id('add-expense-btn'); if(b)b.click(); },
@@ -345,8 +343,13 @@ function initApp(){
 
 export function showPage(page, opts){
   var requested = page;   // اللي اتطلب فعلاً — للتفريق بين تنقّل عادي وتصحيح حارس
+  // 🔴 المحاسبة اتلغت (19 سبتمبر) — السيستم بقى خاص بـ3ataba وحدها فمفيش
+  // باقات ولا محفظة يتفرّج عليهم. الصفحة والموديول لسه موجودين لأن
+  // `walletStateCache` بتغذّي قفل النفاد في 6 ملفات، بس الوصول ليها اتقفل:
+  // الزرار والشارة اتشالوا من الـmarkup وده الحارس للينك المباشر.
+  if(page==='billing'){ page='orders'; }
   // Finance and Issues are admin-only in code as well, not just hidden by CSS.
-  if((page==='finance' || page==='issues' || page==='billing' || page==='analytics') && !isAdmin()){
+  if((page==='finance' || page==='issues' || page==='analytics') && !isAdmin()){
     toast('القسم ده للأدمن فقط','er');
     page='orders';
   }

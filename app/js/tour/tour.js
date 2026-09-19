@@ -247,18 +247,15 @@ export function tourFinish(){
   markTourDone();
   tourRestore();
   if(typeof showPage==='function') showPage('orders');
-  var fab=document.getElementById('tour-fab'); if(fab)fab.style.display='flex';
-}
-
-export function tourReopenWelcome(){
-  var center=document.getElementById('tour-center');
-  if(center) center.style.display='flex';
 }
 
 export function tourMaybeAutoStart(){
   if(typeof isAdmin==='function' && !isAdmin()) return;
-  // always show the FAB for admins
-  var fab=document.getElementById('tour-fab'); if(fab)fab.style.display='flex';
+  // 🔴 زرار «🎓 جولة تعريفية» العايم اتشال (طلب المالك 19 سبتمبر) — كان
+  // بيفضل ظاهر للأدمن **على طول** حتى بعد ما يخلّص الجولة، يعني عنصر
+  // دايم على الشاشة مقابل استخدام مرة واحدة. الجولة نفسها لسه شغّالة:
+  // كارت الترحيب بيظهر **مرة** لأي أدمن لسه ماخدهاش، ولما يخلّص أو
+  // يتخطّى `markTourDone()` بتقفلها نهائي.
   if(tourDone()) return;
   var center=document.getElementById('tour-center');
   if(center) center.style.display='flex';

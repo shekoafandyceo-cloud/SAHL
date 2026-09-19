@@ -20,8 +20,16 @@ await p.waitForFunction(()=>document.querySelectorAll('#tbody tr[data-id]').leng
 let bad=0; const ok=(c,m)=>{console.log(c?'  ✓':'  ✗',m); if(!c)bad++;};
 
 // كل نص ظاهر على الصفحة كلها (بعد فتح كل الصفحات) — بدون بوسطة
-const pages=['orders','stock','finance','analytics','inbox','billing','settings'];
-for(const pg of pages){ await p.click(`[data-page="${pg}"]`); await p.waitForTimeout(400); }
+// ⚠️ `billing` اتشالت من القايمة 19 سبتمبر (المحاسبة اتلغت — السيستم بقى
+// خاص بـ3ataba). صفحة `#page-billing` لسه في الـmarkup بس **مفيش طريق
+// ليها** (`showPage('billing')` بترجّع للأوردرات)، فنصها مايقدرش يوصل
+// التاجر أصلاً — والفحص الساكن في `check.py` بيغطّي الـmarkup برضه.
+const pages=['orders','stock','finance','analytics','inbox','settings'];
+for(const pg of pages){
+  const nav=await p.$(`[data-page="${pg}"]`);
+  if(!nav){ console.log('  ✗ زرار القسم مش موجود:', pg); bad++; continue; }
+  await nav.click(); await p.waitForTimeout(400);
+}
 await p.click('[data-page="orders"]'); await p.waitForTimeout(300);
 await p.click('#tbody tr[data-id]'); await p.waitForSelector('#dcnt .dsec'); await p.waitForTimeout(400);
 

@@ -498,7 +498,16 @@ export function renderConvos(){
   for(var al=0;al<adLinks.length;al++){
     adLinks[al].addEventListener('click',function(e){ e.stopPropagation(); });
   }
-  if(waActiveId){ var ac=waConvById(waActiveId); if(ac){ waUpdateWindow(ac); waUpdateCtwa(ac); } }
+  // 🔴 التصنيفات لازم تتحدّث هنا كمان مش النافذة والإعلان بس: الـpoll
+  // (كل 20ث) بيستبدل `waConvos` بالكامل، فلو زميل ضاف تصنيف وأنت فاتح
+  // نفس المحادثة، شرايح `#wa-clabels` ولوحة الاختيار بيفضلوا على النسخة
+  // القديمة — و`waToggleLabel` بتقرا الصف **الطازة**، فالضغطة بتعمل
+  // **عكس** اللي الموظف شايفه (يدوس عشان يضيف تصنيف فيتشال).
+  // زرار بيعمل عكس اللي بيوعد بيه أسوأ من زرار مايعملش حاجة (درس 16).
+  if(waActiveId){ var ac=waConvById(waActiveId); if(ac){
+    waUpdateWindow(ac); waUpdateCtwa(ac); waRenderConvLabels(ac);
+    var lp=$id('wa-label-picker'); if(lp && lp.style.display!=='none') waRenderLabelPicker(ac);
+  } }
 }
 
 export function openConversation(id){
@@ -1427,10 +1436,13 @@ export function waNewOrderSave(){
     }
     toast('الطلب اتسجّل ✅ '+d.order_uid+' — مؤكد','ok');
     waNewOrderClose();
-    // 🔴 الإنشاء بقى بيخصم (الأوردر بينزل مؤكد)، فشريط الباقة والرصيد
-    // بيبقوا على قيمة قديمة من غير النداء ده — والأخطر إن
-    // `walletStateCache.is_depleted` بيفضل `false` محلياً لو الأوردر ده
-    // هو اللي وصّل المحفظة للنفاد، فالواجهة مش هتقفل.
+    // الإنشاء بيخصم (الأوردر بينزل مؤكد) فالكاش بيبقى قديم.
+    // ⚠️ شريط الباقة اتشال (19 سبتمبر — المحاسبة اتلغت)، فالمستهلك
+    // الوحيد الفاضل هو `walletStateCache.is_depleted` اللي 6 ملفات
+    // بتقرا منه لقفل النفاد. القفل ده **مستحيل يولّع** حالياً (رصيد
+    // 3ataba لا نهائي)، والنداء سايب عمداً: استعلام واحد رخيص يخلّي
+    // الكاش صادق، ولو الرصيد اتغيّر يوم القفل يشتغل من غير ما حد
+    // يفتكر يرجّع السطر ده.
     loadWalletState();
     // كارت أوردرات العميل بيدوّر بالتليفون فالطلب الجديد بيظهر لوحده
     waLoadOrders(waConvById(waActiveId));

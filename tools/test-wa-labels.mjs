@@ -34,12 +34,14 @@
 //  10) لون «مكتمل» مش لون الـfallback بتاع تصنيف مجهول
 //  11) الصفوف المصنّفة بتترسم بشاراتها
 //  12) 🔴 الشريط فاضل صفّين (75px) وصف التصنيفات بيتزحلق — مش 4 صفوف
+//  13) 🔴 الشرايح ولوحة الاختيار بيتحدّثوا مع الـpoll (زميل صنّف من جهاز تاني)
 //  12) معايرات:
 //      (أ) خلي الفلتر يقرا من المحمّل بس  → فحص 3 يقع
 //      (ب) شيل `waFetchLabelConvos` من الإقلاع → فحص 4 يقع
 //      (ج) خلي `waConvById` تبص على `waConvos` بس → فحص 6 يقع
 //      (د) شيل تطبيق `.not()` من الستب       → فحص 4 يقع (ستب أعمى)
 //      (هـ) رجّع `flex-wrap:wrap` على الشريط  → فحص 12 يقع
+//      (و) شيل تحديث التصنيفات من renderConvos  → فحص 13 يقع
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -270,6 +272,42 @@ const NEW_LABELS = ['طلب واتساب', 'استبدال', 'استرجاع', '
   await p.close();
 }
 
+// ════════════════ 13 — التصنيفات بتتحدّث مع الـpoll ════════════════
+{
+  // 🔴 الـpoll (20ث) بيستبدل `waConvos` بالكامل. لو زميل ضاف تصنيف وأنت
+  // فاتح نفس المحادثة، الشرايح ولوحة الاختيار كانوا بيفضلوا على النسخة
+  // القديمة — و`waToggleLabel` بتقرا الصف الطازة، فالضغطة بتعمل **عكس**
+  // اللي الموظف شايفه. زرار بيعمل عكس وعده أسوأ من زرار ميت (درس 16).
+  const p = await openInbox();
+  console.log('──── التحديث مع الـpoll ────');
+  await p.click('.wa-conv[data-id="c30"]'); await p.waitForTimeout(400);
+  await p.click('#wa-label-btn'); await p.waitForTimeout(300);
+  const before = await p.evaluate(() =>
+    Array.from(document.querySelectorAll('#wa-label-picker .wa-lp.active')).map(e => e.getAttribute('data-label')));
+  ok(before.length === 1 && before[0] === 'استبدال',
+     `13أ) لوحة الاختيار بتعلّم التصنيف الحالي (${JSON.stringify(before)})`);
+
+  // زميل ضاف «مكتمل» من جهاز تاني — الـpoll الجاي بيجيبه
+  await p.evaluate(() => {
+    const c = window.__WA_CONVOS.find(x => x.id === 'c30');
+    c.labels = ['استبدال', 'مكتمل'];
+  });
+  await p.evaluate(async () => {
+    const m = await import('/js/inbox/inbox.js');
+    await m.waFetchConvos(false);
+    await new Promise(r => setTimeout(r, 300));
+  });
+  const after = await p.evaluate(() => ({
+    picker: Array.from(document.querySelectorAll('#wa-label-picker .wa-lp.active')).map(e => e.getAttribute('data-label')),
+    chips:  Array.from(document.querySelectorAll('#wa-clabels .wa-clabel')).map(e => e.textContent.trim())
+  }));
+  ok(after.picker.indexOf('مكتمل') >= 0,
+     `13ب) 🔴 لوحة الاختيار لحقت تصنيف الزميل (${JSON.stringify(after.picker)})`);
+  ok(after.chips.indexOf('مكتمل') >= 0,
+     `13ج) وشرايح المحادثة المفتوحة كمان (${JSON.stringify(after.chips)})`);
+  await p.close();
+}
+
 // ════════════════ المعايرات ════════════════
 console.log('──── المعايرات ────');
 
@@ -330,6 +368,36 @@ console.log('──── المعايرات ────');
   });
   ok(head !== 'عميلة الاسترجاع القديمة',
      `معايرة ج: من غير waLabelExtra في waConvById الهيدر طلع «${head}» — فحص 6 بيمسكها`);
+  await p.close();
+}
+
+// (و) شيل تحديث التصنيفات من `renderConvos` → فحص 13 يقع
+{
+  const p = await openInbox({
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      // السطر نفسه بس (درس 47)
+      body = body.replace(/\n\s*waUpdateWindow\(ac\); waUpdateCtwa\(ac\); waRenderConvLabels\(ac\);/,
+                          '\n    waUpdateWindow(ac); waUpdateCtwa(ac);');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await p.click('.wa-conv[data-id="c30"]'); await p.waitForTimeout(400);
+  await p.click('#wa-label-btn'); await p.waitForTimeout(300);
+  await p.evaluate(() => {
+    const c = window.__WA_CONVOS.find(x => x.id === 'c30');
+    c.labels = ['استبدال', 'مكتمل'];
+  });
+  await p.evaluate(async () => {
+    const m = await import('/js/inbox/inbox.js');
+    await m.waFetchConvos(false);
+    await new Promise(r => setTimeout(r, 300));
+  });
+  const chips = await p.evaluate(() =>
+    Array.from(document.querySelectorAll('#wa-clabels .wa-clabel')).map(e => e.textContent.trim()));
+  ok(chips.indexOf('مكتمل') < 0,
+     `معايرة و: من غير التحديث الشرايح فضلت ${JSON.stringify(chips)} — فحص 13ج بيمسكها`);
   await p.close();
 }
 

@@ -51,7 +51,7 @@ async function open(path, opts) {
 }
 
 const visiblePage = (p) => p.evaluate(() =>
-  ['orders', 'stock', 'inbox', 'finance', 'analytics', 'billing', 'settings', 'mycommission']
+  ['orders', 'stock', 'inbox', 'finance', 'analytics', 'billing', 'settings', 'mycommission']   // billing سايبينها في القايمة عمداً: الفحص لازم يكشف لو ظهرت
     .filter(n => { const el = document.getElementById('page-' + n); return el && getComputedStyle(el).display !== 'none'; }));
 
 const activeNav = (p) => p.evaluate(() => {
@@ -67,7 +67,7 @@ const urlPath = (p) => p.evaluate(() => location.pathname);
   const CASES = [
     ['/orders', 'orders'], ['/inventory', 'stock'], ['/chats', 'inbox'],
     ['/finance', 'finance'], ['/analytics', 'analytics'],
-    ['/billing', 'billing'], ['/settings', 'settings']
+    ['/settings', 'settings']
   ];
   for (const [path, page] of CASES) {
     const p = await open(path);
@@ -383,6 +383,59 @@ console.log('──── معايرات ────');
   ok(ctx.pages().length > afterFirst,
      `معايرة د: بـ_blank الضغطة التانية فتحت تاب تالتة (${afterFirst} → ${ctx.pages().length}) — فحص «نفس التاب» بيمسكها`);
   for (const pg of ctx.pages()) if (pg !== p) await pg.close().catch(() => {});
+  await p.close();
+}
+
+// ════ 12) المحاسبة اتلغت — مفيش أي طريق ليها ════
+// 🔴 السيستم بقى خاص بـ3ataba وحدها (19 سبتمبر) فمفيش باقات ولا محفظة.
+// الموديول لسه محمّل لأن `walletStateCache` بتغذّي قفل النفاد في 6 ملفات،
+// فالفحص ده بيتأكد إن **الوصول** اتقفل مش إن الكود اتشال.
+{
+  console.log('──── المحاسبة والجولة ────');
+  const p = await open('/orders');
+  const ui = await p.evaluate(() => ({
+    chip: !!document.getElementById('wallet-chip'),
+    nav:  !!document.getElementById('nav-billing'),
+    fab:  !!document.getElementById('tour-fab'),
+    act:  Array.from(document.querySelectorAll('[data-act="goto-billing"],[data-act="tour-reopen"]')).length
+  }));
+  ok(!ui.chip, '12أ) شارة المحفظة مش في الصفحة');
+  ok(!ui.nav,  '12ب) وزرار «المحفظة» مش في القايمة');
+  ok(ui.act === 0, `12ج) ومفيش أي data-act لـgoto-billing أو tour-reopen (${ui.act})`);
+  // 🔴 زرار «🎓 جولة تعريفية» العايم — كان بيفضل ظاهر للأدمن على طول
+  ok(!ui.fab,  '12د) 🔴 وزرار الجولة العايم مش موجود');
+
+  // الحارس على اللينك المباشر: `showPage('billing')` بترجّع للأوردرات
+  const after = await p.evaluate(async () => {
+    const m = await import('/js/main.js');
+    m.showPage('billing');
+    await new Promise(r => setTimeout(r, 200));
+    return { path: location.pathname,
+             billingVisible: getComputedStyle(document.getElementById('page-billing')).display !== 'none',
+             ordersVisible:  getComputedStyle(document.getElementById('page-orders')).display !== 'none' };
+  });
+  ok(!after.billingVisible && after.ordersVisible && after.path.indexOf('billing') < 0,
+     `12هـ) 🔴 showPage('billing') رجّعت للأوردرات واللينك مافيهوش billing (${after.path})`);
+  await p.close();
+}
+
+// ════ 12و) معايرة: شيل الحارس → فحص 12هـ لازم يقع ════
+{
+  const p = await open('/orders', {
+    routeMain: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      body = body.replace(/\n\s*if\(page==='billing'\)\{ page='orders'; \}/, '');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  const after = await p.evaluate(async () => {
+    const m = await import('/js/main.js');
+    m.showPage('billing');
+    await new Promise(r => setTimeout(r, 200));
+    return getComputedStyle(document.getElementById('page-billing')).display !== 'none';
+  });
+  ok(after, 'معايرة و: من غير الحارس صفحة المحفظة ظهرت — فحص 12هـ بيمسكها');
   await p.close();
 }
 

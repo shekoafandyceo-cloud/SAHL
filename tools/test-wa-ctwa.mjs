@@ -479,7 +479,16 @@ console.log('──── المعايرات ────');
     routeInbox: async r => {
       const res = await r.fetch();
       let body = await res.text();
-      body = body.replace('{ waUpdateWindow(ac); waUpdateCtwa(ac); }', '{ waUpdateWindow(ac); }');
+      // 🔴 المرساة `waUpdateWindow(ac); waUpdateCtwa(ac);` **فريدة** في
+      // الملف (اتأكدت)، والباقي بعدها ممكن يتغيّر من غير ما تبوظ المعايرة.
+      // الشكل القديم كان بياخد القفلة `}` كمان، فأول ما اتضاف تحديث
+      // التصنيفات في نفس الكتلة (19 سبتمبر) الاستبدال بطّل يطابق
+      // والمعايرة اشتغلت من غير ما تشيل حاجة (درس 47).
+      // ⚠️ و`waUpdateCtwa(ac);` لوحدها **مش** مرساة صالحة: فيه نداء تاني
+      // بنفس الشكل بالظبط قبلها في الملف، والـregex بتمسكه هو.
+      const before = body;
+      body = body.replace('waUpdateWindow(ac); waUpdateCtwa(ac);', 'waUpdateWindow(ac);');
+      if (body === before) throw new Error('المعايرة مالقتش المرساة — الكود اتغيّر (درس 47)');
       await r.fulfill({ response: res, body });
     }
   });

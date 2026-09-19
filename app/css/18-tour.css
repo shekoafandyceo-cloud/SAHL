@@ -32,6 +32,4 @@
 .tour-welcome .tw-btns{display:flex;flex-direction:column;gap:10px;}
 .tour-welcome .tw-start{background:linear-gradient(135deg,#2dd4f0,#1d6ef2);color:#fff;border:none;border-radius:14px;padding:15px;font-size:1.02rem;font-weight:900;cursor:pointer;font-family:inherit;box-shadow:0 14px 36px rgba(29,110,242,.4);}
 .tour-welcome .tw-skip{background:transparent;border:1px solid rgba(255,255,255,.2);color:#9fb3d1;border-radius:13px;padding:12px;font-size:.88rem;font-weight:700;cursor:pointer;font-family:inherit;}
-.tour-fab{position:fixed;bottom:22px;left:22px;z-index:9000;background:linear-gradient(135deg,#2dd4f0,#1d6ef2);color:#fff;border:none;border-radius:100px;padding:12px 20px;font-size:.88rem;font-weight:800;cursor:pointer;font-family:inherit;box-shadow:0 14px 36px rgba(29,110,242,.35);display:flex;align-items:center;gap:8px;}
-.tour-fab:hover{transform:translateY(-2px);}
 @media(max-width:600px){.tour-bubble{max-width:calc(100vw - 32px);}}
