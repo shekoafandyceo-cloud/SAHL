@@ -33,14 +33,15 @@
 //   9) الرجوع لـ«الكل» بيرجّع القايمة كاملة
 //  10) لون «مكتمل» مش لون الـfallback بتاع تصنيف مجهول
 //  11) الصفوف المصنّفة بتترسم بشاراتها
-//  12) 🔴 الشريط فاضل صفّين (75px) وصف التصنيفات بيتزحلق — مش 4 صفوف
+//  12) 🔴 الشريط **بره** عمود الـ340px — صف واحد بلا زحلقة + مفيش h1
+//      (+ الموبايل بيتزحلق بقصد · وقفل التوثيق بيغطي الشريط)
 //  13) 🔴 الشرايح ولوحة الاختيار بيتحدّثوا مع الـpoll (زميل صنّف من جهاز تاني)
 //  12) معايرات:
 //      (أ) خلي الفلتر يقرا من المحمّل بس  → فحص 3 يقع
 //      (ب) شيل `waFetchLabelConvos` من الإقلاع → فحص 4 يقع
 //      (ج) خلي `waConvById` تبص على `waConvos` بس → فحص 6 يقع
 //      (د) شيل تطبيق `.not()` من الستب       → فحص 4 يقع (ستب أعمى)
-//      (هـ) رجّع `flex-wrap:wrap` على الشريط  → فحص 12 يقع
+//      (هـ) رجّع الشريط جوّه العمود              → فحص 12 يقع
 //      (و) شيل تحديث التصنيفات من renderConvos  → فحص 13 يقع
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -248,27 +249,95 @@ const NEW_LABELS = ['طلب واتساب', 'استبدال', 'استرجاع', '
   await p.close();
 }
 
-// ════════════════ 12 — الشريط مابيكلش القايمة ════════════════
+// ════════════════ 12 — الشريط بره العمود وبلا زحلقة ════════════════
 {
-  // 🔴 اتقاس قبل الإصلاح: 9 تصنيفات في شريط `flex-wrap:wrap` = **4 صفوف
-  // و135px**، وعمود المحادثات نزل من 4.7 لـ3.7 محادثة على 1280×720.
-  // الصف المتزحلق رجّعه 75px. الفحص ده بيمنع رجوع الـwrap في صمت.
-  const p = await openInbox({ viewport: { width: 1280, height: 720 } });
+  // 🔴 العقد الجديد (19 سبتمبر — قرار المالك بعد القياس): شريط الفلاتر
+  // **بره** عمود الـ340px وبياخد عرض النافذة كلها.
+  // الرحلة: 9 تصنيفات في `flex-wrap` جوّه العمود = 4 صفوف و135px
+  // (القايمة نزلت لـ3.7 محادثة) → صف متزحلق = 75px بس 374px مخفي
+  // (المالك: «هنفضل نسحب يمين وشمال، هتكون رخمة») → بره العمود = صف
+  // واحد 44px وصفر زحلقة. والتصنيفات محتاجة 689px والعمود كان بيدّي 315px.
+  const p = await openInbox({ viewport: { width: 1600, height: 900 } });
   console.log('──── تخطيط الشريط ────');
   const m = await p.evaluate(() => {
     const f = document.getElementById('wa-filters');
-    const lab = document.querySelector('.wa-f-labels');
+    const list = document.getElementById('wa-list-pane');
     const chips = Array.from(f.querySelectorAll('.wa-filter'));
+    // تجميع بتسامح 3px — فرق تقريب الخط اللاتيني (VIP) مش صف جديد
+    const tops = chips.map(c => Math.round(c.getBoundingClientRect().top)).sort((a, b) => a - b);
+    let rows = 0, last = -99;
+    tops.forEach(v => { if (v - last > 3) { rows++; last = v; } });
+    const scrollers = [f, ...f.querySelectorAll('.wa-f-sys,.wa-f-labels')]
+      .filter(e => e.scrollWidth > e.clientWidth + 2).length;
     return {
+      insideList: list.contains(f),
+      childOfWrap: f.parentElement === document.getElementById('wa-wrap'),
+      rows, scrollers, chips: chips.length,
       h: Math.round(f.getBoundingClientRect().height),
-      rows: new Set(chips.map(c => c.offsetTop)).size,
-      scrollable: lab ? (lab.scrollWidth > lab.clientWidth + 2) : false,
-      bodyH: Math.round(document.querySelector('.wa-list-body').getBoundingClientRect().height)
+      w: Math.round(f.getBoundingClientRect().width),
+      listW: Math.round(list.getBoundingClientRect().width),
+      h1: !!document.querySelector('#page-inbox h1')
     };
   });
-  ok(m.rows === 2, `12أ) 🔴 الشريط صفّين مش أكتر (${m.rows})`);
-  ok(m.h <= 90, `12ب) 🔴 وارتفاعه ${m.h}px — كان 135px بالـwrap`);
-  ok(m.scrollable, `12ج) وصف التصنيفات بيتزحلق أفقي فالتسعة كلهم واصلين`);
+  ok(!m.insideList && m.childOfWrap,
+     '12أ) 🔴 الشريط بره عمود المحادثات وابن مباشر لـ.wa-wrap');
+  ok(m.w > m.listW * 2,
+     `12ب) وبياخد عرض النافذة (${m.w}px) مش عرض العمود (${m.listW}px)`);
+  ok(m.rows === 1 && m.chips === 12,
+     `12ج) 🔴 الـ12 chip في صف واحد على شاشة عريضة (${m.rows} صف)`);
+  ok(m.scrollers === 0,
+     `12د) 🔴 وصفر زحلقة أفقية — ولا chip مخفي (${m.scrollers} عنصر بيتزحلق)`);
+  ok(m.h <= 60, `12هـ) وارتفاعه ${m.h}px — كان 135px لما كان جوّه العمود`);
+  // 🔴 صفحة المحادثات كانت **الوحيدة** في اللوحة اللي ليها h1 — شيله
+  // وحّدها مع باقي الصفحات وكسّب 71px للنافذة
+  ok(!m.h1, '12و) 🔴 ومفيش عنوان صفحة — زي باقي صفحات اللوحة');
+  await p.close();
+}
+
+// ════════════════ 12ز — الموبايل: زحلقة بقصد ════════════════
+{
+  // على 390px الـ12 chip محتاجين 948px = 4 صفوف (سُدس الشاشة). هنا **بس**
+  // بترجع الزحلقة: صف نظام + صف تصنيفات بيتزحلق. والعكس على الديسكتوب.
+  const p = await openInbox({ viewport: { width: 390, height: 844 } });
+  const m = await p.evaluate(() => {
+    const f = document.getElementById('wa-filters');
+    const lab = f.querySelector('.wa-f-labels');
+    const wrap = document.getElementById('wa-wrap');
+    return { scrolls: lab.scrollWidth > lab.clientWidth + 2,
+             h: Math.round(f.getBoundingClientRect().height),
+             fits: Math.round(window.innerHeight - wrap.getBoundingClientRect().bottom) };
+  });
+  ok(m.scrolls, '12ز) موبايل: التصنيفات بتتزحلق — العرض مايكفيش والـ4 صفوف أغلى');
+  ok(m.h <= 80, `12ح) والشريط ${m.h}px مش 129px`);
+  ok(m.fits >= 0, `12ط) 🔴 والنافذة جوّه الشاشة مش بتفيض (${m.fits}px من تحت)`);
+  await p.close();
+}
+
+// ════════════════ 12ي — قفل «ركّب واتساب» بيغطي الشريط ════════════════
+{
+  // 🔴 الشريط بقى ابن مباشر لـ`.wa-wrap` جنب `#wa-lock` (اللي عليه
+  // `position:absolute;inset:0`). لو التاجر لسه مركّبش واتساب، الفلاتر
+  // **ماينفعش** تبان ولا تتضغط — الدليل `elementFromPoint` مش الهندسة
+  // (درس 31: `el.click()` بينجح على عنصر مدفون).
+  const ctx = await b.newContext({ viewport: { width: 1600, height: 900 } });
+  await ctx.addInitScript(STUB);   // الافتراضي: verified:false
+  const p = await ctx.newPage();
+  await p.goto(ORIGIN + '/chats', { waitUntil: 'networkidle' });
+  await p.waitForSelector('#page-inbox', { state: 'visible', timeout: 10000 });
+  await p.waitForTimeout(900);
+  console.log('──── قفل التوثيق ────');
+  const r = await p.evaluate(() => {
+    const lock = document.getElementById('wa-lock');
+    const f = document.getElementById('wa-filters');
+    if (!lock || !f) return { lock: !!lock, filters: !!f, covered: false };
+    const fr = f.getBoundingClientRect();
+    const top = document.elementFromPoint(fr.left + fr.width / 2, fr.top + fr.height / 2);
+    return { lock: true, filters: true,
+             covered: !!top && (top === lock || lock.contains(top)),
+             topCls: top ? (top.className || top.tagName) : 'null' };
+  });
+  ok(r.lock && r.covered,
+     `12ي) 🔴 قفل «ركّب واتساب» بيغطي شريط الفلاتر (elementFromPoint → ${r.topCls})`);
   await p.close();
 }
 
@@ -401,9 +470,9 @@ console.log('──── المعايرات ────');
   await p.close();
 }
 
-// (هـ) رجّع `flex-wrap:wrap` على الشريط → فحص 12 يقع
+// (هـ) رجّع الشريط جوّه عمود المحادثات → فحص 12 يقع
 {
-  const ctx = await b.newContext({ viewport: { width: 1280, height: 720 } });
+  const ctx = await b.newContext({ viewport: { width: 1600, height: 900 } });
   await ctx.addInitScript(`
     window.__WA_CONVOS = ${JSON.stringify(CONVOS)};
     window.__RPC_HOOK = function(name){
@@ -412,27 +481,30 @@ console.log('──── المعايرات ────');
     };
   `);
   await ctx.addInitScript(STUB);
-  await ctx.route('**/css/21-inbox.css', async r => {
-    const res = await r.fetch();
-    let body = await res.text();
-    // 🔴 السطر نفسه بـregex (درس 47) — بنرجّع الشريط لصف واحد بيلفّ
-    body = body.replace(/\.wa-f-labels\{display:flex;flex-wrap:nowrap;[^}]*\}/,
-                        '.wa-f-labels{display:flex;flex-wrap:wrap;gap:6px;}');
-    await r.fulfill({ response: res, body });
-  });
+  // بنحقن نقل الشريط لجوّه العمود — بالظبط الشكل اللي كان قبل التغيير
+  await ctx.addInitScript(`
+    document.addEventListener('DOMContentLoaded', function(){
+      var f=document.getElementById('wa-filters');
+      var sb=document.querySelector('.wa-search-bar');
+      if(f && sb && sb.parentElement) sb.parentElement.insertBefore(f, sb.nextSibling);
+    });
+  `);
   const p = await ctx.newPage();
   await p.goto(ORIGIN + '/chats', { waitUntil: 'networkidle' });
   await p.waitForSelector('#page-inbox', { state: 'visible', timeout: 10000 });
-  await p.waitForSelector('#wa-list-body .wa-conv', { timeout: 8000 });
+  await p.waitForSelector('#wa-filters .wa-filter', { timeout: 8000 });
   await p.waitForTimeout(600);
   const m = await p.evaluate(() => {
     const f = document.getElementById('wa-filters');
     const chips = Array.from(f.querySelectorAll('.wa-filter'));
-    return { h: Math.round(f.getBoundingClientRect().height),
-             rows: new Set(chips.map(c => c.offsetTop)).size };
+    const tops = chips.map(c => Math.round(c.getBoundingClientRect().top)).sort((a,b)=>a-b);
+    let rows = 0, last = -99;
+    tops.forEach(v => { if (v - last > 3) { rows++; last = v; } });
+    return { inside: document.getElementById('wa-list-pane').contains(f), rows,
+             h: Math.round(f.getBoundingClientRect().height) };
   });
-  ok(m.rows > 2 && m.h > 90,
-     `معايرة هـ: برجوع الـwrap الشريط بقى ${m.rows} صفوف و${m.h}px — فحص 12 بيمسكها`);
+  ok(m.inside && (m.rows > 1 || m.h > 60),
+     `معايرة هـ: برجوع الشريط جوّه العمود بقى ${m.rows} صفوف و${m.h}px — فحص 12 بيمسكها`);
   await p.close();
 }
 

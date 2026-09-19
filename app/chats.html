@@ -317,14 +317,16 @@
 
   <!-- ────────────────────── FINANCE PAGE (admin only) ────────────────────── -->
   <div class="main" id="page-inbox" style="display:none">
-    <h1 style="margin:0 0 4px">💬 محادثات واتساب</h1>
-    <p class="settings-help" style="margin:0 0 14px">كل رسائل عملائك في مكان واحد — غير المقروء واضح عشان مايفوتكش حاجة.</p>
     <div class="wa-wrap" id="wa-wrap">
+      <!-- 🔴 شريط الفلاتر بره العمود عمداً: التصنيفات التسعة محتاجة 689px
+           والعمود 315px، فكانوا بيتزحلقوا و374px منهم مخفي. هنا بياخدوا
+           عرض النافذة كله (1505px عند المالك) فصف واحد بلا زحلقة. -->
+      <div class="wa-filters" id="wa-filters"></div>
+      <div class="wa-panes">
       <div class="wa-list" id="wa-list-pane">
         <div class="wa-list-head"><span id="wa-list-title">المحادثات</span><button class="wa-newchat-btn" id="wa-newchat-btn" style="display:none" title="ابعت قالب لرقم عمره ما كلّمنا">➕ شات جديد</button><button class="wa-refresh" id="wa-refresh" title="تحديث">↻</button></div>
         <div class="wa-search-bar"><input type="text" id="wa-search" class="wa-search" placeholder="🔍 بحث بالاسم أو الرقم…"></div>
-        <div class="wa-filters" id="wa-filters"></div>
-        <div class="wa-newchat" id="wa-newchat" style="display:none">
+          <div class="wa-newchat" id="wa-newchat" style="display:none">
           <div class="wa-nc-head">➕ شات جديد<button class="wa-qr-ed-x" id="wa-nc-cancel" title="إلغاء">✕</button></div>
           <label class="wa-nc-f"><span>رقم العميل *</span><input id="wa-nc-phone" type="tel" inputmode="numeric" autocomplete="off" placeholder="01xxxxxxxxx"></label>
           <label class="wa-nc-f"><span>الاسم (للصندوق بس — مش بيتبعت)</span><input id="wa-nc-name" type="text" autocomplete="off"></label>
@@ -414,6 +416,7 @@
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   </div>
