@@ -5,7 +5,7 @@
 // طالب عادي.»
 //
 // 🔴 كل الحراسات الحقيقية على السيرفر في `create_manual_order`
-// (SECURITY DEFINER): `tenant_id` من الـJWT · الحالة متسمّرة `pending`
+// (SECURITY DEFINER): `tenant_id` من الـJWT · الحالة على السيرفر
 // (فورم بتسيب الموظف يختار «مؤكد» = أوردرات مجانية، لأن
 // `charge_order_on_status_change` بتعدّي أي أوردر بيدخل لأول مرة بحالة
 // محاسَبة من غير خصم) · رقم الطلب `W-n` في نطاق منفصل عن ترقيم اللاندنج
@@ -193,7 +193,7 @@ const GOOD = {
   // أوردر في متجر تاني)
   const keys = Object.keys(a);
   ok(keys.indexOf('p_status') < 0 && keys.indexOf('status') < 0,
-     '5أ) 🔴 مفيش `status` في الحمولة — الحالة بتتسمّر على السيرفر');
+     '5أ) 🔴 مفيش `status` في الحمولة — السيرفر وحده بيقررها');
   ok(keys.filter(k => /uid/i.test(k)).length === 0,
      '5ب) 🔴 ومفيش `order_uid` — الترقيم على السيرفر بقفل');
   ok(keys.filter(k => /tenant/i.test(k)).length === 0,
@@ -205,7 +205,33 @@ const GOOD = {
     return t ? t.textContent : '';
   });
   ok(toastTxt.indexOf('W-1') >= 0, `7ب) الرسالة فيها رقم الطلب: «${toastTxt.trim()}»`);
+  // 🔴 الأوردر بقى بينزل **مؤكد** (19 سبتمبر) — والتوست لازم يقول كده،
+  // غير كده الموظف بيروح يدوّر عليه تحت فلتر «قيد الانتظار»
+  ok(toastTxt.indexOf('مؤكد') >= 0, `7ج) 🔴 والتوست بيقول إنه مؤكد: «${toastTxt.trim()}»`);
 
+  // 🔴 الإنشاء بقى **بيخصم** (الأوردر بينزل في حالة محاسَبة)، فشريط
+  // الباقة والرصيد لازم يتحدّثوا — من غير كده الرقم بيفضل قديم،
+  // والأخطر إن `is_depleted` مايتحدّثش فالواجهة مش هتقفل عند النفاد
+  const walletCalls = await p.evaluate(() =>
+    (window.__calls || []).filter(c => c.table === 'wallet_state').length);
+  ok(walletCalls >= 2,
+     `7د) 🔴 الرصيد اتجاب تاني بعد الإنشاء (${walletCalls} نداء لـwallet_state — واحد وقت التحميل وواحد بعد الحفظ)`);
+
+  await p.close();
+}
+
+// ════ 7هـ — نص الفورم بيقول الحقيقة ════
+{
+  const p = await openChat();
+  await p.click('#wa-neworder-btn'); await p.waitForTimeout(350);
+  const note = await p.evaluate(() => {
+    const el = document.querySelector('#wa-neworder .wa-no-note');
+    return el ? el.textContent : '';
+  });
+  // 🔴 النص ده هو الوعد الوحيد اللي الموظف بيقراه قبل ما يحفظ. لو قال
+  // «قيد الانتظار» وهو بينزل مؤكد، ده كذب مباشر على الشاشة (درس 24)
+  ok(note.indexOf('مؤكد') >= 0 && note.indexOf('قيد الانتظار') < 0,
+     `7هـ) 🔴 نص الفورم بيقول «مؤكد» مش «قيد الانتظار»: «${note.trim()}»`);
   await p.close();
 }
 
@@ -287,6 +313,60 @@ console.log('──── المعايرات ────');
   const a = (await rpcCalls(p))[0] || {};
   ok(Object.keys(a).indexOf('p_status') >= 0,
      `معايرة ب: الحمولة بقت فيها p_status=«${a.p_status}» — فحص 5أ بيمسكها`);
+  await p.close();
+}
+
+// (ج2) شيل `loadWalletState()` بعد النجاح → فحص 7د لازم يقع
+{
+  const p = await openChat({
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      // 🔴 السطر نفسه بس — مش سطرين متجاورين (درس 47: معايرة بتستهدف
+      // سطرين بتبوظ في صمت أول ما حد يضيف سطر بينهم)
+      body = body.replace(/\n\s*loadWalletState\(\);/, '');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await p.click('#wa-neworder-btn'); await p.waitForTimeout(350);
+  await fill(p, GOOD);
+  await p.click('#wa-no-save'); await p.waitForTimeout(700);
+  const n = await p.evaluate(() => (window.__calls||[]).filter(c => c.table==='wallet_state').length);
+  ok(n < 2, `معايرة ج2: من غير loadWalletState الرصيد فضل قديم (${n} نداء) — فحص 7د بيمسكها`);
+  await p.close();
+}
+
+// (ج3) رجّع نص «قيد الانتظار» في الفورم → فحص 7هـ لازم يقع
+{
+  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  await ctx.addInitScript(`
+    window.__WA_CONVOS = ${JSON.stringify(CONVOS)};
+    window.__WA_MSGS   = ${JSON.stringify(MSGS)};
+    window.__RPC_HOOK = function(name){
+      if(name === 'wa_inbox_status') return { data:{ verified:true }, error:null };
+      return null;
+    };
+  `);
+  await ctx.addInitScript(STUB);
+  await ctx.route('**/chats', async r => {
+    const res = await r.fetch();
+    let body = await res.text();
+    body = body.replace(/الطلب بيتسجّل <b>مؤكد<\/b>[^<]*/,
+                        'الطلب بيتسجّل <b>قيد الانتظار</b> ومفيش رسالة تأكيد آلية — ');
+    await r.fulfill({ response: res, body });
+  });
+  const p = await ctx.newPage();
+  await p.goto(ORIGIN + '/chats', { waitUntil: 'networkidle' });
+  await p.waitForSelector('#page-inbox', { state: 'visible', timeout: 10000 });
+  await p.waitForSelector('#wa-list-body .wa-conv', { timeout: 8000 });
+  await p.click('.wa-conv[data-id="c1"]'); await p.waitForTimeout(450);
+  await p.click('#wa-neworder-btn'); await p.waitForTimeout(350);
+  const note = await p.evaluate(() => {
+    const el = document.querySelector('#wa-neworder .wa-no-note');
+    return el ? el.textContent : '';
+  });
+  ok(note.indexOf('قيد الانتظار') >= 0,
+     `معايرة ج3: النص رجع يقول «قيد الانتظار» — فحص 7هـ بيمسكها`);
   await p.close();
 }
 

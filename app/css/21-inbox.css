@@ -13,7 +13,18 @@
 .wa-search-bar{padding:8px 12px;border-bottom:1px solid var(--brd);}
 .wa-search{width:100%;box-sizing:border-box;padding:8px 11px;border:1px solid var(--brd);border-radius:9px;font-size:.85rem;font-family:inherit;background:var(--sur);color:var(--txt);outline:none;}
 .wa-search:focus{border-color:var(--blue);background:#fff;}
-.wa-filters{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-bottom:1px solid var(--brd);}
+/* 🔴 صفّين: الأساسيات بتلفّ عادي، والتصنيفات في صف واحد **بيتزحلق أفقي**.
+   السبب مقيس (19 سبتمبر): بعد ما التصنيفات بقت 9، الشريط الموحّد طلع
+   **4 صفوف و135px** ومعاه عمود المحادثات نزل من 4.7 لـ3.7 محادثة على
+   1280×720 — تلت القايمة راح للفلاتر. بالزحلقة الارتفاع رجع ~73px زي
+   ما كان بالظبط. (قرار المالك بعد ما شاف القياس.) */
+.wa-filters{display:flex;flex-direction:column;gap:6px;padding:8px 12px;border-bottom:1px solid var(--brd);}
+.wa-f-sys{display:flex;flex-wrap:wrap;gap:6px;}
+/* `flex:0 0 auto` على الـchip هو اللي بيمنعها تتزنق بدل ما تتزحلق */
+.wa-f-labels{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:var(--brd2) transparent;-webkit-overflow-scrolling:touch;padding-bottom:2px;}
+.wa-f-labels::-webkit-scrollbar{height:4px;}
+.wa-f-labels::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:99px;}
+.wa-f-labels::-webkit-scrollbar-track{background:transparent;}
 .wa-filter{flex:0 0 auto;padding:5px 13px;border:1px solid var(--brd);border-radius:999px;background:#fff;cursor:pointer;font-size:.78rem;font-weight:700;color:var(--muted);font-family:inherit;transition:all .15s;}
 .wa-filter:hover{border-color:var(--blue);}
 .wa-filter.active{background:var(--acc);border-color:var(--acc);color:#fff;}

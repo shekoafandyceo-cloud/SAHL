@@ -141,7 +141,7 @@
     { id:'wc1', tenant_id:TENANT, wa_id:'201001234501', customer_name:'منى عبد الرحمن',
       customer_phone:'01001234501', last_message_at:iso(0,13,40), last_inbound_at:iso(0,13,40),
       last_message_text:'الترولي ده متاح بكام؟', last_message_type:'text', last_direction:'in',
-      unread_count:2, status:'open', labels:['مهتم'], note:null, created_at:iso(1,10,0),
+      unread_count:2, status:'open', labels:['مهم','طلب واتساب'], note:null, created_at:iso(1,10,0),
       ctwa_clid:'ARBxq9…preview', ctwa_ad_id:'120212345678900123',
       // ميتا بتحط **اسم الصفحة** في headline — محطوط هنا زي الواقع
       // عشان المعاينة تثبت إن الشارة بتعرض نص الإعلان مش اسم الصفحة
@@ -152,20 +152,20 @@
     { id:'wc2', tenant_id:TENANT, wa_id:'201001234502', customer_name:'سارة إبراهيم',
       customer_phone:'01001234502', last_message_at:iso(0,11,5), last_inbound_at:iso(0,11,5),
       last_message_text:'تمام، مستنياه', last_message_type:'text', last_direction:'out',
-      unread_count:0, status:'open', labels:null, note:null, created_at:iso(3,10,0),
+      unread_count:0, status:'open', labels:['استرجاع'], note:null, created_at:iso(3,10,0),
       ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_url:null, ctwa_source_type:null,
       ctwa_first_at:null, ctwa_last_at:null },
     { id:'wc3', tenant_id:TENANT, wa_id:'201001234503', customer_name:'هدى مصطفى',
       customer_phone:'01001234503', last_message_at:iso(1,19,20), last_inbound_at:iso(1,19,20),
       last_message_text:'عايزة أطلب', last_message_type:'text', last_direction:'in',
-      unread_count:0, status:'open', labels:null, note:null, created_at:iso(1,19,0),
+      unread_count:0, status:'open', labels:['استبدال'], note:null, created_at:iso(1,19,0),
       ctwa_clid:'ARZm4…preview', ctwa_ad_id:'120298765432100987', ctwa_headline:null, ctwa_ad_body:null, ctwa_source_url:null,
       ctwa_source_type:'ad', ctwa_first_at:iso(1,19,0), ctwa_last_at:iso(1,19,20) },
     { id:'wc4', tenant_id:TENANT, wa_id:'201001234504', customer_name:'نورهان سيد',
       customer_phone:'01001234504', last_message_at:iso(0,9,30), last_inbound_at:null,
       last_message_text:null, last_message_type:null, last_direction:null,
-      unread_count:0, status:'open', labels:null, note:null, created_at:iso(0,9,30),
+      unread_count:0, status:'open', labels:['تم الحل','مكتمل'], note:null, created_at:iso(0,9,30),
       ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_url:null, ctwa_source_type:null,
       ctwa_first_at:null, ctwa_last_at:null }
@@ -343,6 +343,13 @@
           return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
         });
       }
+      // وفلتر التصنيفات بيستعلم من السيرفر بـ`.not('labels','is',null)` —
+      // نفس السبب بالظبط: من غير تطبيقه العدّاد على كل chip بيساوي عدد
+      // المحادثات كلها.
+      if(st.not && st.not.op === 'is' && st.not.val === null){
+        var nc = st.not.col;
+        rows = rows.filter(function(c){ return c[nc] !== null && c[nc] !== undefined; });
+      }
       rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
       if(st.limit) rows = rows.slice(0, st.limit);
     }
@@ -355,13 +362,14 @@
     var api = {};
     ['select','eq','in','is','not','gte','lt','lte','gt','ilike','or','order','range','limit']
       .forEach(function(m){
-        api[m] = function(a, b){
+        api[m] = function(a, b, c){
           if(m === 'select') st.cols = a;
           if(m === 'gte' && a === 'created_at') st.gte = b;
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
           if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
           if(m === 'or')    st.or = a;
+          if(m === 'not')   st.not = {col:a, op:b, val:c};
           if(m === 'limit') st.limit = a;
           return api;
         };
@@ -485,11 +493,17 @@
       var row = { id:'mo-' + uid, tenant_id:TENANT, order_uid:uid, tracking_no:null,
         customer_name:args.p_customer_name, phone:loc, alt_phone:args.p_alt_phone||null,
         city:args.p_city||null, address:args.p_address, product_name:args.p_product_name,
-        total_cost:args.p_total_cost, status:'pending', payment_stage:'cod',
+        total_cost:args.p_total_cost, status:'confirmed', payment_stage:'cod',
         platform:'whatsapp', campaign_name:null, var:args.p_var||null,
         customer_notes:args.p_customer_notes||null, internal_notes:null,
         created_at:nowIso, status_changed_at:nowIso, created_by:'preview-user',
-        call_attempts:[], status_log:[], has_upsell:false, shipping_cost:85,
+        call_attempts:[],
+        // الأوردر اليدوي بينزل **مؤكد** والسيرفر بيكتب سطر السجل ده
+        // (INSERT pending ثم UPDATE confirmed في نفس الترانزاكشن) —
+        // من غيره نافذة التفاصيل في المعاينة بتعرض سجل فاضي والمالك
+        // بيراجع شاشة مش زي الإنتاج
+        status_log:[{ from:'pending', to:'confirmed', at:nowIso, by:'شيكو', reason:null }],
+        has_upsell:false, shipping_cost:85,
         shipping_requested_at:null, awb_print_count:0, line_prices:null,
         manufacturer_note:null, manufacturer_cost:null, wa_followup_sent_at:null };
       TABLES.orders.unshift(row);

@@ -480,13 +480,20 @@ export function renderDetail(){
     // 3 main action buttons: تأكيد - شحن يدوي - إلغاء
     // «اتشحن يدوي» بيسجّل رقم التتبع كمان — والأوردر اللي له بوليصة مابيشوفهوش
     +'<div class="dacts">'
-    +'<button class="abtn ok" id="da-ok">✓ تأكيد</button>'
+    // 🔴 أوردر أصلاً مؤكد = الزرار مايعملش حاجة **غير** إنه يكتب سطر
+    // «مؤكدة ← مؤكدة» في سجل الحالة (مفيش حارس نفس-الحالة في
+    // `set_order_status`). ده كان نادر لما التأكيد كان دايماً بإيد
+    // الموظف؛ وبعد ما الأوردر اليدوي بقى بينزل **مؤكد** (19 سبتمبر)
+    // بقى الموظف يفتح الأوردر ويدوس تأكيد بالعادة فيلوّث التايم لاين
+    // اللي المالك بيقرا منه. زرار مالوش أثر مفيد = مايتعرضش (درس 16).
+    // الرجوع لـ«مؤكد» من حالة تانية لسه شغّال — الشرط على `confirmed` بس.
+    +(o.status==='confirmed'?'':'<button class="abtn ok" id="da-ok">✓ تأكيد</button>')
     +((o.tracking_no||'').trim()?'':'<button class="abtn bs" id="da-bs">📦 اتشحن يدوي</button>')
     +'<button class="abtn cn" id="da-cn">✕ إلغاء</button>'
     +'</div>'
     +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>';
 
-  $id('da-ok').addEventListener('click',function(){doUpdate('confirmed');});
+  if($id('da-ok'))$id('da-ok').addEventListener('click',function(){doUpdate('confirmed');});
   if($id('da-bs'))$id('da-bs').addEventListener('click',function(){manualShipFlow();});
   wireShipControls();
   if($id('wa-follow-btn'))$id('wa-follow-btn').addEventListener('click',function(){waFollowupFlow();});

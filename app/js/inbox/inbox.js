@@ -16,7 +16,7 @@ import { waMetaRow, waMsgInner, waQuoteBlock, waSenderTag, waTimeShort } from '.
 import { showPage } from '../main.js';
 import { currentTenantId, currentUser } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
-import { walletStateCache } from '../billing/billing.js';
+import { loadWalletState, walletStateCache } from '../billing/billing.js';
 import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } from '../orders/billing-summary.js';
 import { openDetail } from '../orders/detail.js';
 import { stockProducts, stockSetProducts } from '../stock/stock.js';
@@ -57,6 +57,8 @@ export function loadInbox(){
   // رقم على الـchip بيتغير لما تدوس عليه = رقم بيكدب قبل الضغطة.
   waFetchAdConvos();
   waFetchAdNames();
+  // نفس السبب بالظبط لعدّادات التصنيفات — استعلام واحد لكل الـ9
+  waFetchLabelConvos();
   waFetchConvos(true);
   if(waPollTimer) clearInterval(waPollTimer);
   waPollTimer=setInterval(function(){
@@ -129,15 +131,23 @@ export function waConvMatches(c){
 
 export function waBuildFilters(){
   var box=$id('wa-filters'); if(!box) return;
-  var html='<button class="wa-filter'+(waFilter==='all'?' active':'')+'" data-f="all">الكل</button>'
+  // 🔴 صفّين منفصلين: chips النظام بتلفّ عادي، والتصنيفات في صف بيتزحلق
+  // أفقي. بعد ما بقوا 9، الشريط الموحّد كان بياخد 4 صفوف (135px) ويقص
+  // محادثة كاملة من القايمة على كل شاشة — اتقاس. (قرار المالك.)
+  // ⚠️ كل المحددات في الملف ده على `#wa-filters .wa-filter` — محدد
+  // **أحفاد** فالتعشيش مابيكسرهاش.
+  var html='<div class="wa-f-sys">'
+    +'<button class="wa-filter'+(waFilter==='all'?' active':'')+'" data-f="all">الكل</button>'
     +'<button class="wa-filter'+(waFilter==='unread'?' active':'')+'" id="wa-filter-unread" data-f="unread">غير مقروءة</button>'
     // 📣 chip نظام مش تصنيف — بيتحسب من أعمدة `ctwa_*` مش من `labels[]`
     +'<button class="wa-filter wa-fad'+(waFilter==='ctwa'?' active':'')+'" id="wa-filter-ctwa" data-f="ctwa"'
-    +' title="المحادثات اللي العميل دخلها من إعلان Click-to-WhatsApp">📣 جه من إعلان</button>';
+    +' title="المحادثات اللي العميل دخلها من إعلان Click-to-WhatsApp">📣 جه من إعلان</button>'
+    +'</div><div class="wa-f-labels">';
   for(var i=0;i<WA_LABELS.length;i++){
     var L=WA_LABELS[i]; var fv='label:'+L.k; var on=(waFilter===fv);
     html+='<button class="wa-filter wa-flabel'+(on?' active':'')+'" data-f="'+esc(fv)+'" data-label="'+esc(L.k)+'"'+(on?(' style="background:'+L.c+';border-color:transparent;color:#fff"'):'')+'>'+esc(L.k)+'</button>';
   }
+  html+='</div>';
   box.innerHTML=html;
   var chips=box.querySelectorAll('.wa-filter');
   for(var j=0;j<chips.length;j++){ chips[j].addEventListener('click',function(){ waSetFilter(this.getAttribute('data-f')); }); }
@@ -149,6 +159,10 @@ export function waSetFilter(f){
   // والـpoll العادي (كل 20 ثانية) بيجيب أي محادثة إعلان جديدة لأنها بتبقى
   // في الأحدث أصلاً.
   if(f==='ctwa') waFetchAdConvos();
+  // نفس المنطق: الجلب عند التبديل عشان الصفوف المصنّفة اللي بره أحدث 200
+  // تنزل. العدّادات نفسها نزلت مع `loadInbox` فالرقم على الـchip مابيتغيرش
+  // لما تدوس عليه.
+  if(f.indexOf('label:')===0) waFetchLabelConvos();
   var chips=document.querySelectorAll('#wa-filters .wa-filter');
   for(var i=0;i<chips.length;i++){
     var fv=chips[i].getAttribute('data-f'); var on=(fv===f);
@@ -309,6 +323,21 @@ var WA_AD_OR = 'ctwa_first_at.not.is.null,ctwa_ad_id.not.is.null,ctwa_clid.not.i
 // القايمة الجانبية مالهاش أي علاقة بالفلتر ده.
 export var waAdExtra=[], waAdCapped=false;
 
+// 🔴 المحادثات اللي عليها تصنيف — بتتجلب من السيرفر زي الإعلانات بالظبط.
+// السبب مقيس مش نظري (19 سبتمبر): `waFetchConvos` بتجيب **أحدث 200** بس،
+// وعند 3ataba المحادثة رقم 200 عمرها **يومين** — يعني **6 من 18** محادثة
+// عليها تصنيف كانت **بره النافذة**، فالفلتر بتاعها بيقول «مفيش محادثات
+// بالتصنيف ده» وهي موجودة. تلت التصنيفات بيختفوا في صمت (درس 6).
+// والتصنيفات الجديدة (استرجاع · استبدال · مكتمل) طبيعتها إنها على محادثات
+// **أقدم** — فمن غير الجلب ده كانوا هيتولدوا مكسورين.
+//
+// ⚠️ المحادثات اللي عليها تصنيف مجموعة صغيرة بطبيعتها (18 من 2,037)،
+// فاستعلام واحد بيكفي **لكل** التصنيفات — أرخص من استعلام لكل chip،
+// وبيدّي العدّادات الصح من أول رسمة (عدّاد بيتغير لما تدوس عليه = عدّاد
+// بيكدب، نفس مبدأ chip الإعلانات).
+export var waLabelExtra=[], waLabelCapped=false;
+var WA_LABEL_LIMIT=500;
+
 // 🔴 البحث بالـid لازم يشوف الاتنين: صف من الفلتر مالوش مدخل هنا، الضغط
 // عليه بيفتح الشات وهيدره فاضل بتاع المحادثة اللي قبلها — اسم عميل فوق
 // شات عميل تاني (نفس عيلة «الشارة المعلّقة» اللي اتصلحت 14 سبتمبر).
@@ -316,7 +345,30 @@ export function waConvById(id){
   if(!id) return undefined;
   for(var i=0;i<waConvos.length;i++){ if(waConvos[i].id===id) return waConvos[i]; }
   for(var j=0;j<waAdExtra.length;j++){ if(waAdExtra[j].id===id) return waAdExtra[j]; }
+  // من غير السطر ده الضغط على صف جاي من فلتر التصنيف بيفتح الشات
+  // وهيدره فاضل بتاع المحادثة اللي قبلها
+  for(var m=0;m<waLabelExtra.length;m++){ if(waLabelExtra[m].id===id) return waLabelExtra[m]; }
   return undefined;
+}
+
+// كل المحادثات اللي عليها تصنيف — استعلام واحد لكل التصنيفات.
+// بيتنادى من `loadInbox` (عشان العدّادات تبقى صح من أول رسمة) ومن
+// `waSetFilter` عند التبديل لتصنيف ومن `waToggleLabel` بعد أي تعديل.
+export function waFetchLabelConvos(){
+  if(!sb||!currentTenantId) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
+    .not('labels','is',null)
+    .order('last_message_at',{ascending:false,nullsFirst:false}).limit(WA_LABEL_LIMIT)
+    .then(function(r){
+      if(r.error) return;   // الفلتر بيفضل على المحمّل — أحسن من قايمة فاضية
+      var rows=r.data||[];
+      waLabelCapped=(rows.length===WA_LABEL_LIMIT);
+      // `.not(labels,is,null)` بترجّع كمان الصفوف اللي مصفوفتها فاضية
+      // (الموظف شال آخر تصنيف) — دي مش «عليها تصنيف»
+      waLabelExtra=rows.filter(function(c){ return c.labels && c.labels.length; });
+      if(waConvos.length) renderConvos();
+    });
 }
 
 export function waFetchAdConvos(){
@@ -338,16 +390,25 @@ export function waFetchAdConvos(){
 
 export function renderConvos(){
   var body=$id('wa-list-body'); if(!body) return;
-  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={};
+  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={};
   for(var k=0;k<waConvos.length;k++){
+    seenConvIds[waConvos[k].id]=1;
     if(waIsFromAd(waConvos[k])) adIds[waConvos[k].id]=1;
     var u=waConvos[k].unread_count||0; totalUnread+=u; if(u>0)unreadConvs++;
     var ls=waConvos[k].labels||[];
     for(var li=0;li<ls.length;li++){ labelCounts[ls[li]]=(labelCounts[ls[li]]||0)+1; }
   }
-  // ⚠️ عدّاد الإعلانات وحده هو اللي بيضم الأقدم من الـ200 — غير المقروء
-  // والتصنيفات بيفضلوا على نسخة السيرفر زي ما هي.
+  // ⚠️ عدّاد الإعلانات والتصنيفات بيضموا الأقدم من الـ200 (الاتنين ليهم
+  // استعلام سيرفر) — **غير المقروء لوحده** هو اللي لسه على نسخة الـ200،
+  // وده مقصود: الرسايل الجديدة بتبقى في الأحدث أصلاً.
   for(var ax=0;ax<waAdExtra.length;ax++) adIds[waAdExtra[ax].id]=1;
+  // الصفوف اللي بره أحدث 200 بتتعدّ هنا. الـdedupe بالـid و`waConvos`
+  // هي الأحدث (مصدر الـpoll) فبتكسب لو الصف في الاتنين.
+  for(var lx=0;lx<waLabelExtra.length;lx++){
+    var lc=waLabelExtra[lx]; if(seenConvIds[lc.id]) continue;
+    var els=lc.labels||[];
+    for(var lj=0;lj<els.length;lj++){ labelCounts[els[lj]]=(labelCounts[els[lj]]||0)+1; }
+  }
   var adCount=0;
   for(var ak in adIds){ if(Object.prototype.hasOwnProperty.call(adIds,ak)) adCount++; }
   $id('wa-list-title').textContent= totalUnread>0 ? ('المحادثات • '+totalUnread+' غير مقروء') : 'المحادثات';
@@ -356,7 +417,7 @@ export function renderConvos(){
   var af=$id('wa-filter-ctwa');
   if(af) af.textContent= adCount>0 ? ('📣 جه من إعلان ('+adCount+(waAdCapped?'+':'')+')') : '📣 جه من إعلان';
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
-  for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+')') : lk; }
+  for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+(waLabelCapped?'+':'')+')') : lk; }
   if(!waConvos.length && !waAdExtra.length){
     // النفاد مش "مفيش محادثات" — الرسالة الغلط كانت بتوحي إن البيانات ضاعت
     if(walletStateCache && walletStateCache.is_depleted){ body.innerHTML=WA_LOCK_MSG; return; }
@@ -374,6 +435,17 @@ export function renderConvos(){
       if(!seen[waAdExtra[z].id] && waConvMatches(waAdExtra[z])) list.push(waAdExtra[z]);
     }
     list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
+  } else if(waFilter.indexOf('label:')===0){
+    // نفس منطق الإعلانات بالحرف: المحادثات المصنّفة اللي بره أحدث 200
+    // بتتضاف **هنا بس**. `waLabelExtra` بتفضل منفصلة عن `waConvos` —
+    // الدمج فيها اتجرّب في فلتر الإعلانات وطلع إن ترتيب وصول الاستعلامين
+    // هو اللي بيحدد النتيجة، واختفت محادثتين من القايمة العادية.
+    var seenL={};
+    for(var y2=0;y2<list.length;y2++) seenL[list[y2].id]=1;
+    for(var z2=0;z2<waLabelExtra.length;z2++){
+      if(!seenL[waLabelExtra[z2].id] && waConvMatches(waLabelExtra[z2])) list.push(waLabelExtra[z2]);
+    }
+    list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
   }
   if(!list.length){
     var emptyMsg='مفيش نتائج للبحث';
@@ -382,7 +454,10 @@ export function renderConvos(){
     // بيانات إعلان **حتى لو جت من إعلان فعلاً** — من غير السطر ده التاجر
     // بيقرا «صفر» على إنها عطل في الميزة.
     else if(waFilter==='ctwa') emptyMsg='مفيش محادثات جاية من إعلان لسه<br><span style="font-size:.76rem">المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش بيانات إعلان حتى لو جت من إعلان.</span>';
-    else if(waFilter.indexOf('label:')===0) emptyMsg='مفيش محادثات بالتصنيف ده';
+    // الفلتر ده بيستعلم من السيرفر فـ«مفيش» هنا معناها مفيش فعلاً —
+    // مش «مفيش في أحدث 200». والسياق بيتقال بس لو وصلنا السقف.
+    else if(waFilter.indexOf('label:')===0) emptyMsg='مفيش محادثات بالتصنيف ده'
+      +(waLabelCapped?'<br><span style="font-size:.76rem">وصلنا سقف '+WA_LABEL_LIMIT+' محادثة مصنّفة — لو التصنيف على محادثة أقدم من كده مش هيظهر هنا.</span>':'');
     body.innerHTML='<div class="wa-empty">'+emptyMsg+'</div>'; return;
   }
   var html='';
@@ -407,6 +482,11 @@ export function renderConvos(){
   // يفتكر إن فيه إعلانات مخفية وهي معروضة.
   if(waFilter==='ctwa'){
     if(waAdCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة من إعلانات — الأقدم مش هنا</div>';
+  } else if(waFilter.indexOf('label:')===0){
+    // نفس سبب استثناء الإعلانات: الفلتر ده استعلم من السيرفر فهو شايف
+    // الأقدم. نص «الأقدم مش بيظهر» هنا كان هيخلي التاجر يدوّر على
+    // محادثات مصنّفة **وهي معروضة قدامه**.
+    if(waLabelCapped) html+='<div class="wa-cap-note">معروض أحدث '+WA_LABEL_LIMIT+' محادثة مصنّفة — الأقدم مش هنا</div>';
   } else if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — الأقدم مش بيظهر هنا ولا في البحث</div>';
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
@@ -1138,12 +1218,29 @@ export function waDeleteQuickReply(id){
 }
 
 // ----- تصنيفات وملاحظات المحادثة -----
+// ⚠️ التصنيفات **مالهاش CHECK في الداتابيز** (`wa_conversations.labels`
+// عمود `text[]` حر — اتأكد على الحي)، فالمصفوفة دي هي التعريف الوحيد.
+// معناها كمان إن أي تصنيف اتشال من هنا بيفضل مكتوب على المحادثات
+// القديمة وبيترسم باللون الرمادي بتاع `waLabelColor` — فالحذف مش مجاني.
+//
+// 🔴 الترتيب: الخمسة الأولانيين في أماكنهم زي ما هم (التاجر متعوّد
+// عليهم ومستخدمهم فعلاً — تم الحل 11 · شكوى 4 · مهم 4 · VIP 2)،
+// والأربعة الجداد (طلب المالك 19 سبتمبر) اتحطوا وراهم بترتيب رحلة
+// الأوردر: طلب ← استبدال ← استرجاع ← مكتمل.
+//
+// ⚠️ ولا لون منهم قريب من `#64748b` — ده لون الـfallback بتاع تصنيف
+// **مش معروف**، ولو تصنيف حقيقي أخده التاجر مش هيفرّق بين «مكتمل»
+// و«تصنيف مش في القايمة».
 export var WA_LABELS=[
   {k:'مهم',c:'#ef4444'},
   {k:'VIP',c:'#8b5cf6'},
   {k:'شكوى',c:'#f59e0b'},
   {k:'تم الحل',c:'#10b981'},
-  {k:'متابعة',c:'#2563eb'}
+  {k:'متابعة',c:'#2563eb'},
+  {k:'طلب واتساب',c:'#15803d'},
+  {k:'استبدال',c:'#0891b2'},
+  {k:'استرجاع',c:'#db2777'},
+  {k:'مكتمل',c:'#78350f'}
 ];
 
 export function waLabelColor(k){ for(var i=0;i<WA_LABELS.length;i++){ if(WA_LABELS[i].k===k) return WA_LABELS[i].c; } return '#64748b'; }
@@ -1190,7 +1287,12 @@ export function waToggleLabel(label){
   if(idx>=0) labels.splice(idx,1); else labels.push(label);
   conv.labels=labels;
   waRenderConvLabels(conv); waRenderLabelPicker(conv); renderConvos();
-  sb.from('wa_conversations').update({labels:labels}).eq('id',conv.id).then(function(r){ if(r.error) toast('التصنيف ماتحفظش — حاول تاني','er'); });
+  sb.from('wa_conversations').update({labels:labels}).eq('id',conv.id).then(function(r){
+    if(r.error){ toast('التصنيف ماتحفظش — حاول تاني','er'); return; }
+    // العدّادات على الـchips بتتحسب من `waLabelExtra` كمان — من غير
+    // الجلب ده، محادثة أخدت أول تصنيف ليها وهي بره أحدث 200 مابتتعدّش
+    waFetchLabelConvos();
+  });
 }
 
 export function waSaveNote(){
@@ -1225,9 +1327,18 @@ export function waRefreshNavBadge(){
 // أوردر جاي من اللاندنج.
 //
 // 🔴 **كل الحراسات على السيرفر** في `create_manual_order` (SECURITY DEFINER):
-// `tenant_id` من الـJWT · الحالة متسمّرة `pending` · رقم الطلب في نطاق
-// `W-` منفصل عن ترقيم اللاندنج · cooldown 90 ثانية. اللي هنا **راحة
-// للموظف بس** — رسالة أوضح قبل ما يستنى الشبكة، مش حاجز.
+// `tenant_id` من الـJWT · رقم الطلب في نطاق `W-` منفصل عن ترقيم اللاندنج ·
+// cooldown 90 ثانية. اللي هنا **راحة للموظف بس** — رسالة أوضح قبل ما
+// يستنى الشبكة، مش حاجز.
+//
+// 🔴 **الحالة عمرها ما بتيجي من المتصفح** — الدالة هي اللي بتقررها.
+// من 19 سبتمبر الأوردر بينزل **مؤكد** (طلب المالك: العميل أكّد على
+// الواتساب أصلاً). والدالة بتعمل ده بـ`INSERT pending` ثم `UPDATE`
+// لـ`confirmed` **في نفس الترانزاكشن** — مش `INSERT` مباشر بـ`confirmed`،
+// لأن `charge_order_on_status_change` بتعدّي أي إدخال أول بحالة محاسَبة
+// **من غير خصم وللأبد** (اتقاس بترانزاكشن راجعة). يعني الخصم بقى بيحصل
+// **لحظة الإنشاء** مش بعد ضغطة الموظف — وعشان كده بننادي
+// `loadWalletState()` بعد النجاح تحت.
 export function waNewOrderOpen(){
   var box=$id('wa-neworder'); if(!box) return;
   var conv=waConvById(waActiveId); if(!conv) return;
@@ -1314,8 +1425,13 @@ export function waNewOrderSave(){
       else toast('الطلب مااتسجّلش — حاول تاني','er');
       return;
     }
-    toast('الطلب اتسجّل ✅ رقم '+d.order_uid,'ok');
+    toast('الطلب اتسجّل ✅ '+d.order_uid+' — مؤكد','ok');
     waNewOrderClose();
+    // 🔴 الإنشاء بقى بيخصم (الأوردر بينزل مؤكد)، فشريط الباقة والرصيد
+    // بيبقوا على قيمة قديمة من غير النداء ده — والأخطر إن
+    // `walletStateCache.is_depleted` بيفضل `false` محلياً لو الأوردر ده
+    // هو اللي وصّل المحفظة للنفاد، فالواجهة مش هتقفل.
+    loadWalletState();
     // كارت أوردرات العميل بيدوّر بالتليفون فالطلب الجديد بيظهر لوحده
     waLoadOrders(waConvById(waActiveId));
   }).catch(function(){

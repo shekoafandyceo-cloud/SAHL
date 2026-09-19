@@ -132,6 +132,14 @@
           return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
         });
       }
+      // `.not('labels','is',null)` — فلتر المحادثات المصنّفة.
+      // PostgREST بيرجّع كمان المصفوفات الفاضية، فالستب بيعمل نفس الحاجة
+      // (الكود نفسه هو اللي بيستبعدها) — غير كده الاختبار بيثبت سلوك
+      // مش موجود في الإنتاج.
+      if(st.not && st.not.op === 'is' && st.not.val === null){
+        var ncol = st.not.col;
+        rows = rows.filter(function(c){ return c[ncol] !== null && c[ncol] !== undefined; });
+      }
       if(st.order === 'last_message_at'){
         var asc = !!(st.orderOpts && st.orderOpts.ascending);
         rows.sort(function(a,b){
@@ -148,7 +156,7 @@
     var st = { table: table };
     var api = {};
     ['select','eq','in','is','not','gte','lt','lte','gt','ilike','or','order','range','limit','update','insert','delete','upsert'].forEach(function(m){
-      api[m] = function(a, b){
+      api[m] = function(a, b, c){
         if(m === 'select') st.cols = a;
         // تسجيل حمولة الكتابة — عشان الاختبارات تتأكد من اللي اتبعت فعلاً
         if(m === 'insert' || m === 'update' || m === 'upsert') st.payload = a;
@@ -162,6 +170,10 @@
         if(m === 'order'){ st.order = a; st.orderOpts = b; }
         if(m === 'limit'){ st.limit = a; }
         if(m === 'or'){ st.or = a; }
+        // `.not(col, op, val)` — تلات باراميترات. كانت مقبولة في السلسلة
+        // ومابتتطبّقش خالص، يعني استعلام بيضيّق كان بيرجّع **كل** الصفوف
+        // وأي فحص عليه بيعدّي وهو أعمى (درس 33).
+        if(m === 'not'){ st.not = {col:a, op:b, val:c}; }
         return api;
       };
     });
