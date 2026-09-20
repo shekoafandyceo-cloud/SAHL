@@ -1,0 +1,22 @@
+    private $key = "1b78185681a842bc8ba993fc8210fxxx";
+    private $customerCode= "J0086001984xx";
+    private $pwd  = "R4tMZp15";
+    private $apiAccount = "1003";
+    private $url = "https://uat-general.jtexpress.com.cn/edigeneral";
+    /**
+     * 内容部分加密
+     * @return string
+     */
+    private function getContentDigest(){
+        $str = strtoupper($this->customerCode.md5($this->pwd.'jadada236t2')).$this->key;
+        return base64_encode(pack('H*', strtoupper(md5($str))));
+    }
+    /**
+     * 头部请求部分加密
+     * param array $post
+     * @return string
+     */
+    private function getHeaderDigest($post){
+        $digest = base64_encode(pack('H*',strtoupper(md5(json_encode($post,JSON_UNESCAPED_UNICODE).$this->key))));
+        return $digest;
+    }

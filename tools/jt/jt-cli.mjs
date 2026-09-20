@@ -5,6 +5,9 @@
 // الاستخدام:
 //   node tools/jt/jt-cli.mjs query  UEG088902573105 [أكتر...]     # Query Order (command:2)
 //   node tools/jt/jt-cli.mjs trace  UEG088902573105 [أكتر...]     # Logistics Track Query
+//   node tools/jt/jt-cli.mjs waybill-info UEG088902573105        # waybill/getWaybillInfo (الوزن المحاسَب + الشحن)
+//   node tools/jt/jt-cli.mjs pca [2|3|4]                          # المحافظات/المدن/المناطق المخدومة
+//   node tools/jt/jt-cli.mjs freight '{"prov":..,"city":..,"area":..,"address":..}' '{...receiver}' 1.5
 //   node tools/jt/jt-cli.mjs raw    order/getOrders '{"command":2,"serialNumber":["UEG…"]}'
 //   خيارات:
 //     --dry-run                 يطبع الغلاف (متعتّم) من غير أي نداء شبكة
@@ -16,7 +19,7 @@
 //     --show-response-raw       يطبع نص الرد كما هو لو مش JSON
 //
 // المتغيرات (من البيئة أو --env-file):
-//   JT_BASE_URL            لحد /api — مثال: https://<host>/webopenplatformapi/api
+//   JT_BASE_URL            اختيارية — الافتراضي من البوابة: demoopenapi/openapi.jtjms-eg.com/webopenplatformapi/api
 //   JT_API_ACCOUNT · JT_PRIVATE_KEY · JT_CUSTOMER_CODE
 //   JT_PASSWORD_PROCESSED  (UPPER HEX MD5)  — أو JT_PASSWORD (نص صريح؛ بيتعالج في الذاكرة ومابيتطبعش)
 //
@@ -62,7 +65,8 @@ const jtEnv = String(flags.env || env.JT_ENV || 'sandbox').toLowerCase();
 if(jtEnv !== 'sandbox' && jtEnv !== 'production'){ console.error('✗ --env لازم sandbox أو production'); process.exit(2); }
 const missing = [];
 const need = (k) => { const v = (env[k] || '').trim(); if(!v) missing.push(k); return v; };
-const baseUrl = need('JT_BASE_URL');
+// JT_BASE_URL اختيارية: لو فاضية بناخد جذر البيئة من البوابة المصرية (jt.JT_BASE_URLS)
+const baseUrl = (env.JT_BASE_URL || '').trim() || jt.JT_BASE_URLS[jtEnv];
 const apiAccount = need('JT_API_ACCOUNT');
 const privateKey = need('JT_PRIVATE_KEY');
 const customerCode = need('JT_CUSTOMER_CODE');
@@ -91,9 +95,26 @@ if(op === 'query'){
   const wbs = pos.slice(1);
   if(!wbs.length){ console.error('✗ trace محتاج رقم بوليصة واحد على الأقل'); process.exit(2); }
   callPath = jt.JT_PATHS.trace;
-  // ⚠️ شكل الحمولة من التوثيق العام (billCodes مفصولة بفاصلة) — لو الـSandbox
-  // المصري نجح بشكل تاني، صحّحه هنا وفي JT_PATHS مع بعض
+  if(wbs.length > 30){ console.error('✗ trace بياخد 30 بوليصة على الأكتر في النداء الواحد (توثيق مصر)'); process.exit(2); }
+  // من توثيق مصر: billCodes مفصولة بفاصلة (صفحة logistics/trace مافيهاش customerCode/digest —
+  // بنبعتهم زي ما نجح في الـSandbox؛ لو اترفض نشيلهم)
   biz = jt.withBusinessDigest({ billCodes: wbs.join(',') }, creds);
+} else if(op === 'waybill-info'){
+  const wbs = pos.slice(1);
+  if(!wbs.length){ console.error('✗ waybill-info محتاج رقم بوليصة واحد على الأقل'); process.exit(2); }
+  callPath = jt.JT_PATHS.getWaybillInfo;
+  // الصفحة بتحط customerCode بس (من غير digest) — بنبعت الاتنين زي باقي الصفحات؛ لو J&T رفض نشيل digest
+  biz = jt.withBusinessDigest({ waybillNos: wbs }, creds);
+} else if(op === 'pca'){
+  callPath = jt.JT_PATHS.pca;
+  biz = jt.withBusinessDigest({ type: String(pos[1] || '4') }, creds);
+} else if(op === 'freight'){
+  // freight '<sender JSON>' '<receiver JSON>' <weightKg>  — كل واحد {prov,city,area,address}
+  let snd, rcv;
+  try{ snd = JSON.parse(pos[1]); rcv = JSON.parse(pos[2]); }catch(e){ console.error('✗ freight محتاج sender وreceiver كـJSON: {prov,city,area,address}'); process.exit(2); }
+  const w = pos[3] || '1';
+  callPath = jt.JT_PATHS.freightEstimate;
+  biz = jt.withBusinessDigest({ sender: snd, receiver: rcv, weight: String(w) }, creds);
 } else if(op === 'raw'){
   callPath = pos[1]; const j = pos[2];
   if(!callPath || !j){ console.error('✗ raw محتاج <path> <bizContent JSON>'); process.exit(2); }
@@ -107,7 +128,7 @@ if(op === 'query'){
     }
   }
 } else {
-  console.error('✗ أمر مش معروف: ' + op + ' — المتاح: query · trace · raw');
+  console.error('✗ أمر مش معروف: ' + op + ' — المتاح: query · trace · waybill-info · pca · freight · raw');
   process.exit(2);
 }
 

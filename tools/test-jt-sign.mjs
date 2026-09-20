@@ -64,7 +64,7 @@ const py = `
 import hashlib, base64, json, sys
 d = json.loads(sys.stdin.read())
 proc = hashlib.md5((d['plain'] + 'jadada236t2').encode('utf-8')).hexdigest().upper()
-biz  = base64.b64encode(hashlib.md5((d['customerCode'] + proc + d['privateKey']).encode('utf-8')).digest()).decode()
+biz  = base64.b64encode(hashlib.md5(((d['customerCode'] + proc).upper() + d['privateKey']).encode('utf-8')).digest()).decode()
 hdr  = base64.b64encode(hashlib.md5((d['bizContent'] + d['privateKey']).encode('utf-8')).digest()).decode()
 print(json.dumps({'proc': proc, 'biz': biz, 'hdr': hdr}))
 `;
@@ -80,6 +80,10 @@ ok(/^[0-9A-F]{32}$/.test(processed), 'processedPassword 32 حرف hex كبير')
 ok(bizObj.digest === ref.biz, 'businessDigest = BASE64(RAW MD5(code+proc+key)) — مطابق لبايثون');
 ok(bizObj.customerCode === creds.customerCode, 'customerCode جوّه bizContent');
 ok(jt.headerDigest(bizContent, creds.privateKey) === ref.hdr, 'headerDigest = BASE64(RAW MD5(bizContent+key)) — مطابق لبايثون');
+// مثال PHP الرسمي: strtoupper(customerCode . md5hex) — كود عميل بحروف صغيرة لازم يدي نفس توقيع الكبير
+ok(jt.businessDigest('j0086011282', processed, creds.privateKey) === jt.businessDigest('J0086011282', processed, creds.privateKey), 'strtoupper على customerCode زي مثال PHP الرسمي');
+ok(jt.JT_BASE_URLS.sandbox === 'https://demoopenapi.jtjms-eg.com/webopenplatformapi/api' && jt.JT_BASE_URLS.production === 'https://openapi.jtjms-eg.com/webopenplatformapi/api', 'جذور البيئتين زي بوابة مصر');
+ok(jt.isCreateEndpoint('order/cancelOrder') && jt.isCreateEndpoint('order/addLooseOrder') && !jt.isCreateEndpoint('spmComCost/getComCost'), 'الإلغاء والـloose محجوبين في الإنتاج، التقدير لأ');
 
 // ── 3) الغلاف ──────────────────────────────────────────────────────
 console.log('3) الغلاف — نفس النص بالبايت في التوقيع والـbody');
@@ -131,9 +135,13 @@ ok(printed.indexOf('UEG088902573105') >= 0, 'بس الحمولة العادية 
 
 // ── 6) معايرات — لازم تفشل ────────────────────────────────────────
 console.log('6) معايرات');
-// (أ) hex صغير — الشكل اللي أي مطوّر ممكن يكتبه بالغلط
+// (أ) hex صغير — الشكل اللي أي مطوّر ممكن يكتبه بالغلط. بعد مطابقة مثال PHP
+// الرسمي (strtoupper على customerCode+hex مع بعض) العميل بيصلّحه لوحده، فالتوقيع
+// لازم يطلع **نفسه** — والمعايرة الحقيقية إن كلمة سر مختلفة أو salt ناقص بيدّوا توقيع مختلف
 const lowerProc = md5Hex(creds.plain + 'jadada236t2');
-ok(jt.businessDigest(creds.customerCode, lowerProc, creds.privateKey) !== ref.biz, 'معايرة: hex صغير في كلمة السر → توقيع تجاري مختلف (الفحص بيمسكه)');
+ok(jt.businessDigest(creds.customerCode, lowerProc, creds.privateKey) === ref.biz, 'hex صغير في كلمة السر بيتصلّح بالـstrtoupper (زي PHP الرسمي)');
+ok(jt.businessDigest(creds.customerCode, jt.processPassword(creds.plain + 'x'), creds.privateKey) !== ref.biz, 'معايرة: كلمة سر مختلفة → توقيع تجاري مختلف');
+ok(jt.businessDigest(creds.customerCode, md5Hex(creds.plain).toUpperCase(), creds.privateKey) !== ref.biz, 'معايرة: من غير الـsalt → توقيع تجاري مختلف');
 // (ب) bizContent بمسافات — نفس الـobject، نص مختلف
 ok(jt.headerDigest(JSON.stringify(bizObj, null, 2), creds.privateKey) !== req.headers.digest, 'معايرة: JSON بمسافات → توقيع هيدر مختلف');
 // (ج) ترتيب مفاتيح مختلف — نفس المعنى، توقيع مختلف

@@ -4,11 +4,11 @@
 // `tools/jt/jt-cli.mjs` (Node) بنفس الملف بالحرف — عشان اللي اتحقق محلياً
 // هو اللي هيتنشر، مش نسخة تانية ممكن تنحرف.
 //
-// 🔴 مصدر مواصفة التوقيع: جلسات الـSandbox اللي نجحت (20 سبتمبر) — مش
-// التوثيق المصري (محتاج لوجين ومقدرناش نقراه من هنا). أي فرق بين الاتنين
-// يتحسم بالطلب الناجح المحفوظ في Postman:
+// 🔴 مصدر مواصفة التوقيع: مثال PHP الرسمي من بوابة مصر
+// (download.jtjms-eg.com/open/PHP+signature+example.zip — اتقرا 20 سبتمبر)
+// + جلسات الـSandbox اللي نجحت. أي فرق يتحسم بالطلب الناجح المحفوظ في Postman:
 //   1) processedPassword = UPPER(HEX(MD5(plainPassword + "jadada236t2")))
-//   2) businessDigest    = BASE64(RAW MD5(customerCode + processedPassword + privateKey))
+//   2) businessDigest    = BASE64(RAW MD5(UPPER(customerCode + processedPassword) + privateKey))
 //      — بيتحط **جوّه** bizContent في حقل `digest` (مع customerCode)
 //   3) headerDigest      = BASE64(RAW MD5(bizContent كنص بالحرف + privateKey))
 //      — بيتحط في الهيدر `digest` مع `apiAccount` و`timestamp` (ملّي ثانية)
@@ -45,23 +45,53 @@ export interface JtConfig {
 }
 
 /**
- * مسارات الـAPI — ⚠️ الأسماء من توثيق J&T العام (إندونيسيا) ومن اللي نجح
- * في الـSandbox المصري. أي مسار مش متأكد منه على مصر معلّم `confirm: true`
- * ولازم يتأكد من البوابة المصرية قبل ما يتبني عليه كود إنتاج.
+ * جذور البيئتين — من بوابة مصر نفسها (`app.js` بتاع open.jtjms-eg.com،
+ * اتقرا 20 سبتمبر 2026). لحد `/api` من غير سلاش في الآخر.
+ */
+export const JT_BASE_URLS: Record<JtEnv, string> = {
+  sandbox: "https://demoopenapi.jtjms-eg.com/webopenplatformapi/api",
+  production: "https://openapi.jtjms-eg.com/webopenplatformapi/api",
+};
+
+/**
+ * مسارات الـAPI — **من توثيق بوابة مصر** (open.jtjms-eg.com — الصفحات
+ * مضمّنة في الـJS بتاع البوابة ومحفوظة في `tools/jt/docs/`). كل مسار هنا
+ * له صفحة بنفس الاسم هناك؛ اللي مش موجود هناك مش موجود هنا.
  */
 export const JT_PATHS = {
-  /** إنشاء شحنة — 🔴 بفلوس حقيقية في الإنتاج. */
+  /** إنشاء شحنة — 🔴 بفلوس حقيقية في الإنتاج. الرد فيه billCode + sortingCode + sumFreight. */
   addOrder: "order/addOrder",
+  /** إنشاء شحنة «loose» — نفس الخطورة. */
+  addLooseOrder: "order/addLooseOrder",
+  /** إلغاء — بيغيّر حالة شحنة قايمة. */
   cancelOrder: "order/cancelOrder",
-  /** Query Order — نجح في الـSandbox بـ{command:2, serialNumber:[waybill]}. */
+  /** Query Order — command 1 برقم أوردرنا · 2 برقم البوليصة · 3 بفترة · 4 serial. */
   getOrders: "order/getOrders",
-  /** Logistics Track Query — نجح في الـSandbox، التفاصيل رجعت فاضية للتجريبي. */
+  /** تتبع — billCodes مفصولة بفاصلة، حد أقصى 30. */
   trace: "logistics/trace",
+  /** الاشتراك في دفع التحديثات — {id: apiAccount, list:[{traceNode, waybillCode}]} حد أقصى 1000. */
+  subscribe: "trace/subscribe",
+  /** بوليصة J&T نفسها كـPDF base64 — {billCode, printSize, printCod, showCustomerOrderId}. */
   printOrder: "order/printOrder",
+  /** معلومات البوليصة — {customerCode, waybillNos[]} → isSign · packageChargeWeight · totalFreight · freight. */
+  getWaybillInfo: "waybill/getWaybillInfo",
+  /** تقدير الشحن — sender/receiver {prov, city, area, address} + weight → totalPrice. */
+  freightEstimate: "spmComCost/getComCost",
+  /** نطاق المحافظات/المدن/المناطق المخدومة — {type: 2|3|4}. */
+  pca: "online/pca",
+  /** هل العنوان جوّه نطاق الخدمة. */
+  cover: "online/cover",
+  /** كود الفرز الثلاثي من العنوان — {sender?, receiver}. */
+  threeSegmentCode: "threeCode/getThreeSegmentCode",
+  /** بيانات الفرع + كود الفرز من العنوان. */
+  networkInfo: "network/getInfo",
 } as const;
 
-/** المسارات اللي بتخلق شحنة (أو بتغيّر حالة مدفوعة) — ممنوعة في الإنتاج في المرحلة دي. */
-const CREATE_PATHS = new Set<string>([JT_PATHS.addOrder]);
+/**
+ * المسارات اللي بتخلق شحنة أو بتغيّر حالتها عند J&T — ممنوعة في الإنتاج في
+ * المرحلة دي (قرار المالك). القراءة والتقدير والاشتراك مسموحين.
+ */
+const CREATE_PATHS = new Set<string>([JT_PATHS.addOrder, JT_PATHS.addLooseOrder, JT_PATHS.cancelOrder]);
 
 export function isCreateEndpoint(path: string): boolean {
   return CREATE_PATHS.has(normalizePath(path));
@@ -78,9 +108,14 @@ export function processPassword(plainPassword: string): string {
   return md5Hex(plainPassword + JT_PASSWORD_SALT).toUpperCase();
 }
 
-/** BASE64(RAW MD5(customerCode + passwordProcessed + privateKey)) — جوّه bizContent */
+/**
+ * BASE64(RAW MD5(UPPER(customerCode + passwordProcessed) + privateKey)) — جوّه bizContent.
+ * الـUPPER على (customerCode + كلمة السر المعالجة) مع بعض بالحرف زي مثال PHP
+ * الرسمي من بوابة مصر (`strtoupper($customerCode.md5($pwd.'jadada236t2'))`):
+ * كلمة السر المعالجة أصلاً UPPER، فالفرق الوحيد لو كود العميل فيه حروف صغيرة.
+ */
 export function businessDigest(customerCode: string, passwordProcessed: string, privateKey: string): string {
-  return bytesToBase64(md5Raw(customerCode + passwordProcessed + privateKey));
+  return bytesToBase64(md5Raw((customerCode + passwordProcessed).toUpperCase() + privateKey));
 }
 
 /** BASE64(RAW MD5(bizContent + privateKey)) — في الهيدر */
