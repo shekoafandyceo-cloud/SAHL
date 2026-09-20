@@ -15,9 +15,35 @@
 | حقول `addOrder` في `platform_settings.jt_addorder_fields` | ✅ متسجّلة (من Postman): `expressType=EZ` · `deliveryType=04` · `goodsType=ITN1` · `operateType=1` · `payType=PP_PM` — `serviceType` مش موجود في الطلب الناجح فبقى اختياري. اتأكد حيّ بنداء `config`: `addorder_fields_missing=[]` |
 | المرسل على `tenants` (3ataba) | ⏳ **جزئي**: `sender_name=3ataba.com` · `sender_phone=01201399800` · `sender_street=أطلس 3 - بلوك 102`. **`sender_prov/city/area` فاضيين عمداً** — بيتملوا بعد `pca_sync` بمطابقة «القاهرة / مدينة السلام» على قايمة J&T الفعلية (مفيش تخمين) |
 
-## 2) محتاج من المالك — أسرار J&T في Supabase (يعملها Codex محلياً)
+## 2) ✅ أسرار J&T اتسجّلت في Supabase Vault (20 سبتمبر ليلاً)
 
-الأسرار **مش** بتتبعت في الشات. الشكل: ملف محلي بره الريبو ثم أمر واحد.
+المالك بعت بيانات «User configuration» من بوابة J&T في الشات (سكرين شوت + الباسورد).
+اتحطت في **Supabase Vault** (`vault.create_secret`) بالأسماء
+`jt_api_account` · `jt_private_key` · `jt_customer_code` · `jt_password_processed`
+(الـMD5 المعالج بس — مش النص الصريح)، والـEFs بتقراها عبر RPC `jt_secrets_v1`
+(migration `jt_vault_rpc` — SECURITY DEFINER، **service_role بس**؛ اتقاس بانتحال
+anon وauthenticated: الاتنين `insufficient_privilege`). secrets البيئة لو اتسجّلت
+بعدين ليها الأولوية — الشكل تحت لسه شغّال بس **مش مطلوب** دلوقتي.
+
+⚠️ الأسرار دي بقت في سجل الشات — لو حابب تغيّر `privateKey` من البوابة بعد أول
+شحنة ناجحة، حدّثها في الـVault بـ`vault.update_secret` (مفيش نشر).
+⚠️ الملف اتسمّى `jt_vault_rpc` مش `jt_secrets_*` لأن `.gitignore` فيه `*secret*`.
+
+**اللي اتقاس على إنتاج J&T بالأسرار دي (20 سبتمبر):**
+
+| النداء | الرد | المعنى |
+|---|---|---|
+| `logistics/trace` ببوليصة الـSandbox | `145003316 The billCode is illegal` | الهيدر (apiAccount+privateKey) **صح** |
+| `order/getOrders` بتوقيع أعمال **غلط عمداً** | `145003031 Business parameter signature verification failed` | ضابط |
+| `order/getOrders` بكود عميل غلط عمداً | `145003080 Customer not found` | ضابط |
+| `order/getOrders` بتوقيعنا | عدّى التحقق (`999001030 waybillNos size…` = مفيش نتيجة للمرجع الوهمي) | **الباسورد الأولى (اسم الموقع) هي الصح** |
+| `online/pca` · `online/cover` · `location/getLocation` · `spmComCost/getComCost` | `145003012 API account has no interface permissions` | 🔴 **مش مفعّلين على حساب الإنتاج** |
+| callback موقّع بمفتاحنا على `jt-status/trace` | `code 1` + صف في `jt_events` بـ`digest_ok=true` | الاستقبال شغّال بالمفتاح الحقيقي |
+
+🔴 **`order/addOrder` نفسه ماتقاسش** — ممنوع نقيسه بإنشاء شحنة. لو طلع
+`145003012` عند أول أوردر، الطلب من الـIT هو نفس الطلب اللي تحت.
+
+<details><summary>الشكل القديم (secrets البيئة عبر Codex) — اختياري</summary>
 
 ```bash
 # ملف: ~/jt-secrets.env  (خارج أي ريبو — امسحه بعد الأمر)
@@ -45,12 +71,38 @@ rm ~/jt-secrets.env
 ⚠️ كلمة السر: نفس اللي Postman بيستخدمها. لو Postman عنده الـMD5 المعالج
 بس، حط `JT_PASSWORD_PROCESSED` بدل `JT_PASSWORD`. **متغيّرش الباسورد عند J&T.**
 
+</details>
+
+## 2ب) 🔴 محتاج من المالك — صلاحية `online/pca` على حساب الإنتاج (أو الأسماء بالإيد)
+
+نطاق الخدمة (المحافظة/المدينة/المنطقة بأسماء J&T) هو اللي بيملى قوايم نافذة
+الشحن وبيتأكد بيه عنوان المرسل. حساب الإنتاج **مالوش صلاحية** عليه. طريقين:
+
+1. **الأفضل:** رسالة للـIT بتاع J&T (تحت) يفعّلوا `online/pca` (+ `online/cover`
+   و`spmComCost/getComCost` لو أمكن) على `apiAccount` بتاع الإنتاج. بعدها أنا أعمل
+   `pca_sync` وأطابق «القاهرة / مدينة السلام» من القايمة.
+2. **بديل فوري لأول شحنة:** ابعتلي الأسماء **بالحرف زي ما J&T كاتباها** لـ:
+   عنوان المرسل (القاهرة / مدينة السلام / المنطقة) وعنوان أوردر التجربة —
+   من بلوك `sender`/`receiver` في طلب Postman الناجح أو من القوايم المنسدلة في
+   بوابة J&T وقت إنشاء أوردر يدوي. هسجّلهم في `jt_pca` كصفوف يدوية (مش تخمين)
+   والنافذة هتشتغل بيهم، وJ&T نفسها بترفض الاسم الغلط (`145003060–62`) من غير
+   ما تعمل شحنة.
+
+**رسالة للـIT (صلاحيات):**
+
+> حساب J0086011282 (3ataba.com) — apiAccount بتاع الإنتاج بيرجّع
+> `145003012 API account has no interface permissions` على:
+> `online/pca` · `online/cover` · `location/getLocation` · `spmComCost/getComCost`.
+> برجاء تفعيلهم، والتأكد إن `order/addOrder` و`order/cancelOrder` و`order/printOrder`
+> مفعّلين على نفس الحساب.
+
 ## 3) محتاج من المالك — بيانات مش سرية (ابعتها في الشات)
 
 1. ✅ ~~**القيم الستة** من طلب Create Order الناجح في Postman~~ — اتسجّلت (خمسة؛
    `serviceType` مش في الطلب الناجح فبقى اختياري في `jt-ship` v2 ومابيتبعتش لو فاضي).
 2. ✅ ~~**عنوان المرسل**~~ — الاسم والتليفون والشارع اتسجّلوا. ⏳ **الفاضل**: المحافظة/المدينة/المنطقة
-   **بأسماء J&T** — بتتحسم بعد `pca_sync` (محتاج الأسرار). لو «مدينة السلام» طلعت أكتر من
+   **بأسماء J&T** — بتتحسم بعد `pca_sync` (**محجوب بصلاحية الحساب — بند 2ب**) أو
+   بالأسماء بالإيد من Postman/البوابة. لو «مدينة السلام» طلعت أكتر من
    صف في `jt_pca` هرجع أسألك تختار، مش هخمّن.
 3. **الوزن الافتراضي بالكيلو** لو الموظف مااختارش (مثلاً 1) — أو نسيبه إجباري في النافذة.
    (حالياً إجباري: مفيش `jt_default_weight_kg` فالنافذة لازم فيها وزن.)
@@ -100,8 +152,9 @@ rm ~/jt-secrets.env
 
 ## 6) الترتيب التشغيلي لأول أوردر
 
-1. الأسرار اتسجّلت (بند 2) → أنا أشغّل `config` وأتأكد `creds_production=true`.
-2. `pca_sync` → `jt_pca` يتملى (قوايم المحافظة/المدينة/المنطقة في نافذة الشحن).
+1. ✅ الأسرار اتسجّلت (Vault) → `config` رجّع `creds_production=true` والباسورد اتأكدت بضابط.
+2. ⏳ `pca_sync` → `jt_pca` يتملى (قوايم المحافظة/المدينة/المنطقة في نافذة الشحن) —
+   **محجوب** بـ`145003012` لحد ما الـIT يفعّل `online/pca`، أو صفوف يدوية بأسماء من Postman/البوابة (بند 2ب).
 3. ✅ الحقول اتسجّلت. الفاضل: مطابقة «القاهرة / مدينة السلام» على `jt_pca` بـSQL وتسجيل
    `sender_prov/city/area` (بند 3). ⚠️ `jt-ship` بترفض `sender_incomplete` لحد ما يتملوا،
    و`sender_not_in_pca` لو القيم مش من القايمة المتزامنة.

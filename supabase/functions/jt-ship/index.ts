@@ -156,7 +156,7 @@ Deno.serve(async (req: Request) => {
 
   // ── إعدادات J&T ─────────────────────────────────────────────────────
   const env = caller.mode !== "user" && String(body.env || "") === "sandbox" ? "sandbox" : defaultEnv();
-  const cfg = loadJtConfig(env);
+  const cfg = await loadJtConfig(env, admin);
   if (!cfg) return json({ error: "no_creds", message: "أسرار J&T (" + env + ") مش متسجّلة" }, 500);
   if (env === "production") {
     const { data: pe } = await admin.from("platform_settings").select("value").eq("key", "jt_production_enabled").maybeSingle();

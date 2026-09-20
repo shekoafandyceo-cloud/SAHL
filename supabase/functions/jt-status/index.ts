@@ -66,7 +66,7 @@ Deno.serve(async (req: Request) => {
 
   const bizContent = await readBiz(req);
   const digest = req.headers.get("digest") || "";
-  const keys = callbackKeys();
+  const keys = await callbackKeys(admin);
   const digestOk = keys.length > 0 && keys.some((k) => verifyCallbackDigest(bizContent, digest, k));
 
   let payload: Record<string, unknown> = {};

@@ -71,7 +71,7 @@ Deno.serve(async (req: Request) => {
   const env = privileged && String(body.env || "") === "sandbox" ? "sandbox" : defaultEnv();
 
   if (action === "config") {
-    const st = envStatus();
+    const st = await envStatus(admin);
     const { data: f } = await admin.from("platform_settings").select("value").eq("key", "jt_addorder_fields").maybeSingle();
     let fields: Record<string, string> | null = null;
     try { fields = f?.value ? JSON.parse(f.value) : null; } catch { fields = null; }
@@ -87,8 +87,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const cfg = loadJtConfig(env);
-  if (!cfg) return json({ error: "no_creds", message: "أسرار J&T (" + env + ") مش متسجّلة في الـEdge Function secrets" }, 422);
+  const cfg = await loadJtConfig(env, admin);
+  if (!cfg) return json({ error: "no_creds", message: "أسرار J&T (" + env + ") مش متسجّلة (لا في secrets البيئة ولا في الـVault)" }, 422);
   const creds = cfg.creds;
   let path = "", biz: Record<string, unknown> = {};
 

@@ -1,16 +1,17 @@
 // jt-runtime — الحتة المشتركة بين jt-ship · jt-status · jt-lookup:
 // قراءة إعدادات J&T من secrets الـEdge Functions، والتصريح، والتطبيع.
 //
-// 🔴 الأسرار من Deno.env بس — مفيش سر في الجدول ولا في الكود:
+// 🔴 الأسرار من Deno.env أو من Supabase Vault (RPC jt_secrets_v1 — service_role بس) — مفيش سر في الكود:
 //   JT_ENV=production|sandbox  (الافتراضي production)
 //   JT_API_ACCOUNT · JT_PRIVATE_KEY · JT_CUSTOMER_CODE · JT_PASSWORD (أو JT_PASSWORD_PROCESSED)
 //   JT_SBX_API_ACCOUNT · JT_SBX_PRIVATE_KEY · JT_SBX_CUSTOMER_CODE · JT_SBX_PASSWORD (اختياري — للـSandbox)
+//   البيئة ليها الأولوية؛ لو ناقصة بنقرا نفس الأسماء (بحروف صغيرة) من الـVault.
 //
 // التصريح بتلات أشكال (بالترتيب):
 //   1. Bearer = service_role  → n8n (مسار تأكيد الواتساب) — موثوق، التاجر من صف الأوردر
 //   2. x-diag-token = platform_settings.jt_diag_token → تشخيص من الداتابيز (pg_net) — من غير أي سر J&T
 //   3. Bearer = JWT مستخدم → موظف نشط، tenant_id من البروفايل (نفس ثابت tenant-staff)
-import { JT_BASE_URLS, type JtConfig, type JtEnv, processPassword } from "./jt.ts";
+import { JT_BASE_URLS, type JtConfig, type JtCreds, type JtEnv, processPassword } from "./jt.ts";
 
 export const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -37,9 +38,31 @@ function readCreds(prefix: string) {
   return { apiAccount, privateKey, customerCode, passwordProcessed };
 }
 
-/** إعدادات البيئة المطلوبة — null لو أسرارها مش متسجّلة. */
-export function loadJtConfig(env: JtEnv): JtConfig | null {
-  const creds = env === "sandbox" ? readCreds("JT_SBX_") : readCreds("JT_");
+/**
+ * الأسرار من Supabase Vault عبر RPC `jt_secrets_v1` (service_role بس) — بديل لما
+ * secrets البيئة مش متسجّلة. الأسماء في الـVault: jt_api_account · jt_private_key ·
+ * jt_customer_code · jt_password_processed (و jt_sbx_* للـSandbox).
+ * ⚠️ القيم عمرها ما بتتطبع ولا بتترجع في أي response.
+ */
+// deno-lint-ignore no-explicit-any
+async function readVaultCreds(admin: any, env: JtEnv): Promise<JtCreds | null> {
+  if (!admin) return null;
+  try {
+    const { data, error } = await admin.rpc("jt_secrets_v1", { p_env: env });
+    if (error || !data || typeof data !== "object") return null;
+    const g = (k: string) => String((data as Record<string, unknown>)[k] ?? "").trim();
+    const apiAccount = g("api_account"), privateKey = g("private_key"), customerCode = g("customer_code");
+    let passwordProcessed = g("password_processed");
+    if (!passwordProcessed && g("password")) passwordProcessed = processPassword(g("password"));
+    if (!apiAccount || !privateKey || !customerCode || !passwordProcessed) return null;
+    return { apiAccount, privateKey, customerCode, passwordProcessed };
+  } catch { return null; }
+}
+
+/** إعدادات البيئة المطلوبة — null لو أسرارها مش متسجّلة (لا في البيئة ولا في الـVault). */
+// deno-lint-ignore no-explicit-any
+export async function loadJtConfig(env: JtEnv, admin?: any): Promise<JtConfig | null> {
+  const creds = (env === "sandbox" ? readCreds("JT_SBX_") : readCreds("JT_")) || await readVaultCreds(admin, env);
   if (!creds) return null;
   const override = (Deno.env.get(env === "sandbox" ? "JT_SBX_BASE_URL" : "JT_BASE_URL") || "").trim();
   return { env, baseUrl: override || JT_BASE_URLS[env], creds };
@@ -50,16 +73,23 @@ export function defaultEnv(): JtEnv {
   return e === "sandbox" ? "sandbox" : "production";
 }
 
-export function envStatus(): JtEnvStatus {
-  return { env: defaultEnv(), production: !!readCreds("JT_"), sandbox: !!readCreds("JT_SBX_") };
+// deno-lint-ignore no-explicit-any
+export async function envStatus(admin?: any): Promise<JtEnvStatus> {
+  return {
+    env: defaultEnv(),
+    production: !!(readCreds("JT_") || await readVaultCreds(admin, "production")),
+    sandbox: !!(readCreds("JT_SBX_") || await readVaultCreds(admin, "sandbox")),
+  };
 }
 
 /** كل المفاتيح الخاصة اللي ممكن callback يتوقّع بيها (إنتاج + Sandbox لو موجودة). */
-export function callbackKeys(): string[] {
+// deno-lint-ignore no-explicit-any
+export async function callbackKeys(admin?: any): Promise<string[]> {
   const out: string[] = [];
-  for (const p of ["JT_", "JT_SBX_"]) {
-    const k = (Deno.env.get(p + "PRIVATE_KEY") || "").trim();
-    if (k) out.push(k);
+  for (const env of ["production", "sandbox"] as JtEnv[]) {
+    const fromEnv = (Deno.env.get((env === "sandbox" ? "JT_SBX_" : "JT_") + "PRIVATE_KEY") || "").trim();
+    const k = fromEnv || (await readVaultCreds(admin, env))?.privateKey || "";
+    if (k && !out.includes(k)) out.push(k);
   }
   return out;
 }
