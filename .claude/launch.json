@@ -3,20 +3,36 @@
   "configurations": [
     {
       "name": "app",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8788", "--directory", "app"],
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "tools/spa-server.py",
+        "8788",
+        "app"
+      ],
       "port": 8788
     },
     {
       "name": "admin",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8789", "--directory", "admin"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8789",
+        "--directory",
+        "admin"
+      ],
       "port": 8789
     },
     {
       "name": "baseline",
       "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "8790", "--directory", ".baseline"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8790",
+        "--directory",
+        ".baseline"
+      ],
       "port": 8790
     }
   ]
