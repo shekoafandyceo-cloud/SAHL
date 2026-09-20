@@ -23,7 +23,10 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefresh
 
 const MIN_ADDRESS = 10;
 const REMARK_MAX = 200;          // من توثيق مصر: remark String(200)
-const ADDORDER_FIELDS = ["expressType", "deliveryType", "goodsType", "operateType", "payType", "serviceType"];
+// الحقول من طلب Postman الناجح على الـSandbox (المالك، 20 سبتمبر): expressType "EZ" ·
+// deliveryType "04" · goodsType "ITN1" · operateType 1 (رقم) · payType "PP_PM".
+// serviceType **مش موجود** في الطلب الناجح — فاختياري: بيتبعت بس لو متسجّل.
+const ADDORDER_REQUIRED = ["expressType", "deliveryType", "goodsType", "operateType", "payType"];
 
 const ORDER_COLS = "id, tenant_id, order_uid, status, tracking_no, customer_name, phone, alt_phone, city, address, product_name, manufacturer_note, var, total_cost, shipping_carrier, carrier_ref, ship_prov, ship_city, ship_area, shipping_weight_kg, jt_ship_attempted_at, jt_ship_error";
 
@@ -107,8 +110,9 @@ Deno.serve(async (req: Request) => {
   const { data: fRow } = await admin.from("platform_settings").select("value").eq("key", "jt_addorder_fields").maybeSingle();
   let fields: Record<string, unknown> = {};
   try { fields = fRow?.value ? JSON.parse(fRow.value) : {}; } catch { fields = {}; }
-  const missingFields = ADDORDER_FIELDS.filter((k) => fields[k] == null || String(fields[k]).trim() === "");
+  const missingFields = ADDORDER_REQUIRED.filter((k) => fields[k] == null || String(fields[k]).trim() === "");
   if (missingFields.length) return json({ error: "fields_not_configured", message: "حقول addOrder مش متسجّلة: " + missingFields.join(", ") }, 422);
+  const serviceType = fields.serviceType != null && String(fields.serviceType).trim() !== "" ? String(fields.serviceType).trim() : null;
 
   // ── عنوان المستلم بأسماء J&T ────────────────────────────────────────
   let prov = "", city = "", area = "";
@@ -129,10 +133,13 @@ Deno.serve(async (req: Request) => {
     return json({ error: "address_unresolved", message: "مش عارفين نحدد المحافظة/المدينة/المنطقة بأسماء J&T للمدينة «" + (order.city || "") + "» — اختارها من نافذة الشحن", city: order.city }, 422);
   }
   // لازم تبقى من نطاق J&T (jt_pca) — اسم غلط بيترفض عند J&T بـ145003060–62 وبيضيّع لفة
-  const { data: pcaRow } = await admin.from("jt_pca").select("id").eq("prov", prov).eq("city", city).eq("area", area).maybeSingle();
-  if (!pcaRow) {
-    const { count } = await admin.from("jt_pca").select("id", { count: "exact", head: true });
-    if ((count ?? 0) > 0) return json({ error: "address_not_in_pca", message: "العنوان (" + prov + " / " + city + " / " + area + ") مش في نطاق J&T المتسجّل" }, 422);
+  const { count: pcaCount } = await admin.from("jt_pca").select("id", { count: "exact", head: true });
+  if ((pcaCount ?? 0) > 0) {
+    const { data: pcaRow } = await admin.from("jt_pca").select("id").eq("prov", prov).eq("city", city).eq("area", area).maybeSingle();
+    if (!pcaRow) return json({ error: "address_not_in_pca", message: "العنوان (" + prov + " / " + city + " / " + area + ") مش في نطاق J&T المتسجّل" }, 422);
+    // عنوان المرسل كمان لازم يبقى بأسماء J&T — غلطة فيه بتترفض عند J&T بـ145003060–62 على كل شحنة
+    const { data: sRow } = await admin.from("jt_pca").select("id").eq("prov", tenant.sender_prov).eq("city", tenant.sender_city).eq("area", tenant.sender_area).maybeSingle();
+    if (!sRow) return json({ error: "sender_not_in_pca", message: "عنوان المرسل (" + tenant.sender_prov + " / " + tenant.sender_city + " / " + tenant.sender_area + ") مش في نطاق J&T المتسجّل" }, 422);
   }
 
   // ── الوزن ───────────────────────────────────────────────────────────
@@ -166,7 +173,7 @@ Deno.serve(async (req: Request) => {
     goodsType: String(fields.goodsType),
     operateType: Number(fields.operateType),
     payType: String(fields.payType),
-    serviceType: String(fields.serviceType),
+    ...(serviceType ? { serviceType } : {}),
     sender: {
       name: String(tenant.sender_name).trim().slice(0, 50), mobile: senderMobile, phone: senderMobile, countryCode: "EGY",
       prov: tenant.sender_prov, city: tenant.sender_city, area: tenant.sender_area, street: String(tenant.sender_street).trim().slice(0, 200),

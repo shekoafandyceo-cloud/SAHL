@@ -22,7 +22,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
-const ADDORDER_FIELDS = ["expressType", "deliveryType", "goodsType", "operateType", "payType", "serviceType"];
+const ADDORDER_FIELDS = ["expressType", "deliveryType", "goodsType", "operateType", "payType"];   // serviceType اختياري
 
 function asStrArr(v: unknown): string[] {
   if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);

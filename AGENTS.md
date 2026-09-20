@@ -178,8 +178,13 @@ END$$;
 **🔴 آخر شغل اتعمل (20 سبتمبر ليلاً — go-live J&T، قرار المالك بتغيير النطاق):**
 - المالك غيّر القيود: **مسموح النشر والـpush وتغيير الداتابيز** — الهدف شحنة J&T
   حقيقية واحدة من سهل + طباعة القالب المعتمد + استقبال التحديثات.
-- ✅ **اتنشر على الحي**: migration `jt_shipments` (+ أغلفة RPC) · EFs `jt-ship` ·
-  `jt-status` · `jt-lookup` (كلهم v1). **الفرونت (v56) في `app/` ولسه ماترفعش**.
+- ✅ **اتنشر على الحي**: migration `jt_shipments` (+ أغلفة RPC) · EFs `jt-ship` (v2) ·
+  `jt-status` (v1) · `jt-lookup` (v2). **الفرونت (v56) في `app/` ولسه ماترفعش**.
+- ✅ **بيانات المالك اتسجّلت (20 سبتمبر ليلاً):** حقول `addOrder` الخمسة من Postman
+  (`EZ` · `04` · `ITN1` · `1` · `PP_PM`) في `platform_settings.jt_addorder_fields` —
+  `serviceType` مكانش في الطلب الناجح فبقى **اختياري** (v2). المرسل على `tenants`:
+  الاسم والتليفون والشارع بس — **`sender_prov/city/area` فاضيين عمداً** لحد
+  `pca_sync` (مفيش تخمين لأسماء J&T)، و`jt-ship` بترفض `sender_incomplete` لحد ما يتملوا.
 - 🔒 **مفيش أي شحنة اتعملت**: `jt_production_enabled=false` وأسرار J&T لسه
   مش متسجّلة (`creds_production=false` — اتقاس بنداء `config` عبر pg_net).
 - 📄 **كل المطلوب من المالك وخطوات التشغيل والرجوع في `tools/jt/GO-LIVE.md`** —
@@ -2480,13 +2485,16 @@ J&T عن بوسطة في الصفوف القديمة من غير عمود. و`ci
 - `UNIQUE(tenant_id, tracking_no) WHERE shipping_carrier='jt'` — القديم فيه
   31 تكرار من بوسطة فالقيد على J&T بس.
 
-**الـEdge Functions (منشورة v1، `verify_jwt=false` والتصريح جوّاها):**
-- `jt-ship` `{order_id, receiver?{prov,city,area}, weight_kg?, dry_run?}`: التصريح
+**الـEdge Functions (منشورة، `verify_jwt=false` والتصريح جوّاها):**
+- `jt-ship` (v2) `{order_id, receiver?{prov,city,area}, weight_kg?, dry_run?}`: التصريح
   موظف (tenant من JWT) أو service_role (n8n) أو `x-diag-token`
   (`platform_settings.jt_diag_token` — للتشخيص من pg_net من غير أي سر J&T).
-  الحراسات بالترتيب في هيدر الملف. **الحقول الستة** من
+  الحراسات بالترتيب في هيدر الملف. **الحقول الخمسة** من
   `platform_settings.jt_addorder_fields` (JSON) — ناقصة = رفض
-  `fields_not_configured`. الإنتاج مقفول بـ`jt_production_enabled` (423).
+  `fields_not_configured`؛ `serviceType` اختياري ومابيتبعتش لو فاضي (مكانش في
+  طلب Postman الناجح). **عنوان المرسل والمستلم لازم يبقوا صفوف في `jt_pca`**
+  لما تبقى متزامنة (`sender_not_in_pca` / `address_not_in_pca`) — عشان
+  `145003060–62` ماتطلعش من J&T. الإنتاج مقفول بـ`jt_production_enabled` (423).
   التكرار: `txlogisticId = orders.id` + استعلام `getOrders command:1` قبل أي
   إعادة إرسال وعند timeout وعند رد duplicate.
 - `jt-status/{trace|order|settlement}`: تحقق `digest` بمفتاحنا (إنتاج + Sandbox
@@ -2510,7 +2518,8 @@ encoder نقي **مطابق بالحرف لـpython-barcode** (اللي النم
 `detail.js` بيعرض كود الفرز وعنوان J&T وآخر حالة خام · `ORDER_LIST_COLS` اتوسّعت.
 
 **⏳ محتاج من المالك (كله في `GO-LIVE.md`):** أسرار J&T في secrets الـEF عبر
-Codex محلياً · القيم الستة من Postman · عنوان المرسل بأسماء J&T · رفع v56 ·
+Codex محلياً · ✅ ~~القيم من Postman~~ · ✅ ~~عنوان المرسل~~ (الاسم/التليفون/الشارع
+اتسجّلوا — المحافظة/المدينة/المنطقة بعد `pca_sync`) · رفع v56 ·
 تسجيل الـcallbacks عند J&T (بعد الأسرار) · خطوات n8n بعد أول أوردر ناجح.
 
 ## قرارات محسومة (متتناقشش تاني)

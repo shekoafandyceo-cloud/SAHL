@@ -8,10 +8,12 @@
 | البند | الحالة |
 |---|---|
 | migration `jt_shipments` + `jt_public_rpc_wrappers` | ✅ مطبّقة (اتجرّبت بترانزاكشن راجعة الأول + ضابط انتحال موظف) |
-| Edge Function `jt-ship` (v1) | ✅ منشورة — إنشاء الشحنة وتسجيل `tracking_no` + `jt_sorting_code` ذرياً |
+| Edge Function `jt-ship` (v2) | ✅ منشورة — إنشاء الشحنة وتسجيل `tracking_no` + `jt_sorting_code` ذرياً. v2: `serviceType` اختياري + عنوان المرسل لازم يبقى في `jt_pca` |
 | Edge Function `jt-status` (v1) | ✅ منشورة — استقبال الـ3 callbacks بتحقق التوقيع وتخزين الخام |
-| Edge Function `jt-lookup` (v1) | ✅ منشورة — PCA sync · query · trace · subscribe · تشخيص |
+| Edge Function `jt-lookup` (v2) | ✅ منشورة — PCA sync · query · trace · subscribe · تشخيص |
 | مفتاح الإنتاج `platform_settings.jt_production_enabled` | 🔒 `false` — بيتفتح لأول أوردر بس |
+| حقول `addOrder` في `platform_settings.jt_addorder_fields` | ✅ متسجّلة (من Postman): `expressType=EZ` · `deliveryType=04` · `goodsType=ITN1` · `operateType=1` · `payType=PP_PM` — `serviceType` مش موجود في الطلب الناجح فبقى اختياري. اتأكد حيّ بنداء `config`: `addorder_fields_missing=[]` |
+| المرسل على `tenants` (3ataba) | ⏳ **جزئي**: `sender_name=3ataba.com` · `sender_phone=01201399800` · `sender_street=أطلس 3 - بلوك 102`. **`sender_prov/city/area` فاضيين عمداً** — بيتملوا بعد `pca_sync` بمطابقة «القاهرة / مدينة السلام» على قايمة J&T الفعلية (مفيش تخمين) |
 
 ## 2) محتاج من المالك — أسرار J&T في Supabase (يعملها Codex محلياً)
 
@@ -45,13 +47,13 @@ rm ~/jt-secrets.env
 
 ## 3) محتاج من المالك — بيانات مش سرية (ابعتها في الشات)
 
-1. **القيم الستة** من طلب Create Order الناجح في Postman (Body → `bizContent`):
-   `expressType` · `deliveryType` · `goodsType` · `operateType` · `payType` · `serviceType`.
-   بتتسجّل في `platform_settings.jt_addorder_fields` (أنا بسجّلها).
-2. **عنوان المرسل** (المخزن اللي المندوب بيستلم منه) بأسماء J&T:
-   اسم المرسل · تليفون 11 رقم · المحافظة · المدينة · المنطقة · الشارع/العنوان التفصيلي.
-   أسهل مصدر: بلوك `sender` من نفس طلب Postman الناجح.
+1. ✅ ~~**القيم الستة** من طلب Create Order الناجح في Postman~~ — اتسجّلت (خمسة؛
+   `serviceType` مش في الطلب الناجح فبقى اختياري في `jt-ship` v2 ومابيتبعتش لو فاضي).
+2. ✅ ~~**عنوان المرسل**~~ — الاسم والتليفون والشارع اتسجّلوا. ⏳ **الفاضل**: المحافظة/المدينة/المنطقة
+   **بأسماء J&T** — بتتحسم بعد `pca_sync` (محتاج الأسرار). لو «مدينة السلام» طلعت أكتر من
+   صف في `jt_pca` هرجع أسألك تختار، مش هخمّن.
 3. **الوزن الافتراضي بالكيلو** لو الموظف مااختارش (مثلاً 1) — أو نسيبه إجباري في النافذة.
+   (حالياً إجباري: مفيش `jt_default_weight_kg` فالنافذة لازم فيها وزن.)
 
 ## 4) الـcallbacks — روابط الاستقبال (منشورة، مستنية التسجيل عند J&T)
 
@@ -100,7 +102,9 @@ rm ~/jt-secrets.env
 
 1. الأسرار اتسجّلت (بند 2) → أنا أشغّل `config` وأتأكد `creds_production=true`.
 2. `pca_sync` → `jt_pca` يتملى (قوايم المحافظة/المدينة/المنطقة في نافذة الشحن).
-3. تسجيل الحقول الستة + عنوان المرسل (بند 3).
+3. ✅ الحقول اتسجّلت. الفاضل: مطابقة «القاهرة / مدينة السلام» على `jt_pca` بـSQL وتسجيل
+   `sender_prov/city/area` (بند 3). ⚠️ `jt-ship` بترفض `sender_incomplete` لحد ما يتملوا،
+   و`sender_not_in_pca` لو القيم مش من القايمة المتزامنة.
 4. لو Sandbox متسجّل: إنشاء تجريبي على Sandbox من السيرفر بنفس الحمولة → نتأكد من `billCode`/`sortingCode`.
 5. رفع `app/` (v56) على Cloudflare — زي كل مرة (الفولدر كله).
 6. `tenants.shipping_provider = 'jt'` لعتبة + `jt_production_enabled = 'true'`.
