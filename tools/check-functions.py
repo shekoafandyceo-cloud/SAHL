@@ -112,6 +112,17 @@ def check_file(slug):
     if not os.path.isfile(path):
         err(u"%s — مفيش index.ts" % slug)
         return None
+    return check_source(slug, path, require_entry=True)
+
+
+def check_source(slug, path, require_entry):
+    """نفس الفحوص على أي ملف TypeScript في المرآة.
+
+    `require_entry=False` للموديولات المشتركة في `_shared/` (زي عميل J&T) —
+    دي مالهاش `Deno.serve` بطبيعتها، بس لازم تتفحص زي الدوال بالظبط: نفس
+    الترميز ونفس الأقواس و**نفس فحص الأسرار** — هي اللي بتتعامل مع مفاتيح
+    J&T أصلاً.
+    """
     raw = io.open(path, "rb").read()
     try:
         s = raw.decode("utf-8")
@@ -131,7 +142,7 @@ def check_file(slug):
     for k, v in scan_structure(s).items():
         if v != 0:
             prob.append(u"أقواس %s مش متوازنة (فرق %d)" % (k, v))
-    if "Deno.serve" not in s and "serve(" not in s:
+    if require_entry and "Deno.serve" not in s and "serve(" not in s:
         prob.append(u"مفيش نقطة دخول")
     if not s.endswith("\n"):
         prob.append(u"الملف مش منتهي بسطر جديد")
@@ -201,6 +212,22 @@ CONTRACTS = [
      lambda s: "requireSuperAdmin" in s and "is_super_admin !== true" in s),
     ("bosta-print-awb", u"مقيّد بمتجر صاحب الطلب",
      lambda s: '.eq("tenant_id", tenantId)' in s),
+    # ── عميل J&T المشترك (supabase/functions/_shared/jt.ts) ──
+    ("_shared/jt", u"حارس الإنشاء في الإنتاج — boolean صريح مش من حمولة",
+     lambda s: "jt_create_blocked_in_production" in s
+     and 'cfg.env === "production" && opts.allowCreateInProduction !== true' in s),
+    ("_shared/jt", u"النص اللي بيتوقّع عليه هو اللي بيتبعت — stringify مرة واحدة",
+     lambda s: s.count("JSON.stringify(biz)") == 1
+     and '"bizContent=" + encodeURIComponent(bizContent)' in s
+     and "digest: headerDigest(bizContent, privateKey)" in s),
+    ("_shared/jt", u"كلمة السر: UPPER HEX MD5 بالـsalt الموثّق",
+     lambda s: 'JT_PASSWORD_SALT = "jadada236t2"' in s
+     and "md5Hex(plainPassword + JT_PASSWORD_SALT).toUpperCase()" in s),
+    ("_shared/jt", u"التعتيم موجود — الأسرار عمرها ما تتطبع",
+     lambda s: "export function redactRequest" in s and '"<REDACTED>"' in s),
+    ("_shared/jt", u"من غير أي import خارجي (بيشتغل في Deno وNode بنفس الملف)",
+     lambda s: all(l.strip().startswith('import { bytesToBase64, md5Hex, md5Raw } from "./md5.ts"')
+                   for l in s.splitlines() if l.strip().startswith("import "))),
 ]
 
 
@@ -208,7 +235,9 @@ def main():
     if not os.path.isdir(FN_DIR):
         err(u"supabase/functions/ مش موجود")
         return 1
-    slugs = sorted(d for d in os.listdir(FN_DIR) if os.path.isdir(os.path.join(FN_DIR, d)))
+    # المجلدات اللي بتبدأ بـ`_` موديولات مشتركة (مش دوال) — بتتفحص لوحدها تحت
+    slugs = sorted(d for d in os.listdir(FN_DIR)
+                   if os.path.isdir(os.path.join(FN_DIR, d)) and not d.startswith("_"))
     if not slugs:
         err(u"المرآة فاضية")
         return 1
@@ -218,6 +247,16 @@ def main():
         s = check_file(slug)
         if s is not None:
             sources[slug] = s
+
+    shared_dir = os.path.join(FN_DIR, "_shared")
+    if os.path.isdir(shared_dir):
+        for f in sorted(os.listdir(shared_dir)):
+            if not f.endswith(".ts"):
+                continue
+            key = "_shared/" + f[:-3]
+            s = check_source(key, os.path.join(shared_dir, f), require_entry=False)
+            if s is not None:
+                sources[key] = s
 
     for slug, label, test in CONTRACTS:
         s = sources.get(slug)

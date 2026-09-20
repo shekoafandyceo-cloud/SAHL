@@ -12,10 +12,17 @@
 | البند | الحالة |
 |---|---|
 | **آخر نسخة اتسلّمت** | **v55** — مرفوعة ومتأكدة بالبايت من الحي |
-| **فرع الشغل** | `claude/youthful-volta-pag6bm` |
+| **فرع الشغل** | `claude/ecstatic-hamilton-olzaa8` (سيشن J&T — **مش مرفوع** بقرار المالك) |
 | `check.sh` | ✅ أخضر (14 فحص) |
-| الهارنسات | 23 هارنس · `test-wa-labels.mjs` = 40 فحص + 6 معايرات |
+| الهارنسات | 24 هارنس · `test-jt-sign.mjs` = 49 فحص + 5 معايرات (من غير متصفح) |
 | آخر migration | `manual_order_confirmed` |
+
+**آخر شغل اتعمل (20 سبتمبر مساءً — سيشن J&T الأولى):**
+- عميل J&T (`supabase/functions/_shared/jt.ts`) + أداة تحقق محلية `tools/jt/jt-cli.mjs` —
+  مبني ومتعاير، **من غير نشر ولا push**. التفاصيل والقياسات الحية في قسم
+  «سيشن J&T الأولى» جوّه قسم الانتقال.
+- 🔴 **مقاس حي:** `Switch1` في `Whatsapp_WEBHOOK` المنشور **مفصول** من 20 سبتمبر
+  11:33 UTC — تأكيد الواتساب مابيعملش شحنة من ساعتها. يتحسم من المالك.
 
 **آخر شغل اتعمل (19–20 سبتمبر):**
 - 4 تصنيفات محادثات جديدة + إصلاح فلتر كان أعمى عن أي محادثة أقدم من الـ200 المحمّلة.
@@ -27,8 +34,9 @@
 **⏳ مستني تجربة حية واحدة بس:** تصنيف على محادثة **أقدم من يومين**
 وتظهر في فلترها — دي الحالة اللي كانت مكسورة بالظبط.
 
-**🔜 الشغل الكبير الجاي:** الانتقال من بوسطة لـ**J&T** — لسه مابدأش،
-والقياسات والمخاطر في قسمه تحت. يبدأ من هناك مش من الصفر.
+**🔜 الشغل الكبير الجاي:** الانتقال من بوسطة لـ**J&T** — **بدأ 20 سبتمبر**
+(الدفعة الأولى: العميل والتوقيع). الدفعة التانية (migration + `jt-ship`)
+مستنية إجابات المالك المكتوبة آخر قسم «سيشن J&T الأولى». يبدأ من هناك.
 
 ---
 
@@ -258,6 +266,7 @@ node test-wa-qr.mjs                           # ردود جاهزة بصور + �
 node test-wa-neworder.mjs                     # «إنشاء طلب» يدوي من الشات (30 فحص + 3 معايرات)
 node test-wa-start.mjs                        # «شات جديد» بقالب لرقم مكلّمناش (37 فحص + 4 معايرات)
 node test-finance-shipping.mjs                # تكلفة الشحن بعد شيل الافتراضي 85 (10 فحص + معايرتين)
+node test-jt-sign.mjs                         # عميل J&T: md5 + التوقيع التلاتي + الغلاف + حارس الإنتاج (49 فحص + 5 معايرات — من غير متصفح)
 # ⚠️ `test-routing` لوحده محتاج **تلات سيرفرات**، وغير كده بيقع بأخطاء
 #    مالهاش علاقة بالكود (اتلسعنا فيها):
 #      python3 tools/spa-server.py 8901 app        ← الأساسي (مع fallback)
@@ -2099,7 +2108,130 @@ return (isFinite(f) && f > 0) ? f : SHIPPING_COST_DEFAULT;
    معروض وبقت «شحن»/«مع شركة الشحن» **عشان J&T تدخل من غير إعادة تسمية**،
    وفيه فحص في `check.py` بيمنع رجوعها. ده الجزء الجاهز بالفعل.
 4. **`if5` في وركفلو الشحن كان مرصود إنه هيبقى SWITCH لما J&T تدخل** — الوقت
-   ده جه.
+   ده جه. ✅ **المالك عمله فعلاً** (`Switch1` بمخرجين `bosta`/`jt` — شوف تحت).
+
+### 🔬 سيشن J&T الأولى (20 سبتمبر) — اللي اتقاس واللي اتبنى
+
+**حالة الحساب (من المالك — كله بره الريبو):** كود العميل `J0086011282` ·
+شهادات Developer وCorporate معتمدة · الـIT فعّلوا كل الـendpoints · البوليصة
+المخصصة **اتعتمدت** (النموذج المعتمد: زيب `3ataba-JT-waybill-source` +
+`3ataba-JT-waybill-sample.pdf` — 100×150 مم، باركود أفقي 70×10 + رأسي، كود
+فرز 35×10 Bold 20pt، الملاحظات = المنتجات، **مفيش رقم أوردر سهل عليها**).
+Sandbox: مرجع `SAHL-SBX-20260917-01` / بوليصة `UEG088902573105` (**تجريبي
+بس**). اللي نجح: Query Order بـ`command:2` + `serialNumber[]` + `customerCode`
++ business digest · التتبع (تفاصيل فاضية للتجريبي) · الاشتراك في التحديثات
+(**ولا تحديث حقيقي وصل**). ⚠️ **صلاحية Create Order على الإنتاج ماتحققتش**
+وممنوع نتحقق بإنشاء شحنة. ⚠️ كلمة سر التكامل (VIP الحالية ولا الأصلية؟) مش
+محسومة — **ماتتغيرش**. Postman والبوابة المصرية **مش متاحين من هنا**.
+
+**مسار الشحن الحي — مقاس من n8n مش من الذاكرة:**
+- `CentralORDERS` **مافيهوش أي شحن** (الكومنت في `order-ship` قديم). المسار
+  كله في **`Whatsapp_WEBHOOK`** (`9XzDXtvG64WkVoO4`) بمدخلين:
+  ويبهوك `POST /webhook/ordercreate` (= `platform_settings.ship_webhook_url`،
+  اللي `order-ship` بينده) → `get_order_details` → `get_tenant_details`؛
+  و**تأكيد الواتساب بالزرار**: `Update Order → confirmed` → `ConfirmReply` →
+  نفس المسار. يعني **كل تأكيد بالزرار بيعمل شحنة أوتوماتيك**، وزرار اللوحة
+  شبه مش مستخدم (آخر `shipping_requested_at` 3 سبتمبر).
+- `SHIPT CTX` → `If5` (`tenant.shipping_api_key` مش فاضي) → **`Switch1`**
+  بمخرجين `bosta`/`jt` على `tenant.shipping_provider`.
+- 🔴 **`Switch1` في النسخة المنشورة (والمسودة — متطابقين) مالوش أي مخرج
+  موصّل، و`Ta7leel el Address` مالهاش أي مدخل.** الوركفلو اتعدّل 20 سبتمبر
+  11:33 UTC وآخر `BOSTA AUTO` اتكتب 11:04 وصفر بعدها. يعني **أي تأكيد واتساب
+  أو ضغطة «شحن أوتوماتيك» بتقف صامتة عند `Switch1`**: الأوردر يبقى `confirmed`
+  بلا بوليصة، واللوحة تعرض «محاولة ماكملتش». لو مقصود (وقف بوسطة) تمام —
+  **يتحسم من المالك**. الشحن اليدوي شغّال عادي (آخر `bosta_assigned` 13:43).
+- فرع بوسطة (المفصول دلوقتي): `Ta7leel el Address` (Gemini → VALID/INVALID +
+  city/zone/district) → `Code in JavaScript` → `If4` → `CityNameData`
+  (Google Sheet `Zoning-dataset-EG` تاب `Bosta Egypt Zoning`: `Zone_Id` /
+  `District_Id`) → `AI Agent`/`AI Agent4` مطابقة → `BOSTA API1`
+  (`POST app.bosta.co/api/v2/deliveries`: `cod=total_cost` · `size=MEDIUM` ·
+  `notes=manufacturer_note` · `description=product_name+manufacturer_note`) →
+  `Wait3` → `RANKING1` → `Update a row2` (`status='BOSTA AUTO'` + `tracking_no`
+  + `customer_ranking`). الفشل → تلجرام `Send a text message4/5/8` بـchat
+  متسمّر `-5130323197`.
+- **تحديث الحالات (بوسطة):** `BOSTA_WEBHOOK` (`28dQ0sYGclq4Kyeg`) بيكتب
+  `status = body.description` بالحرف بـ`by:'Bosta API'` من غير أي حارس تكرار
+  أو رجوع — **وآخر كتابة ليه 29 يونيو**. من ساعتها **490 أوردر بقوا `Delivered`
+  (من 1 أغسطس) و`status_log` بتاعهم متخزّن كـjsonb string مش array**
+  (`parseStatusLog` بتفكّه فالواجهة مش حاسة). الكاتب ده **مش مقروء عبر MCP**:
+  `Monazem-mora2eb` (4 تريجرات، نشط) و`Scanner` و`TeleWhatsapp` و`My workflow 6`
+  (اتعمل 19 سبتمبر) كلهم «not available in MCP». وكمان `real_shipping_fee_at`
+  آخره 12 سبتمبر مع إن `Bosta - Capture Real Shipping Fee` **معطّل من 24
+  يوليو** — نفس الكاتب المجهول غالباً. 🔴 استقبال حالات J&T لازم **يبدّل**
+  الكاتب ده مش يتراكم فوقه، فلازم يتقرا الأول.
+
+**الداتابيز — الموجود فعلاً:** على `orders`: `tracking_no` (index عادي،
+**مش unique** — 2,833 صف / 2,801 متميز) · `bosta_delivery_id` (صفر مستخدم) ·
+`awb_printed_at`/`awb_print_count` (7 بس) · `real_shipping_fee`/`_at`/`bosta_size` ·
+`shipping_cost` (default 85 ومحدش بيقراه) · `shipping_requested_at` · `city` ·
+`alt_phone`. **مفيش**: شركة شحن على الأوردر · مرجع الطلب عند الشركة · وزن ·
+كود فرز · حالة الشركة الخام. على `tenants`: `shipping_provider` (default
+`bosta`) + `shipping_api_key` نص واحد — **مفيش عنوان ولا تليفون مرسل** (الـFROM
+في البوليصة). كل أرقام التتبع الحالية **أرقام بس 8–10 خانات**، فـ`UEG…` بيفرّق
+J&T عن بوسطة في الصفوف القديمة من غير عمود. و`city` من اللاندنج **بإملاء
+مختلط** (`القاهره` 1,523 · `Cairo` 52 · `القاهرة` 44 · `الجيزه`/`Giza`/`الجيزة`…)
+— خريطة تطبيع لازمة قبل أي كود محافظة لـJ&T.
+
+**الدفعة الأولى (اتبنت واتعايرت — من غير نشر ولا push):**
+- `supabase/functions/_shared/jt.ts` + `md5.ts` — عميل J&T **نقي من غير أي
+  import** فبيشتغل في Deno (EF) وNode (الهارنس) بنفس الملف بالحرف: التوقيع
+  التلاتي (`processPassword` = UPPER HEX MD5 بالـsalt `jadada236t2` ·
+  `businessDigest` جوّه bizContent مع `customerCode` · `headerDigest` على
+  النص بالحرف) · `buildRequest` بيكوّن الـJSON **مرة واحدة** ويوقّع عليه
+  ويبعته هو (x-www-form-urlencoded) · `jtCall` بحارس 🔴
+  `jt_create_blocked_in_production` (boolean صريح من الكود — سترينج `"true"`
+  من حمولة مرفوض) · `redactRequest` فالأسرار عمرها ما تتطبع.
+- `tools/test-jt-sign.mjs` — 49 فحص + 5 معايرات: md5 ضد `node:crypto` (عربي +
+  حدود padding + 200 عشوائي) · سلسلة التوقيع ضد **تطبيق بايثون مستقل** من
+  نفس المواصفة · الغلاف · الحارس · التعتيم. ⚠️ **بيثبت إن الكود بيطبّق
+  المواصفة الموصوفة — مش إن المواصفة هي اللي J&T عايزاها.** ده بيتأكد بس
+  بـ`--compare-digest` ضد الطلب الناجح في Postman.
+- `tools/jt/jt-cli.mjs` — `query` · `trace` · `raw` مع `--dry-run` ·
+  `--env-file` (بره الريبو — `.env.*` متجاهَل) · `--timestamp` ·
+  `--compare-digest`. `raw order/addOrder` مرفوض في الإنتاج من العميل نفسه،
+  وفي الـSandbox محتاج `--allow-create` صريحة.
+  ⚠️ للمقارنة مع Postman: `raw <path> '<bizContent بالحرف من Postman>'
+  --no-biz-digest --compare-digest <digest الهيدر>` — الترتيب والمسافات
+  بيغيّروا التوقيع، فلازم **نفس السترينج**.
+- `tools/check-functions.py` بقى بيفحص `_shared/*.ts` (ترميز · أقواس · أسرار)
+  + 5 عقود لـ`_shared/jt` — اتعاير بحقن سر · شيل الحارس · stringify مرتين
+  + ضابط.
+
+**الدفعات الجاية (بالترتيب — كل واحدة تتجرّب قبل اللي بعدها):**
+2. migration `jt_shipments` (تتجرّب بترانزاكشن راجعة الأول): على `orders`:
+   `shipping_carrier` (`bosta`/`jt`؛ NULL للقديم = بوسطة) · `carrier_ref`
+   (مرجعنا عندهم = `orders.id`) · `jt_sorting_code` · `carrier_status_raw` +
+   `carrier_status_at` · `shipping_weight_kg` · `shipping_fee_estimated`
+   (**تقدير** منفصل عن `real_shipping_fee` المؤكد). على `tenants`:
+   `sender_name/phone/address/city`. أسرار J&T في **EF secrets** مش في الجدول.
+   `UNIQUE(tenant_id, tracking_no) WHERE tracking_no IS NOT NULL` **بعد**
+   قياس الـ32 تكرار الموجودين.
+3. EF `jt-ship`: الحمولة `order_id` بس (ثابت `order-ship`) · idempotency:
+   `carrier_ref = orders.id` وقبل أي `addOrder` لو فيه محاولة حديثة/timeout
+   يستعلم `getOrders command:1` بالمرجع — موجود = يكتب البوليصة بدل ما يكرر ·
+   الحالة تتكتب **بعد** رد J&T بس. + EF `jt-status` (ويبهوك التحديثات):
+   idempotent · ترتيب زمني (الأقدم يترفض) · حالة مجهولة تتخزن خام وتتعلّم
+   للمراجعة **مش تتفرم**.
+4. البوليصة: القالب المعتمد في `app/` (رندر في المتصفح + `window.print`
+   100×150، الخطوط مضمّنة، نفس سلّم التصغير) ودفعة = صفحة لكل أوردر. الباركود
+   يتفك في الهارنس بـ`zxing-cpp`. `bosta-print-awb` تفضل للقديم.
+5. الحالات: قايمة J&T **من البوابة** → خريطة لحالاتنا + القيم الجديدة في **كل**
+   قوايم `constants.js` (تتسمّى محايدة). حالة مش في الخريطة = مش بتختفي.
+6. التكاليف: تقدير من تعريفة J&T (محافظة × وزن) + 1% COD بحد أدنى 5 ج
+   **بعد تأكيد العقد** — وتمييز صريح تقدير/مؤكد. ⚠️ `getWaybillInfo`/
+   Delivery Time Inquiry رجّع `data` فاضية — **مش دليل تكلفة**.
+7. n8n (خطوات مكتوبة للمالك): `Switch1.jt` → HTTP لـ`jt-ship`، وفرع بوسطة
+   يفضل للتتبع القديم بس.
+
+**⏳ محتاج من المالك قبل الدفعة 2:**
+- حسم `Switch1` المفصول (مقصود؟) وهل تأكيد الواتساب يفضل يشحن أوتوماتيك مع J&T.
+- تفعيل «Available in MCP» على `Monazem-mora2eb` (أو اسم الكاتب الفعلي لـ`Delivered`).
+- من البوابة المصرية: مسارات `getOrders`/`trace`/`printOrder` بالحرف · حقول
+  `addOrder` الإجبارية (المحافظة/المدينة/المنطقة بأكوادهم؟ الوزن؟ الحد الأقصى
+  لـ`remark`؟) · شكل رد `addOrder` (فيه `sortingCode`؟) · قايمة حالات التتبع ·
+  شكل حمولة webhook التحديثات.
+- تشغيل `node tools/test-jt-sign.mjs` ثم `jt-cli --compare-digest` ضد Postman —
+  لو مطابق، `jt-cli query UEG088902573105` على الـSandbox هو أول نداء حقيقي.
 
 ## قرارات محسومة (متتناقشش تاني)
 
