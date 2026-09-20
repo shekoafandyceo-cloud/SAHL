@@ -124,6 +124,16 @@ ok(res.ok && res.code === '1' && res.msg === 'success' && Array.isArray(res.data
 const resBad = await jt.jtCall(cfg, 'order/getOrders', bizObj, { fetchImpl: async () => new Response('<html>502</html>', { status: 502 }) });
 ok(!resBad.ok && resBad.json === null && resBad.raw.indexOf('502') >= 0, 'رد مش JSON بيرجع raw من غير ما يرمي');
 
+// ── 4ب) التحقق من توقيع الـcallbacks ──────────────────────────────
+console.log('4ب) التحقق من توقيع الـcallback الوارد');
+const cbBiz = '{"billCode":"UEG088902573105","txlogisticId":"abc","details":[{"scanTime":"2026-09-20 10:00:00","scanType":"Signing scan","scanTypeCode":"10"}]}';
+const cbSig = jt.headerDigest(cbBiz, creds.privateKey);
+ok(jt.verifyCallbackDigest(cbBiz, cbSig, creds.privateKey) === true, 'توقيع صحيح بمفتاحنا → مقبول');
+ok(jt.verifyCallbackDigest(cbBiz, ' ' + cbSig + ' ', creds.privateKey) === true, 'مسافات حوالين الهيدر بتتشال');
+ok(jt.verifyCallbackDigest(cbBiz, cbSig, 'wrong-key') === false, 'مفتاح مختلف → مرفوض');
+ok(jt.verifyCallbackDigest(cbBiz.replace('"10"', '"11"'), cbSig, creds.privateKey) === false, 'تعديل حرف في الحمولة → مرفوض');
+ok(jt.verifyCallbackDigest(cbBiz, '', creds.privateKey) === false && jt.verifyCallbackDigest(cbBiz, 'AAAA', creds.privateKey) === false, 'هيدر فاضي أو قصير → مرفوض');
+
 // ── 5) التعتيم ─────────────────────────────────────────────────────
 console.log('5) التعتيم');
 const printed = JSON.stringify(jt.redactRequest(req, jcreds));

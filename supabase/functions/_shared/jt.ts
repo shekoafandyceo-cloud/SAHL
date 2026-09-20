@@ -235,6 +235,20 @@ export async function jtCall(cfg: JtConfig, path: string, biz: Record<string, un
   return { ok: res.ok, status: res.status, json, raw, request, code, msg, data: json ? json.data : undefined };
 }
 
+// ── التحقق من توقيع الـcallbacks الواردة من J&T ─────────────────────
+// J&T بتنده URL بتاعنا بنفس الهيدرات (apiAccount · digest · timestamp) و
+// bizContent، والتوقيع = Base64(MD5(bizContent + privateKey)) بمفتاحنا — فأي
+// نداء مش موقّع بيه بيترفض. المقارنة بطول ثابت عشان مايبقاش فيه timing leak.
+
+export function verifyCallbackDigest(bizContent: string, receivedDigest: string, privateKey: string): boolean {
+  const expected = headerDigest(bizContent, privateKey);
+  const a = String(receivedDigest || "").trim();
+  if (a.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ expected.charCodeAt(i);
+  return diff === 0;
+}
+
 // ── التعتيم — الأسرار عمرها ما تتطبع ─────────────────────────────────
 
 export function redact(value: string, keep = 3): string {
