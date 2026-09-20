@@ -7,6 +7,8 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { tourActive } from '../tour/tour.js';
 import { selectedIds } from './state.js';
+import { printJtAwb } from './jt-awb.js';
+import { currentTenantId } from '../auth/auth.js';
 
 // كروت الحالة وشريط الفترة والدرج والتحديد الجماعي
 // ============================================================================
@@ -28,6 +30,16 @@ export function _b64ToBlob(base64, mimeType){
 export async function printAwbForOrders(orderIds, btnEl){
   if(!orderIds || orderIds.length === 0){ toast('اختار أوردرات الأول','er'); return; }
   if(tourActive){ toast('الطباعة مش متاحة في جولة التعريف','er'); return; }
+  // بوالص J&T بتتطبع من القالب المعتمد في اللوحة؛ بوسطة القديم لسه من Edge Function بوسطة
+  try{
+    var cr = await sb.from('orders').select('id,shipping_carrier').eq('tenant_id', currentTenantId).in('id', orderIds);
+    var jtIds = (cr && cr.data || []).filter(function(o){ return o.shipping_carrier === 'jt'; }).map(function(o){ return o.id; });
+    if(jtIds.length){
+      await printJtAwb(jtIds);
+      orderIds = orderIds.filter(function(id){ return jtIds.indexOf(id) < 0; });
+      if(!orderIds.length) return;
+    }
+  }catch(e){ swallow('printAwbForOrders/carrier', e); }
   
   var origText = '';
   if(btnEl){ origText = btnEl.textContent; btnEl.disabled = true; btnEl.textContent = '⏳ جاري الطباعة...'; }

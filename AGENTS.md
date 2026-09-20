@@ -169,11 +169,21 @@ END$$;
 
 | البند | الحالة |
 |---|---|
-| **آخر نسخة اتسلّمت** | **v55** — مرفوعة ومتأكدة بالبايت من الحي |
-| **فرع الشغل** | `claude/ecstatic-hamilton-olzaa8` (سيشن J&T — **مش مرفوع** بقرار المالك) |
+| **آخر نسخة اتسلّمت** | **v55** — مرفوعة ومتأكدة بالبايت من الحي · **v56 جاهزة في `app/` (J&T) ولسه ماترفعتش** |
+| **فرع الشغل** | `claude/ecstatic-hamilton-olzaa8` (سيشن J&T — مرفوع على origin بقرار المالك 20 سبتمبر مساءً) |
 | `check.sh` | ✅ أخضر (14 فحص) |
-| الهارنسات | 24 هارنس · `test-jt-sign.mjs` = 57 فحص منهم 6 معايرات (من غير متصفح) |
-| آخر migration | `manual_order_confirmed` |
+| الهارنسات | 26 هارنس · `test-jt-sign.mjs` 57 فحص · `test-jt-awb.mjs` 5 · `test-jt-ship.mjs` 24 |
+| آخر migration | `jt_public_rpc_wrappers` (بعد `jt_shipments`) — **مطبّقين على الحي** |
+
+**🔴 آخر شغل اتعمل (20 سبتمبر ليلاً — go-live J&T، قرار المالك بتغيير النطاق):**
+- المالك غيّر القيود: **مسموح النشر والـpush وتغيير الداتابيز** — الهدف شحنة J&T
+  حقيقية واحدة من سهل + طباعة القالب المعتمد + استقبال التحديثات.
+- ✅ **اتنشر على الحي**: migration `jt_shipments` (+ أغلفة RPC) · EFs `jt-ship` ·
+  `jt-status` · `jt-lookup` (كلهم v1). **الفرونت (v56) في `app/` ولسه ماترفعش**.
+- 🔒 **مفيش أي شحنة اتعملت**: `jt_production_enabled=false` وأسرار J&T لسه
+  مش متسجّلة (`creds_production=false` — اتقاس بنداء `config` عبر pg_net).
+- 📄 **كل المطلوب من المالك وخطوات التشغيل والرجوع في `tools/jt/GO-LIVE.md`** —
+  ده المرجع للسيشن الجاية، مش الذاكرة.
 
 **آخر شغل اتعمل (20 سبتمبر مساءً — سيشن J&T الأولى):**
 - عميل J&T (`supabase/functions/_shared/jt.ts`) + أداة تحقق محلية `tools/jt/jt-cli.mjs` —
@@ -430,6 +440,8 @@ node test-wa-neworder.mjs                     # «إنشاء طلب» يدوي �
 node test-wa-start.mjs                        # «شات جديد» بقالب لرقم مكلّمناش (37 فحص + 4 معايرات)
 node test-finance-shipping.mjs                # تكلفة الشحن بعد شيل الافتراضي 85 (10 فحص + معايرتين)
 node test-jt-sign.mjs                         # عميل J&T: md5 + التوقيع التلاتي + الغلاف + حارس الإنتاج + تحقق الـcallback (57 فحص منهم 6 معايرات — من غير متصفح)
+node test-jt-awb.mjs                          # Code 128 بتاع البوليصة = python-barcode بالحرف + فك zxing-cpp (5 فحوص — من غير متصفح)
+node test-jt-ship.mjs                         # نافذة شحن J&T + الطباعة المعتمدة 100×150 (24 فحص + معايرة)
 # ⚠️ `test-routing` لوحده محتاج **تلات سيرفرات**، وغير كده بيقع بأخطاء
 #    مالهاش علاقة بالكود (اتلسعنا فيها):
 #      python3 tools/spa-server.py 8901 app        ← الأساسي (مع fallback)
@@ -2444,6 +2456,62 @@ J&T عن بوسطة في الصفوف القديمة من غير عمود. و`ci
   Postman pre-request script على **نفس** المتجهات الوهمية ومقارنة الأرقام
   التلاتة. لو مطابقة → `jt-cli query UEG088902573105` على الـSandbox.
 - إجرائياً مع J&T: تسجيل URL الـcallbacks التلاتة عندهم (مش API).
+
+### 🚀 سيشن J&T التانية (20 سبتمبر ليلاً) — go-live: اللي اتنشر واللي فاضل
+
+المالك غيّر النطاق: «نكمل ربط J&T ونشغّله على الإنتاج النهارده» ورفع القيود
+(نشر · push · داتابيز). **المرجع التشغيلي الكامل: `tools/jt/GO-LIVE.md`.**
+
+**الداتابيز (مطبّق):** على `orders`: `shipping_carrier` (`bosta`/`jt`؛ NULL =
+قديم) · `carrier_ref` (= `orders.id` عند J&T) · `jt_sorting_code` ·
+`carrier_status_raw/code/at` · `shipping_weight_kg` · `shipping_fee_estimated`
+(**تقدير** — مش `real_shipping_fee`) · `ship_prov/city/area` (بأسماء J&T) ·
+`jt_ship_error` · `jt_ship_attempted_at`. على `tenants`: `sender_*` (6 أعمدة،
+ممنوحة للقراءة وفي `v_my_tenant` — DEFINER زي ما هي). جداول: `jt_events`
+(الخام من الـcallbacks، idempotent بالـhash، service فقط) · `jt_status_map`
+(**فاضي عمداً** لحد أول حمولة حقيقية) · `jt_pca` (كاش نطاق الخدمة، قراءة
+للموظفين) · `jt_pca_alias` (مدينة اللاندنج → عنوان J&T، بيتعبّى من كل شحنة
+ناجحة). دوال `app.jt_record_shipment` / `jt_apply_trace` / `jt_apply_settlement`
+(DEFINER · service_role بس) + أغلفة `public.*_v1` لـPostgREST.
+- 🔴 **الشحنة اللي J&T بتعملها بتتسجّل `status='BOSTA AUTO'`** — القيمة معرّف
+  مش نص (الليبل «شحن أوتوماتيك» محايد)، وكل كروت الجدول والماليات بتشتغل
+  زي ما هي. التفرقة بالعمود `shipping_carrier`. حالة جديدة كانت هتحتاج CHECK
+  + كل قوايم `constants.js` — مؤجّل لحد ما الخريطة تتأكد من حمولات حقيقية.
+- `UNIQUE(tenant_id, tracking_no) WHERE shipping_carrier='jt'` — القديم فيه
+  31 تكرار من بوسطة فالقيد على J&T بس.
+
+**الـEdge Functions (منشورة v1، `verify_jwt=false` والتصريح جوّاها):**
+- `jt-ship` `{order_id, receiver?{prov,city,area}, weight_kg?, dry_run?}`: التصريح
+  موظف (tenant من JWT) أو service_role (n8n) أو `x-diag-token`
+  (`platform_settings.jt_diag_token` — للتشخيص من pg_net من غير أي سر J&T).
+  الحراسات بالترتيب في هيدر الملف. **الحقول الستة** من
+  `platform_settings.jt_addorder_fields` (JSON) — ناقصة = رفض
+  `fields_not_configured`. الإنتاج مقفول بـ`jt_production_enabled` (423).
+  التكرار: `txlogisticId = orders.id` + استعلام `getOrders command:1` قبل أي
+  إعادة إرسال وعند timeout وعند رد duplicate.
+- `jt-status/{trace|order|settlement}`: تحقق `digest` بمفتاحنا (إنتاج + Sandbox
+  لو موجود) → خام في `jt_events` → تطبيق. اتأكد حيّ: توقيع غلط = 401 والخام
+  اتسجّل `digest_ok=false`. وقت `scanTime` بيتفسّر توقيت القاهرة (**افتراض** —
+  الخام محفوظ).
+- `jt-lookup` `{action: config|pca_sync|query|trace|waybill_info|freight|subscribe|raw}`.
+  `raw` للتشخيص بس والإنشاء منه في Sandbox بس.
+- الملفات المشتركة `_shared/jt-runtime.ts` (أسرار من `Deno.env`: `JT_*` و
+  `JT_SBX_*` · التصريح · `egMobile` · `normPlace`).
+
+**الفرونت (v56 — في `app/` ولسه ماترفعش):** `ship.js` — تاجر
+`shipping_provider='jt'` بيشوف «🚚 شحن J&T» (من غير `has_shipping_api`)، ونافذة
+`#jt-modal` بقوايم المحافظة/المدينة/المنطقة من `jt_pca` (بالصفحات — سقف
+PostgREST 1000) + الوزن، والاقتراح من مدينة اللاندنج بالتطبيع · `jt-awb.js` —
+القالب المعتمد بالحرف (CSS منقول من `waybill-template.html`) في نافذة
+`about:blank` (بترث الـCSP: مفيش inline script، الخطوط من `app/fonts/` واللوجو من
+`app/img/` — اتضافوا) + سلّم التصغير + عدّاد الطباعة · `core/code128.js` —
+encoder نقي **مطابق بالحرف لـpython-barcode** (اللي النموذج المعتمد اتعمل بيه)
+ومتحقق بـzxing-cpp · `awb.js` بيوجّه أوردرات `jt` للقالب وبوسطة للـEF القديمة ·
+`detail.js` بيعرض كود الفرز وعنوان J&T وآخر حالة خام · `ORDER_LIST_COLS` اتوسّعت.
+
+**⏳ محتاج من المالك (كله في `GO-LIVE.md`):** أسرار J&T في secrets الـEF عبر
+Codex محلياً · القيم الستة من Postman · عنوان المرسل بأسماء J&T · رفع v56 ·
+تسجيل الـcallbacks عند J&T (بعد الأسرار) · خطوات n8n بعد أول أوردر ناجح.
 
 ## قرارات محسومة (متتناقشش تاني)
 

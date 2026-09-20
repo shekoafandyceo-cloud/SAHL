@@ -349,6 +349,11 @@ export function renderDetail(){
     +'<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">\uD83E\uDDFE</span>بيانات الطلب</div>'
     +dr('رقم الطلب','<span class="dval">'+esc(fmt(o.order_uid))+'</span>')
     +dr('رقم التتبع','<span class="dval">'+(o.tracking_no?esc(o.tracking_no):'<span style="color:var(--muted);font-style:italic">في انتظار شركة الشحن</span>')+'</span>')
+    +(o.shipping_carrier==='jt'?dr('شركة الشحن','<span class="dval">J&T Express</span>')
+      +dr('كود الفرز (J&T)','<span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+(o.jt_sorting_code?esc(o.jt_sorting_code):'<span style="color:var(--muted);font-style:italic">J&T مرجّعتش كود</span>')+'</span>')
+      +(o.ship_prov?dr('عنوان J&T','<span class="dval ar">'+esc([o.ship_prov,o.ship_city,o.ship_area].filter(Boolean).join(' — '))+(o.shipping_weight_kg?' · '+esc(String(o.shipping_weight_kg))+' كجم':'')+'</span>'):'')
+      +(o.carrier_status_raw?dr('آخر حالة من J&T','<span class="dval">'+esc(o.carrier_status_raw)+(o.carrier_status_at?' <span style="color:var(--muted);font-size:.78rem">'+fmtDT(o.carrier_status_at)+'</span>':'')+'</span>'):'')
+      :'')
     +'</div>'
 
     +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">\uD83D\uDCE6</span>المنتجات</div>'
