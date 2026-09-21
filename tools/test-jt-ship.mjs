@@ -2,14 +2,15 @@
 //
 // اللي بيتأكد هنا (الستب — من غير أي شبكة):
 //  1) تاجر shipping_provider='jt' بيشوف زرار «شحن J&T» حتى من غير مفتاح بوسطة
-//  2) النافذة بتحمّل نطاق J&T من jt_pca وبتقترح المحافظة من مدينة الأوردر
-//     🔴 المنطقة خانة كتابة حرة (قرار 21 سبتمبر) — مش select: صف area='' في jt_pca = المدينة
-//     متسجّلة بس، والصفوف اللي فيها area بتظهر كاقتراح في datalist. فاضية = رفض قبل الإرسال.
+//  2) النافذة بتحمّل المحافظات/المدن من jt_pca **بصفوف area='' بس** وبتقترح المحافظة من
+//     مدينة الأوردر. 🔴 المنطقة خانة كتابة حرة (قرار 21 سبتمبر) — مش select، والاقتراحات
+//     جاية من app/data/jt-areas.json مش من الجدول. منطقة فاضية = رفض قبل الإرسال.
 //  3) الإرسال لـjt-ship بيشيل order_id + receiver{prov,city,area} + weight_kg — ومفيش tenant_id
 //     وarea = النص المكتوب بالحرف (حتى لو مش في أي صف)
 //  4) نجاح الـEF → الصف بياخد البوليصة وكود الفرز والحالة، والزرار بيختفي
 //  5) فشل الـEF → الرسالة بتظهر في النافذة ومفيش نجاح كاذب
-//  6) المعايرة: شيل receiver من الحمولة → الفحص (3) بيقع
+//  6) المعايرات: شيل receiver من الحمولة · شيل تطبيق .eq('area','') في الستب ·
+//     ملف الاقتراحات بيقع → الشحن لازم يفضل شغّال (الاقتراحات مش قيد)
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -19,18 +20,29 @@ let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if(!c) bad++; };
 const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium' });
 
-// زي الحي بعد migration jt_pca_area_free_text: صفوف المدن area='' (من قالب البوابة)
-// + صف واحد فيه area (زي ما pca_sync هيسجّل لو اتفعّل) عشان نثبت إنه اقتراح مش قيد
+// زي الحي بعد migration jt_pca_cities_from_jt_it: كل الصفوف area='' (فهرس المدن).
+// 🔴 صف id:2 فيه area وصف id:5 مدينته **مالهاش صف فاضي** — الاتنين موجودين عشان
+// يثبتوا إن .eq('area','') بتتطبّق فعلاً: «الحي العاشر» مايظهرش كاقتراح، و«أكتوبر»
+// مايظهرش في قايمة المدن. من غير الصفين دول الفحص أعمى (درس الستب اللي بيقبل
+// الميثود ومابيطبّقهاش — 19 سبتمبر).
 const PCA = [
   { id:1, prov:'القاهرة', city:'مدينة نصر', area:'' },
   { id:2, prov:'القاهرة', city:'مدينة نصر', area:'الحي العاشر' },
   { id:3, prov:'القاهرة', city:'المعادي', area:'' },
   { id:4, prov:'الجيزة', city:'الدقي', area:'' },
+  { id:5, prov:'الجيزة', city:'أكتوبر', area:'الحي الأول' },
 ];
-const FREE_AREA = 'الحي السابع — أمام قسم أول';   // مش في أي صف: لازم يعدّي زي ما هو
+// اقتراحات الـdatalist — المصدر الوحيد بقى الملف الساكن مش الجدول
+const AREAS = { 'القاهرة': { 'مدينة نصر': ['الحي الخامس', 'الحي الثامن'] } };
+const FREE_AREA = 'الحي السابع — أمام قسم أول';   // مش في الاقتراحات: لازم يعدّي زي ما هو
 
-async function openApp(pre){
+async function openApp(pre, opts){
+  opts = opts || {};
   const p = await b.newPage({ viewport:{ width:1440, height:1100 } });
+  // ملف الاقتراحات بيتخدم من الفيكستشر — عشان الفحص مايعتمدش على محتوى app/data الحقيقي
+  await p.route('**/data/jt-areas.json', r => opts.areasFail
+    ? r.fulfill({ status: 404, body: 'not found' })
+    : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(AREAS) }));
   p.on('pageerror', e => { console.log('  ⚠ pageerror:', e.message); bad++; });
   await p.addInitScript(`window.__TENANT = { shipping_provider: 'jt', has_shipping_api: false, sender_name: 'عتبة', sender_phone: '01200000000', sender_prov: 'القاهرة', sender_city: 'مدينة نصر', sender_area: 'الحي السابع', sender_street: 'شارع تجريبي 1' };
     window.__JT_PCA = ${JSON.stringify(PCA)};` + (pre || ''));
@@ -42,10 +54,17 @@ async function openApp(pre){
       var c = mk.apply(this, arguments), from = c.from.bind(c);
       c.from = function(t){
         if(t !== 'jt_pca') return from(t);
-        var q = { _from:0, _to:999 };
+        var q = { _from:0, _to:999, _eq:[] };
         q.select = function(){ return q; }; q.order = function(){ return q; };
+        q.eq = function(col, val){ q._eq.push([col, val]); return q; };
         q.range = function(a, b){ q._from = a; q._to = b; return q; };
-        q.then = function(res){ return Promise.resolve({ data: window.__JT_PCA.slice(q._from, q._to + 1), error:null }).then(res); };
+        q.then = function(res){
+          // 🔴 الـeq بتتطبّق فعلاً — ستب بيقبلها ومايطبّقهاش بيخلي الفحص أعمى
+          var rows = window.__JT_PCA.filter(function(r){
+            return window.__EQ_OFF || q._eq.every(function(e){ return r[e[0]] === e[1]; });
+          });
+          return Promise.resolve({ data: rows.slice(q._from, q._to + 1), error:null }).then(res);
+        };
         return q;
       };
       return c;
@@ -96,9 +115,13 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
   ok(await p.$eval('#jt-prov', s => s.value) === 'القاهرة', 'المحافظة اتقترحت من «القاهره» بالتطبيع');
   ok((await p.$$eval('#jt-city option', o => o.length)) === 3, 'قايمة المدن = مدن المحافظة + placeholder (2+1)');
+  ok(!(await p.$$eval('#jt-prov option', o => o.map(x => x.value))).includes('أكتوبر'), 'ضابط: المحافظات مش فيها اسم مدينة');
   await p.selectOption('#jt-city', 'مدينة نصر');
   ok(await p.$eval('#jt-area', el => el.tagName === 'INPUT' && el.getAttribute('list') === 'jt-area-list'), 'المنطقة خانة كتابة حرة (input + datalist) مش select');
-  ok((await p.$$eval('#jt-area-list option', o => o.map(x => x.value))).join('|') === 'الحي العاشر', 'الاقتراحات = الصفوف اللي فيها area بس (الفاضي مش بيظهر)');
+  await p.waitForFunction(() => document.querySelectorAll('#jt-area-list option').length > 0, { timeout: 8000 });
+  const sugg = await p.$$eval('#jt-area-list option', o => o.map(x => x.value));
+  ok(sugg.join('|') === 'الحي الخامس|الحي الثامن', 'الاقتراحات جاية من jt-areas.json: ' + sugg.join('|'));
+  ok(!sugg.includes('الحي العاشر'), 'وصف الـarea اللي في jt_pca مش بيتعرض — الجدول بقى فهرس مدن بس');
   // منطقة فاضية = رفض قبل أي إرسال
   await p.fill('#jt-area', '   ');
   await p.click('#jt-go');
@@ -184,6 +207,39 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   await p.waitForFunction(() => window.__FETCH_BODIES.length > 0, { timeout: 8000 });
   const body = await p.evaluate(() => window.__FETCH_BODIES[0]);
   ok(!body.receiver, 'معايرة: من غير receiver الفحص (3) كان هيقع');
+  await p.close();
+}
+
+// ════ 7) معايرة: الستب يتجاهل .eq → مدينة مالهاش صف area='' بتظهر في القايمة ════
+{
+  const p = await openApp(FN_OK + ' window.__EQ_OFF = 1;');
+  const id = await pickOrder(p);
+  await openDetailOf(p, id);
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  await p.selectOption('#jt-prov', 'الجيزة');
+  const cities = await p.$$eval('#jt-city option', o => o.map(x => x.value));
+  ok(cities.includes('أكتوبر'), 'معايرة: من غير تطبيق .eq(area,\'\') «أكتوبر» بتظهر — يعني الفحص بيحمل حمل');
+  await p.close();
+}
+
+// ════ 8) ملف الاقتراحات وقع → الشحن لازم يفضل شغّال (الاقتراحات مش قيد) ════
+{
+  const p = await openApp(FN_OK, { areasFail: true });
+  const id = await pickOrder(p);
+  await openDetailOf(p, id);
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  await p.selectOption('#jt-city', 'مدينة نصر');
+  ok((await p.$$eval('#jt-area-list option', o => o.length)) === 0, 'ملف الاقتراحات وقع → datalist فاضية');
+  ok((await p.textContent('#jt-err')) === '', 'ومفيش رسالة خطأ — دي اقتراحات مش قيد');
+  await p.fill('#jt-area', FREE_AREA);
+  await p.click('#jt-go');
+  await p.waitForFunction(() => document.getElementById('jt-done').style.display !== 'none', { timeout: 8000 });
+  const body = await p.evaluate(() => window.__FETCH_BODIES[0]);
+  ok(body && body.receiver && body.receiver.area === FREE_AREA, 'والشحنة اتعملت بالمنطقة المكتوبة — من غير أي اقتراح');
   await p.close();
 }
 

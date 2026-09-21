@@ -292,12 +292,19 @@ function applyShipped(orderId, status, tracking, requestedAt){
 
 // ── مسار J&T — نافذة الشحن (المحافظة/المدينة/المنطقة بأسماء J&T + الوزن) ──
 // 🔴 J&T بترفض أي اسم محافظة/مدينة مش من نطاقها (145003060–61)، فالاتنين اختيار من قايمة
-// jt_pca (كاش online/pca أو قالب البوابة) مش كتابة حرة. المدينة اللي جت من اللاندنج بتتحط كاقتراح بس.
+// jt_pca (القايمة الرسمية من J&T IT — 267 مدينة) مش كتابة حرة. المدينة اللي جت من اللاندنج
+// بتتحط كاقتراح بس — ⚠️ وهي فعلياً **اسم محافظة** (765 أوردر «القاهره» في 30 يوم)، وعشان كده
+// التطبيع بيطابق على المحافظات الأول ثم المدن، وJ&T مسجّلة اسم كل محافظة كمدينة جوّاها كمان.
 // 🔴 المنطقة (area) **نص حر مطلوب** — قرار المالك 21 سبتمبر من قالب الرفع في البوابة: «الخانة
 // التالتة مطلوبة بس ملهاش اسطمبة أصلاً». صف area='' في jt_pca = المدينة متسجّلة والمنطقة حرة؛
-// الصفوف اللي فيها area (من pca_sync لو اتفعّل) بتتعرض كاقتراحات في datalist مش كقيد.
+// والاقتراحات في الـdatalist جاية من app/data/jt-areas.json (6,464 منطقة من ملف J&T IT).
+// 🔴 الاقتراحات **مش قيد** — والدليل مقيس: 4 من أول 5 شحنات إنتاج حقيقية اتعملت بمناطق
+// مش في الملف ده (ميامي · المنزه ثاني · التجمع الخامس · المحمودية) وJ&T قبلت الخمسة،
+// و«شمال سيناء» جه من J&T بلا أي منطقة خالص. فشل تحميل الملف = الاقتراحات بس اللي بتضيع.
+// ⚠️ المناطق في ملف ساكن مش في jt_pca عمداً: هي عرض بحت (الحارس في jt-ship بيتحقق من
+// prov+city بس)، و6.4k صف في الجدول كانوا هيبقوا 7 نداءات PostgREST كل جلسة بلا فايدة.
 // الإنشاء نفسه في Edge Function jt-ship (تسجيل البوليصة وكود الفرز بعد رد J&T).
-var jtPca = null, jtPcaLoading = null;
+var jtPca = null, jtPcaLoading = null, jtAreas = null, jtAreasLoading = null;
 function jtNorm(s){
   return String(s || '').replace(/[ً-ْـ‎‏؜]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/^ال/, '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -305,9 +312,10 @@ async function jtLoadPca(){
   if(jtPca) return jtPca;
   if(jtPcaLoading) return jtPcaLoading;
   jtPcaLoading = (async function(){
+    // صفوف المدن بس (area='') — دي فهرس المحافظة/المدينة اللي الحارس بيتحقق منه.
     var rows = [], from = 0, page = 1000;
     for(var i = 0; i < 30; i++){
-      var r = await sb.from('jt_pca').select('prov,city,area').order('id').range(from, from + page - 1);
+      var r = await sb.from('jt_pca').select('prov,city,area').eq('area', '').order('id').range(from, from + page - 1);
       if(r.error) throw new Error(r.error.message);
       var d = r.data || [];
       rows = rows.concat(d);
@@ -318,6 +326,21 @@ async function jtLoadPca(){
     return rows;
   })();
   try{ return await jtPcaLoading; } finally { jtPcaLoading = null; }
+}
+// اقتراحات المناطق: { محافظة: { مدينة: [مناطق] } } — ملف ساكن جنب اللوحة.
+// المسار من import.meta.url عشان يشتغل على الجذر وعلى أي مجلد فرعي (المعاينة) زي router.js.
+// 🔴 الفشل **مايوقفش الشحن**: مفيش اقتراحات والكتابة الحرة زي ما هي.
+async function jtLoadAreas(){
+  if(jtAreas) return jtAreas;
+  if(jtAreasLoading) return jtAreasLoading;
+  jtAreasLoading = (async function(){
+    try{
+      var res = await fetch(new URL('../../data/jt-areas.json', import.meta.url).href, { cache: 'force-cache' });
+      jtAreas = res.ok ? await res.json() : {};
+    }catch(e){ jtAreas = {}; }
+    return jtAreas;
+  })();
+  try{ return await jtAreasLoading; } finally { jtAreasLoading = null; }
 }
 function jtUniq(list){ var seen = {}, out = []; list.forEach(function(x){ if(x && !seen[x]){ seen[x] = 1; out.push(x); } }); return out; }
 function jtOpts(sel, values, chosen, placeholder){
@@ -363,6 +386,8 @@ async function jtShipFlow(ord){
   var provSel = $id('jt-prov'), citySel = $id('jt-city'), areaIn = $id('jt-area'), areaList = $id('jt-area-list'), wIn = $id('jt-weight');
   wIn.value = ord.shipping_weight_kg > 0 ? ord.shipping_weight_kg : 1;
   areaIn.value = ord.ship_area || '';
+  // الاقتراحات بتتحمّل بالتوازي ومابتوقفش فتح النافذة — لما توصل بنعيد ملّ الـdatalist.
+  jtLoadAreas().then(function(){ try{ fillAreas(); }catch(e){} });
   var pca;
   try{ pca = await jtLoadPca(); }catch(e){ $id('jt-err').textContent = 'مقدرناش نحمّل نطاق J&T: ' + (e.message || e); $id('jt-go').textContent = 'إنشاء البوليصة عند J&T'; return; }
   if(!pca.length){ $id('jt-err').textContent = 'نطاق J&T (jt_pca) فاضي — لازم يتعمل pca_sync الأول.'; $id('jt-go').textContent = 'إنشاء البوليصة عند J&T'; return; }
@@ -382,8 +407,10 @@ async function jtShipFlow(ord){
     fillAreas();
   }
   function fillAreas(){
-    // اقتراحات بس (datalist) — الصفوف اللي area فيها فاضي مش بتتعرض، والكتابة الحرة هي الأصل
-    var areas = jtUniq(pca.filter(function(x){ return x.prov === provSel.value && x.city === citySel.value; }).map(function(x){ return x.area; }));
+    // اقتراحات بس (datalist) — الكتابة الحرة هي الأصل، والقايمة ممكن تبقى فاضية تماماً
+    // (شمال سيناء مثلاً مالهاش ولا منطقة عند J&T) وده **مش عطل**.
+    var byProv = (jtAreas && jtAreas[provSel.value]) || null;
+    var areas = jtUniq((byProv && byProv[citySel.value]) || []);
     areaList.innerHTML = areas.map(function(a){ return '<option value="' + esc(a) + '"></option>'; }).join('');
   }
   jtOpts(provSel, provs, guessProv, 'اختار المحافظة');
