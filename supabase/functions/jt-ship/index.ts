@@ -5,8 +5,10 @@
 //   2. الأوردر في المتجر ده · من غير بوليصة · حالته pending/confirmed · تليفون مصري صالح · عنوان ≥ 10.
 //   3. المرسل (tenants.sender_*) كامل · حقول addOrder الستة متسجّلة في platform_settings.jt_addorder_fields
 //      (من طلب Postman الناجح — مش تخمين) · الإنتاج مفتوح بمفتاح platform_settings.jt_production_enabled=true.
-//   4. عنوان المستلم بأسماء J&T: من الـbody (اختيار الموظف) → من الأوردر → من مرادفات المدينة.
-//      مفيش = رفض صريح address_unresolved (صفر تخمين صامت).
+//   4. عنوان المستلم: المحافظة/المدينة بأسماء J&T من قايمة jt_pca (address_not_in_pca لو مش فيها)،
+//      والمنطقة (area) **نص حر مطلوب** ≤ 60 حرف — قرار المالك 21 سبتمبر من قالب البوابة:
+//      «الخانة التالتة مطلوبة بس ملهاش اسطمبة أصلاً». المصدر: الـbody (اختيار الموظف) → الأوردر →
+//      مرادفات المدينة. مفيش = رفض صريح address_unresolved (صفر تخمين صامت).
 //   5. منع التكرار: txlogisticId = orders.id (J&T بترفض التكرار بـ145002001/145003101)،
 //      وقبل أي addOrder لو فيه محاولة سابقة بنستعلم getOrders command:1 — موجود = نسجّله بدل ما نكرر.
 //      timeout بعد الإرسال = نستعلم قبل ما نعلن فشل.
@@ -23,6 +25,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefresh
 
 const MIN_ADDRESS = 10;
 const REMARK_MAX = 200;          // من توثيق مصر: remark String(200)
+const AREA_MAX = 60;             // من توثيق مصر: receiver.area String(60) — نص حر (قرار 21 سبتمبر)
 // الحقول من طلب Postman الناجح على الـSandbox (المالك، 20 سبتمبر): expressType "EZ" ·
 // deliveryType "04" · goodsType "ITN1" · operateType 1 (رقم) · payType "PP_PM".
 // serviceType **مش موجود** في الطلب الناجح — فاختياري: بيتبعت بس لو متسجّل.
@@ -129,17 +132,19 @@ Deno.serve(async (req: Request) => {
     }
   }
   if (!prov || !city || !area) {
-    await setError(orderId, "العنوان محتاج اختيار المحافظة/المدينة/المنطقة بأسماء J&T");
-    return json({ error: "address_unresolved", message: "مش عارفين نحدد المحافظة/المدينة/المنطقة بأسماء J&T للمدينة «" + (order.city || "") + "» — اختارها من نافذة الشحن", city: order.city }, 422);
+    await setError(orderId, "العنوان محتاج اختيار المحافظة/المدينة بأسماء J&T + كتابة المنطقة");
+    return json({ error: "address_unresolved", message: "مش عارفين نحدد المحافظة/المدينة بأسماء J&T للمدينة «" + (order.city || "") + "» — اختارها من نافذة الشحن واكتب المنطقة", city: order.city }, 422);
   }
-  // لازم تبقى من نطاق J&T (jt_pca) — اسم غلط بيترفض عند J&T بـ145003060–62 وبيضيّع لفة
+  if ([...area].length > AREA_MAX) return json({ error: "area_too_long", message: "المنطقة أطول من " + AREA_MAX + " حرف (توثيق J&T: area String(60))" }, 422);
+  // المحافظة/المدينة لازم يبقوا من نطاق J&T (jt_pca) — اسم غلط بيترفض عند J&T بـ145003060–61 وبيضيّع لفة.
+  // المنطقة مش بتتفحص على القايمة: نص حر (قرار 21 سبتمبر) — صف area='' في jt_pca معناه المدينة متسجّلة.
   const { count: pcaCount } = await admin.from("jt_pca").select("id", { count: "exact", head: true });
   if ((pcaCount ?? 0) > 0) {
-    const { data: pcaRow } = await admin.from("jt_pca").select("id").eq("prov", prov).eq("city", city).eq("area", area).maybeSingle();
-    if (!pcaRow) return json({ error: "address_not_in_pca", message: "العنوان (" + prov + " / " + city + " / " + area + ") مش في نطاق J&T المتسجّل" }, 422);
-    // عنوان المرسل كمان لازم يبقى بأسماء J&T — غلطة فيه بتترفض عند J&T بـ145003060–62 على كل شحنة
-    const { data: sRow } = await admin.from("jt_pca").select("id").eq("prov", tenant.sender_prov).eq("city", tenant.sender_city).eq("area", tenant.sender_area).maybeSingle();
-    if (!sRow) return json({ error: "sender_not_in_pca", message: "عنوان المرسل (" + tenant.sender_prov + " / " + tenant.sender_city + " / " + tenant.sender_area + ") مش في نطاق J&T المتسجّل" }, 422);
+    const { data: pcaRow } = await admin.from("jt_pca").select("id").eq("prov", prov).eq("city", city).limit(1).maybeSingle();
+    if (!pcaRow) return json({ error: "address_not_in_pca", message: "العنوان (" + prov + " / " + city + ") مش في نطاق J&T المتسجّل" }, 422);
+    // عنوان المرسل كمان لازم يبقى بأسماء J&T — غلطة فيه بتترفض عند J&T على كل شحنة
+    const { data: sRow } = await admin.from("jt_pca").select("id").eq("prov", tenant.sender_prov).eq("city", tenant.sender_city).limit(1).maybeSingle();
+    if (!sRow) return json({ error: "sender_not_in_pca", message: "عنوان المرسل (" + tenant.sender_prov + " / " + tenant.sender_city + ") مش في نطاق J&T المتسجّل" }, 422);
   }
 
   // ── الوزن ───────────────────────────────────────────────────────────

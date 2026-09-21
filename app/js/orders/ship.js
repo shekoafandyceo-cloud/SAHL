@@ -291,8 +291,11 @@ function applyShipped(orderId, status, tracking, requestedAt){
 
 
 // ── مسار J&T — نافذة الشحن (المحافظة/المدينة/المنطقة بأسماء J&T + الوزن) ──
-// 🔴 J&T بترفض أي اسم مش من نطاقها (145003060–62)، فالاختيار من قايمة jt_pca
-// (كاش online/pca) مش كتابة حرة. المدينة اللي جت من اللاندنج بتتحط كاقتراح بس.
+// 🔴 J&T بترفض أي اسم محافظة/مدينة مش من نطاقها (145003060–61)، فالاتنين اختيار من قايمة
+// jt_pca (كاش online/pca أو قالب البوابة) مش كتابة حرة. المدينة اللي جت من اللاندنج بتتحط كاقتراح بس.
+// 🔴 المنطقة (area) **نص حر مطلوب** — قرار المالك 21 سبتمبر من قالب الرفع في البوابة: «الخانة
+// التالتة مطلوبة بس ملهاش اسطمبة أصلاً». صف area='' في jt_pca = المدينة متسجّلة والمنطقة حرة؛
+// الصفوف اللي فيها area (من pca_sync لو اتفعّل) بتتعرض كاقتراحات في datalist مش كقيد.
 // الإنشاء نفسه في Edge Function jt-ship (تسجيل البوليصة وكود الفرز بعد رد J&T).
 var jtPca = null, jtPcaLoading = null;
 function jtNorm(s){
@@ -331,7 +334,7 @@ function jtModalEl(){
     + '<div class="jt-grid">'
     + '<label>المحافظة<select class="fsel" id="jt-prov"></select></label>'
     + '<label>المدينة<select class="fsel" id="jt-city"></select></label>'
-    + '<label>المنطقة<select class="fsel" id="jt-area"></select></label>'
+    + '<label>المنطقة (اكتبها)<input class="fsel" id="jt-area" type="text" maxlength="60" list="jt-area-list" placeholder="مثال: الحي السابع" autocomplete="off"><datalist id="jt-area-list"></datalist></label>'
     + '<label>الوزن (كجم)<input class="fsel" id="jt-weight" type="number" min="0.1" step="0.1" inputmode="decimal"></label>'
     + '</div>'
     + '<div class="jt-note" id="jt-note"></div>'
@@ -353,12 +356,13 @@ async function jtShipFlow(ord){
   $id('jt-uid').textContent = '#' + (ord.order_uid || '');
   $id('jt-sub').textContent = (ord.customer_name || '') + ' · ' + (ord.phone || '') + ' · ' + (ord.city || '') + '\n' + (ord.address || '');
   $id('jt-err').textContent = '';
-  $id('jt-note').textContent = 'اختار المحافظة والمدينة والمنطقة بأسماء J&T (اسم غلط = J&T ترفض الشحنة). الاقتراح جاي من مدينة اللاندنج.';
+  $id('jt-note').textContent = 'اختار المحافظة والمدينة بأسماء J&T (اسم غلط = J&T ترفض الشحنة) — الاقتراح جاي من مدينة اللاندنج. المنطقة اكتبها زي ما هي في العنوان (نص حر، مطلوبة).';
   $id('jt-done').style.display = 'none';
   $id('jt-go').style.display = ''; $id('jt-cancel').style.display = '';
   $id('jt-go').disabled = true; $id('jt-go').textContent = '⏳ بنحمّل نطاق J&T...';
-  var provSel = $id('jt-prov'), citySel = $id('jt-city'), areaSel = $id('jt-area'), wIn = $id('jt-weight');
+  var provSel = $id('jt-prov'), citySel = $id('jt-city'), areaIn = $id('jt-area'), areaList = $id('jt-area-list'), wIn = $id('jt-weight');
   wIn.value = ord.shipping_weight_kg > 0 ? ord.shipping_weight_kg : 1;
+  areaIn.value = ord.ship_area || '';
   var pca;
   try{ pca = await jtLoadPca(); }catch(e){ $id('jt-err').textContent = 'مقدرناش نحمّل نطاق J&T: ' + (e.message || e); $id('jt-go').textContent = 'إنشاء البوليصة عند J&T'; return; }
   if(!pca.length){ $id('jt-err').textContent = 'نطاق J&T (jt_pca) فاضي — لازم يتعمل pca_sync الأول.'; $id('jt-go').textContent = 'إنشاء البوليصة عند J&T'; return; }
@@ -378,9 +382,9 @@ async function jtShipFlow(ord){
     fillAreas();
   }
   function fillAreas(){
+    // اقتراحات بس (datalist) — الصفوف اللي area فيها فاضي مش بتتعرض، والكتابة الحرة هي الأصل
     var areas = jtUniq(pca.filter(function(x){ return x.prov === provSel.value && x.city === citySel.value; }).map(function(x){ return x.area; }));
-    jtOpts(areaSel, areas, ord.ship_area || '', 'اختار المنطقة');
-    if(areas.length === 1) areaSel.value = areas[0];
+    areaList.innerHTML = areas.map(function(a){ return '<option value="' + esc(a) + '"></option>'; }).join('');
   }
   jtOpts(provSel, provs, guessProv, 'اختار المحافظة');
   fillCities();
@@ -391,9 +395,10 @@ async function jtShipFlow(ord){
 }
 
 async function jtSubmit(ord){
-  var prov = $id('jt-prov').value, city = $id('jt-city').value, area = $id('jt-area').value, w = parseFloat($id('jt-weight').value);
+  var prov = $id('jt-prov').value, city = $id('jt-city').value, area = $id('jt-area').value.replace(/\s+/g, ' ').trim(), w = parseFloat($id('jt-weight').value);
   var err = $id('jt-err');
-  if(!prov || !city || !area){ err.textContent = 'اختار المحافظة والمدينة والمنطقة الأول'; return; }
+  if(!prov || !city){ err.textContent = 'اختار المحافظة والمدينة الأول'; return; }
+  if(!area){ err.textContent = 'اكتب المنطقة — J&T بتطلبها (أي اسم من العنوان: الحي / المنطقة / الشارع الرئيسي)'; return; }
   if(!(w > 0)){ err.textContent = 'الوزن لازم يبقى أكبر من صفر'; return; }
   var btn = $id('jt-go');
   btn.disabled = true; btn.textContent = '⏳ بنبعت لـJ&T...'; err.textContent = '';

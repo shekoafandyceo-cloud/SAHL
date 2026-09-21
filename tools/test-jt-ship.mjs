@@ -3,7 +3,10 @@
 // اللي بيتأكد هنا (الستب — من غير أي شبكة):
 //  1) تاجر shipping_provider='jt' بيشوف زرار «شحن J&T» حتى من غير مفتاح بوسطة
 //  2) النافذة بتحمّل نطاق J&T من jt_pca وبتقترح المحافظة من مدينة الأوردر
+//     🔴 المنطقة خانة كتابة حرة (قرار 21 سبتمبر) — مش select: صف area='' في jt_pca = المدينة
+//     متسجّلة بس، والصفوف اللي فيها area بتظهر كاقتراح في datalist. فاضية = رفض قبل الإرسال.
 //  3) الإرسال لـjt-ship بيشيل order_id + receiver{prov,city,area} + weight_kg — ومفيش tenant_id
+//     وarea = النص المكتوب بالحرف (حتى لو مش في أي صف)
 //  4) نجاح الـEF → الصف بياخد البوليصة وكود الفرز والحالة، والزرار بيختفي
 //  5) فشل الـEF → الرسالة بتظهر في النافذة ومفيش نجاح كاذب
 //  6) المعايرة: شيل receiver من الحمولة → الفحص (3) بيقع
@@ -16,12 +19,15 @@ let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if(!c) bad++; };
 const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium' });
 
+// زي الحي بعد migration jt_pca_area_free_text: صفوف المدن area='' (من قالب البوابة)
+// + صف واحد فيه area (زي ما pca_sync هيسجّل لو اتفعّل) عشان نثبت إنه اقتراح مش قيد
 const PCA = [
-  { id:1, prov:'القاهرة', city:'مدينة نصر', area:'الحي السابع' },
+  { id:1, prov:'القاهرة', city:'مدينة نصر', area:'' },
   { id:2, prov:'القاهرة', city:'مدينة نصر', area:'الحي العاشر' },
-  { id:3, prov:'القاهرة', city:'المعادي', area:'المعادي الجديدة' },
-  { id:4, prov:'الجيزة', city:'الدقي', area:'الدقي' },
+  { id:3, prov:'القاهرة', city:'المعادي', area:'' },
+  { id:4, prov:'الجيزة', city:'الدقي', area:'' },
 ];
+const FREE_AREA = 'الحي السابع — أمام قسم أول';   // مش في أي صف: لازم يعدّي زي ما هو
 
 async function openApp(pre){
   const p = await b.newPage({ viewport:{ width:1440, height:1100 } });
@@ -91,7 +97,14 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   ok(await p.$eval('#jt-prov', s => s.value) === 'القاهرة', 'المحافظة اتقترحت من «القاهره» بالتطبيع');
   ok((await p.$$eval('#jt-city option', o => o.length)) === 3, 'قايمة المدن = مدن المحافظة + placeholder (2+1)');
   await p.selectOption('#jt-city', 'مدينة نصر');
-  await p.selectOption('#jt-area', 'الحي العاشر');
+  ok(await p.$eval('#jt-area', el => el.tagName === 'INPUT' && el.getAttribute('list') === 'jt-area-list'), 'المنطقة خانة كتابة حرة (input + datalist) مش select');
+  ok((await p.$$eval('#jt-area-list option', o => o.map(x => x.value))).join('|') === 'الحي العاشر', 'الاقتراحات = الصفوف اللي فيها area بس (الفاضي مش بيظهر)');
+  // منطقة فاضية = رفض قبل أي إرسال
+  await p.fill('#jt-area', '   ');
+  await p.click('#jt-go');
+  await p.waitForFunction(() => document.getElementById('jt-err').textContent.length > 0);
+  ok((await p.textContent('#jt-err')).indexOf('اكتب المنطقة') >= 0 && (await p.evaluate(() => window.__FETCH_BODIES.length)) === 0, 'منطقة فاضية → رسالة ومفيش إرسال');
+  await p.fill('#jt-area', '  ' + FREE_AREA + '  ');
   await p.fill('#jt-weight', '1.5');
   // hit-test: زرار الإنشاء مش مدفون (درس 31)
   const hit = await p.evaluate(() => { const r = document.getElementById('jt-go').getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2); return el && (el.id === 'jt-go' || el.closest('#jt-go') !== null); });
@@ -101,7 +114,7 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   const body = await p.evaluate(() => window.__FETCH_BODIES[0]);
   ok(body && body.order_id === id, 'الحمولة فيها order_id');
   ok(body && !('tenant_id' in body), 'ومفيش tenant_id — السيرفر بياخده من الـJWT');
-  ok(body && body.receiver && body.receiver.prov === 'القاهرة' && body.receiver.city === 'مدينة نصر' && body.receiver.area === 'الحي العاشر', 'receiver = الاختيار الثلاثي بأسماء J&T');
+  ok(body && body.receiver && body.receiver.prov === 'القاهرة' && body.receiver.city === 'مدينة نصر' && body.receiver.area === FREE_AREA, 'receiver = المحافظة/المدينة من القايمة + المنطقة المكتوبة بالحرف (بعد trim)');
   ok(body && body.weight_kg === 1.5, 'weight_kg = 1.5');
   ok((await p.textContent('#jt-note')).indexOf('20,J01-01,000') >= 0, 'كود الفرز اتعرض بالحرف زي ما J&T رجّعته');
   const row = await p.evaluate((id) => { return (window.__ORDERS || []).filter(x => x.id === id)[0]; }, id);
@@ -141,7 +154,7 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   await p.click('#ship-auto');
   await p.waitForSelector('#jt-modal.open');
   await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
-  await p.selectOption('#jt-city', 'مدينة نصر'); await p.selectOption('#jt-area', 'الحي السابع');
+  await p.selectOption('#jt-city', 'مدينة نصر'); await p.fill('#jt-area', 'الحي السابع');
   await p.click('#jt-go');
   await p.waitForFunction(() => document.getElementById('jt-err').textContent.length > 0, { timeout: 8000 });
   ok((await p.textContent('#jt-err')).indexOf('نطاق J&T') >= 0, 'سبب الرفض الحقيقي ظاهر في النافذة');
@@ -166,7 +179,7 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   await p.click('#ship-auto');
   await p.waitForSelector('#jt-modal.open');
   await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
-  await p.selectOption('#jt-city', 'مدينة نصر'); await p.selectOption('#jt-area', 'الحي السابع');
+  await p.selectOption('#jt-city', 'مدينة نصر'); await p.fill('#jt-area', 'الحي السابع');
   await p.click('#jt-go');
   await p.waitForFunction(() => window.__FETCH_BODIES.length > 0, { timeout: 8000 });
   const body = await p.evaluate(() => window.__FETCH_BODIES[0]);
