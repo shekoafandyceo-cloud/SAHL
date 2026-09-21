@@ -29,10 +29,10 @@
 | البند | الحالة |
 |---|---|
 | migration `jt_shipments` + `jt_public_rpc_wrappers` | ✅ مطبّقة (اتجرّبت بترانزاكشن راجعة الأول + ضابط انتحال موظف) |
-| Edge Function `jt-ship` (v4) | ✅ منشورة — إنشاء الشحنة وتسجيل `tracking_no` + `jt_sorting_code` ذرياً. v2: `serviceType` اختياري + عنوان المرسل لازم يبقى في `jt_pca` · v3: الأسرار من الـVault · **v4 (21 سبتمبر): المنطقة نص حر ≤ 60 حرف، وفحص `jt_pca` على المحافظة/المدينة بس** (بند 2ب) |
+| Edge Function `jt-ship` (v5) | ✅ منشورة — إنشاء الشحنة وتسجيل `tracking_no` + `jt_sorting_code` ذرياً. v2: `serviceType` اختياري + عنوان المرسل لازم يبقى في `jt_pca` · v3: الأسرار من الـVault · v4: المنطقة نص حر ≤ 60 حرف وفحص `jt_pca` على المحافظة/المدينة بس (بند 2ب) · **v5 (21 سبتمبر): `trace/subscribe` أوتوماتيك بعد كل شحنة + `orders.jt_subscribe_error`** |
 | Edge Function `jt-status` (v1) | ✅ منشورة — استقبال الـ3 callbacks بتحقق التوقيع وتخزين الخام |
-| Edge Function `jt-lookup` (v2) | ✅ منشورة — PCA sync · query · trace · subscribe · تشخيص |
-| مفتاح الإنتاج `platform_settings.jt_production_enabled` | 🔒 `false` — بيتفتح لأول أوردر بس |
+| Edge Function `jt-lookup` (v4) | ✅ منشورة — PCA sync · query · trace · subscribe · `perm_probe` · تشخيص |
+| مفتاح الإنتاج `platform_settings.jt_production_enabled` | ✅ `true` — مفتوح من 21 سبتمبر والشحن شغّال. قفله = إيقاف الشحن |
 | حقول `addOrder` في `platform_settings.jt_addorder_fields` | ✅ متسجّلة (من Postman): `expressType=EZ` · `deliveryType=04` · `goodsType=ITN1` · `operateType=1` · `payType=PP_PM` — `serviceType` مش موجود في الطلب الناجح فبقى اختياري. اتأكد حيّ بنداء `config`: `addorder_fields_missing=[]` |
 | المرسل على `tenants` (3ataba) | ✅ **كامل** من سكرين شوت «Sender Info» في بوابة J&T: `القاهرة` / `السلام` / `موقف بلبيس` + الاسم والتليفون والشارع. (الصف اليدوي في `jt_pca` اتشال 21 سبتمبر — المدينة بقت في قايمة القالب والمنطقة نص حر.) ⚠️ الليبل الإنجليزي للمنطقة مقصوص في الصورة (`Al Zabat Buil…`) — الاسم العربي هو اللي بيتبعت للـAPI (زي أمثلة التوثيق). |
 | `tenants.shipping_provider` | ✅ `jt` (اتحطت 20 سبتمبر ليلاً — v55 الحية مش بتقرأه، وفرع n8n مفصول، فمفيش أثر لحد ما v56 تترفع) |
@@ -251,6 +251,26 @@ weight/الحقول الخمسة). المنطق: `145003012` بيرجع **قبل
 > الحالة بتفضل `BOSTA AUTO` للأبد والتكلفة الحقيقية عمرها ما هتتسجّل.
 > `jt_events` لحد دلوقتي فيه **صف واحد** = فحصنا الموقّع، صفر callback حقيقي.
 
+### الصورة كاملة — حتتين مختلفتين، مش حاجة واحدة
+
+| # | إيه هي | مين بيعملها | الحالة |
+|---|---|---|---|
+| **أ** | **الاشتراك في البوليصة** — `trace/subscribe`: بنقول لـJ&T «ابعتلي تحديثات الشحنة دي» ومعاها العُقد المطلوبة | نداء API عندنا | ✅ **اتعمل** — الـ5 بوالص اتسجّلوا `isSuccess: true` · و`jt-ship` **v5** بقت بتعمله أوتوماتيك بعد كل شحنة |
+| **ب** | **تسجيل الرابط** — J&T لازم تعرف تبعت على **فين** | 🔴 **إجراء إداري عندهم** — راجعت التوثيق: **مفيش أي باراميتر `url` في أي endpoint**، يعني مفيش طريقة أعملها بنفسي | ⏳ **ده اللي محتاج منك رسالة للـIT** |
+
+**يعني إيه callback أصلاً؟** دلوقتي إحنا اللي بنسأل J&T («الشحنة وصلت فين؟»).
+الـcallback بيعكس الاتجاه: أول ما حاجة تحصل للشحنة (اتسلّمت من المخزن، خرجت
+للتوزيع، اتسلّمت للعميل، رجعت) **J&T هي اللي بتضرب على لينك عندنا** وتقولنا،
+فالأوردر بيتحدّث لوحده في اللوحة من غير ما حد يسأل.
+
+**والتلاتة اللي طلبناهم بيغطّوا تلات حاجات مختلفة:** رحلة الشحنة (`trace`) ·
+حالة الأوردر نفسه والوزن الفعلي (`order`) · **والفاتورة بعد المراجعة
+(`settlement`) — ودي المصدر الوحيد لتكلفة الشحن المؤكدة**.
+
+الأمان جاهز: كل نداء داخل لازم يبقى موقّع بمفتاحنا الخاص
+(`Base64(MD5(bizContent + privateKey))`)، وأي نداء مش موقّع بيترفض `401`
+ومفيش أي كتابة — **اتأكد حيّ بنداء بتوقيع غلط عمداً**.
+
 | عند J&T | الرابط بتاعنا |
 |---|---|
 | `logistics/statusFeedback` (تتبع) | `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/trace` |
@@ -259,20 +279,44 @@ weight/الحقول الخمسة). المنطق: `145003012` بيرجع **قبل
 
 - الاستقبال بيتحقق من الهيدر `digest` بمفتاحنا الخاص (`Base64(MD5(bizContent + privateKey))`).
   نداء مش موقّع → `401` ومفيش كتابة. اتأكد حيّ بنداء بتوقيع غلط.
-- ⚠️ **التسجيل عند J&T إجراء إداري** — مايتعملش قبل ما الأسرار تتسجّل (من غيرها كل
-  callback هيترفض 401). رسالة الـIT جاهزة تحت.
+- ✅ **الأسرار متسجّلة** (Vault) فالتوقيع هيتأكد صح من أول نداء.
+- ⚠️ **التسجيل عند J&T إجراء إداري** — راجعت التوثيق: مفيش `url` في أي endpoint،
+  فمفيش طريقة نعملها بنفسنا.
 
-**رسالة للـIT بتاع J&T (بعد تسجيل الأسرار):**
+**📩 الرسالة اللي تتبعت للـIT (جاهزة للنسخ):**
 
-> السلام عليكم، حساب العميل J0086011282 (3ataba.com). برجاء تسجيل روابط الاستقبال التالية للـcallbacks:
-> - Logistics status feedback: https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/trace
-> - Order status feedback: https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/order
-> - Settlement return: https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/settlement
+> Hello, this is for customer account **J0086011282 (3ataba.com)** on the Egypt Open Platform.
 >
-> الاستقبال POST بنفس هيدرات apiAccount/digest/timestamp وحقل bizContent، والرد `{"code":"1","msg":"success"}`.
-> وبرجاء تأكيد: (1) قائمة قيم scanTypeCode ومعناها، (2) هل الـtimestamp في scanTime بتوقيت القاهرة.
+> We have gone live and created our first production shipments (e.g. `JEG000538241985`,
+> `JEG000531296658`). We have already subscribed these waybills successfully via
+> `trace/subscribe` (response `code: 1`, `isSuccess: true`), but we are **not receiving
+> any push callbacks**, because our callback URLs are not registered on your side.
+>
+> Please register the following endpoints for our account:
+>
+> - Logistics status feedback → `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/trace`
+> - Order status feedback → `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/order`
+> - Settlement return → `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/settlement`
+>
+> All three accept `POST` with the standard `apiAccount` / `digest` / `timestamp` headers
+> and a `bizContent` form field, and reply `{"code":"1","msg":"success"}`. Signature
+> verification is already implemented and tested on our side.
+>
+> Two questions while you are on it:
+> 1. The full list of `scanTypeCode` values and their meaning (so we map them to our
+>    internal statuses correctly instead of guessing).
+> 2. Is `scanTime` in the callbacks sent in Cairo local time or UTC?
 
-⚠️ التحقق إن التسجيل اشتغل = **وصول أول callback حقيقي** في جدول `jt_events` — مش رد الـIT.
+🔴 **التحقق إن التسجيل اشتغل = وصول أول callback حقيقي في `jt_events` — مش رد الـIT**
+(درس 26: «قالك تمام» مش دليل). الاستعلام:
+
+```sql
+select kind, digest_ok, applied, apply_note, bill_code,
+       received_at at time zone 'Africa/Cairo' as cairo
+from public.jt_events
+where bill_code <> 'UEG000000000001'   -- ده صف الفحص بتاعنا
+order by received_at desc limit 10;
+```
 
 ## 5) خطوات n8n (يدوي — قاعدة أمان 1) — بعد نجاح أول أوردر وموافقتك
 

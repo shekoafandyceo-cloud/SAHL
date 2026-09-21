@@ -13,6 +13,9 @@
 //      وقبل أي addOrder لو فيه محاولة سابقة بنستعلم getOrders command:1 — موجود = نسجّله بدل ما نكرر.
 //      timeout بعد الإرسال = نستعلم قبل ما نعلن فشل.
 //   6. الحالة بتتكتب **بعد** رد J&T بس (app.jt_record_shipment ذرية + سطر status_log).
+//   7. الاشتراك في التتبع (trace/subscribe) بعد التسجيل — من غيره مفيش أي callback
+//      بيوصل للبوليصة دي والأوردر بيفضل على آخر حالة للأبد. فشله بيتسجّل في
+//      orders.jt_subscribe_error ومابيضيّعش الشحنة.
 //
 // الحمولة: { order_id, receiver?: {prov, city, area}, weight_kg?, dry_run? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -30,6 +33,10 @@ const AREA_MAX = 60;             // من توثيق مصر: receiver.area String
 // deliveryType "04" · goodsType "ITN1" · operateType 1 (رقم) · payType "PP_PM".
 // serviceType **مش موجود** في الطلب الناجح — فاختياري: بيتبعت بس لو متسجّل.
 const ADDORDER_REQUIRED = ["expressType", "deliveryType", "goodsType", "operateType", "payType"];
+// عُقد التتبع اللي بنشترك فيها (توثيق trace/subscribe): 2 معطّلة عند J&T و7 تحصيل وكالة.
+// 10 = تسليم · 11 = مشكلة · 13/14 = مرتجع — دول اللي الحالات بتتبني عليهم.
+// نفس القيمة الافتراضية في jt-lookup action=subscribe — لازم يفضلوا متطابقين.
+const TRACE_NODES = "1&3&4&5&6&8&9&10&11&12&13&14&15";
 
 const ORDER_COLS = "id, tenant_id, order_uid, status, tracking_no, customer_name, phone, alt_phone, city, address, product_name, manufacturer_note, var, total_cost, shipping_carrier, carrier_ref, ship_prov, ship_city, ship_area, shipping_weight_kg, jt_ship_attempted_at, jt_ship_error";
 
@@ -212,6 +219,20 @@ Deno.serve(async (req: Request) => {
     const key = normPlace(String(order.city || ""));
     if (key) {
       await admin.from("jt_pca_alias").upsert({ tenant_id: tenantId, alias_norm: key, prov, city, area, updated_at: new Date().toISOString() }, { onConflict: "tenant_id,alias_norm" });
+    }
+    // الاشتراك في تحديثات التتبع — من غيره J&T مابتبعتش أي callback للبوليصة دي،
+    // والأوردر بيفضل على آخر حالة للأبد. 🔴 **بعد** تسجيل البوليصة عن قصد: الشحنة
+    // اتعملت خلاص وفلوسها راحت، فأي فشل هنا مايضيّعش الرقم — بيتسجّل في
+    // jt_subscribe_error ويتعاد من jt-lookup action=subscribe. (⚠️ ده بيشتغل بس لما
+    // J&T تكون مسجّلة URL بتاعنا عندها — التسجيل إجراء إداري، مفيش endpoint ليه.)
+    try {
+      const sub = await jtCall(cfg, JT_PATHS.subscribe,
+        withBusinessDigest({ id: String(creds.apiAccount), list: [{ traceNode: TRACE_NODES, waybillCode: bill }] }, creds),
+        { timeoutMs: 15000 });
+      if (sub.code !== "1") await admin.from("orders").update({ jt_subscribe_error: String(sub.code) + " " + String(sub.msg || "") }).eq("id", orderId);
+      else await admin.from("orders").update({ jt_subscribe_error: null }).eq("id", orderId);
+    } catch (e) {
+      await admin.from("orders").update({ jt_subscribe_error: "exception: " + String((e as Error)?.message || e) }).eq("id", orderId);
     }
     return data;
   };
