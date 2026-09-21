@@ -1,7 +1,8 @@
 // jt-lookup — استعلامات J&T (قراءة/تقدير/اشتراك) + مزامنة نطاق الخدمة (PCA).
 //
 // مفيش أي إنشاء شحنة من هنا في الإنتاج — `raw` بيقدر ينده مسار إنشاء في
-// الـSandbox بس (للتحقق من الحمولة قبل أول شحنة حقيقية).
+// الـSandbox بس (للتحقق من الحمولة قبل أول شحنة حقيقية). الاستثناء الوحيد
+// `perm_probe` وحمولته ناقصة عمداً فمستحيل تتحوّل لشحنة — الشرح تحت.
 //
 // الحمولة: { action, env?, ...params }
 //   config        → حالة الإعداد (من غير أسرار): البيئة · هل الأسرار موجودة · حقول addOrder · عدد PCA
@@ -12,8 +13,19 @@
 //   freight       → spmComCost/getComCost { sender, receiver, weight }
 //   subscribe     → trace/subscribe { waybillCodes[], traceNode? }
 //   raw           → (diag/service بس) { path, biz } — الإنشاء مسموح في sandbox بس
+//   perm_probe    → (diag/service بس) هل `order/addOrder` مفعّل على الحساب؟ **من غير ما يعمل شحنة**
 //
 // env: الموظف دايماً على البيئة الافتراضية (JT_ENV). diag/service يقدروا يطلبوا sandbox.
+//
+// 🔴 `perm_probe` — ليه آمن رغم إنه بينده مسار إنشاء في الإنتاج (21 سبتمبر):
+//   J&T بترفض بـ`145003012 API account has no interface permissions` **قبل** ما تبص في
+//   محتوى الحمولة (اتقاس: نفس الرد جه على حمولة كاملة وصحيحة 100%). فالفحص بيبعت
+//   حمولة **ناقصة عمداً ومحفورة في الكود** — مفيش sender ولا receiver ولا weight ولا
+//   الحقول الخمسة — يعني حتى لو الصلاحية اتفتحت، J&T بترد خطأ تحقق (`145003083/84/92`
+//   أو `999001030`) و**مستحيل تتعمل شحنة**. القراءة:
+//     `145003012` = الصلاحية لسه مقفولة · أي كود تاني = الصلاحية اتفتحت.
+//   الحمولة مابتيجيش من الـbody خالص، والـ`allowCreateInProduction` بيتبعت من الكود
+//   هنا صراحةً (مش من أي حمولة خارجية) — نفس عقد الحارس في `_shared/jt.ts`.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildRequest, isCreateEndpoint, JT_PATHS, jtCall, redactRequest, withBusinessDigest } from "../_shared/jt.ts";
 import { authCaller, cors, defaultEnv, envStatus, json, loadJtConfig } from "../_shared/jt-runtime.ts";
@@ -91,6 +103,7 @@ Deno.serve(async (req: Request) => {
   if (!cfg) return json({ error: "no_creds", message: "أسرار J&T (" + env + ") مش متسجّلة (لا في secrets البيئة ولا في الـVault)" }, 422);
   const creds = cfg.creds;
   let path = "", biz: Record<string, unknown> = {};
+  let permProbe = false;   // فحص الصلاحية بحمولة ناقصة — الشرح في هيدر الملف
 
   if (action === "pca_sync") {
     path = JT_PATHS.pca; biz = withBusinessDigest({ type: "4" }, creds);
@@ -116,6 +129,13 @@ Deno.serve(async (req: Request) => {
     const node = String(body.traceNode || "1&3&4&5&6&8&9&10&11&12&13&14&15");
     path = JT_PATHS.subscribe;
     biz = withBusinessDigest({ id: String(creds.apiAccount), list: codes.map((waybillCode) => ({ traceNode: node, waybillCode })) }, creds);
+  } else if (action === "perm_probe") {
+    if (!privileged) return json({ error: "forbidden", message: "perm_probe للتشخيص بس" }, 403);
+    permProbe = true;
+    path = JT_PATHS.addOrder;
+    // 🔴 محفورة هنا عمداً وناقصة — مفيش sender/receiver/weight/الحقول الخمسة.
+    // أي تعديل يخليها كاملة بيحوّل الفحص لإنشاء شحنة حقيقية بفلوس. متلمسهاش.
+    biz = withBusinessDigest({ txlogisticId: "SAHL-PERMISSION-PROBE-DO-NOT-SHIP" }, creds);
   } else if (action === "raw") {
     if (!privileged) return json({ error: "forbidden", message: "raw للتشخيص بس" }, 403);
     path = String(body.path || "");
@@ -133,8 +153,9 @@ Deno.serve(async (req: Request) => {
 
   let res;
   try {
-    // الإنشاء مسموح هنا في الـSandbox بس — والحارس بيرفض الإنتاج حتى لو الفلاغ اتبعت
-    res = await jtCall(cfg, path, biz, { allowCreateInProduction: false, timeoutMs: 25000 });
+    // الإنشاء مسموح هنا في الـSandbox بس. الاستثناء الوحيد `perm_probe` — حمولته ناقصة
+    // عمداً ومحفورة في الكود، فمستحيل تتحوّل لشحنة (الشرح في هيدر الملف).
+    res = await jtCall(cfg, path, biz, { allowCreateInProduction: permProbe, timeoutMs: 25000 });
   } catch (e) {
     return json({ error: "jt_unreachable", message: String((e as Error).message || e), env }, 502);
   }
@@ -150,6 +171,15 @@ Deno.serve(async (req: Request) => {
     }
     return json({ ok: res.code === "1", env, code: res.code, msg: res.msg, parsed: rows.length, upserted,
       sample_raw: typeof res.raw === "string" ? res.raw.slice(0, 1500) : null });
+  }
+
+  if (permProbe) {
+    const blocked = res.code === "145003012";
+    return json({ ok: !blocked, env, probe: "order/addOrder", permission: blocked ? "DENIED" : "GRANTED",
+      code: res.code, msg: res.msg,
+      note: blocked
+        ? "الصلاحية لسه مقفولة — 145003012 بيرجع قبل أي تحقق من الحمولة"
+        : "الصلاحية اتفتحت — الرد ده خطأ تحقق على الحمولة الناقصة عمداً، ومفيش شحنة اتعملت" });
   }
 
   return json({ ok: res.code === "1", env, http: res.status, code: res.code, msg: res.msg, data: res.data,
