@@ -285,27 +285,41 @@ weight/الحقول الخمسة). المنطق: `145003012` بيرجع **قبل
 
 **📩 الرسالة اللي تتبعت للـIT (جاهزة للنسخ):**
 
-> Hello, this is for customer account **J0086011282 (3ataba.com)** on the Egypt Open Platform.
+⚠️ **بالعربي المصري عن قصد** — قرار المالك 21 سبتمبر: الـIT بتوع J&T مصريين
+وفي جروب واتساب معاه، فالرسمي الإنجليزي كان هيبقى متكلّف. المحتوى التقني
+(الـURLs والأكواد وأسماء الحقول) زي ما هو بالإنجليزي.
+
+> يا جماعة صباح الخير 🙏
 >
-> We have gone live and created our first production shipments (e.g. `JEG000538241985`,
-> `JEG000531296658`). We have already subscribed these waybills successfully via
-> `trace/subscribe` (response `code: 1`, `isSuccess: true`), but we are **not receiving
-> any push callbacks**, because our callback URLs are not registered on your side.
+> بخصوص حساب **J0086011282 (3ataba.com)** — الحمد لله شغّالين وطلّعنا أول شحنات
+> إنتاج فعلاً (مثلاً `JEG000538241985` و `JEG000531296658`)، وشكراً على تفعيل
+> `order/addOrder` أمبارح.
 >
-> Please register the following endpoints for our account:
+> فاضلة حاجة واحدة بس: إحنا عاملين `trace/subscribe` للبوالص ورجعلنا `code: 1`
+> و`isSuccess: true` تمام، **بس مش بيوصلنا أي تحديثات** — عشان لينكات الـcallbacks
+> بتاعتنا مش مسجّلة عندكم.
 >
-> - Logistics status feedback → `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/trace`
-> - Order status feedback → `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/order`
-> - Settlement return → `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/settlement`
+> ممكن لو سمحتم تسجّلوا التلاتة دول على الحساب:
 >
-> All three accept `POST` with the standard `apiAccount` / `digest` / `timestamp` headers
-> and a `bizContent` form field, and reply `{"code":"1","msg":"success"}`. Signature
-> verification is already implemented and tested on our side.
+> • Logistics status feedback
+> `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/trace`
 >
-> Two questions while you are on it:
-> 1. The full list of `scanTypeCode` values and their meaning (so we map them to our
->    internal statuses correctly instead of guessing).
-> 2. Is `scanTime` in the callbacks sent in Cairo local time or UTC?
+> • Order status feedback
+> `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/order`
+>
+> • Settlement return
+> `https://gdphjfhelxaofugyiknb.supabase.co/functions/v1/jt-status/settlement`
+>
+> التلاتة شغّالين `POST` بنفس الهيدرز المعتادة (`apiAccount` / `digest` / `timestamp`)
+> و`bizContent`، وبيردّوا `{"code":"1","msg":"success"}`. والتحقق من الـ`digest` معمول
+> ومتجرّب من عندنا.
+>
+> وكمان لو ينفع سؤالين وإحنا بنشتغل:
+> 1. قايمة قيم `scanTypeCode` ومعنى كل واحدة — عشان نربطها بحالات الأوردر عندنا
+>    صح بدل ما نخمّن.
+> 2. الـ`scanTime` اللي بييجي في الـcallbacks بتوقيت القاهرة ولا `UTC`؟
+>
+> متشكرين جداً 🌹
 
 🔴 **التحقق إن التسجيل اشتغل = وصول أول callback حقيقي في `jt_events` — مش رد الـIT**
 (درس 26: «قالك تمام» مش دليل). الاستعلام:
