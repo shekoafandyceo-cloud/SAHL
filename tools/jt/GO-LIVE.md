@@ -42,10 +42,42 @@ anon وauthenticated: الاتنين `insufficient_privilege`). secrets البي
 | `online/pca` · `online/cover` · `location/getLocation` · `spmComCost/getComCost` | `145003012 API account has no interface permissions` | 🔴 **مش مفعّلين على حساب الإنتاج** |
 | callback موقّع بمفتاحنا على `jt-status/trace` | `code 1` + صف في `jt_events` بـ`digest_ok=true` | الاستقبال شغّال بالمفتاح الحقيقي |
 
-✅ **سكرين شوت «Interface Mgt.» من المالك (20 سبتمبر ليلاً) بيقول المفعّل بالظبط:**
+~~✅ سكرين شوت «Interface Mgt.» من المالك (20 سبتمبر ليلاً) بيقول المفعّل بالظبط:
 Delivery Time Inquiry · Logistics track query · **Create Order** · Query Order ·
-Logistics track subscription · Waybill Model Query. يعني `addOrder` مفعّل، و`online/pca`
-و`online/cover` و`getComCost` **مش** في القايمة — مطابق للقياس فوق.
+Logistics track subscription · Waybill Model Query. يعني `addOrder` مفعّل~~
+
+🔴 **أول محاولة حقيقية (21 سبتمبر 01:23 UTC — المالك من اللوحة، المفتاح مفتوح لدقايق):
+J&T رفضت `order/addOrder` بـ`145003012 API account has no interface permissions`.**
+مفيش شحنة اتعملت، والمفتاح اتقفل فوراً. يعني «Create Order» في شاشة Interface Mgt.
+**مش بتساوي `order/addOrder` مفعّل** على الـ`apiAccount` بتاعنا (درس 24: الوثيقة/الشاشة
+مش دليل — الرد هو الدليل). وقياس الصلاحيات الفعلي على الإنتاج بعدها مباشرةً
+(نداءات قراءة بأرقام وهمية — صفر أثر):
+
+| الـendpoint | رد J&T | الحكم |
+|---|---|---|
+| `order/addOrder` | `145003012` | 🔴 **مش مفعّل** — ده الحاجز الوحيد دلوقتي |
+| `order/getOrders` | `999001030` (تحقق على الباراميتر) | ✅ مفعّل |
+| `logistics/trace` | `145003316 billCode illegal` | ✅ مفعّل |
+| `trace/subscribe` | `code 1` | ✅ مفعّل |
+| `waybill/getWaybillInfo` | `code 1` (data فاضية) | ✅ مفعّل |
+| `order/printOrder` | `1450033319 waybill not generated yet` | ✅ مفعّل — **مش في قايمة الشاشة أصلاً** |
+| `online/pca` · `cover` · `getLocation` · `getComCost` | `145003012` | 🔴 مش مفعّلين |
+
+يعني قايمة الشاشة **مش خريطة 1:1 للمسارات** (`printOrder` شغّال وهو مش فيها،
+و«Create Order» مكتوبة وهي مش شغّالة). المطلوب من الـIT صار واضح ومحدد: تفعيل
+`order/addOrder` (و`order/cancelOrder`) على الـ`apiAccount` بتاع الإنتاج.
+
+✅ **والضابط اللي بيعزل المشكلة (نفس اللحظة): نفس الحمولة بالحرف على الـSandbox عدّت.**
+`order/addOrder` عبر `jt-lookup raw env=sandbox` (مستلم وهمي «اختبار سهل» / `01000000000`
+— مفيش بيانات عميل راحت للـSandbox، ومفيش أي كتابة على `orders`):
+`code 1` · `billCode UEG088902635684` · `sortingCode "88,A01-67,"` · `lastCenterName
+10thRamadanCityHub` · `txlogisticId SAHL-SBX-20260921-01`. يعني:
+- المرسل `القاهرة` / `السلام` / `موقف بلبيس` والمستلم `الجيزة` / `مدينة السادس من أكتوبر`
+  / «الحي السابع» **مقبولين** — ومعاهم **المنطقة نص حر اتأكدت من J&T نفسها** (مش من قرارنا).
+- الحقول الخمسة والتوقيع والوزن والـremark كلهم سليمين.
+- 🔴 **الحاجز الوحيد الفاضل: صلاحية `order/addOrder` على حساب الإنتاج** — مش في إيدنا.
+⚠️ ملاحظة: `sortingCode` رجع بشرطة أخيرة فاضية (`88,A01-67,`) — القالب المعتمد بيطبعه
+زي ما هو، ولو الإنتاج رجّع نفس الشكل ده طبيعي مش غلط عندنا.
 
 ✅ **`dry_run` على أوردر `17170` عدّى** (بمفتاح الإنتاج مفتوح لثواني وقفل تاني، والعنوان
 المؤقت اترجّع فاضي): الحمولة اتبنت كاملة — المرسل بأسماء J&T · المستلم بالاسم والموبايل
@@ -123,11 +155,11 @@ rm ~/jt-secrets.env
 
 **رسالة للـIT (صلاحيات):**
 
-> حساب J0086011282 (3ataba.com) — apiAccount بتاع الإنتاج بيرجّع
-> `145003012 API account has no interface permissions` على:
+> حساب J0086011282 (3ataba.com) — apiAccount بتاع الإنتاج (نفس الحساب اللي `order/getOrders`
+> و`logistics/trace` و`trace/subscribe` و`order/printOrder` شغّالين عليه) بيرجّع
+> `145003012 API account has no interface permissions` على **`order/addOrder`** (Create Order).
+> برجاء تفعيل `order/addOrder` و`order/cancelOrder` على الحساب ده — ومعاهم لو أمكن:
 > `online/pca` · `online/cover` · `location/getLocation` · `spmComCost/getComCost`.
-> برجاء تفعيلهم، والتأكد إن `order/addOrder` و`order/cancelOrder` و`order/printOrder`
-> مفعّلين على نفس الحساب.
 
 ## 3) محتاج من المالك — بيانات مش سرية (ابعتها في الشات)
 
@@ -189,9 +221,10 @@ rm ~/jt-secrets.env
 4. لو Sandbox متسجّل: إنشاء تجريبي على Sandbox من السيرفر بنفس الحمولة → نتأكد من `billCode`/`sortingCode`.
 5. ✅ v56 اترفعت (21 سبتمبر) واتأكدت بالبايت من الحي. ⏳ **v57** (المنطقة خانة كتابة) — الزيب اتسلّم ومستني الرفع.
 6. ✅ `tenants.shipping_provider = 'jt'` لعتبة · ⏳ `jt_production_enabled = 'true'` — بيتفتح **لحظة** الشحنة الأولى بس.
-7. ✅ الأوردر اتحدد: **`17170`** وعنوانه محلول (`الجيزة` / `مدينة السادس من أكتوبر` / «الحي السابع» — متحفوظ على الأوردر
-   في `ship_*` من نداء diag). ⏳ الفاضل: رفع v57 → فتح المفتاح → من نافذة التفاصيل «🚚 شحن J&T» (القيم هتيجي
-   متعبّية) → البوليصة + كود الفرز → «اطبع البوليصة المعتمدة».
+7. ✅ الأوردر اتحدد: **`17170`** وعنوانه محلول ومحفوظ في `ship_*`. ✅ v57 اترفعت. 🔴 **أول ضغطة حقيقية
+   (21 سبتمبر 01:23 UTC) اترفضت من J&T بـ`145003012`** — `order/addOrder` مش مفعّل على حساب الإنتاج
+   (بند 2 — الجدول). المفتاح اتقفل تاني. **الفاضل: الـIT يفعّل `addOrder` → نفتح المفتاح → نفس الضغطة.**
+   الحمولة نفسها اتأكدت على الـSandbox (`UEG088902635684`) فمفيش حاجة تتعدّل عندنا.
 8. نتأكد بـ`query` (getOrders command:1) إن الأوردر موجود عند J&T **مرة واحدة**.
 9. بعد موافقتك: خطوات n8n (بند 5) عشان تأكيد الواتساب يشحن أوتوماتيك.
 
