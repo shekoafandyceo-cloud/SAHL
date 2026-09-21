@@ -13,7 +13,9 @@
 | Edge Function `jt-lookup` (v2) | ✅ منشورة — PCA sync · query · trace · subscribe · تشخيص |
 | مفتاح الإنتاج `platform_settings.jt_production_enabled` | 🔒 `false` — بيتفتح لأول أوردر بس |
 | حقول `addOrder` في `platform_settings.jt_addorder_fields` | ✅ متسجّلة (من Postman): `expressType=EZ` · `deliveryType=04` · `goodsType=ITN1` · `operateType=1` · `payType=PP_PM` — `serviceType` مش موجود في الطلب الناجح فبقى اختياري. اتأكد حيّ بنداء `config`: `addorder_fields_missing=[]` |
-| المرسل على `tenants` (3ataba) | ⏳ **جزئي**: `sender_name=3ataba.com` · `sender_phone=01201399800` · `sender_street=أطلس 3 - بلوك 102`. **`sender_prov/city/area` فاضيين عمداً** — بيتملوا بعد `pca_sync` بمطابقة «القاهرة / مدينة السلام» على قايمة J&T الفعلية (مفيش تخمين) |
+| المرسل على `tenants` (3ataba) | ✅ **كامل** من سكرين شوت «Sender Info» في بوابة J&T: `القاهرة` / `السلام` / `موقف بلبيس` + الاسم والتليفون والشارع. وصف يدوي مطابق في `jt_pca` (`raw.source=manual`) عشان حارس `sender_not_in_pca` يعدّي. ⚠️ الليبل الإنجليزي للمنطقة مقصوص في الصورة (`Al Zabat Buil…`) — الاسم العربي هو اللي بيتبعت للـAPI (زي أمثلة التوثيق). |
+| `tenants.shipping_provider` | ✅ `jt` (اتحطت 20 سبتمبر ليلاً — v55 الحية مش بتقرأه، وفرع n8n مفصول، فمفيش أثر لحد ما v56 تترفع) |
+| **أوردر التجربة** | **`17170`** (منى رياض · 695 ج · استاند امريكانا أبيض 5 أدوار). ⚠️ `city` من اللاندنج «القاهره» **بس العنوان 6 أكتوبر الحي السابع** = محافظة الجيزة عند J&T. محتاج أسماء J&T للمستلم من قوايم البوابة (بند 2ب) |
 
 ## 2) ✅ أسرار J&T اتسجّلت في Supabase Vault (20 سبتمبر ليلاً)
 
@@ -40,8 +42,15 @@ anon وauthenticated: الاتنين `insufficient_privilege`). secrets البي
 | `online/pca` · `online/cover` · `location/getLocation` · `spmComCost/getComCost` | `145003012 API account has no interface permissions` | 🔴 **مش مفعّلين على حساب الإنتاج** |
 | callback موقّع بمفتاحنا على `jt-status/trace` | `code 1` + صف في `jt_events` بـ`digest_ok=true` | الاستقبال شغّال بالمفتاح الحقيقي |
 
-🔴 **`order/addOrder` نفسه ماتقاسش** — ممنوع نقيسه بإنشاء شحنة. لو طلع
-`145003012` عند أول أوردر، الطلب من الـIT هو نفس الطلب اللي تحت.
+✅ **سكرين شوت «Interface Mgt.» من المالك (20 سبتمبر ليلاً) بيقول المفعّل بالظبط:**
+Delivery Time Inquiry · Logistics track query · **Create Order** · Query Order ·
+Logistics track subscription · Waybill Model Query. يعني `addOrder` مفعّل، و`online/pca`
+و`online/cover` و`getComCost` **مش** في القايمة — مطابق للقياس فوق.
+
+✅ **`dry_run` على أوردر `17170` عدّى** (بمفتاح الإنتاج مفتوح لثواني وقفل تاني، والعنوان
+المؤقت اترجّع فاضي): الحمولة اتبنت كاملة — المرسل بأسماء J&T · المستلم بالاسم والموبايل
+المطبّع · `weight "3"` · `itemsValue "695"` · `remark` = المنتج + الخصائص · الحقول الخمسة ·
+التوقيعين. **مفيش أي نداء راح لـJ&T** في الـ`dry_run`.
 
 <details><summary>الشكل القديم (secrets البيئة عبر Codex) — اختياري</summary>
 
@@ -159,9 +168,10 @@ rm ~/jt-secrets.env
    `sender_prov/city/area` (بند 3). ⚠️ `jt-ship` بترفض `sender_incomplete` لحد ما يتملوا،
    و`sender_not_in_pca` لو القيم مش من القايمة المتزامنة.
 4. لو Sandbox متسجّل: إنشاء تجريبي على Sandbox من السيرفر بنفس الحمولة → نتأكد من `billCode`/`sortingCode`.
-5. رفع `app/` (v56) على Cloudflare — زي كل مرة (الفولدر كله).
-6. `tenants.shipping_provider = 'jt'` لعتبة + `jt_production_enabled = 'true'`.
-7. المالك يختار **أوردر واحد** → من نافذة التفاصيل «🚚 شحن J&T» → البوليصة + كود الفرز → «اطبع البوليصة المعتمدة».
+5. ⏳ رفع `app/` (v56) على Cloudflare — الزيب `sahl-app-v56.zip` اتسلّم 20 سبتمبر ليلاً (117 ملف — كله أو مفيش).
+6. ✅ `tenants.shipping_provider = 'jt'` لعتبة · ⏳ `jt_production_enabled = 'true'` — بيتفتح **لحظة** الشحنة الأولى بس.
+7. ✅ الأوردر اتحدد: **`17170`**. ⏳ الفاضل: أسماء J&T لعنوان المستلم (6 أكتوبر الحي السابع) → صف يدوي في `jt_pca` →
+   من نافذة التفاصيل «🚚 شحن J&T» → البوليصة + كود الفرز → «اطبع البوليصة المعتمدة».
 8. نتأكد بـ`query` (getOrders command:1) إن الأوردر موجود عند J&T **مرة واحدة**.
 9. بعد موافقتك: خطوات n8n (بند 5) عشان تأكيد الواتساب يشحن أوتوماتيك.
 
