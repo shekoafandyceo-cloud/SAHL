@@ -62,6 +62,8 @@ J&T رفضت `order/addOrder` بـ`145003012 API account has no interface permis
 | `waybill/getWaybillInfo` | `code 1` (data فاضية) | ✅ مفعّل |
 | `order/printOrder` | `1450033319 waybill not generated yet` | ✅ مفعّل — **مش في قايمة الشاشة أصلاً** |
 | `online/pca` · `cover` · `getLocation` · `getComCost` | `145003012` | 🔴 مش مفعّلين |
+| `threeCode/getThreeSegmentCode` · `network/getInfo` | `145003012` | 🔴 مش مفعّلين (كود الفرز من العنوان — تحسين مش حاجز، بيرجع مع `addOrder` أصلاً) |
+| `order/cancelOrder` · `order/addLooseOrder` | **مااتجرّبوش** | بيغيّروا/بيخلقوا شحنات — عميلنا بيرفضهم في الإنتاج عمداً، ومفيش شحنة نلغيها |
 
 يعني قايمة الشاشة **مش خريطة 1:1 للمسارات** (`printOrder` شغّال وهو مش فيها،
 و«Create Order» مكتوبة وهي مش شغّالة). المطلوب من الـIT صار واضح ومحدد: تفعيل
