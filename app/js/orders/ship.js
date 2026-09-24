@@ -17,6 +17,7 @@
 import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../core/config.js';
 import { $id, esc } from '../core/dom.js';
+import { CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn, statusLabel } from '../core/constants.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -466,6 +467,15 @@ async function jtSubmit(ord){
 var TICK_MS = (typeof window !== 'undefined' && window.__SHIP_TICK_MS) || 30000;
 var WATCH_WINDOW_MIN = STALE_MINUTES + 10;
 
+// حالات نهائية — الشحنة خلصت رحلتها فمفيش مسح جديد جاي ليها.
+// أي حاجة غير دي على أوردر J&T معناها إنه لسه في السكة وتحديثه ممكن ييجي
+// في أي لحظة.
+function shipmentSettled(o){
+  return statusIn(o && o.status, DELIVERED_STATUSES)
+      || statusIn(o && o.status, RETURNED_STATUSES)
+      || statusIn(o && o.status, CANCELLED_STATUSES);
+}
+
 export function initShipTicker(){
   setInterval(function(){
     // صفوف الجدول في fil (الصفحة الحالية من السيرفر) — وall مخزن
@@ -474,21 +484,31 @@ export function initShipTicker(){
     var scan = fil.concat(all);
     for(var i=0;i<scan.length;i++){
       var o = scan[i];
-      if(seen[o.id] || !o.shipping_requested_at || (o.tracking_no||'').trim()) continue;
-      seen[o.id] = true;
-      var age = (Date.now() - new Date(o.shipping_requested_at).getTime()) / 60000;
-      if(age < 0 || age >= WATCH_WINDOW_MIN) continue;
-      watch.push(o.id);
-      // العلامة اتقلبت صفرا من آخر رسمة؟ تحديث جراحي للصف ده بس —
-      // الرسم الكامل كان باين للمالك كـ«ريفريش على الفاضي» واترفض
-      if(age >= STALE_MINUTES && !staleShown[o.id]){ staleShown[o.id] = true; flipped.push(o.id); }
+      if(seen[o.id]) continue;
+      // (أ) محاولة شحن معلّقة — لسه مفيش بوليصة
+      if(o.shipping_requested_at && !(o.tracking_no||'').trim()){
+        var age = (Date.now() - new Date(o.shipping_requested_at).getTime()) / 60000;
+        if(age >= 0 && age < WATCH_WINDOW_MIN){
+          seen[o.id] = true; watch.push(o.id);
+          // العلامة اتقلبت صفرا من آخر رسمة؟ تحديث جراحي للصف ده بس —
+          // الرسم الكامل كان باين للمالك كـ«ريفريش على الفاضي» واترفض
+          if(age >= STALE_MINUTES && !staleShown[o.id]){ staleShown[o.id] = true; flipped.push(o.id); }
+          continue;
+        }
+      }
+      // (ب) 🔴 شحنة J&T لسه في السكة — شبكة أمان للريل-تايم.
+      // `postgres_changes` مافيهوش replay: أي تحديث بيوصل والـsocket
+      // مقفول (تاب نايمة · نت قطع · الجهاز قفل) بيضيع للأبد، والموظف
+      // بيفضل بصّ على حالة قديمة والنقطة خضرا. الجلب ده بيصلّحها لوحده.
+      // محصور في الصفحة المعروضة — ده اللي الموظف شايفه فعلاً.
+      if(o.shipping_carrier === 'jt' && (o.tracking_no||'').trim() && !shipmentSettled(o)){
+        seen[o.id] = true; watch.push(o.id);
+      }
     }
     flipped.forEach(updateRowIndicator);
     if(!watch.length || !sb || !currentTenantId) return;
-    // إعادة جلب الصفوف المعلّقة بس — لو النجاح وصل والـRealtime فاتته
-    // (تاب مفصول مثلاً) العلامة بتتصلّح من هنا. **صامت**: مفيش أي رسم
-    // غير لو فيه تغيير فعلي من السيرفر أو انقلاب علامة.
-    sb.from('orders').select('id,status,tracking_no,shipping_requested_at')
+    // **صامت**: مفيش أي رسم غير لو فيه تغيير فعلي من السيرفر أو انقلاب علامة.
+    sb.from('orders').select('id,status,tracking_no,shipping_requested_at,carrier_status_raw,carrier_status_at')
       .eq('tenant_id', currentTenantId).in('id', watch)
       .then(function(r){
         var changed = false;
@@ -496,12 +516,24 @@ export function initShipTicker(){
           var row = findRow(d.id);
           if(!row) return;
           if((d.tracking_no||'') !== (row.tracking_no||'') || d.status !== row.status){
+            var hadTracking = (row.tracking_no||'').trim();
             row.status = d.status; row.tracking_no = d.tracking_no;
             row.shipping_requested_at = d.shipping_requested_at;
+            row.carrier_status_raw = d.carrier_status_raw;
+            row.carrier_status_at = d.carrier_status_at;
             changed = true;
             delete staleShown[d.id]; delete shipFail[d.id];
-            if((d.tracking_no||'').trim())
+            if(!hadTracking && (d.tracking_no||'').trim())
               toast('البوليصة اتعملت لأوردر #' + (row.order_uid || '') + ' ✓ رقم التتبع: ' + d.tracking_no,'ok');
+            else if(hadTracking)
+              toast('🚚 طلب #' + (row.order_uid || '') + ' بقى «' + statusLabel(d.status) + '»','ok');
+            // النافذة مفتوحة على نفس الأوردر؟ تتحدث معاه
+            if(sel && sel.id === d.id){
+              sel.status = d.status;
+              sel.carrier_status_raw = d.carrier_status_raw;
+              sel.carrier_status_at = d.carrier_status_at;
+              try{ if($id('ovl').classList.contains('open')) renderDetail(); }catch(e){}
+            }
           }
         });
         // الرسم الكامل عند تغيير الحالة الفعلي بس — ده المسموح

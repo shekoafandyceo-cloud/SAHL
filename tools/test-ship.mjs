@@ -351,7 +351,10 @@ async function openDetailOf(p, orderId){
   const quiet = await p.evaluate(() => ({
     renders: window.__renders,
     tickerAsked: (window.__calls || []).filter(c => c.table === 'orders'
-      && String(c.cols||'') === 'id,status,tracking_no,shipping_requested_at').length
+      // ⚠️ بادئة مش تطابق تام: التيكر بقى بيجيب حالة شركة الشحن الخام كمان
+      // (شبكة أمان الريل-تايم — 24 سبتمبر)، والتطابق التام كان بيكسر الفحص
+      // مع أي عمود جديد. البادئة لسه فريدة للتيكر وحده.
+      && String(c.cols||'').indexOf('id,status,tracking_no,shipping_requested_at') === 0).length
   }));
   ok(quiet.tickerAsked >= 2, `التيكر بيسأل السيرفر فعلاً — ${quiet.tickerAsked} استعلام`);
   ok(quiet.renders === 0, `ومفيش ولا إعادة رسم للجدول من غير تغيير — ${quiet.renders} رسمة`);

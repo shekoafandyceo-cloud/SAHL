@@ -4,7 +4,7 @@ import { skelTable } from '../core/skeleton.js';
 import { loadCommissions, myCommissionEnabled, refreshMyCommissionNav, renderMyCommissionBar } from '../finance/commissions.js';
 import { currentTenantId, currentUser, forceSuspendLogout } from '../auth/auth.js';
 import { loadWalletState } from '../billing/billing.js';
-import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES } from '../core/constants.js';
+import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusLabel } from '../core/constants.js';
 import { $id } from '../core/dom.js';
 import { cairoYMD, normalizePhone, num, ymdAddDays } from '../core/format.js';
 import { swallow } from '../core/log.js';
@@ -22,7 +22,7 @@ import { reflectStatusCards, wireStatusCards } from './filters-ui.js';
 import { ensureTenant } from './guards.js';
 import { doBulkUpdate } from './mutations.js';
 import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetAllLoaded, ordersSetFiltered, ordersSetLoading, ordersSetPage, ordersSetPageSize, ordersSetPendingBosta, ordersSetPhoneCounts, ordersSetSelected, ordersSetTotalCount, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, totalCount } from './state.js';
-import { renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
+import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
 import { initShipTicker } from './ship.js';
 
 export function ordersInPeriod(){
@@ -188,6 +188,9 @@ export function loadAll(){
   try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
 }
 
+// الاتصال وقع قبل كده في الجلسة دي؟ — بيحدّد إن رجوعه يستاهل جلب تعويضي
+var rtEverOff = false;
+
 export function startRealtime(){
   // Remove any existing channel before creating a new one
   if(realtimeChannel){
@@ -276,8 +279,15 @@ export function startRealtime(){
     })
     .subscribe(function(status){
       if(status === 'SUBSCRIBED'){
+        // 🔴 رجوع الاتصال بعد قطع = فترة عمياء: كل حدث حصل والـsocket
+        // مقفول ضاع للأبد (مفيش replay في postgres_changes). فأول ما
+        // يرجع بنجيب الصفحة والكروت من السيرفر — من غير ده الموظف بيفضل
+        // على حالات قديمة والنقطة خضرا، وده أسوأ من نقطة حمرا.
+        var wasOff = rtEverOff;
         showRealtimeDot(true);
-      } else if(status === 'CLOSED' || status === 'CHANNEL_ERROR'){
+        if(wasOff){ rtEverOff = false; scheduleRealtimeRefresh(); }
+      } else if(status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
+        rtEverOff = true;
         showRealtimeDot(false);
       }
     }));
@@ -288,6 +298,9 @@ export function startRealtime(){
 // بتضرب 100 طلب وتوست لكل واحد. بنحدّث الحالة المحلية فوراً، والطلبات
 // بتتجمع في تحديث واحد بعد ما الرشقة تهدى، من غير لمس الصفحة الحالية.
 var rtTimer = null, rtInserts = 0, rtFirstAt = 0;
+// تغييرات الحالة اللي وصلت من الريل-تايم في الرشقة الحالية — بتتجمّع في
+// toast واحد زي الأوردرات الجديدة بالظبط. الشكل: [{uid, to}]
+var rtStatusChanges = [];
 function scheduleRealtimeRefresh(){
   // debounce بحد أقصى: رشقة مستمرة بفواصل أقل من 800ms كانت بتأجّل
   // التحديث لما الرشقة تخلص خالص — دلوقتي بنفضفض على الأكثر كل ~3 ثواني
@@ -299,6 +312,13 @@ function scheduleRealtimeRefresh(){
     if(rtInserts > 0){
       toast(rtInserts === 1 ? '📦 طلب جديد وصل!' : ('📦 '+rtInserts+' طلبات جديدة وصلت!'), 'ok');
       rtInserts = 0;
+    }
+    if(rtStatusChanges.length){
+      var c = rtStatusChanges;
+      toast(c.length === 1
+        ? ('🚚 طلب #' + c[0].uid + ' بقى «' + c[0].to + '»')
+        : ('🚚 ' + c.length + ' طلبات اتغيّرت حالتهم من شركة الشحن'), 'ok');
+      rtStatusChanges = [];
     }
     loadOrdersCards();
     loadMergeCandidates();
@@ -324,13 +344,51 @@ export function handleRealtimeChange(payload){
     if(allLoaded){
       for(var i=0;i<all.length;i++){ if(all[i].id === row.id){ all[i] = row; break; } }
     }
-    if(sel && sel.id === row.id){ ordersSetSelected(row); }
+    // 🔴 `fil` هو مصدر الجدول (الصفحة الحالية من السيرفر) و`all` مخزن
+    // الماليات الكسول — بيبقى فاضي على طول الوقت. تحديث `all` لوحده كان
+    // معناه إن الصف المعروض مابيتغيّرش غير لما `fetchOrdersPage` ترجع،
+    // فتغيير الحالة من شركة الشحن كان بيستنى الرحلة دي.
+    var prev = null;
+    for(var k=0;k<fil.length;k++){ if(fil[k].id === row.id){ prev = fil[k]; fil[k] = row; break; } }
+    // 🔴 REPLICA IDENTITY على `orders` = default، يعني `payload.old` فيه
+    // المفتاح بس — الحالة القديمة بتتقرا من الصف اللي في الذاكرة مش من
+    // الحدث. لو الصف مش معروض، مفيش مقارنة ومفيش toast (وده صح: الجدول
+    // مش شايفه أصلاً).
+    if(prev && prev.status !== row.status){
+      var by = rtChangedBy(row);
+      // الموظف اللي غيّر الحالة بنفسه شاف النتيجة قدامه — toast على فعله
+      // هو ضوضاء. اللي يستاهل إشعار هو اللي جه من برّه: شركة الشحن أو زميل.
+      if(by !== (currentUser && currentUser.name)){
+        rtStatusChanges.push({ uid: row.order_uid || (row.id || '').slice(0,8), to: statusLabel(row.status) });
+      }
+      try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/renderTable', e); }
+    }
+    if(sel && sel.id === row.id){
+      // `sel` جاي من `select('*')` والحدث كمان بيحمل كل الأعمدة — بس الدمج
+      // بيحمي من أي عمود الريل-تايم ميبعتهوش (صلاحيات بالعمود).
+      ordersSetSelected(Object.assign({}, sel, row));
+      // النافذة مفتوحة قدام الموظف؟ لازم تتحدث هي كمان — من غير ده الحالة
+      // في الجدول بتتغيّر والنافذة فاضلة على القديم.
+      try{ if($id('ovl').classList.contains('open')) renderDetail(); }
+      catch(e){ swallow('handleRealtimeChange/renderDetail', e); }
+    }
   } else if(ev === 'DELETE'){
     if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
   }
 
   if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
   scheduleRealtimeRefresh();
+}
+
+// مين آخر واحد غيّر الحالة — من آخر مدخل في سجل الحالة.
+// ⚠️ `status_log` ممكن يبقى متخزّن كـstring (نود n8n بتعمل stringify على
+// عمود jsonb) — `parseStatusLog` بتفكّه، فمانقراهوش مباشرةً.
+function rtChangedBy(row){
+  try{
+    var log = parseStatusLog(row && row.status_log);
+    if(!Array.isArray(log) || !log.length) return '';
+    return String(log[log.length-1].by || '');
+  }catch(e){ return ''; }
 }
 
 export function buildIndexes(){
