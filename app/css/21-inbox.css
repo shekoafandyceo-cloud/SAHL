@@ -75,14 +75,17 @@
 .wa-tick{margin-inline-start:5px;font-size:.72rem;color:#8aa0b2;letter-spacing:-2px;}
 .wa-tick.read{color:#34b7f1;}
 .wa-tick.fail{color:var(--red);letter-spacing:0;font-weight:800;}
-.wa-qr-panel{display:none;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--brd);background:#fbfcfe;max-height:140px;overflow-y:auto;}
+.wa-qr-panel{display:none;flex-wrap:wrap;gap:6px;padding:8px 12px;border-top:1px solid var(--brd);background:#fbfcfe;max-height:96px;overflow-y:auto;}
 .wa-qr-panel.open{display:flex;}
-.wa-qr{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--brd);border-radius:999px;background:#fff;cursor:pointer;font-size:.8rem;color:var(--txt);}
-.wa-qr:hover{border-color:var(--blue);}
+/* زراير الردود المحفوظة — بتبعت بضغطة (24 سبتمبر) */
+.wa-qr{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--brd);border-radius:999px;background:#fff;cursor:pointer;font-size:.8rem;font-weight:700;font-family:inherit;color:var(--txt);}
+.wa-qr:hover:not(:disabled){border-color:var(--blue);color:var(--blue);}
+.wa-qr:disabled{cursor:progress;opacity:.55;}
+.wa-qr.is-sending{opacity:1;border-color:var(--blue);}
+.wa-qr.is-sending::before{content:'';width:11px;height:11px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:waqrspin .7s linear infinite;}
+@keyframes waqrspin{to{transform:rotate(360deg)}}
 .wa-qr-txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;}
-.wa-qr-del{color:var(--muted);font-weight:800;cursor:pointer;font-size:.85rem;}
-.wa-qr-del:hover{color:var(--red);}
-.wa-qr-add{padding:6px 10px;border:1px dashed var(--blue);border-radius:999px;background:#fff;cursor:pointer;font-size:.8rem;color:var(--blue);font-weight:700;}
+.wa-qr-add{padding:6px 10px;border:1px dashed var(--blue);border-radius:999px;background:#fff;cursor:pointer;font-size:.8rem;color:var(--blue);font-weight:700;font-family:inherit;}
 .wa-qr-empty{font-size:.78rem;color:var(--muted);padding:2px 4px;}
 .wa-neworder-btn{margin-inline-start:auto;margin-inline-end:8px;padding:3px 9px;border:1px solid var(--acc);border-radius:999px;background:#fff;color:var(--acc2,#8a5a00);cursor:pointer;font-size:.7rem;font-weight:800;font-family:inherit;}
 .wa-neworder-btn:hover{background:var(--acc);color:#211300;}
@@ -97,7 +100,6 @@
 .wa-no-foot{display:flex;align-items:center;gap:10px;margin-top:10px;}
 .wa-no-note{flex:1;font-size:.7rem;color:var(--muted);line-height:1.5;}
 .wa-qr-badge{display:inline-flex;align-items:center;gap:2px;font-size:.68rem;font-weight:800;color:var(--blue);background:#eef4ff;border-radius:999px;padding:1px 6px;}
-.wa-qr-editor{padding:10px 12px;border-top:1px solid var(--brd);background:#fbfcfe;}
 .wa-qr-ed-head{display:flex;align-items:center;justify-content:space-between;font-size:.82rem;font-weight:800;color:var(--txt);margin-bottom:6px;}
 .wa-qr-ed-x{background:transparent;border:none;cursor:pointer;color:var(--muted);font-size:.9rem;font-weight:800;}
 .wa-qr-ed-text{width:100%;border:1px solid var(--brd);border-radius:10px;padding:7px 10px;font-family:inherit;font-size:.85rem;resize:vertical;background:#fff;color:var(--txt);}
@@ -108,10 +110,28 @@
 .wa-qr-ed-actions{display:flex;align-items:center;gap:8px;margin-top:8px;}
 .wa-qr-ed-add{padding:5px 10px;border:1px dashed var(--blue);border-radius:999px;background:#fff;cursor:pointer;font-size:.78rem;color:var(--blue);font-weight:700;font-family:inherit;}
 .wa-qr-ed-save{padding:5px 14px;border:none;border-radius:999px;background:var(--acc);color:#211300;cursor:pointer;font-size:.78rem;font-weight:800;font-family:inherit;}
-.wa-qr-staged{display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid var(--brd);background:#f4f8ff;}
-.wa-qr-staged-body{flex:1;min-width:0;display:flex;align-items:center;gap:6px;font-size:.78rem;color:var(--txt);}
-.wa-qr-staged-body img{width:30px;height:30px;border-radius:6px;object-fit:cover;border:1px solid var(--brd);}
-.wa-qr-staged-txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wa-qrm-open{margin-inline-start:auto;padding:5px 12px;border:1px solid var(--acc);border-radius:999px;background:#fff8e6;color:#8a5a00;cursor:pointer;font-size:.78rem;font-weight:800;font-family:inherit;white-space:nowrap;}
+.wa-qrm-open:hover{background:var(--acc);color:#211300;}
+/* نافذة «إضافة و تعديل رد محفوظ» — الغلاف .jt-bd/.jt-box من 20-orders-extras */
+.wa-qrm-box{max-width:620px;max-height:88vh;overflow-y:auto;text-align:start;}
+.wa-qrm-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 10px;}
+.wa-qrm-hint{font-size:.74rem;color:var(--muted);}
+.wa-qrm-list{display:flex;flex-direction:column;gap:6px;}
+.wa-qrm-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--brd);border-radius:12px;background:var(--card);}
+.wa-qrm-n{flex:0 0 22px;height:22px;border-radius:50%;background:var(--sur);display:inline-flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;color:var(--muted);}
+.wa-qrm-main{flex:1;min-width:0;}
+.wa-qrm-name{font-size:.86rem;font-weight:800;color:var(--txt);display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.wa-qrm-noname{font-size:.66rem;font-weight:700;color:var(--ora);border:1px dashed var(--ora);border-radius:999px;padding:0 6px;}
+.wa-qrm-prev{font-size:.76rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wa-qrm-acts{display:flex;gap:4px;flex:0 0 auto;}
+.wa-qrm-b{width:30px;height:30px;border:1px solid var(--brd);border-radius:8px;background:var(--sur);cursor:pointer;font-size:.8rem;color:var(--txt);font-family:inherit;}
+.wa-qrm-b:hover:not(:disabled){border-color:var(--blue);}
+.wa-qrm-b:disabled{opacity:.35;cursor:default;}
+.wa-qrm-del:hover:not(:disabled){border-color:var(--red);}
+.wa-qrm-form{display:flex;flex-direction:column;gap:6px;}
+.wa-qrm-lbl{font-size:.76rem;font-weight:800;color:var(--muted);margin-top:4px;}
+.wa-qrm-ph{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.1rem;}
+.wa-qrm-empty{padding:14px 4px;}
 .wa-qr-btn{background:transparent;border:none;cursor:pointer;font-size:1.15rem;padding:0 4px;color:var(--muted);}
 .wa-qr-btn:hover{color:var(--acc);}
 .wa-cmeta{border-bottom:1px solid var(--brd);background:#fff;padding:7px 14px;flex-shrink:0;}
@@ -219,6 +239,11 @@
     -webkit-overflow-scrolling:touch;padding-inline-start:0;border-inline-start:none;scrollbar-width:thin;}
   .wa-f-labels::-webkit-scrollbar{height:3px;}
   .wa-f-labels::-webkit-scrollbar-thumb{background:var(--brd2);border-radius:99px;}
+  /* زرار الإدارة مالوش مكان في شريط الموبايل (كان هيعمل صف تالت) — نفس
+     النافذة بتتفتح من «⚙️ إدارة الردود» في آخر صف الزراير تحت الكتابة */
+  .wa-qrm-open{display:none;}
+  .wa-qrm-row{flex-wrap:wrap;}
+  .wa-qrm-acts{margin-inline-start:32px;}
   .wa-list{width:100%;}
   .wa-chat{display:none;}
   .wa-wrap.show-chat .wa-list{display:none;}

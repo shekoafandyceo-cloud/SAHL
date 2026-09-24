@@ -1,49 +1,41 @@
-// الردود الجاهزة بصور — طلب المالك 16 سبتمبر
+// الردود المحفوظة — زراير باسم مختصر بتبعت بضغطة + نافذة إدارة (طلب المالك 24 سبتمبر)
 //
-// «امكانية عمل saved reply بصورتين وكلام زي الواتساب بيزنس، بدل ما احنا
-// عاملينها دلوقتي كلام بس.»
+// «الردود المحفوظة الي تحت تكون عبارة عن زراير عليها الاسم المختصر … ومجرد ما الموظف
+//  يدوس عليها يبعت الرد المحفوظ على طول سواء بصور او من غير» + «زرار "إضافة و تعديل رد
+//  محفوظ" … نحذف او نعدل … ونسجل الرد بأسم مختصر … ونعدل ترتيب الازرار».
 //
-// 🔴🔴 **العقد اتغيّر بعد تجربة حية (16 سبتمبر).** النسخة الأولى بعتت الصور
-// بالتسلسل وبعدها الكلام رسالة مستقلة — والمالك شاف عند العميل:
-// صورة ← كلام ← صورة. نداءاتنا كانت مرتبة (اتقاس من `wa_messages`:
-// 19:13:37 · 19:13:39 · 19:13:41) والترتيب اتقلب **عند ميتا**، وده موثّق:
-// «the order in which messages are delivered is not guaranteed to match
-//  the order of your API requests».
-// فالفحص القديم («مفيش caption» + «الكلام رسالة مستقلة») كان بيثبت إن
-// **نداءاتنا** مرتبة — حقيقي ومالوش علاقة باللي بيوصل للعميل (درس 26).
-// العقد الجديد: **الكلام caption على آخر صورة** فيستحيل يتوسط،
-// وفوق 1024 حرف (حد ميتا) بيرجع رسالة مستقلة.
-//
-// 🔴 والقرار التاني في التصميم: **مفيش إرسال بضغطة واحدة**. الرد بصور
-// بيتحط «محضّر» فوق خانة الكتابة والموظف بيدوس إرسال — زي الواتساب
-// بيزنس. ضغطة واحدة على شريحة كانت تبعت 3 رسايل لعميل حقيقي بلا رجعة.
+// 🔴 ده بيلغي قرار 16 سبتمبر («الرد بصور بيتحضّر مش بيتبعت بالضغطة») بطلب صريح من
+// المالك. الحراسات اللي كانت المعاينة بتديها اتنقلت للكود وبتتفحص هنا:
+//   قفل أثناء الإرسال · الزراير بتختفي والنافذة مقفولة · الهدف ثابت لحظة الضغط.
+// ومن قبل كده (فاضل زي ما هو — درس 46): **الكلام caption على آخر صورة**.
 //
 // اللي بيتفحص:
-//   1) الشريحة بتعرض شارة 📎N وعدد الصور
-//   2) رد صور بس (نص فاضي) بيعرض تسمية مفهومة مش شريحة فاضية
-//   3) 🔴 الضغط على رد بصور **مابيبعتش** — بيحضّر بس
-//   4) الضغط بيحط النص في الخانة والصور في الشريط المحضّر
-//   5) 🔴 الإرسال: الصور بالترتيب و**الكلام caption على آخر واحدة**
-//   6) 🔴 مسار الصورة في الرفع بيبدأ بمعرّف المتجر — عزل الـStorage
-//   7) 🔴 تبديل المحادثة بيصفّر الرد المحضّر (فخ «الاقتباس اللزق»)
-//   8) اختيار مرفق بالإيد بيلغي الرد المحضّر (نيّتين على نفس الضغطة)
-//   9) رد نصي عادي لسه بيشتغل زي ما هو — بيتحط في الخانة من غير تحضير
-//  10) المحرر: سقف 5 صور · شيل صورة · حفظ من غير نص ولا صور مرفوض
-//  11) hit-test على الشريحة (درس 31/35)
-//  12) 🔴 حارس `bad_media_path` في `wa-send` — فحص منطق خالص على الكود
-//      المنشور نفسه (نفس أسلوب فحص `keep()` في إصلاح 14 سبتمبر)
-//  13) معايرات:
-//      (أ) خلي الضغط يبعت على طول      → فحص 3 يقع
-//      (ب) ابعت الصور بالتوازي         → فحص 5 يقع
-//      (هـ) رجّع الكلام رسالة مستقلة     → فحص 5ج/5د يقعوا
-//      (ج) شيل تصفير تبديل المحادثة    → فحص 7 يقع
-//      (د) شيل بادئة المتجر من المسار  → فحص 6 يقع + الحارس بيرفض
+//   1) الزراير: الاسم المختصر · شارة 📎N · رد قديم من غير اسم بياخد أول كلامه
+//   2) الصف مفتوح افتراضياً (مش ورا ⚡) + hit-test
+//   3) 🔴 ضغطة واحدة = الرد كله: الصور بالترتيب والكلام caption على آخر واحدة
+//   4) خانة الكتابة مابتتلمسش (الموظف ممكن يكون في نص رسالة)
+//   5) 🔴 ضغطتين ورا بعض = رد واحد (قفل أثناء الإرسال)
+//   6) 🔴 تبديل المحادثة في النص: كل الأجزاء بتروح للمحادثة اللي اتداس فيها
+//   7) 🔴 النافذة مقفولة = مفيش زراير
+//   8) رد نصي = رسالة نص واحدة
+//   9) ⚡ بيطوي الصف والاختيار بيتفتكر بعد الريفريش
+//  10) النافذة من زرار شريط الفلاتر: القايمة بالترتيب + hit-test
+//  11) رد جديد: الاسم إجباري · الرفع مرة واحدة بمسار المتجر · الحمولة كاملة · الزرار ظهر
+//  12) تعديل: الاسم والنص · والصور الموجودة بتتشال/تفضل
+//  13) 🔴 الترتيب: ▼ بيغيّر الزراير تحت وبيتكتب في sort
+//  14) الحذف بتأكيد: «إلغاء» مابيحذفش · «احذف» بيحذف
+//  15) موبايل: زرار الشريط مخفي و«⚙️ إدارة الردود» بيفتح نفس النافذة
+//  16) حارس `bad_media_path` في `wa-send` (منطق خالص على الكود المنشور)
+//  17) نص فوق 1024 حرف = رسالة مستقلة (ميتا بترفض caption أطول)
+// المعايرات (كل واحدة بحارس «المرساة اتلقت» — درس 47):
+//   (أ) شيل القفل → 5 · (ب) صور بالتوازي → 3 · (ج) وقف عند تبديل المحادثة → 6 ·
+//   (د) شيل بادئة المتجر → 11 · (هـ) الكلام رسالة مستقلة → 3 · (و) شيل إخفاء النافذة → 7 ·
+//   (ز) الترتيب مايتكتبش → 13
 import { chromium } from 'playwright';
 import fs from 'fs';
 
 const STUB = fs.readFileSync(new URL('./stub.js', import.meta.url), 'utf8');
 const ORIGIN = process.env.APP_ORIGIN || 'http://127.0.0.1:8899';
-
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
 let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if (!c) bad++; };
@@ -51,45 +43,52 @@ const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if (!c) bad++; };
 const TENANT = 't-test-1';
 const now = Date.now();
 const iso = (minsAgo) => new Date(now - minsAgo * 60000).toISOString();
-
 const P1 = TENANT + '/quick-replies/a1.jpg';
 const P2 = TENANT + '/quick-replies/a2.jpg';
-// صورة PNG حقيقية 1×1 — الفحص بيتأكد من `naturalWidth>0` مش من وجود الوسم
 const PIX = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+const PNG = Buffer.from(PIX.split(',')[1], 'base64');
 
+// q1 رد قديم من غير اسم (زي الـ4 اللي على الحي) · q2 باسم وصورتين · q3 صور بس
 const QR = [
-  { id: 'q1', tenant_id: TENANT, body: 'أهلاً بحضرتك 👋', media: [] },
-  { id: 'q2', tenant_id: TENANT, body: 'دي صور المنتج والسعر 350ج',
-    media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' },
-            { path: P2, mime: 'image/jpeg', name: 'a2.jpg' }] },
-  { id: 'q3', tenant_id: TENANT, body: '',
-    media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' }] }
+  { id: 'q1', tenant_id: TENANT, title: null, body: 'أهلاً بحضرتك 👋 نورتنا', media: [], sort: 0 },
+  { id: 'q2', tenant_id: TENANT, title: 'تيربو', body: 'دي صور المنتج والسعر 350ج', sort: 1,
+    media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' }, { path: P2, mime: 'image/jpeg', name: 'a2.jpg' }] },
+  { id: 'q3', tenant_id: TENANT, title: null, body: '', sort: 2, media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' }] }
 ];
-
-const CONVOS = [1, 2].map(n => ({
+// c3 نافذته قفلت (آخر رسالة من العميل من 30 ساعة)
+const CONVOS = [[1, 1], [2, 2], [3, 30 * 60]].map(([n, ago]) => ({
   id: 'c' + n, tenant_id: TENANT, wa_id: '20100000' + n, customer_name: 'عميل ' + n,
-  customer_phone: '20100000' + n, last_message_at: iso(n), last_inbound_at: iso(n),
+  customer_phone: '20100000' + n, last_message_at: iso(n), last_inbound_at: iso(ago),
   last_message_text: 'أهلاً', last_direction: 'in', unread_count: 0, status: 'open',
   labels: null, note: null, ctwa_first_at: null, ctwa_ad_id: null, ctwa_clid: null,
   ctwa_ad_body: null, ctwa_headline: null, ctwa_source_url: null
 }));
-
 const MSGS = CONVOS.map((c, i) => ({
   id: 'm' + i, tenant_id: TENANT, conversation_id: c.id, direction: 'in', type: 'text',
-  body: 'أهلاً', is_read: true, created_at: iso(1), wa_timestamp: iso(1),
-  status: null, wa_message_id: 'wamid-' + i
+  body: 'أهلاً', is_read: true, created_at: iso(1), wa_timestamp: iso(1), status: null, wa_message_id: 'wamid-' + i
 }));
+
+// المعايرة: بتعدّل موديول الإنبوكس وبترمي لو المرساة مااتلقتش (درس 47)
+const patchInbox = (pairs) => async r => {
+  const res = await r.fetch();
+  let body = await res.text();
+  for (const [a, c] of pairs) {
+    const before = body;
+    body = body.replace(a, c);
+    if (body === before) throw new Error('المعايرة مالقتش المرساة: ' + String(a).slice(0, 60));
+  }
+  await r.fulfill({ response: res, body });
+};
 
 async function openInbox(opts) {
   opts = opts || {};
-  const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  const ctx = await b.newContext({ viewport: opts.mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
   await ctx.addInitScript(`
     window.__WA_CONVOS = ${JSON.stringify(CONVOS)};
     window.__WA_MSGS   = ${JSON.stringify(MSGS)};
-    window.__QR        = ${JSON.stringify(opts.qr || QR)};
+    if(!window.__QR) window.__QR = ${JSON.stringify(opts.qr || QR)};
     window.__MEDIA     = { ${JSON.stringify(P1)}: ${JSON.stringify(PIX)}, ${JSON.stringify(P2)}: ${JSON.stringify(PIX)} };
     window.__UPLOAD_OK = true;
-    // كل نداء لـwa-send بيتسجّل بترتيبه ووقته — الترتيب هو جوهر الفحص
     window.__SENT = [];
     window.__FN = function(slug, body){
       window.__SENT.push({ slug: slug, body: body, at: performance.now() });
@@ -102,16 +101,16 @@ async function openInbox(opts) {
     };
   `);
   await ctx.addInitScript(STUB);
-  if (opts.routeInbox) await ctx.route('**/js/inbox/inbox.js', opts.routeInbox);
+  if (opts.patch) await ctx.route('**/js/inbox/inbox.js', patchInbox(opts.patch));
   const p = await ctx.newPage();
   p.on('pageerror', e => { console.log('  ✗ pageerror:', e.message); bad++; });
   await p.goto(ORIGIN + '/chats', { waitUntil: 'networkidle' });
   await p.waitForSelector('#page-inbox', { state: 'visible', timeout: 10000 });
   await p.waitForSelector('#wa-list-body .wa-conv', { timeout: 8000 });
-  await p.click('.wa-conv[data-id="c1"]');
-  await p.waitForTimeout(400);
-  await p.click('#wa-qr-btn');          // افتح لوحة الردود
-  await p.waitForTimeout(250);
+  if (opts.conv !== false) {
+    await p.click('.wa-conv[data-id="' + (opts.conv || 'c1') + '"]');
+    await p.waitForTimeout(400);
+  }
   return p;
 }
 
@@ -125,330 +124,273 @@ const hitTest = (p, sel) => p.evaluate(async (s) => {
   const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
   return (top && (top === el || el.contains(top) || top.contains(el))) ? 'ظاهر' : 'مدفون تحت ' + (top ? top.className || top.tagName : 'null');
 }, sel);
+const chips = p => p.evaluate(() => Array.from(document.querySelectorAll('#wa-qr-panel .wa-qr')).map(e => ({
+  id: e.getAttribute('data-qid'), badge: (e.querySelector('.wa-qr-badge') || {}).textContent || '',
+  txt: ((e.querySelector('.wa-qr-txt') || {}).textContent || '').trim() })));
+const sentList = p => p.evaluate(() => window.__SENT.map(s => ({
+  conv: s.body.conversation_id, img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null })));
+const panelShown = p => p.evaluate(() => { const x = document.getElementById('wa-qr-panel'); return !!x && getComputedStyle(x).display !== 'none'; });
+const qrCalls = (p, pred) => p.evaluate(src => { const f = eval(src); return (window.__calls || []).filter(c => c.table === 'wa_quick_replies').filter(f); }, String(pred));
 
-const staged = (p) => p.evaluate(() => {
-  const bar = document.getElementById('wa-qr-staged');
-  if (!bar) return null;
-  const imgs = Array.from(bar.querySelectorAll('img'));
-  return {
-    shown: getComputedStyle(bar).display !== 'none',
-    txt: (document.getElementById('wa-qr-staged-body') || {}).textContent || '',
-    imgs: imgs.length,
-    loaded: imgs.filter(i => i.naturalWidth > 0).length
-  };
-});
-
-// ════════════════ الشرايح والتحضير ════════════════
+// ════ 1–4 · 8: الزراير والإرسال بضغطة ════
 {
   const p = await openInbox();
-  console.log('──── الشرايح ────');
+  console.log('──── الزراير ────');
+  const cs = await chips(p);
+  ok(cs.length === 3, `1أ) التلات ردود ظهروا كزراير: ${cs.length}`);
+  const q2 = cs.find(c => c.id === 'q2'), q1 = cs.find(c => c.id === 'q1'), q3 = cs.find(c => c.id === 'q3');
+  ok(q2 && q2.txt === 'تيربو' && q2.badge.indexOf('2') >= 0, `1ب) الزرار بالاسم المختصر وشارة الصور: «${q2 && q2.txt}» ${q2 && q2.badge}`);
+  ok(q1 && q1.txt.indexOf('أهلاً بحضرتك') === 0 && !q1.badge, `1ج) رد قديم من غير اسم بياخد أول كلامه: «${q1 && q1.txt}»`);
+  ok(q3 && q3.txt.length > 1 && q3.badge.indexOf('1') >= 0, `1د) رد صور بس ليه تسمية: «${q3 && q3.txt}»`);
+  ok(await panelShown(p), '2أ) صف الزراير ظاهر من غير ما حد يدوس ⚡');
+  ok(await hitTest(p, '.wa-qr[data-qid="q2"]') === 'ظاهر', '2ب) hit-test: الزرار مش مدفون');
 
-  const chips = await p.evaluate(() =>
-    Array.from(document.querySelectorAll('#wa-qr-panel .wa-qr')).map(e => ({
-      id: e.getAttribute('data-qid'),
-      badge: (e.querySelector('.wa-qr-badge') || {}).textContent || '',
-      txt: (e.querySelector('.wa-qr-txt') || {}).textContent || ''
-    })));
-  ok(chips.length === 3, `1أ) التلات ردود ظهروا`);
-  const q2 = chips.filter(c => c.id === 'q2')[0];
-  ok(q2 && q2.badge.indexOf('2') >= 0, `1ب) شارة عدد الصور على الرد بصور: «${q2 && q2.badge}»`);
-  const q1 = chips.filter(c => c.id === 'q1')[0];
-  ok(q1 && !q1.badge, '1ج) الرد النصي من غير شارة');
-  const q3 = chips.filter(c => c.id === 'q3')[0];
-  // 🔴 رد صور بس: النص فاضي في الداتابيز عن قصد — شريحة فاضية = شريحة
-  // مايعرفش حد هي إيه
-  ok(q3 && q3.txt.trim().length > 1 && q3.badge.indexOf('1') >= 0,
-     `2) رد الصور بس ليه تسمية مفهومة: «${q3 && q3.txt}»`);
-
-  ok(await hitTest(p, '.wa-qr[data-qid="q2"]') === 'ظاهر', '11) hit-test: الشريحة مش مدفونة');
-
-  console.log('──── التحضير مش الإرسال ────');
+  console.log('──── ضغطة واحدة = الرد كله ────');
+  await p.fill('#wa-input', 'مسودة الموظف');
   await p.click('.wa-qr[data-qid="q2"]');
-  await p.waitForTimeout(600);
+  await p.waitForTimeout(900);
+  const sent = await sentList(p);
+  ok(sent.length === 2, `3أ) 🔴 الضغطة بعتت الرد على طول — رسالتين (صورتين والكلام راكب التانية): ${sent.length}`);
+  ok(sent[0] && sent[0].img === P1 && sent[1] && sent[1].img === P2, '3ب) 🔴 الصور بالترتيب المحفوظ');
+  ok(!sent.some(m => m.text && !m.img), '3ج) 🔴 مفيش رسالة نص لوحدها — الكلام مايقدرش يتوسط الصور');
+  ok(sent[1] && sent[1].cap === 'دي صور المنتج والسعر 350ج' && !sent[0].cap, '3د) 🔴 الكلام caption على **آخر** صورة بس');
+  ok(sent.every(m => m.conv === 'c1'), '3هـ) كله راح للمحادثة المفتوحة');
+  ok(await p.inputValue('#wa-input') === 'مسودة الموظف', '4) خانة الكتابة مااتلمستش');
 
-  const sentNow = await p.evaluate(() => window.__SENT.length);
-  ok(sentNow === 0, `3) 🔴 الضغط على الشريحة مابعتش أي رسالة (${sentNow})`);
-
-  const st = await staged(p);
-  ok(st && st.shown, '4أ) الشريط المحضّر ظهر');
-  ok(st && st.imgs === 2 && st.loaded === 2,
-     `4ب) ومعاه مصغّرتين محمّلتين فعلاً (naturalWidth>0): ${st && st.loaded}/2`);
-  const inputVal = await p.evaluate(() => document.getElementById('wa-input').value);
-  ok(inputVal.indexOf('350ج') >= 0, `4ج) والنص اتحط في خانة الكتابة — قابل للتعديل`);
-
-  console.log('──── الإرسال ────');
-  // الموظف بيعدّل النص قبل الإرسال — ده السبب إن النص بيروح للخانة
-  await p.evaluate(() => { document.getElementById('wa-input').value = 'السعر 320ج بعد الخصم'; });
-  await p.click('#wa-send-btn');
-  await p.waitForTimeout(1200);
-
-  const sent = await p.evaluate(() => window.__SENT.map(s => ({
-    img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null
-  })));
-  // 🔴 رسالتين مش تلاتة — الكلام جزء من آخر صورة
-  ok(sent.length === 2, `5أ) اتبعت رسالتين بس (صورتين والكلام راكب التانية): ${sent.length}`);
-  ok(sent[0] && sent[0].img === P1 && sent[1] && sent[1].img === P2,
-     `5ب) 🔴 الصور بالترتيب اللي الموظف شافه`);
-  // 🔴 الفحص الحاكم: الكلام **مستحيل** يبقى رسالة لوحده — لأنه لو كده
-  // ميتا ممكن تسلّمه في نص الصور (اللي حصل فعلاً في التجربة الحية)
-  ok(!sent.some(m => m.text && !m.img),
-     '5ج) 🔴 مفيش أي رسالة نص لوحدها — الكلام مايقدرش يتوسط الصور');
-  ok(sent[1] && sent[1].cap === 'السعر 320ج بعد الخصم' && !sent[0].cap,
-     `5د) 🔴 والكلام caption على **آخر** صورة بس: «${sent[1] && sent[1].cap}»`);
-  const after = await staged(p);
-  ok(after && !after.shown, '5هـ) والشريط المحضّر اتصفّر بعد الإرسال');
-
-  await p.close();
-}
-
-// ════ 6 · 10 — المحرر والرفع ════
-{
-  const p = await openInbox();
-  console.log('──── المحرر ────');
-  await p.click('#wa-qr-new-media');
-  await p.waitForTimeout(250);
-  const edOpen = await p.evaluate(() =>
-    getComputedStyle(document.getElementById('wa-qr-editor')).display !== 'none');
-  ok(edOpen, '10أ) المحرر اتفتح');
-
-  // حفظ فاضي مرفوض
-  await p.click('#wa-qr-ed-save');
-  await p.waitForTimeout(300);
-  const savedEmpty = await p.evaluate(() =>
-    (window.__calls || []).filter(c => c.table === 'wa_quick_replies' && c.payload).length);
-  ok(savedEmpty === 0, '10ب) حفظ من غير نص ولا صور مرفوض — مفيش أي إدخال');
-
-  // ضيف صورتين
-  const png = Buffer.from(PIX.split(',')[1], 'base64');
-  for (const n of ['x1.png', 'x2.png']) {
-    await p.setInputFiles('#wa-qr-ed-file', { name: n, mimeType: 'image/png', buffer: png });
-    await p.waitForTimeout(200);
-  }
-  const thumbs = await p.evaluate(() => document.querySelectorAll('#wa-qr-ed-thumbs .wa-qr-thumb').length);
-  ok(thumbs === 2, `10ج) المصغّرات ظهرت في المحرر: ${thumbs}`);
-
-  // شيل واحدة
-  await p.click('#wa-qr-ed-thumbs .wa-qr-thumb-x');
-  await p.waitForTimeout(200);
-  const thumbs2 = await p.evaluate(() => document.querySelectorAll('#wa-qr-ed-thumbs .wa-qr-thumb').length);
-  ok(thumbs2 === 1, `10د) شيل صورة شغال: ${thumbs2}`);
-
-  await p.evaluate(() => { document.getElementById('wa-qr-ed-text').value = 'رد جديد بصورة'; });
-  await p.click('#wa-qr-ed-save');
-  await p.waitForTimeout(800);
-
-  const ups = await p.evaluate(() => window.__UPLOADS || []);
-  ok(ups.length === 1, `6أ) الصورة اترفعت مرة واحدة وقت الحفظ (${ups.length}) — مش مع كل إرسال`);
-  // 🔴 عزل الـStorage بيعتمد على **أول مجلد** = معرّف المتجر، وحارس
-  // `wa-send` v8 بيرفض أي مسار مش مبتدي بيه
-  ok(ups[0] && ups[0].indexOf(TENANT + '/') === 0,
-     `6ب) 🔴 المسار بيبدأ بمعرّف المتجر: «${ups[0]}»`);
-  ok(ups[0] && ups[0].indexOf('/quick-replies/') > 0,
-     `6ج) وتحت مجلد الردود الجاهزة — مش جوّه مجلد محادثة`);
-
-  const payload = await p.evaluate(() =>
-    (window.__calls || []).filter(c => c.table === 'wa_quick_replies' && c.payload).map(c => c.payload)[0]);
-  ok(payload && payload.media && payload.media.length === 1 && payload.media[0].path === ups[0],
-     `10هـ) الحفظ بعت المسار في العمود media`);
-  ok(payload && payload.body === 'رد جديد بصورة', '10و) والنص اتبعت معاه');
-
-  await p.close();
-}
-
-// ════ 7 · 8 · 9 — التصفير والتعارض ════
-{
-  const p = await openInbox();
-  console.log('──── التصفير ────');
-  await p.click('.wa-qr[data-qid="q2"]');
-  await p.waitForTimeout(500);
-  ok((await staged(p)).shown, '7أ) الرد محضّر');
-
-  // 🔴 تبديل المحادثة: تختار رد بصور، تفتح محادثة تانية، تدوس إرسال —
-  // فيروح لعميل تاني خالص. والسيرفر **مش** هيرفضه (نفس المتجر).
-  await p.click('.wa-conv[data-id="c2"]');
-  await p.waitForTimeout(500);
-  const afterSwitch = await staged(p);
-  ok(afterSwitch && !afterSwitch.shown,
-     '7ب) 🔴 تبديل المحادثة صفّر الرد المحضّر');
-
-  // 8) مرفق بالإيد بيلغي الرد المحضّر
-  await p.click('.wa-qr[data-qid="q2"]');
-  await p.waitForTimeout(400);
-  const png = Buffer.from(PIX.split(',')[1], 'base64');
-  await p.setInputFiles('#wa-file', { name: 'manual.png', mimeType: 'image/png', buffer: png });
-  await p.waitForTimeout(300);
-  const afterPick = await staged(p);
-  ok(afterPick && !afterPick.shown,
-     '8) اختيار مرفق بالإيد ألغى الرد المحضّر — نيّة واحدة مش اتنين');
-
-  // 9) رد نصي عادي: بيتحط في الخانة وخلاص
-  await p.click('#wa-qr-btn'); await p.waitForTimeout(200);
-  await p.click('#wa-qr-btn'); await p.waitForTimeout(200);
+  await p.evaluate(() => { window.__SENT.length = 0; });
   await p.click('.wa-qr[data-qid="q1"]');
-  await p.waitForTimeout(400);
-  const v = await p.evaluate(() => document.getElementById('wa-input').value);
-  const st9 = await staged(p);
-  ok(v.indexOf('أهلاً بحضرتك') >= 0 && !st9.shown,
-     '9) الرد النصي لسه بيشتغل زي ما هو — في الخانة من غير تحضير');
-
+  await p.waitForTimeout(600);
+  const s8 = await sentList(p);
+  ok(s8.length === 1 && s8[0].text === 'أهلاً بحضرتك 👋 نورتنا' && !s8[0].img, `8) الرد النصي = رسالة نص واحدة: ${s8.length}`);
   await p.close();
 }
 
-// ════ 12 — حارس `bad_media_path` على الكود المنشور ════
+// ════ 5 · 6: القفل والهدف الثابت ════
+{
+  console.log('──── القفل والهدف ────');
+  const p = await openInbox({ fnDelayMs: 150 });
+  await p.evaluate(() => { const b = document.querySelector('.wa-qr[data-qid="q2"]'); b.click(); b.click(); });
+  await p.waitForTimeout(1000);
+  const n5 = (await sentList(p)).length;
+  ok(n5 === 2, `5) 🔴 ضغطتين ورا بعض = رد واحد (رسالتين مش أربعة): ${n5}`);
+
+  await p.evaluate(() => { window.__SENT.length = 0; });
+  await p.click('.wa-qr[data-qid="q2"]');
+  await p.waitForTimeout(40);
+  await p.click('.wa-conv[data-id="c2"]');
+  await p.waitForTimeout(1000);
+  const s6 = await sentList(p);
+  ok(s6.length === 2 && s6.every(m => m.conv === 'c1'),
+     `6) 🔴 تبديل المحادثة في النص: الرد كمل كله لنفس العميل (${s6.length} · ${[...new Set(s6.map(m => m.conv))].join(',')})`);
+  await p.close();
+}
+
+// ════ 7 · 9: النافذة المقفولة والطيّ ════
+{
+  console.log('──── النافذة والطيّ ────');
+  const p = await openInbox({ conv: 'c3' });
+  ok(!(await panelShown(p)), '7) 🔴 النافذة مقفولة = مفيش زراير بتبعت');
+  await p.click('.wa-conv[data-id="c1"]');
+  await p.waitForTimeout(400);
+  ok(await panelShown(p), '7ب) ورجعت لما فتحنا محادثة نافذتها مفتوحة');
+  await p.click('#wa-qr-btn');
+  await p.waitForTimeout(200);
+  const col = await p.evaluate(() => ({ shown: getComputedStyle(document.getElementById('wa-qr-panel')).display !== 'none',
+    key: localStorage.getItem('sahl_qr_collapsed') }));
+  ok(!col.shown && col.key === '1', '9أ) ⚡ طوى الصف واتفتكر');
+  await p.reload({ waitUntil: 'networkidle' });
+  await p.waitForSelector('#wa-list-body .wa-conv', { timeout: 8000 });
+  await p.click('.wa-conv[data-id="c1"]');
+  await p.waitForTimeout(400);
+  ok(!(await panelShown(p)), '9ب) وبعد الريفريش فضل مطوي');
+  await p.close();
+}
+
+// ════ 10–14: نافذة الإدارة ════
+{
+  console.log('──── نافذة «إضافة و تعديل رد محفوظ» ────');
+  const p = await openInbox();
+  ok(await hitTest(p, '#wa-qrm-open') === 'ظاهر', '10أ) زرار الشريط ظاهر ومش مدفون');
+  await p.click('#wa-qrm-open');
+  await p.waitForTimeout(300);
+  const rows = () => p.evaluate(() => Array.from(document.querySelectorAll('#wa-qrm .wa-qrm-row')).map(r => r.getAttribute('data-id')));
+  ok(JSON.stringify(await rows()) === '["q1","q2","q3"]', `10ب) النافذة اتفتحت بالقايمة بالترتيب: ${await rows()}`);
+
+  // 11) رد جديد
+  await p.click('#wa-qrm-new');
+  await p.fill('#wa-qrm-text', 'السعر النهاردة 499ج');
+  await p.click('#wa-qrm-save');
+  await p.waitForTimeout(300);
+  ok((await qrCalls(p, 'c => c.inserted')).length === 0, '11أ) من غير اسم مختصر الحفظ اترفض — مفيش إدخال');
+  await p.fill('#wa-qrm-name', 'عرض');
+  for (const n of ['x1.png', 'x2.png']) { await p.setInputFiles('#wa-qrm-file', { name: n, mimeType: 'image/png', buffer: PNG }); await p.waitForTimeout(150); }
+  await p.click('#wa-qrm-thumbs .wa-qr-thumb-x');
+  await p.waitForTimeout(150);
+  ok(await p.evaluate(() => document.querySelectorAll('#wa-qrm-thumbs .wa-qr-thumb').length) === 1, '11ب) إضافة صورتين وشيل واحدة');
+  await p.click('#wa-qrm-save');
+  await p.waitForTimeout(700);
+  const ups = await p.evaluate(() => window.__UPLOADS || []);
+  ok(ups.length === 1 && ups[0].indexOf(TENANT + '/quick-replies/') === 0, `11ج) 🔴 صورة واحدة اترفعت بمسار المتجر: «${ups[0]}»`);
+  const ins = (await qrCalls(p, 'c => c.inserted'))[0];
+  const pl = ins && ins.payload;
+  ok(pl && pl.title === 'عرض' && pl.body === 'السعر النهاردة 499ج' && pl.media.length === 1 && pl.media[0].path === ups[0] && pl.sort === 3,
+     `11د) الحمولة: الاسم والنص والصورة وآخر ترتيب (${pl && pl.sort})`);
+  const cs11 = await chips(p);
+  ok(cs11.length === 4 && cs11[3].txt === 'عرض', '11هـ) الزرار الجديد ظهر تحت بالاسم في الآخر');
+
+  // 12) تعديل q1 (من غير اسم) → اسم
+  await p.click('#wa-qrm .wa-qrm-row[data-id="q1"] [data-ed]');
+  await p.waitForTimeout(200);
+  const pre = await p.evaluate(() => ({ n: document.getElementById('wa-qrm-name').value, t: document.getElementById('wa-qrm-text').value }));
+  ok(pre.n === '' && pre.t.indexOf('أهلاً بحضرتك') === 0, '12أ) فورم التعديل اتعبّى بالرد (والاسم فاضي للقديم)');
+  await p.fill('#wa-qrm-name', 'ترحيب');
+  await p.click('#wa-qrm-save');
+  await p.waitForTimeout(400);
+  const qr1 = await p.evaluate(() => window.__QR.find(q => q.id === 'q1'));
+  ok(qr1 && qr1.title === 'ترحيب' && qr1.body.indexOf('أهلاً') === 0, '12ب) التعديل اتكتب في الصف');
+  ok((await chips(p)).find(c => c.id === 'q1').txt === 'ترحيب', '12ج) والزرار اتسمّى');
+  // تعديل صور q2: شيل الأولى
+  await p.click('#wa-qrm .wa-qrm-row[data-id="q2"] [data-ed]');
+  await p.waitForTimeout(400);
+  ok(await p.evaluate(() => document.querySelectorAll('#wa-qrm-thumbs .wa-qr-thumb img').length) === 2, '12د) صور الرد الموجود ظهرت في التعديل');
+  await p.click('#wa-qrm-thumbs .wa-qr-thumb-x');
+  await p.click('#wa-qrm-save');
+  await p.waitForTimeout(400);
+  const qr2 = await p.evaluate(() => window.__QR.find(q => q.id === 'q2'));
+  ok(qr2 && qr2.media.length === 1 && qr2.media[0].path === P2 && qr2.title === 'تيربو', '12هـ) شيل صورة من رد موجود اتحفظ والباقي زي ما هو');
+
+  // 13) الترتيب
+  await p.click('#wa-qrm .wa-qrm-row[data-id="q1"] [data-mv="1"]');
+  await p.waitForTimeout(400);
+  ok(JSON.stringify((await rows()).slice(0, 3)) === '["q2","q1","q3"]', '13أ) ▼ نزّل الرد في القايمة');
+  ok(JSON.stringify((await chips(p)).map(c => c.id).slice(0, 3)) === '["q2","q1","q3"]', '13ب) 🔴 والزراير تحت اترتبت زيها');
+  const sorts = await p.evaluate(() => Object.fromEntries(window.__QR.map(q => [q.id, q.sort])));
+  ok(sorts.q2 === 0 && sorts.q1 === 1 && sorts.q3 === 2, `13ج) 🔴 الترتيب اتكتب في sort: ${JSON.stringify(sorts)}`);
+
+  // 14) الحذف بتأكيد
+  await p.click('#wa-qrm .wa-qrm-row[data-id="q3"] [data-del]');
+  await p.waitForTimeout(200);
+  ok(await p.evaluate(() => getComputedStyle(document.getElementById('cmodal-backdrop')).display !== 'none'), '14أ) الحذف بيطلب تأكيد');
+  await p.click('#cmodal-cancel');
+  await p.waitForTimeout(200);
+  ok((await qrCalls(p, 'c => c.deleted')).length === 0, '14ب) «إلغاء» مابيحذفش');
+  await p.click('#wa-qrm .wa-qrm-row[data-id="q3"] [data-del]');
+  await p.waitForTimeout(200);
+  await p.click('#cmodal-ok');
+  await p.waitForTimeout(400);
+  ok((await qrCalls(p, 'c => c.deleted && c.eqId === "q3"')).length === 1 && !(await chips(p)).some(c => c.id === 'q3'),
+     '14ج) «احذف» حذف الرد والزرار اختفى');
+  await p.close();
+}
+
+// ════ 15: موبايل ════
+{
+  console.log('──── موبايل ────');
+  const p = await openInbox({ mobile: true, conv: false });
+  ok(await p.evaluate(() => { const x = document.getElementById('wa-qrm-open'); return !x || getComputedStyle(x).display === 'none'; }),
+     '15أ) زرار الشريط مخفي على الموبايل (كان هيعمل صف تالت)');
+  await p.click('.wa-conv[data-id="c1"]');
+  await p.waitForTimeout(400);
+  await p.click('#wa-qr-manage');
+  await p.waitForTimeout(300);
+  ok(await p.evaluate(() => document.getElementById('wa-qrm').classList.contains('open')), '15ب) «⚙️ إدارة الردود» فتح نفس النافذة');
+  await p.close();
+}
+
+// ════ 16 — حارس `bad_media_path` على الكود المنشور ════
 {
   console.log('──── حارس مسار الميديا (wa-send) ────');
   const src = fs.readFileSync(new URL('../supabase/functions/wa-send/index.ts', import.meta.url), 'utf8');
-  const m = src.match(/const mediaPath = imagePath \|\| documentPath;[\s\S]*?\n    \}\n/);
-  ok(!!m, '12أ) الحارس موجود في المصدر');
-  // منطق خالص منقول **حرفياً** من المنشور (نفس أسلوب فحص `keep()` — إصلاح
-  // 14 سبتمبر): بنعيد بناء الشرط ونجرّبه بحمولات حقيقية
+  ok(/const mediaPath = imagePath \|\| documentPath;[\s\S]*?\n    \}\n/.test(src), '16أ) الحارس موجود في المصدر');
   const guard = (mediaPath, tenantId) => {
     if (!mediaPath) return true;
     const prefix = `${tenantId}/`;
     if (typeof mediaPath !== 'string' || !mediaPath.startsWith(prefix) || mediaPath.includes('..')) return false;
     return true;
   };
-  const T = '9c58b214-f11d-4de5-afc7-a0de0b903f36';
-  const OTHER = '46ca1812-cc56-439f-8787-88dda983cf76';
-  ok(guard(T + '/c1/out-1.jpg', T), '12ب) مرفق المحادثة العادي بيعدّي');
-  ok(guard(T + '/quick-replies/a1.jpg', T), '12ج) صورة الرد الجاهز بتعدّي');
-  ok(!guard(OTHER + '/c9/out-1.jpg', T), '12د) 🔴 مسار متجر تاني **بيترفض**');
-  ok(!guard('../' + OTHER + '/x.jpg', T), '12هـ) 🔴 ومسار فيه .. بيترفض');
-  ok(!guard(T + 'x/evil.jpg', T), '12و) 🔴 وبادئة شبه مطابقة من غير سلاش بتترفض');
-  ok(guard(null, T), '12ز) رسالة نص من غير ميديا مش متأثرة');
+  const T = '9c58b214-f11d-4de5-afc7-a0de0b903f36', OTHER = '46ca1812-cc56-439f-8787-88dda983cf76';
+  ok(guard(T + '/quick-replies/a1.jpg', T), '16ب) صورة الرد المحفوظ بتعدّي');
+  ok(!guard(OTHER + '/c9/out-1.jpg', T), '16ج) 🔴 مسار متجر تاني بيترفض');
+  ok(!guard('../' + OTHER + '/x.jpg', T) && !guard(T + 'x/evil.jpg', T), '16د) 🔴 و«..» والبادئة الشبه مطابقة بيترفضوا');
+}
+
+// ════ 17 — نص فوق 1024 ════
+{
+  const LONG = 'ن'.repeat(1100);
+  const p = await openInbox({ qr: [{ id: 'q2', tenant_id: TENANT, title: 'طويل', body: LONG, sort: 0,
+    media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' }, { path: P2, mime: 'image/jpeg', name: 'a2.jpg' }] }] });
+  await p.click('.wa-qr[data-qid="q2"]');
+  await p.waitForTimeout(900);
+  const s = await sentList(p);
+  ok(s.length === 3 && !s.some(m => m.cap) && s[2].text && s[2].text.length > 1024,
+     `17) نص فوق 1024 حرف رجع رسالة مستقلة (${s.length} رسايل) — ميتا مابترفضوش`);
+  await p.close();
 }
 
 // ════════════════ المعايرات ════════════════
 console.log('──── المعايرات ────');
-
-// (أ) خلي الضغط يبعت على طول → فحص 3 لازم يقع
-{
-  const p = await openInbox({
-    routeInbox: async r => {
-      const res = await r.fetch();
-      let body = await res.text();
-      body = body.replace('  waPendingQr={ id:item.id, media:med.slice() };\n  waRenderPendingQr();',
-                          '  waPendingQr={ id:item.id, media:med.slice() };\n  waSendQuickReply(String(item.body==null?"":item.body));');
-      await r.fulfill({ response: res, body });
-    }
-  });
+{ // (أ) شيل القفل → 5
+  const p = await openInbox({ fnDelayMs: 150, patch: [['if(!item || !sb || !waActiveId || waQrSending) return;', 'if(!item || !sb || !waActiveId) return;']] });
+  await p.evaluate(() => { const b = document.querySelector('.wa-qr[data-qid="q2"]'); b.disabled = false; b.click(); b.disabled = false; b.click(); });
+  await p.waitForTimeout(1000);
+  const n = (await sentList(p)).length;
+  ok(n === 4, `معايرة أ: من غير القفل ضغطتين = ${n} رسايل — فحص 5 بيمسكها`);
+  await p.close();
+}
+{ // (ب) الصور بالتوازي → 3ب
+  const p = await openInbox({ fnDelayMs: 120, patch: [[
+    '    sb.functions.invoke(\'wa-send\',{body:payload}).then(function(res){\n      var d=(res&&res.data)?res.data:null;\n      if(!d||!d.ok){ fail(d&&d.error?d.error:\'\'); return; }\n      sent++; i++; next();\n    }).catch(function(){ fail(\'\'); });',
+    '    var all=[];\n    for(var z=0;z<med.length;z++){ (function(zz){ all.push(new Promise(function(rs){ setTimeout(function(){ rs(sb.functions.invoke(\'wa-send\',{body:{conversation_id:convAtSend,image_path:med[zz].path}})); }, zz===0?60:0); })); })(z); }\n    Promise.all(all).then(function(){ sent=med.length; i=med.length; next(); });']] });
+  await p.click('.wa-qr[data-qid="q2"]');
+  await p.waitForTimeout(1200);
+  const order = (await sentList(p)).map(s => s.img).filter(Boolean);
+  ok(order.length === 2 && order[0] === P2, `معايرة ب: بالتوازي الترتيب اتقلب — فحص 3ب بيمسكها`);
+  await p.close();
+}
+{ // (ج) الوقف عند تبديل المحادثة (السلوك القديم) → 6
+  const p = await openInbox({ fnDelayMs: 150, patch: [['  function next(){\n    if(i>=med.length){\n      // الكلام راكب آخر صورة خلاص',
+    '  function next(){\n    if(waActiveId!==convAtSend){ finish(); return; }\n    if(i>=med.length){\n      // الكلام راكب آخر صورة خلاص']] });
+  await p.click('.wa-qr[data-qid="q2"]');
+  await p.waitForTimeout(40);
+  await p.click('.wa-conv[data-id="c2"]');
+  await p.waitForTimeout(1000);
+  const n = (await sentList(p)).length;
+  ok(n < 2, `معايرة ج: بالوقف عند التبديل اتبعت ${n} من 2 — نص رد عند العميل، فحص 6 بيمسكها`);
+  await p.close();
+}
+{ // (د) شيل بادئة المتجر → 11ج
+  const p = await openInbox({ patch: [["var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;", "var path='quick-replies/'+Date.now()+'-'+i+'.'+ext;"]] });
+  await p.click('#wa-qrm-open'); await p.waitForTimeout(200);
+  await p.click('#wa-qrm-new');
+  await p.fill('#wa-qrm-name', 'ن');
+  await p.setInputFiles('#wa-qrm-file', { name: 'x.png', mimeType: 'image/png', buffer: PNG });
+  await p.waitForTimeout(150);
+  await p.click('#wa-qrm-save');
+  await p.waitForTimeout(600);
+  const ups = await p.evaluate(() => window.__UPLOADS || []);
+  ok(ups[0] && ups[0].indexOf(TENANT + '/') !== 0, `معايرة د: من غير البادئة المسار «${ups[0]}» — فحص 11ج بيمسكها`);
+  await p.close();
+}
+{ // (هـ) الكلام رسالة مستقلة → 3ج/3د
+  const p = await openInbox({ patch: [['  var asCaption = !!(text && med.length && text.length<=WA_CAPTION_MAX);', '  var asCaption = false;']] });
   await p.click('.wa-qr[data-qid="q2"]');
   await p.waitForTimeout(900);
-  const n = await p.evaluate(() => window.__SENT.length);
-  ok(n > 0, `معايرة أ: بإرسال فوري الضغطة بعتت ${n} رسالة لعميل حقيقي — فحص 3 بيمسكها`);
+  const s = await sentList(p);
+  ok(s.length === 3 && s.some(m => m.text && !m.img), `معايرة هـ: بالشكل القديم ${s.length} رسايل والكلام لوحده — فحص 3ج بيمسكها`);
   await p.close();
 }
-
-// (ب) ابعت الصور بالتوازي → فحص 5ب لازم يقع
-{
-  const p = await openInbox({
-    fnDelayMs: 120,
-    routeInbox: async r => {
-      const res = await r.fetch();
-      let body = await res.text();
-      // نفس الحمولة بالظبط بس كلها بتخرج مع بعض — الأولى بتأخر أكتر
-      body = body.replace(
-        '    sb.functions.invoke(\'wa-send\',{body:payload}).then(function(res){\n      var d=(res&&res.data)?res.data:null;\n      if(!d||!d.ok){ fail(d&&d.error?d.error:\'\'); return; }\n      sent++; i++; next();\n    }).catch(function(){ fail(\'\'); });',
-        '    var all=[];\n    for(var z=0;z<med.length;z++){ (function(zz){ all.push(new Promise(function(rs){ setTimeout(function(){ rs(sb.functions.invoke(\'wa-send\',{body:{conversation_id:convAtSend,image_path:med[zz].path}})); }, zz===0?60:0); })); })(z); }\n    Promise.all(all).then(function(){ sent=med.length; i=med.length; next(); });');
-      await r.fulfill({ response: res, body });
-    }
-  });
-  await p.click('.wa-qr[data-qid="q2"]');
-  await p.waitForTimeout(500);
-  await p.click('#wa-send-btn');
-  await p.waitForTimeout(1500);
-  const order = await p.evaluate(() => window.__SENT.map(s => s.body.image_path).filter(Boolean));
-  ok(order.length === 2 && order[0] === P2,
-     `معايرة ب: بالتوازي الترتيب اتقلب (${order.map(x => x.split('/').pop()).join(' → ')}) — فحص 5ب بيمسكها`);
+{ // (و) شيل إخفاء الزراير مع النافذة → 7
+  const p = await openInbox({ conv: 'c3', patch: [["var qp=$id('wa-qr-panel'); if(qp) qp.style.display=open?'':'none';", '']] });
+  ok(await panelShown(p), 'معايرة و: من غير الإخفاء الزراير ظاهرة والنافذة مقفولة — فحص 7 بيمسكها');
   await p.close();
 }
-
-// (ج) شيل تصفير تبديل المحادثة → فحص 7ب لازم يقع
-{
-  const p = await openInbox({
-    routeInbox: async r => {
-      const res = await r.fetch();
-      let body = await res.text();
-      body = body.replace('  waClearReplyTo();\n  // 🔴 ونفس الحكاية للرد الجاهز المحضّر', '  waClearReplyTo();\n  if(false) //');
-      await r.fulfill({ response: res, body });
-    }
-  });
-  await p.click('.wa-qr[data-qid="q2"]');
+{ // (ز) الترتيب مايتكتبش → 13ج
+  const p = await openInbox({ patch: [["writes.push(sb.from('wa_quick_replies').update({sort:n})", "void(sb.from('wa_quick_replies').update({sort:n})"]] });
+  await p.click('#wa-qrm-open'); await p.waitForTimeout(200);
+  await p.click('#wa-qrm .wa-qrm-row[data-id="q1"] [data-mv="1"]');
   await p.waitForTimeout(400);
-  await p.click('.wa-conv[data-id="c2"]');
-  await p.waitForTimeout(500);
-  const st = await staged(p);
-  ok(st && st.shown,
-     'معايرة ج: من غير التصفير الرد فضل محضّر على محادثة تانية — فحص 7ب بيمسكها');
-  await p.close();
-}
-
-// (د) شيل بادئة المتجر من المسار → فحص 6ب لازم يقع
-{
-  const p = await openInbox({
-    routeInbox: async r => {
-      const res = await r.fetch();
-      let body = await res.text();
-      body = body.replace("var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;",
-                          "var path='quick-replies/'+Date.now()+'-'+i+'.'+ext;");
-      await r.fulfill({ response: res, body });
-    }
-  });
-  await p.click('#wa-qr-new-media');
-  await p.waitForTimeout(250);
-  const png = Buffer.from(PIX.split(',')[1], 'base64');
-  await p.setInputFiles('#wa-qr-ed-file', { name: 'x.png', mimeType: 'image/png', buffer: png });
-  await p.waitForTimeout(250);
-  await p.evaluate(() => { document.getElementById('wa-qr-ed-text').value = 'ن'; });
-  await p.click('#wa-qr-ed-save');
-  await p.waitForTimeout(700);
-  const ups = await p.evaluate(() => window.__UPLOADS || []);
-  ok(ups[0] && ups[0].indexOf(TENANT + '/') !== 0,
-     `معايرة د: من غير البادئة المسار بقى «${ups[0]}» — فحص 6ب بيمسكها وحارس wa-send بيرفضه`);
-  await p.close();
-}
-
-// (هـ) رجّع الشكل القديم (الكلام رسالة مستقلة) → فحص 5ج/5د لازم يقعوا.
-// دي المعايرة اللي **مكانتش موجودة** وسابت الباج يوصل للعميل.
-{
-  const p = await openInbox({
-    routeInbox: async r => {
-      const res = await r.fetch();
-      let body = await res.text();
-      body = body.replace('  var asCaption = !!(text && med.length && text.length<=WA_CAPTION_MAX);',
-                          '  var asCaption = false;');
-      await r.fulfill({ response: res, body });
-    }
-  });
-  await p.click('.wa-qr[data-qid="q2"]');
-  await p.waitForTimeout(500);
-  await p.click('#wa-send-btn');
-  await p.waitForTimeout(1200);
-  const sent = await p.evaluate(() => window.__SENT.map(s => ({
-    img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null })));
-  ok(sent.length === 3 && sent.some(m => m.text && !m.img),
-     `معايرة هـ: بالشكل القديم رجعت ${sent.length} رسايل والكلام لوحده — فحص 5ج بيمسكها`);
-  await p.close();
-}
-
-// (و) نص أطول من حد ميتا (1024) → لازم يرجع رسالة مستقلة، مايتبعتش caption
-// ميتا بترفضه (رسالة اترفضت أسوأ من رسالة بترتيب مش مظبوط)
-{
-  const LONG = 'ن'.repeat(1100);
-  const p = await openInbox({
-    qr: [{ id: 'q2', tenant_id: TENANT, body: LONG,
-           media: [{ path: P1, mime: 'image/jpeg', name: 'a1.jpg' },
-                   { path: P2, mime: 'image/jpeg', name: 'a2.jpg' }] }]
-  });
-  await p.click('.wa-qr[data-qid="q2"]');
-  await p.waitForTimeout(500);
-  await p.click('#wa-send-btn');
-  await p.waitForTimeout(1400);
-  const sent = await p.evaluate(() => window.__SENT.map(s => ({
-    img: s.body.image_path || null, text: s.body.text || null, cap: s.body.caption || null })));
-  const caps = sent.filter(m => m.cap);
-  ok(sent.length === 3 && caps.length === 0 && sent[2] && sent[2].text && sent[2].text.length > 1024,
-     `فحص 13) نص فوق 1024 حرف رجع رسالة مستقلة (${sent.length} رسايل · ${caps.length} caption) — ميتا مابترفضوش`);
+  const sorts = await p.evaluate(() => Object.fromEntries(window.__QR.map(q => [q.id, q.sort])));
+  ok(!(sorts.q2 === 0 && sorts.q1 === 1), `معايرة ز: من غير الكتابة sort فضل ${JSON.stringify(sorts)} — فحص 13ج بيمسكها`);
   await p.close();
 }
 

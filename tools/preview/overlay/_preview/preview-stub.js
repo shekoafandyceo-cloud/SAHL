@@ -177,11 +177,12 @@
   var QR_IMG1 = 'preview/quick-replies/kitchen-1.png';
   var QR_IMG2 = 'preview/quick-replies/kitchen-2.png';
   var WA_QR = [
-    { id:'qr1', tenant_id:TENANT, body:'أهلاً بحضرتك 👋 تحت أمرك', media:[], sort:0 },
-    { id:'qr2', tenant_id:TENANT, body:'دي صور المنتج — السعر 450ج والشحن مجاني',
+    // qr1 من غير اسم عمداً — زي الـ4 ردود اللي على الحي (بيظهر أول كلامه + «بدون اسم» في النافذة)
+    { id:'qr1', tenant_id:TENANT, title:null, body:'أهلاً بحضرتك 👋 تحت أمرك', media:[], sort:0 },
+    { id:'qr2', tenant_id:TENANT, title:'منظم المطبخ', body:'دي صور المنتج — السعر 450ج والشحن مجاني',
       media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' },
              { path:QR_IMG2, mime:'image/png', name:'kitchen-2.png' }], sort:1 },
-    { id:'qr3', tenant_id:TENANT, body:'',
+    { id:'qr3', tenant_id:TENANT, title:'صور بس', body:'',
       media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' }], sort:2 }
   ];
   // صور المعاينة — SVG مرسوم inline عشان الملف يفضل مستقل من غير أصول خارجية

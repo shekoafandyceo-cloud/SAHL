@@ -176,6 +176,7 @@
         // تسجيل حمولة الكتابة — عشان الاختبارات تتأكد من اللي اتبعت فعلاً
         if(m === 'insert' || m === 'update' || m === 'upsert') st.payload = a;
         if(m === 'insert') st.inserted = true;
+        if(m === 'delete') st.deleted = true;
         if(m === 'gte' && a === 'created_at') st.gte = {col:a, val:b};
         if(m === 'lt'  && a === 'created_at') st.lt  = {col:a, val:b};
         if(m === 'eq'  && a === 'status')     st.eqStatus = b;
@@ -207,6 +208,12 @@
         var ins = st.payload && st.payload.length ? st.payload[0] : st.payload;
         var row = Object.assign({id:'new-'+(window.__calls.length)}, ins||{});
         return Promise.resolve({data: project([row], st.cols)[0], error:null}).then(res);
+      }
+      // الردود المحفوظة: التعديل والحذف بيتطبّقوا فعلاً على __QR زي السيرفر —
+      // من غيره أي فحص «اتحفظ؟» بيقرا فيكستشر ماتغيّرش (الترتيب/الاسم)
+      if(table === 'wa_quick_replies' && st.eqId && Array.isArray(window.__QR)){
+        if(st.deleted) window.__QR = window.__QR.filter(function(q){ return q.id !== st.eqId; });
+        else if(st.payload && !st.inserted) window.__QR.forEach(function(q){ if(q.id === st.eqId) Object.assign(q, st.payload); });
       }
       var rows = project(rowsFor(table, st), st.cols);
       var out = st.single ? {data: rows[0] || null, error:null} : {data: rows, error:null, count: rows.length};
