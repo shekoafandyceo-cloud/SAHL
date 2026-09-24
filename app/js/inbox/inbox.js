@@ -110,6 +110,22 @@ export function waFetchConvos(showLoading){
 
 export var waSearchQuery='', waFilter='all';
 
+// تطبيع الأسماء العربي للبحث: «أحمد» = «احمد» · «فاطمة» = «فاطمه» · «مصطفى» = «مصطفي».
+// اتقاس: 67 اسم فيهم همزة و69 فيهم تاء مربوطة — الموظف بيكتب زي ما هو فاكر
+// مش زي ما العميل كتب اسمه على واتساب.
+export function waNormName(s){
+  return String(s||'').toLowerCase()
+    .replace(/[ً-ْـ]/g,'')   // تشكيل + تطويل
+    .replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي');
+}
+// الجزء اللي بيتقارن من الرقم — نفس `normalizePhone` (بتشيل 20/0 من الأول
+// وبتحوّل الأرقام العربي). 🔴 أقل من 3 أرقام = مش بحث برقم: «عميل 5» كانت
+// بتطابق أي رقم فيه 5، و«1» بتطابق كل المحادثات.
+function waSearchDigits(q){
+  var d=normalizePhone(q);
+  return d.length>=3 ? d : '';
+}
+
 export function waConvMatches(c){
   if(waFilter==='unread' && !((c.unread_count||0)>0)) return false;
   if(waFilter==='ctwa' && !waIsFromAd(c)) return false;
@@ -119,14 +135,82 @@ export function waConvMatches(c){
   }
   var q=waSearchQuery;
   if(q){
-    var name=(c.customer_name||'').toLowerCase();
-    var phoneN=normalizePhone(c.customer_phone||c.wa_id||'');
-    var qPhone=normalizePhone(q);
-    var nameHit=name.indexOf(q)>=0;
-    var phoneHit=qPhone && phoneN.indexOf(qPhone)>=0;
+    var nameHit=waNormName(c.customer_name).indexOf(waNormName(q))>=0;
+    var qd=waSearchDigits(q);
+    // الرقم بيتقارن على الاتنين: `customer_phone` (01…) و`wa_id` (20…) —
+    // متطابقين بعد التطبيع على كل الـ2,414 صف، بس القديم كان بيقرا واحد بس
+    var phoneHit=!!qd && (normalizePhone(c.customer_phone||'').indexOf(qd)>=0 || normalizePhone(c.wa_id||'').indexOf(qd)>=0);
     if(!nameHit && !phoneHit) return false;
   }
   return true;
+}
+
+// 🔴 البحث بيستعلم من **السيرفر** (بلاغ المالك 24 سبتمبر: «أي رقم عدّى عليه
+// وقت حتى لو بسيط مش بيظهر خالص»). السبب مقيس: `waFetchConvos` بتجيب أحدث
+// 200 بس، والمحادثة رقم 200 عند 3ataba عمرها **يومين** — يعني أي عميل
+// كلّمنا من 3 أيام **مستحيل** يلاقيه البحث. نفس شكل فلتر الإعلانات
+// والتصنيفات بالحرف: النتيجة في مصفوفة **منفصلة** مش مدموجة في `waConvos`
+// (الدمج اتجرّب هناك وترتيب وصول الاستعلامين كان بيضيّع صفوف).
+export var waSearchExtra=[], waSearchCapped=false, waSearchedFor='', waSearchPending=false;
+var WA_SEARCH_LIMIT=100, waSearchGen=0, waSearchTimer=null;
+
+// الشرط بلغة PostgREST. 🔴 الفاصلة والقوسين والنقطة بيكسروا صياغة `.or()`
+// نفسها (5 أسماء حية فيهم الحروف دي) — فبيتحوّلوا لـ`_` = «أي حرف واحد»
+// مش لمسافة: «محمد, علي» لسه بتلاقي «محمد, علي». ونفس الحكاية للحروف
+// اللي ليها أشكال (ا/أ/إ · ه/ة · ي/ى)، والفلترة الدقيقة بتحصل بعدها في
+// `waConvMatches` بنفس `waNormName` — السيرفر بيجيب أوسع شوية والمتصفح بيضيّق.
+export function waSearchOr(q){
+  var parts=[];
+  var t=String(q||'').trim();
+  if(t){
+    var pat=t.replace(/[ً-ْـ]/g,'')
+      .replace(/[,()*\\%".:]/g,'_')
+      .replace(/[اأإآٱهةيى]/g,'_');
+    parts.push('customer_name.ilike.*'+pat+'*');
+  }
+  var d=waSearchDigits(q);
+  if(d){ parts.push('wa_id.ilike.*'+d+'*'); parts.push('customer_phone.ilike.*'+d+'*'); }
+  return parts.join(',');
+}
+
+export function waFetchSearchConvos(q){
+  if(!sb||!currentTenantId) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  var orq=waSearchOr(q);
+  if(!orq){ waSearchPending=false; return; }
+  var myGen=++waSearchGen;
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
+    .or(orq)
+    .order('last_message_at',{ascending:false,nullsFirst:false}).limit(WA_SEARCH_LIMIT)
+    .then(function(r){
+      // حروف بتتكتب ورا بعض = ردود بتوصل بترتيب عشوائي. رد قديم بيكتب فوق
+      // نتيجة أحدث = الموظف بيشوف نتايج حرف فات.
+      if(myGen!==waSearchGen || q!==waSearchQuery) return;
+      waSearchPending=false;
+      if(r.error){ renderConvos(); return; }   // بيفضل على المحمّل — أحسن من قايمة فاضية
+      var rows=r.data||[];
+      waSearchCapped=(rows.length===WA_SEARCH_LIMIT);
+      // 🔴 المحادثة المفتوحة لازم تفضل موجودة في `waConvById` حتى لو البحث
+      // الجديد مارجّعهاش — من غيرها التصنيف والملاحظة و«إنشاء طلب» على شات
+      // قديم فتحته من البحث بيرجعوا بـ`if(!conv) return` في صمت.
+      var act=null;
+      for(var i=0;i<waSearchExtra.length;i++){ if(waSearchExtra[i].id===waActiveId){ act=waSearchExtra[i]; break; } }
+      if(act && !rows.some(function(x){ return x.id===act.id; })) rows.push(act);
+      waSearchExtra=rows; waSearchedFor=q;
+      renderConvos();
+    });
+}
+
+// الكتابة بتفلتر المحمّل **فوراً** (مفيش انتظار للحروف القريبة) والسيرفر
+// بعد 300ms من آخر حرف — نفس فكرة بحث الأوردرات (240ms).
+function waOnSearchInput(v){
+  waSearchQuery=(v||'').trim().toLowerCase();
+  clearTimeout(waSearchTimer);
+  waSearchPending=!!(waSearchQuery && waSearchOr(waSearchQuery));
+  renderConvos();
+  if(!waSearchPending) return;
+  var q=waSearchQuery;
+  waSearchTimer=setTimeout(function(){ waFetchSearchConvos(q); }, 300);
 }
 
 export function waBuildFilters(){
@@ -348,6 +432,8 @@ export function waConvById(id){
   // من غير السطر ده الضغط على صف جاي من فلتر التصنيف بيفتح الشات
   // وهيدره فاضل بتاع المحادثة اللي قبلها
   for(var m=0;m<waLabelExtra.length;m++){ if(waLabelExtra[m].id===id) return waLabelExtra[m]; }
+  // وشات قديم اتفتح من البحث — نفس السبب بالحرف
+  for(var n=0;n<waSearchExtra.length;n++){ if(waSearchExtra[n].id===id) return waSearchExtra[n]; }
   return undefined;
 }
 
@@ -447,8 +533,24 @@ export function renderConvos(){
     }
     list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
   }
+  // نتايج البحث من السيرفر — بتتضاف مع **أي** فلتر (بتعدّي على
+  // `waConvMatches` فالفلتر النشط بيتطبّق عليها كمان). بس لو النتيجة
+  // بتاعة **نفس** الكلمة المكتوبة دلوقتي — نتيجة كلمة قديمة = صفوف غلط.
+  // و`waConvos` بتكسب لو الصف في الاتنين: هي الأحدث (مصدر الـpoll).
+  var searchLive=!!(waSearchQuery && waSearchedFor===waSearchQuery);
+  if(searchLive){
+    var seenS={};
+    for(var y3=0;y3<list.length;y3++) seenS[list[y3].id]=1;
+    for(var z3=0;z3<waSearchExtra.length;z3++){
+      if(!seenS[waSearchExtra[z3].id] && waConvMatches(waSearchExtra[z3])){ seenS[waSearchExtra[z3].id]=1; list.push(waSearchExtra[z3]); }
+    }
+    list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
+  }
   if(!list.length){
     var emptyMsg='مفيش نتائج للبحث';
+    // 🔴 «مفيش نتائج» قبل ما السيرفر يرد = كذبة لمدة ثانية — الموظف بيمسح
+    // ويكتب تاني فاكر إنه غلط في الرقم
+    if(waSearchQuery && waSearchPending) emptyMsg='بيدوّر في كل المحادثات…';
     if(waFilter==='unread') emptyMsg='مفيش رسائل غير مقروءة 🎉';
     // 🔴 السياق ضروري هنا: المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش
     // بيانات إعلان **حتى لو جت من إعلان فعلاً** — من غير السطر ده التاجر
@@ -480,14 +582,19 @@ export function renderConvos(){
   // 🔴 ملاحظة السقف غلط وقت فلتر الإعلانات: الفلتر ده بيستعلم من السيرفر
   // بشرطه فبيشوف الأقدم كمان. نص «الأقدم مش بيظهر» هنا كان هيخلي التاجر
   // يفتكر إن فيه إعلانات مخفية وهي معروضة.
-  if(waFilter==='ctwa'){
+  // البحث استعلم من السيرفر فهو **شايف الأقدم** — نص «الأقدم مش بيظهر في
+  // البحث» هنا بقى كذبة. السياق الوحيد اللي يستاهل: وصلنا سقف النتايج.
+  if(waSearchQuery){
+    if(waSearchPending) html+='<div class="wa-cap-note">بيدوّر في المحادثات الأقدم…</div>';
+    else if(searchLive && waSearchCapped) html+='<div class="wa-cap-note">معروض أحدث '+WA_SEARCH_LIMIT+' نتيجة — لو مش لاقي المحادثة، اكتب الرقم كامل</div>';
+  } else if(waFilter==='ctwa'){
     if(waAdCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة من إعلانات — الأقدم مش هنا</div>';
   } else if(waFilter.indexOf('label:')===0){
     // نفس سبب استثناء الإعلانات: الفلتر ده استعلم من السيرفر فهو شايف
     // الأقدم. نص «الأقدم مش بيظهر» هنا كان هيخلي التاجر يدوّر على
     // محادثات مصنّفة **وهي معروضة قدامه**.
     if(waLabelCapped) html+='<div class="wa-cap-note">معروض أحدث '+WA_LABEL_LIMIT+' محادثة مصنّفة — الأقدم مش هنا</div>';
-  } else if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — الأقدم مش بيظهر هنا ولا في البحث</div>';
+  } else if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — للأقدم ابحث بالاسم أو الرقم</div>';
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
   for(var j=0;j<items.length;j++){ items[j].addEventListener('click',function(){ openConversation(this.getAttribute('data-id')); }); }
@@ -1639,7 +1746,7 @@ export function waNewChatSend(){
 // تفاعلات صندوق المحادثات
 export function initInbox(){
   if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
-  if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waSearchQuery=(this.value||'').trim().toLowerCase(); renderConvos(); });
+  if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waOnSearchInput(this.value); });
   if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});
   if($id('wa-send-btn'))$id('wa-send-btn').addEventListener('click',waSend);
   if($id('wa-reply-cancel'))$id('wa-reply-cancel').addEventListener('click',waClearReplyTo);

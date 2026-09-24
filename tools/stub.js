@@ -132,6 +132,21 @@
           return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
         });
       }
+      // 🔴 بحث المحادثات (24 سبتمبر): `.or('col.ilike.*x*,…')` بيتطبّق **فعلاً**
+      // زي PostgREST — `*` و`%` = أي نص، `_` = حرف واحد، ومن غير حساسية
+      // لحالة الحروف. قبل كده الستب كان بيخزّن الـor ويطنّشه، يعني أي فحص
+      // بحث كان هيرجّع **كل** المحادثات ويعدّي وهو أعمى (درس 33).
+      if(st.or && st.or.indexOf('.ilike.') >= 0){
+        var terms = st.or.split(',').map(function(t){
+          var p = t.split('.'); if(p.length < 3 || p[1] !== 'ilike') return null;
+          var pat = p.slice(2).join('.');
+          var rx = pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[*%]/g, '.*').replace(/_/g, '.');
+          return { col: p[0], rx: new RegExp('^' + rx + '$', 'i') };
+        }).filter(Boolean);
+        rows = rows.filter(function(c){
+          return terms.some(function(t){ return t.rx.test(String(c[t.col] == null ? '' : c[t.col])); });
+        });
+      }
       // `.not('labels','is',null)` — فلتر المحادثات المصنّفة.
       // PostgREST بيرجّع كمان المصفوفات الفاضية، فالستب بيعمل نفس الحاجة
       // (الكود نفسه هو اللي بيستبعدها) — غير كده الاختبار بيثبت سلوك
