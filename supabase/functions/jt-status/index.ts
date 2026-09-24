@@ -19,22 +19,16 @@ function reply(code: string, msg: string, status = 200, extra: Record<string, un
   return new Response(JSON.stringify({ code, msg, data: null, ...extra }), { status, headers: { "Content-Type": "application/json" } });
 }
 
-/** "2026-09-20 10:26:15" (توقيت مصر عند J&T) → ISO. لو الشكل مختلف نرجّع null ونسجّل الخام. */
+/** "2026-09-20 10:26:15" (توقيت J&T) → ISO. لو الشكل مختلف نرجّع null ونسجّل الخام.
+ *  🔴 J&T بتبعت **UTC+2 ثابت** — من غير التوقيت الصيفي المصري. اتقاس 24 سبتمبر على 137 callback
+ *  من نوع order: بتوصل بعد وقتها بـ1.9ث (وسيط) لو اتقرا +2، وعمر ما واحد وصل قبله. النسخة القديمة
+ *  كانت بتطبّق DST (+3 صيفاً) فكل الأوقات المتخزّنة كانت متأخرة ساعة. */
 function parseJtTime(s: unknown): string | null {
   const t = String(s || "").trim();
   const m = t.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) { const d = new Date(t); return isNaN(d.getTime()) ? null : d.toISOString(); }
-  // مصر UTC+3 صيفاً / +2 شتاءً — J&T مصر بتبعت بالتوقيت المحلي (مش موثّق؛ الخام محفوظ لو طلع غير كده)
   const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
-  const d = new Date(utc);
-  const cairoOffsetMin = (() => {
-    // DST مصر (من 2023): آخر جمعة في أبريل → آخر خميس في أكتوبر
-    const y = d.getUTCFullYear();
-    const lastFriApr = new Date(Date.UTC(y, 3, 30)); while (lastFriApr.getUTCDay() !== 5) lastFriApr.setUTCDate(lastFriApr.getUTCDate() - 1);
-    const lastThuOct = new Date(Date.UTC(y, 9, 31)); while (lastThuOct.getUTCDay() !== 4) lastThuOct.setUTCDate(lastThuOct.getUTCDate() - 1);
-    return d >= lastFriApr && d < lastThuOct ? 180 : 120;
-  })();
-  return new Date(utc - cairoOffsetMin * 60000).toISOString();
+  return new Date(utc - 120 * 60000).toISOString();
 }
 
 async function readBiz(req: Request): Promise<string> {
@@ -93,8 +87,14 @@ Deno.serve(async (req: Request) => {
       const bc = billCode || (details[0] && String(details[0].billCode || "")) || "";
       const sorted = [...details].sort((a, b) => String(a.scanTime || "").localeCompare(String(b.scanTime || "")));
       for (const d of sorted) {
+        // رحلة المرتجع (isRefund=1): المسحات دي بنفس أكواد الذهاب (50/92/94/Holding) فكانت بترجّع
+        // أوردر راجع لـ«In transit»/«Out for delivery». بتتبعت بـ«refund:» فالدالة بتسجّلها خام بس.
+        // 13 (Returned Signed) و172 (Returned parcel) بيحسموا المرتجع فبيعدّوا عادي.
+        const code = String(d.scanTypeCode ?? "").trim();
+        const refund = String(d.isRefund ?? "") === "1" && code !== "13" && code !== "172";
+        const scanCode = refund ? "refund:" + (code || "name:" + String(d.scanType || "").trim().toLowerCase()) : code;
         const { data: r } = await admin.rpc("jt_apply_trace_v1", {
-          p_bill_code: String(d.billCode || bc), p_scan_type: String(d.scanType || ""), p_scan_code: String(d.scanTypeCode ?? ""),
+          p_bill_code: String(d.billCode || bc), p_scan_type: String(d.scanType || ""), p_scan_code: scanCode,
           p_scan_at: parseJtTime(d.scanTime), p_desc: String(d.desc || d.probleDescription || "") });
         notes.push(String(r?.note || "?")); if (r?.order_id) orderId = String(r.order_id);
       }

@@ -14,6 +14,7 @@
 //   subscribe     → trace/subscribe { waybillCodes[], traceNode? }
 //   raw           → (diag/service بس) { path, biz } — الإنشاء مسموح في sandbox بس
 //   perm_probe    → (diag/service بس) هل `order/addOrder` مفعّل على الحساب؟ **من غير ما يعمل شحنة**
+//   fee_sync      → (diag/service بس) getWaybillInfo للمسلّم/المرتجع → jt_apply_fee_v1 (التكلفة النهائية + رسوم COD)
 //
 // env: الموظف دايماً على البيئة الافتراضية (JT_ENV). diag/service يقدروا يطلبوا sandbox.
 //
@@ -102,6 +103,43 @@ Deno.serve(async (req: Request) => {
   const cfg = await loadJtConfig(env, admin);
   if (!cfg) return json({ error: "no_creds", message: "أسرار J&T (" + env + ") مش متسجّلة (لا في secrets البيئة ولا في الـVault)" }, 422);
   const creds = cfg.creds;
+  // fee_sync — تكلفة الشحن النهائية للأوردرات المسلّمة/المرتجعة (بيتنده من pg_cron كل 15 دقيقة)
+  if (action === "fee_sync") {
+    if (!privileged) return json({ error: "forbidden", message: "fee_sync للتشخيص/الجدولة بس" }, 403);
+    const { data: cand, error: cErr } = await admin.rpc("jt_fee_candidates_v1", { p_limit: Math.min(Number(body.limit) || 60, 200) });
+    if (cErr) return json({ error: "db", message: cErr.message }, 500);
+    const codes = (cand || []).map((r: { bill_code: string }) => String(r.bill_code || "")).filter(Boolean);
+    const tally: Record<string, number> = {};
+    const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
+    for (let i = 0; i < codes.length; i += 30) {
+      const batch = codes.slice(i, i + 30);
+      let r;
+      try {
+        r = await jtCall(cfg, JT_PATHS.getWaybillInfo, withBusinessDigest({ waybillNos: batch }, creds), { timeoutMs: 25000 });
+      } catch (e) {
+        return json({ ok: false, error: "jt_unreachable", message: String((e as Error).message || e), candidates: codes.length, tally }, 502);
+      }
+      if (r.code !== "1") return json({ ok: false, code: r.code, msg: r.msg, candidates: codes.length, tally }, 502);
+      // deno-lint-ignore no-explicit-any
+      const rows: any[] = Array.isArray(r.data) ? r.data : [];
+      // deno-lint-ignore no-explicit-any
+      const byCode = new Map<string, any>(rows.map((x) => [String(x.waybillNo || ""), x]));
+      for (const bc of batch) {
+        const x = byCode.get(bc);   // J&T بتسقط البوليصة اللي لسه مااتمسحتش من الرد في صمت → no_data
+        const freight = x ? Number(x.totalFreight ?? x.freight) : NaN;
+        const { data: a, error: aErr } = await admin.rpc("jt_apply_fee_v1", {
+          p_bill_code: bc,
+          p_freight: Number.isFinite(freight) ? freight : null,
+          p_charge_weight: x && Number.isFinite(Number(x.packageChargeWeight)) ? Number(x.packageChargeWeight) : null,
+          p_is_sign: x && Number.isFinite(Number(x.isSign)) ? Number(x.isSign) : null,
+          p_source: "waybill_info",
+        });
+        bump(aErr ? "error" : String(a?.note || "?"));
+      }
+    }
+    return json({ ok: true, env, candidates: codes.length, tally });
+  }
+
   let path = "", biz: Record<string, unknown> = {};
   let permProbe = false;   // فحص الصلاحية بحمولة ناقصة — الشرح في هيدر الملف
 

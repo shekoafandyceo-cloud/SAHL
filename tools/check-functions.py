@@ -228,6 +228,14 @@ CONTRACTS = [
     ("_shared/jt", u"من غير أي import خارجي (بيشتغل في Deno وNode بنفس الملف)",
      lambda s: all(l.strip().startswith('import { bytesToBase64, md5Hex, md5Raw } from "./md5.ts"')
                    for l in s.splitlines() if l.strip().startswith("import "))),
+    # ── J&T callbacks والتكلفة (24 سبتمبر) ──
+    ("jt-status", u"وقت J&T = UTC+2 ثابت (مش DST) — اتقاس على 137 callback",
+     lambda s: "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
+    ("jt-status", u"مسحات رحلة المرتجع (isRefund=1) بتتبعت بـ«refund:» — ماتغيّرش الحالة",
+     lambda s: '"refund:"' in s and 'd.isRefund' in s and 'code !== "13" && code !== "172"' in s),
+    ("jt-lookup", u"fee_sync للتشخيص/الجدولة بس — مش للموظف",
+     lambda s: 'action === "fee_sync"' in s
+     and s.find("if (!privileged)", s.find('action === "fee_sync"')) - s.find('action === "fee_sync"') < 80),
 ]
 
 

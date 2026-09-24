@@ -254,6 +254,23 @@ export function loadDetailHistory(o, cb){
   });
 }
 
+// تكلفة شحن J&T (للأدمن): الشحن من getWaybillInfo/التسوية + رسوم الـCOD (من العقد — مش في الـAPI).
+// «نهائي» = اتسلّم (isSign 1) أو مرتجع اتقفل (isSign 2) أو فاتورة؛ غير كده الرقم مبدئي وماداخلش
+// الماليات (real_shipping_fee بيتكتب على السيرفر لما يبقى نهائي بس).
+export function jtFeeRow(o){
+  if(!o || o.jt_freight===null || o.jt_freight===undefined || o.jt_freight==='') return '';
+  var f2=function(v){ return (Math.round(Number(v||0)*100)/100).toFixed(2)+' ج'; };
+  var fr=Number(o.jt_freight), cod=Number(o.jt_cod_fee||0);
+  var parts='شحن '+f2(fr)+(cod>0?' + رسوم تحصيل '+f2(cod):'')
+    +(o.jt_charge_weight_kg?' · وزن J&T '+esc(String(o.jt_charge_weight_kg))+' كجم':'');
+  var tag=o.jt_fee_final
+    ? '<span style="color:var(--green);font-weight:800">'+(o.jt_fee_source==='settlement'?'من فاتورة J&T':'نهائي')+'</span>'
+    : '<span style="color:var(--muted);font-style:italic">مبدئي — J&T لسه ماقفلتش الشحنة (مش داخل الماليات)</span>';
+  var total=o.jt_fee_final && o.real_shipping_fee!=null ? '<b>'+f2(o.real_shipping_fee)+'</b> · ' : '';
+  return '<div class="drow" id="jt-fee-row"><span class="dkey">تكلفة الشحن (J&T)</span><span class="dval ar">'
+    +total+parts+' · '+tag+'</span></div>';
+}
+
 export function renderDetail(){
   var o=sel;
   if(!o)return;
@@ -353,6 +370,7 @@ export function renderDetail(){
       +dr('كود الفرز (J&T)','<span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+(o.jt_sorting_code?esc(o.jt_sorting_code):'<span style="color:var(--muted);font-style:italic">J&T مرجّعتش كود</span>')+'</span>')
       +(o.ship_prov?dr('عنوان J&T','<span class="dval ar">'+esc([o.ship_prov,o.ship_city,o.ship_area].filter(Boolean).join(' — '))+(o.shipping_weight_kg?' · '+esc(String(o.shipping_weight_kg))+' كجم':'')+'</span>'):'')
       +(o.carrier_status_raw?dr('آخر حالة من J&T','<span class="dval">'+esc(o.carrier_status_raw)+(o.carrier_status_at?' <span style="color:var(--muted);font-size:.78rem">'+fmtDT(o.carrier_status_at)+'</span>':'')+'</span>'):'')
+      +(isAdmin()?jtFeeRow(o):'')
       :'')
     +'</div>'
 
