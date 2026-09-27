@@ -155,6 +155,12 @@
         var ncol = st.not.col;
         rows = rows.filter(function(c){ return c[ncol] !== null && c[ncol] !== undefined; });
       }
+      // `.not('labels','eq','{}')` — الشكل الصح (27 سبتمبر): `NOT (labels = '{}')`.
+      // في SQL الـNULL = '{}' بيدي NULL فالـNOT بيستبعده كمان — نفس السلوك هنا.
+      if(st.not && st.not.op === 'eq' && st.not.val === '{}'){
+        var ecol = st.not.col;
+        rows = rows.filter(function(c){ return Array.isArray(c[ecol]) && c[ecol].length > 0; });
+      }
       if(st.order === 'last_message_at'){
         var asc = !!(st.orderOpts && st.orderOpts.ascending);
         rows.sort(function(a,b){

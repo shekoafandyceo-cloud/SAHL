@@ -168,7 +168,23 @@
       unread_count:0, status:'open', labels:['تم الحل','مكتمل'], note:null, created_at:iso(0,9,30),
       ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_url:null, ctwa_source_type:null,
-      ctwa_first_at:null, ctwa_last_at:null }
+      ctwa_first_at:null, ctwa_last_at:null },
+    // عدّاد الشكاوى (27 سبتمبر): واحدة قربت مهلتها (11 يوم) وواحدة عدّتها
+    // بتاريخ تقريبي — عشان المالك يشوف البانر والـ«⚠️» على الـchip
+    { id:'wc5', tenant_id:TENANT, wa_id:'201001234505', customer_name:'ريهام فتحي',
+      customer_phone:'01001234505', last_message_at:iso(2,16,0), last_inbound_at:iso(2,16,0),
+      last_message_text:'لسه مستنية الاستبدال', last_message_type:'text', last_direction:'in',
+      unread_count:0, status:'open', labels:['مهم','شكوى'], note:null, created_at:iso(12,10,0),
+      complaint_at:iso(11,10,0), complaint_at_estimated:false,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null },
+    { id:'wc6', tenant_id:TENANT, wa_id:'201001234506', customer_name:'إيمان خالد',
+      customer_phone:'01001234506', last_message_at:iso(16,12,0), last_inbound_at:iso(16,12,0),
+      last_message_text:'المنتج وصل مكسور', last_message_type:'text', last_direction:'in',
+      unread_count:0, status:'open', labels:['شكوى'], note:null, created_at:iso(17,10,0),
+      complaint_at:iso(16,12,0), complaint_at_estimated:true,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null }
   ];
   // ردود جاهزة — واحد نصي وواحد بصور وواحد صور بس، عشان المالك يجرّب
   // الشكل التالت (اللي نصه فاضي) اللي شريحته بتقول «صور بس (N)».
@@ -344,12 +360,12 @@
           return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
         });
       }
-      // وفلتر التصنيفات بيستعلم من السيرفر بـ`.not('labels','is',null)` —
+      // وفلتر التصنيفات بيستعلم من السيرفر بـ`.not('labels','eq','{}')` —
       // نفس السبب بالظبط: من غير تطبيقه العدّاد على كل chip بيساوي عدد
-      // المحادثات كلها.
-      if(st.not && st.not.op === 'is' && st.not.val === null){
+      // المحادثات كلها. (`labels` على الحي NOT NULL default '{}' — 27 سبتمبر)
+      if(st.not && st.not.op === 'eq' && st.not.val === '{}'){
         var nc = st.not.col;
-        rows = rows.filter(function(c){ return c[nc] !== null && c[nc] !== undefined; });
+        rows = rows.filter(function(c){ return Array.isArray(c[nc]) && c[nc].length > 0; });
       }
       rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
       if(st.limit) rows = rows.slice(0, st.limit);
@@ -569,7 +585,7 @@
         WA_CONVOS.unshift({ id:cid_, tenant_id:TENANT, wa_id:waid_, customer_name:(sb_.name||null),
           customer_phone:'0'+waid_.slice(2), last_message_at:at_, last_message_text:txt_.split('\n')[0],
           last_message_type:'template', last_direction:'out', unread_count:0, status:'open',
-          last_inbound_at:null, labels:null, note:null, ctwa_clid:null, ctwa_ad_id:null,
+          last_inbound_at:null, labels:[], note:null, complaint_at:null, complaint_at_estimated:false, ctwa_clid:null, ctwa_ad_id:null,
           ctwa_headline:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null,
           ctwa_ad_body:null, ctwa_source_url:null });
         var mid_ = 'wm-prev-' + (WA_MSGS.length + 1);

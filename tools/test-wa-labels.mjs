@@ -26,7 +26,7 @@
 //   2) hit-test على chip جديد (درس 31/35) + ضغطة Playwright حقيقية
 //   3) 🔴 الفلتر بيعرض المحادثة اللي **بره** أحدث 200
 //   4) 🔴 والعدّاد على الـchip بيضمها **قبل أي ضغطة**
-//   5) الاستعلام اللي خرج فعلاً فيه `.not(labels,is,null)` — سيرفر مش ذاكرة
+//   5) الاستعلام اللي خرج فعلاً فيه `.not(labels,eq,{})` — سيرفر مش ذاكرة
 //   6) 🔴 الضغط على صف من الفلتر بيفتح المحادثة الصح (`waConvById`)
 //   7) تصنيف فيه **مسافة** («طلب واتساب») بيعدّي الـround-trip كامل
 //   8) ملاحظة السقف مابتقولش «الأقدم مش بيظهر» وقت فلتر التصنيف
@@ -43,6 +43,8 @@
 //      (د) شيل تطبيق `.not()` من الستب       → فحص 4 يقع (ستب أعمى)
 //      (هـ) رجّع الشريط جوّه العمود              → فحص 12 يقع
 //      (و) شيل تحديث التصنيفات من renderConvos  → فحص 13 يقع
+//      (ز) 🔴 رجّع الشرط القديم `.not(labels,is,null)` → فحص 3 يقع
+//          (الباج الحي 27 سبتمبر بالحرف — مع فيكستشر `[]` زي الإنتاج)
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -62,7 +64,11 @@ const base = (id, n, mins) => ({
   customer_name: 'عميل ' + n, customer_phone: '2010' + String(n).padStart(7, '0'),
   last_message_at: iso(mins), last_inbound_at: iso(mins),
   last_message_text: 'أهلاً', last_direction: 'in', unread_count: 0, status: 'open',
-  labels: null, note: null,
+  // 🔴 `[]` مش `null` — `labels` على الحي NOT NULL default '{}' (اتقاس 27
+  // سبتمبر: 2,481 من 2,515 مصفوفة فاضية وصفر NULL). الفيكستشر القديم كان
+  // `null` فشرط `.not(labels,is,null)` كان بيضيّق هنا ومابيضيّقش في الإنتاج
+  // — الاختبار عدّى والفلتر على الحي فضل أعمى عن أي شكوى أقدم من 500 محادثة.
+  labels: [], note: null,
   ctwa_clid: null, ctwa_ad_id: null, ctwa_headline: null, ctwa_source_type: null,
   ctwa_ad_body: null, ctwa_source_url: null, ctwa_first_at: null, ctwa_last_at: null
 });
@@ -177,8 +183,8 @@ const NEW_LABELS = ['طلب واتساب', 'استبدال', 'استرجاع', '
   const q = await p.evaluate(() => (window.__calls || [])
     .filter(c => c.table === 'wa_conversations' && c.not)
     .map(c => c.not));
-  ok(q.length > 0 && q.some(n => n.col === 'labels' && n.op === 'is' && n.val === null),
-     `5) الاستعلام خرج بـ.not(labels,is,null) — سيرفر مش ذاكرة (${JSON.stringify(q)})`);
+  ok(q.length > 0 && q.some(n => n.col === 'labels' && n.op === 'eq' && n.val === '{}'),
+     `5) الاستعلام خرج بـ.not(labels,eq,{}) — سيرفر مش ذاكرة (${JSON.stringify(q)})`);
 
   // ملاحظة السقف مالهاش لازمة هنا — الفلتر شايف الأقدم
   const cap = await p.evaluate(() => {
@@ -511,7 +517,7 @@ console.log('──── المعايرات ────');
 // (د) شيل تطبيق `.not()` من الستب → فحص 4 يقع (ستب أعمى — درس 33)
 {
   const blindStub = STUB.replace(
-    /if\(st\.not && st\.not\.op === 'is' && st\.not\.val === null\)\{[\s\S]*?\n      \}/,
+    /if\(st\.not && st\.not\.op === 'eq' && st\.not\.val === '\{\}'\)\{[\s\S]*?\n      \}/,
     '');
   if (blindStub === STUB) { ok(false, 'معايرة د: الاستبدال مالقاش الكود — المعايرة نفسها بايظة (درس 47)'); }
   const p = await openInbox({ stub: blindStub });
@@ -523,6 +529,28 @@ console.log('──── المعايرات ────');
   // السقف ولّعت كمان — يعني الاستعلام مارجعش الصفوف المصنّفة، رجّع الكل.
   ok(/\(1\+?\)/.test(c || ''),
      `معايرة د: ستب بيقبل .not() ومابيطبّقهاش رجّع «${c}» بدل (2) — فحص 4 بيمسكها`);
+  await p.close();
+}
+
+// (ز) الشرط القديم بالحرف → فحص 3 يقع. ده الباج اللي المالك بلّغ عنه
+// 27 سبتمبر: مع `labels = []` زي الحي، `.not(labels,is,null)` بيطابق كل
+// المحادثات والـlimit(500) بياخد الأحدث بس — فالمصنّفة رقم 550 بتختفي.
+{
+  const p = await openInbox({
+    routeInbox: async r => {
+      const res = await r.fetch();
+      let body = await res.text();
+      const before = body;
+      body = body.replace(".not('labels','eq','{}')", ".not('labels','is',null)");
+      if (body === before) throw new Error('معايرة ز: مالقتش المرساة (درس 47)');
+      await r.fulfill({ response: res, body });
+    }
+  });
+  await p.click('#wa-filters .wa-flabel[data-label="استرجاع"]');
+  await p.waitForTimeout(700);
+  const ids = await listIds(p);
+  ok(ids.indexOf('c550') < 0,
+     `معايرة ز: بالشرط القديم c550 اختفت من الفلتر (${JSON.stringify(ids)}) — فحص 3 بيمسك باج 27 سبتمبر`);
   await p.close();
 }
 

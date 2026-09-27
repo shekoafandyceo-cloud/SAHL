@@ -5,7 +5,7 @@ import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
-import { normalizePhone } from '../core/format.js';
+import { fmtStoredDateTime, normalizePhone } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -445,15 +445,21 @@ export function waConvById(id){
 export function waFetchLabelConvos(){
   if(!sb||!currentTenantId) return;
   if(walletStateCache && walletStateCache.is_depleted) return;
+  // 🔴 `labels` عمود **NOT NULL default '{}'** على الحي — المحادثة اللي
+  // مالهاش تصنيف مصفوفتها فاضية مش NULL. الشرط القديم
+  // (`.not('labels','is',null)`) كان بيطابق **كل** المحادثات (2,515 من
+  // 2,515)، فالـlimit بياخد أحدث 500 وخلاص — وأي شكوى أقدم من كده كانت
+  // بتختفي من فلترها (بلاغ المالك 27 سبتمبر: 3 من 10 شكاوى، أقدمهم 10 أيام).
+  // الستب كان حاطط `null` للمحادثات غير المصنّفة فالاختبار عدّى أعمى.
+  // `not.eq.{}` = `NOT (labels = '{}')` → المصنّفة بس، والـlimit بيتحسب عليها.
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
-    .not('labels','is',null)
+    .not('labels','eq','{}')
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(WA_LABEL_LIMIT)
     .then(function(r){
       if(r.error) return;   // الفلتر بيفضل على المحمّل — أحسن من قايمة فاضية
       var rows=r.data||[];
       waLabelCapped=(rows.length===WA_LABEL_LIMIT);
-      // `.not(labels,is,null)` بترجّع كمان الصفوف اللي مصفوفتها فاضية
-      // (الموظف شال آخر تصنيف) — دي مش «عليها تصنيف»
+      // حارس إضافي بس — السيرفر بيستبعد الفاضية خلاص
       waLabelExtra=rows.filter(function(c){ return c.labels && c.labels.length; });
       if(waConvos.length) renderConvos();
     });
@@ -478,13 +484,14 @@ export function waFetchAdConvos(){
 
 export function renderConvos(){
   var body=$id('wa-list-body'); if(!body) return;
-  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={};
+  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={}, cmpAlert=0;
   for(var k=0;k<waConvos.length;k++){
     seenConvIds[waConvos[k].id]=1;
     if(waIsFromAd(waConvos[k])) adIds[waConvos[k].id]=1;
     var u=waConvos[k].unread_count||0; totalUnread+=u; if(u>0)unreadConvs++;
     var ls=waConvos[k].labels||[];
     for(var li=0;li<ls.length;li++){ labelCounts[ls[li]]=(labelCounts[ls[li]]||0)+1; }
+    var cst=waComplaintState(waConvos[k]); if(cst && cst.level!=='ok') cmpAlert++;
   }
   // ⚠️ عدّاد الإعلانات والتصنيفات بيضموا الأقدم من الـ200 (الاتنين ليهم
   // استعلام سيرفر) — **غير المقروء لوحده** هو اللي لسه على نسخة الـ200،
@@ -496,6 +503,7 @@ export function renderConvos(){
     var lc=waLabelExtra[lx]; if(seenConvIds[lc.id]) continue;
     var els=lc.labels||[];
     for(var lj=0;lj<els.length;lj++){ labelCounts[els[lj]]=(labelCounts[els[lj]]||0)+1; }
+    var lcs=waComplaintState(lc); if(lcs && lcs.level!=='ok') cmpAlert++;
   }
   var adCount=0;
   for(var ak in adIds){ if(Object.prototype.hasOwnProperty.call(adIds,ak)) adCount++; }
@@ -505,7 +513,18 @@ export function renderConvos(){
   var af=$id('wa-filter-ctwa');
   if(af) af.textContent= adCount>0 ? ('📣 جه من إعلان ('+adCount+(waAdCapped?'+':'')+')') : '📣 جه من إعلان';
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
-  for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+(waLabelCapped?'+':'')+')') : lk; }
+  for(var ci=0;ci<lchips.length;ci++){
+    var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0;
+    var txt= ln>0 ? (lk+' ('+ln+(waLabelCapped?'+':'')+')') : lk;
+    // 🔴 التنبيه لازم يبان **من غير ما حد يفتح الفلتر** — الشكوى اللي قربت
+    // مهلتها غالباً مش في أحدث 200، فصفها مش ظاهر في القايمة العادية أصلاً
+    var alertOn=(lk===WA_COMPLAINT_LABEL && cmpAlert>0);
+    if(alertOn) txt+=' · ⚠️ '+cmpAlert;
+    lchips[ci].textContent=txt;
+    lchips[ci].classList.toggle('has-alert', alertOn);
+    if(alertOn) lchips[ci].title=cmpAlert+' شكوى عدّى عليها '+WA_COMPLAINT_WARN_DAYS+' أيام أو أكتر من غير «'+WA_RESOLVED_LABEL+'»';
+    else lchips[ci].removeAttribute('title');
+  }
   if(!waConvos.length && !waAdExtra.length){
     // النفاد مش "مفيش محادثات" — الرسالة الغلط كانت بتوحي إن البيانات ضاعت
     if(walletStateCache && walletStateCache.is_depleted){ body.innerHTML=WA_LOCK_MSG; return; }
@@ -534,6 +553,16 @@ export function renderConvos(){
       if(!seenL[waLabelExtra[z2].id] && waConvMatches(waLabelExtra[z2])) list.push(waLabelExtra[z2]);
     }
     list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
+    // فلتر «شكوى»: المفتوحة الأول والأقدم فوق (الأقرب لنهاية المهلة) —
+    // الشكوى المنسية هي بالظبط اللي آخر رسالة فيها قديمة فكانت بتنزل لتحت
+    if(waFilter==='label:'+WA_COMPLAINT_LABEL){
+      list.sort(function(a,b){
+        var sa=waComplaintState(a), sb2=waComplaintState(b);
+        if(!!sa!==!!sb2) return sa?-1:1;
+        if(sa && sb2) return String(sa.at).localeCompare(String(sb2.at));
+        return String(b.last_message_at||'').localeCompare(String(a.last_message_at||''));
+      });
+    }
   }
   // نتايج البحث من السيرفر — بتتضاف مع **أي** فلتر (بتعدّي على
   // `waConvMatches` فالفلتر النشط بيتطبّق عليها كمان). بس لو النتيجة
@@ -575,6 +604,7 @@ export function renderConvos(){
         +'<div class="wa-conv-top"><span class="wa-conv-name">'+esc(name)+'</span><span class="wa-conv-time">'+esc(waTimeShort(c.last_message_at))+'</span></div>'
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
+        +(waComplaintState(c)?('<div class="wa-conv-cmp lvl-'+waComplaintState(c).level+'" title="'+esc(waComplaintTitle(waComplaintState(c)))+'">'+esc(waComplaintText(waComplaintState(c)))+'</div>'):'')
         +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span>'
         +(waCtwaUrl(c)?('<a class="wa-conv-ad-link" href="'+esc(waCtwaUrl(c))+'" target="_blank" rel="noopener noreferrer" title="افتح الإعلان على فيسبوك">↗</a>'):'')
         +'</div>'):'')
@@ -1497,6 +1527,58 @@ export var WA_LABELS=[
 
 export function waLabelColor(k){ for(var i=0;i<WA_LABELS.length;i++){ if(WA_LABELS[i].k===k) return WA_LABELS[i].c; } return '#64748b'; }
 
+// ----- عدّاد الشكاوى (طلب المالك 27 سبتمبر) -----
+// الشكوى مهلتها 14 يوم مع العميل، والتنبيه بيبدأ بعد 10 عشان مانتنساش.
+// 🔴 `complaint_at` بيكتبه **تريجر** (`app.wa_complaint_clock`) لحظة إضافة
+// «شكوى» — مش المتصفح (العمود مش ممنوح للكتابة، فالموظف مايقدرش يرجّع
+// التاريخ عشان التنبيه يسكت). والعدّاد بيقف أول ما «تم الحل» تتحط.
+// ⚠️ `complaint_at_estimated` = شكوى قديمة قبل العدّاد، تاريخها من آخر رسالة.
+export var WA_COMPLAINT_LABEL='شكوى';
+export var WA_RESOLVED_LABEL='تم الحل';
+export var WA_COMPLAINT_WARN_DAYS=10;
+export var WA_COMPLAINT_LIMIT_DAYS=14;
+var WA_DAY_MS=86400000;
+
+export function waComplaintState(c, nowMs){
+  if(!c || !c.complaint_at) return null;
+  var ls=c.labels||[];
+  if(ls.indexOf(WA_COMPLAINT_LABEL)<0 || ls.indexOf(WA_RESOLVED_LABEL)>=0) return null;
+  var t=Date.parse(c.complaint_at); if(!isFinite(t)) return null;
+  var el=(nowMs==null?Date.now():nowMs)-t; if(el<0) el=0;
+  var level= el>=WA_COMPLAINT_LIMIT_DAYS*WA_DAY_MS ? 'over' : (el>=WA_COMPLAINT_WARN_DAYS*WA_DAY_MS ? 'warn' : 'ok');
+  return { days:Math.floor(el/WA_DAY_MS),
+           left:Math.ceil((WA_COMPLAINT_LIMIT_DAYS*WA_DAY_MS-el)/WA_DAY_MS),
+           over:Math.floor((el-WA_COMPLAINT_LIMIT_DAYS*WA_DAY_MS)/WA_DAY_MS),
+           level:level, est:!!c.complaint_at_estimated, at:c.complaint_at };
+}
+
+function waDaysAr(n){ return n===1?'يوم':(n===2?'يومين':(n>=3&&n<=10?(n+' أيام'):(n+' يوم'))); }
+
+// نص قصير — للصف في القايمة وللشريحة في الهيدر
+export function waComplaintText(s){
+  if(!s) return '';
+  var since = s.days<1 ? 'النهاردة' : ('من '+waDaysAr(s.days));
+  if(s.level==='over') return '⛔ شكوى متأخرة — عدّت الـ'+WA_COMPLAINT_LIMIT_DAYS+' يوم'+(s.over>=1?(' بـ'+waDaysAr(s.over)):'');
+  if(s.level==='warn') return '⚠️ شكوى '+since+' — باقي '+waDaysAr(s.left);
+  return '⏱ شكوى '+since;
+}
+
+export function waComplaintTitle(s){
+  if(!s) return '';
+  var t='بدأت: '+fmtStoredDateTime(s.at)+' · المهلة '+WA_COMPLAINT_LIMIT_DAYS+' يوم والتنبيه بعد '+WA_COMPLAINT_WARN_DAYS;
+  if(s.est) t+='\nالتاريخ تقريبي: الشكوى اتعلّمت قبل تفعيل العدّاد، فاتحسب من آخر رسالة في المحادثة';
+  return t+'\nالعدّاد بيقف لما تتعلّم «'+WA_RESOLVED_LABEL+'»';
+}
+
+function waComplaintBanner(s){
+  if(!s || s.level==='ok') return '';
+  var msg= s.level==='over'
+    ? ('⛔ الشكوى دي عدّت مهلة الـ'+WA_COMPLAINT_LIMIT_DAYS+' يوم'+(s.over>=1?(' بـ'+waDaysAr(s.over)):'')+' — اتصرف مع العميل النهاردة')
+    : ('⚠️ الشكوى دي بقالها '+waDaysAr(s.days)+' — لازم تتحل قبل ما تعدّي '+WA_COMPLAINT_LIMIT_DAYS+' يوم (باقي '+waDaysAr(s.left)+')');
+  return '<div class="wa-cmp-banner lvl-'+s.level+'" id="wa-cmp-banner" title="'+esc(waComplaintTitle(s))+'">'+esc(msg)
+    +'<span class="wa-cmp-hint">لما تتحل علّمها «'+esc(WA_RESOLVED_LABEL)+'»'+(s.est?' · التاريخ تقريبي':'')+'</span></div>';
+}
+
 export function waLoadConvMeta(conv){
   var box=$id('wa-cmeta'); if(!box){ return; }
   if(!conv){ box.style.display='none'; return; }
@@ -1512,10 +1594,17 @@ export function waLoadConvMeta(conv){
 export function waRenderConvLabels(conv){
   var c=$id('wa-clabels'); if(!c) return;
   var labels=(conv&&conv.labels)||[];
+  // البانر بيتشال/بيتحدّث مع الشرايح — نفس الموضع اللي الـpoll بيعدّي عليه
+  var oldB=$id('wa-cmp-banner'); if(oldB) oldB.remove();
   if(!labels.length){ c.innerHTML='<span style="font-size:.72rem;color:var(--muted)">مفيش تصنيف</span>'; return; }
   var html='';
   for(var i=0;i<labels.length;i++){ html+='<span class="wa-clabel" style="background:'+waLabelColor(labels[i])+'">'+esc(labels[i])+'</span>'; }
+  var cs=waComplaintState(conv);
+  if(cs) html+='<span class="wa-cmp-chip lvl-'+cs.level+'" id="wa-cmp-chip" title="'+esc(waComplaintTitle(cs))+'">'+esc(waComplaintText(cs))+'</span>';
   c.innerHTML=html;
+  var bn=waComplaintBanner(cs);
+  var row=c.parentNode;
+  if(bn && row && row.parentNode) row.insertAdjacentHTML('afterend', bn);
 }
 
 export function waRenderLabelPicker(conv){
@@ -1538,6 +1627,12 @@ export function waToggleLabel(label){
   var idx=labels.indexOf(label);
   if(idx>=0) labels.splice(idx,1); else labels.push(label);
   conv.labels=labels;
+  // نفس منطق التريجر عشان العدّاد يبان من غير ما نستنى الـpoll —
+  // والسيرفر هو اللي بيكسب مع أول جلب (مصدر الحقيقة)
+  if(label===WA_COMPLAINT_LABEL){
+    if(idx>=0){ conv.complaint_at=null; conv.complaint_at_estimated=false; }
+    else if(!conv.complaint_at){ conv.complaint_at=new Date().toISOString(); conv.complaint_at_estimated=false; }
+  }
   waRenderConvLabels(conv); waRenderLabelPicker(conv); renderConvos();
   sb.from('wa_conversations').update({labels:labels}).eq('id',conv.id).then(function(r){
     if(r.error){ toast('التصنيف ماتحفظش — حاول تاني','er'); return; }

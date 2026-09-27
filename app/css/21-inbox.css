@@ -274,3 +274,16 @@
 .wa-nc-prev:empty{display:none;}
 .wa-nc-foot{display:flex;align-items:center;gap:10px;}
 .wa-nc-note{flex:1;font-size:.7rem;color:var(--muted);line-height:1.5;}
+/* عدّاد الشكاوى (27 سبتمبر) — ok هادي، warn برتقالي، over أحمر.
+   الصف في القايمة سطر صغير؛ الهيدر شريحة + بانر من 10 أيام وطالع. */
+.wa-conv-cmp{margin-top:3px;font-size:.66rem;font-weight:800;color:#92400e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wa-conv-cmp.lvl-warn{color:#c2410c;}
+.wa-conv-cmp.lvl-over{color:#b91c1c;}
+.wa-cmp-chip{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:.7rem;font-weight:800;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;}
+.wa-cmp-chip.lvl-warn{background:#ffedd5;color:#c2410c;border-color:#fb923c;}
+.wa-cmp-chip.lvl-over{background:#fee2e2;color:#b91c1c;border-color:#f87171;}
+.wa-cmp-banner{margin-top:6px;padding:7px 10px;border-radius:8px;font-size:.78rem;font-weight:800;line-height:1.5;background:#ffedd5;color:#9a3412;border:1px solid #fb923c;}
+.wa-cmp-banner.lvl-over{background:#fee2e2;color:#991b1b;border-color:#f87171;}
+.wa-cmp-hint{display:block;font-size:.7rem;font-weight:700;opacity:.8;}
+.wa-filter.has-alert{border-color:#f87171;color:#b91c1c;background:#fef2f2;}
+.wa-filter.has-alert.active{background:var(--acc);border-color:var(--acc);color:#fff;}
