@@ -291,3 +291,6 @@ html.dark .wa-cmp-chip.lvl-warn,html.dark .wa-cmp-banner{background:#3b1d0a;colo
 html.dark .wa-cmp-chip.lvl-over,html.dark .wa-cmp-banner.lvl-over{background:#3b0f0f;color:#fca5a5;border-color:#b91c1c;}
 html.dark .wa-filter.has-alert{background:#3b0f0f;color:#fca5a5;border-color:#b91c1c;}
 html.dark .wa-filter.has-alert.active{background:var(--acc);border-color:var(--acc);color:#fff;}
+
+/* بانر مزامنة J&T */
+html.dark .jt-sync-alert{background:#3b0d0d;border-color:#ef4444;color:#fecaca}

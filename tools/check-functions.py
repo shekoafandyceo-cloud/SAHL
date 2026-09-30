@@ -236,6 +236,17 @@ CONTRACTS = [
     ("jt-lookup", u"fee_sync للتشخيص/الجدولة بس — مش للموظف",
      lambda s: 'action === "fee_sync"' in s
      and s.find("if (!privileged)", s.find('action === "fee_sync"')) - s.find('action === "fee_sync"') < 80),
+    # ── المصالحة بالسحب (30 سبتمبر) ──
+    ("jt-lookup", u"trace_sync للتشخيص/الجدولة بس — مش للموظف",
+     lambda s: 'action === "trace_sync"' in s
+     and s.find("if (!privileged)", s.find('action === "trace_sync"')) - s.find('action === "trace_sync"') < 80),
+    ("jt-lookup", u"trace_sync بيطبّق الناقص بس على نفس jt_apply_trace_v1 (مش replay أعمى)",
+     lambda s: "jtScansToApply(jtPullScans(" in s and s.count('"jt_apply_trace_v1"') >= 1 and "p_by: PULL_BY" in s),
+    ("_shared/jt", u"الـpull مافيهوش isRefund — رحلة المرتجع بتتستنتج من أول 172",
+     lambda s: 'if (code === "172") returning = true;' in s
+     and 'returning && code !== "172" && code !== "111"' in s),
+    ("_shared/jt", u"parseJtTime المشتركة = UTC+2 ثابت زي jt-status",
+     lambda s: "export function parseJtTime" in s and "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
 ]
 
 

@@ -23,17 +23,21 @@ export var RANK_GOOD = 80, RANK_MID = 50;
 // Get deadline ISO string ONLY if order is pending and has call attempts
 // Returns '' if order is not pending, or has no calls, or deadline already passed long ago
 // Parse status_log safely — Supabase sometimes returns it as a JSON string
+// 🔴 وممكن يبقى **مخلوط** (613 أوردر اتقاسوا 30 سبتمبر): نود n8n بتكتبه string، وبعدها
+// أي دالة SQL بتعمل `status_log || jsonb_build_array(...)` فبيطلع
+// `["[{…},{…}]", {…}, {…}]` — أول عنصر السجل القديم كله كنص. قبل كده المصفوفة
+// كانت بترجع زي ما هي، فالتايم لاين كان بيعمل Object.assign على النص (مفاتيح
+// حروف ومفيش `at`) فيترتب الأول ويكسر سلسلة «من ← إلى» ويضيّع تاريخ التأكيد.
+// فبنفكّ أي عنصر نص جوّه المصفوفة ونحط عناصره مكانه بنفس الترتيب.
 export function parseStatusLog(val){
-  if(!val) return [];
-  if(Array.isArray(val)) return val;
-  // May be a JSON string, or even a double-encoded JSON string ("\"[...]\"")
-  var v = val;
-  for(var i=0;i<3;i++){
-    if(Array.isArray(v)) return v;
-    if(typeof v !== 'string') return [];
-    try{ v = JSON.parse(v); }catch(e){ return []; }
-  }
-  return Array.isArray(v) ? v : [];
+  var out = [];
+  (function walk(v, depth, inArr){
+    if(v == null || depth > 6) return;
+    if(typeof v === 'string'){ try{ walk(JSON.parse(v), depth + 1, inArr); }catch(e){} return; }
+    if(Array.isArray(v)){ for(var i=0;i<v.length;i++) walk(v[i], depth + 1, true); return; }
+    if(typeof v === 'object' && inArr) out.push(v);   // object لوحده بره مصفوفة = مش سجل
+  })(val, 0, false);
+  return out;
 }
 
 export function getCallDeadline(o){

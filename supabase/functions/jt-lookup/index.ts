@@ -15,6 +15,9 @@
 //   raw           → (diag/service بس) { path, biz } — الإنشاء مسموح في sandbox بس
 //   perm_probe    → (diag/service بس) هل `order/addOrder` مفعّل على الحساب؟ **من غير ما يعمل شحنة**
 //   fee_sync      → (diag/service بس) getWaybillInfo للمسلّم/المرتجع → jt_apply_fee_v1 (التكلفة النهائية + رسوم COD)
+//   trace_sync    → (diag/service بس) مصالحة بالسحب: logistics/trace لكل أوردر لسه ماوصلش حالة نهائية →
+//                   المسحات الناقصة على **نفس** jt_apply_trace_v1 (30 سبتمبر — الـpush بيضيع ~1%)
+//   (الاتنين بيسجّلوا كل تشغيل في jt_sync_runs — الواجهة بتنبّه الأدمن لو المزامنة وقفت)
 //
 // env: الموظف دايماً على البيئة الافتراضية (JT_ENV). diag/service يقدروا يطلبوا sandbox.
 //
@@ -28,12 +31,23 @@
 //   الحمولة مابتيجيش من الـbody خالص، والـ`allowCreateInProduction` بيتبعت من الكود
 //   هنا صراحةً (مش من أي حمولة خارجية) — نفس عقد الحارس في `_shared/jt.ts`.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { buildRequest, isCreateEndpoint, JT_PATHS, jtCall, redactRequest, withBusinessDigest } from "../_shared/jt.ts";
+import { buildRequest, isCreateEndpoint, JT_PATHS, jtCall, jtPullScans, jtScansToApply, redactRequest, withBusinessDigest } from "../_shared/jt.ts";
+import { md5Hex } from "../_shared/md5.ts";
 import { authCaller, cors, defaultEnv, envStatus, json, loadJtConfig } from "../_shared/jt-runtime.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+// سجل التشغيل — فشله مايوقفش المزامنة نفسها. وبيمسح اللي أقدم من 14 يوم.
+async function logRun(job: "trace_sync" | "fee_sync", ok: boolean, candidates: number, tally: Record<string, unknown>, error: string | null) {
+  try {
+    await admin.from("jt_sync_runs").insert({ job, ok, candidates, tally, error: error ? error.slice(0, 500) : null });
+    await admin.from("jt_sync_runs").delete().lt("ran_at", new Date(Date.now() - 14 * 86400000).toISOString());
+  } catch { /* السجل مش أهم من المزامنة */ }
+}
+
+const PULL_BY = "J&T API · مصالحة";
 
 const ADDORDER_FIELDS = ["expressType", "deliveryType", "goodsType", "operateType", "payType"];   // serviceType اختياري
 
@@ -107,7 +121,7 @@ Deno.serve(async (req: Request) => {
   if (action === "fee_sync") {
     if (!privileged) return json({ error: "forbidden", message: "fee_sync للتشخيص/الجدولة بس" }, 403);
     const { data: cand, error: cErr } = await admin.rpc("jt_fee_candidates_v1", { p_limit: Math.min(Number(body.limit) || 60, 200) });
-    if (cErr) return json({ error: "db", message: cErr.message }, 500);
+    if (cErr) { await logRun("fee_sync", false, 0, {}, "db: " + cErr.message); return json({ error: "db", message: cErr.message }, 500); }
     const codes = (cand || []).map((r: { bill_code: string }) => String(r.bill_code || "")).filter(Boolean);
     const tally: Record<string, number> = {};
     const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
@@ -117,9 +131,11 @@ Deno.serve(async (req: Request) => {
       try {
         r = await jtCall(cfg, JT_PATHS.getWaybillInfo, withBusinessDigest({ waybillNos: batch }, creds), { timeoutMs: 25000 });
       } catch (e) {
-        return json({ ok: false, error: "jt_unreachable", message: String((e as Error).message || e), candidates: codes.length, tally }, 502);
+        const m = String((e as Error).message || e);
+        await logRun("fee_sync", false, codes.length, tally, "jt_unreachable: " + m);
+        return json({ ok: false, error: "jt_unreachable", message: m, candidates: codes.length, tally }, 502);
       }
-      if (r.code !== "1") return json({ ok: false, code: r.code, msg: r.msg, candidates: codes.length, tally }, 502);
+      if (r.code !== "1") { await logRun("fee_sync", false, codes.length, tally, "jt " + r.code + ": " + r.msg); return json({ ok: false, code: r.code, msg: r.msg, candidates: codes.length, tally }, 502); }
       // deno-lint-ignore no-explicit-any
       const rows: any[] = Array.isArray(r.data) ? r.data : [];
       // deno-lint-ignore no-explicit-any
@@ -137,7 +153,64 @@ Deno.serve(async (req: Request) => {
         bump(aErr ? "error" : String(a?.note || "?"));
       }
     }
+    await logRun("fee_sync", true, codes.length, tally, null);
     return json({ ok: true, env, candidates: codes.length, tally });
+  }
+
+  // trace_sync — المصالحة بالسحب (بيتنده من pg_cron كل 15 دقيقة)
+  // 🔴 الـpush مش مضمون: 17309 فضل «استثناء» 3 أيام وهو متسلّم لأن مسح التسليم ماوصلش.
+  // هنا بنسحب التتبع ونطبّق **بس** المسحات الأحدث من آخر مسح عندنا، على نفس الدالة
+  // ونفس الخريطة — فالـpush والـpull مستحيل يدّوا نتيجتين مختلفتين لنفس المسح.
+  if (action === "trace_sync") {
+    if (!privileged) return json({ error: "forbidden", message: "trace_sync للتشخيص/الجدولة بس" }, 403);
+    const { data: cand, error: cErr } = await admin.rpc("jt_trace_candidates_v1", { p_limit: Math.min(Number(body.limit) || 300, 1000) });
+    if (cErr) { await logRun("trace_sync", false, 0, {}, "db: " + cErr.message); return json({ error: "db", message: cErr.message }, 500); }
+    // deno-lint-ignore no-explicit-any
+    const byBill = new Map<string, any>((cand || []).map((c: any) => [String(c.bill_code || ""), c]));
+    const codes = [...byBill.keys()].filter(Boolean);
+    const tally: Record<string, number> = {};
+    const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
+    const changed: Array<{ bill: string; status: string }> = [];
+    for (let i = 0; i < codes.length; i += 30) {
+      const batch = codes.slice(i, i + 30);
+      let r;
+      try {
+        r = await jtCall(cfg, JT_PATHS.trace, withBusinessDigest({ billCodes: batch.join(",") }, creds), { timeoutMs: 25000 });
+      } catch (e) {
+        const m = String((e as Error).message || e);
+        await logRun("trace_sync", false, codes.length, tally, "jt_unreachable: " + m);
+        return json({ ok: false, error: "jt_unreachable", message: m, candidates: codes.length, tally }, 502);
+      }
+      if (r.code !== "1") {
+        await logRun("trace_sync", false, codes.length, tally, "jt " + r.code + ": " + r.msg);
+        return json({ ok: false, code: r.code, msg: r.msg, candidates: codes.length, tally }, 502);
+      }
+      // deno-lint-ignore no-explicit-any
+      const items: any[] = Array.isArray(r.data) ? r.data : [];
+      for (const it of items) {
+        const bc = String(it?.billCode || "");
+        const c = byBill.get(bc);
+        if (!c) { bump("not_candidate"); continue; }
+        const scans = jtScansToApply(jtPullScans(it?.details), c.carrier_status_at, c.carrier_status_code);
+        if (!scans.length) { bump("up_to_date"); continue; }
+        for (const sc of scans) {
+          // الخام في jt_events (kind=pull) — من غير otp ولا صور التوقيع
+          const { data: ev } = await admin.from("jt_events").insert({
+            kind: "pull", bill_code: bc, order_id: c.order_id, tenant_id: c.tenant_id, digest_ok: true,
+            payload_hash: md5Hex("pull|" + bc + "|" + sc.rawTime + "|" + sc.scanCode),
+            payload: { source: "logistics/trace", billCode: bc, scanTime: sc.rawTime, scanCode: sc.scanCode, scanType: sc.scanType, desc: sc.desc.slice(0, 300), refund: sc.refund },
+          }).select("id").maybeSingle();
+          const { data: a, error: aErr } = await admin.rpc("jt_apply_trace_v1", {
+            p_bill_code: bc, p_scan_type: sc.scanType, p_scan_code: sc.scanCode, p_scan_at: sc.scanAt, p_desc: sc.desc, p_by: PULL_BY });
+          const note = aErr ? "error" : String(a?.note || "?");
+          bump(note);
+          if (ev?.id) await admin.from("jt_events").update({ applied: !aErr, apply_note: aErr ? "error: " + aErr.message : note }).eq("id", ev.id);
+          if (note === "status_set") changed.push({ bill: bc, status: String(a?.status || "") });
+        }
+      }
+    }
+    await logRun("trace_sync", true, codes.length, { ...tally, changed: changed.length }, null);
+    return json({ ok: true, env, candidates: codes.length, tally, changed });
   }
 
   let path = "", biz: Record<string, unknown> = {};

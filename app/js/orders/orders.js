@@ -24,6 +24,7 @@ import { doBulkUpdate } from './mutations.js';
 import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetAllLoaded, ordersSetFiltered, ordersSetLoading, ordersSetPage, ordersSetPageSize, ordersSetPendingBosta, ordersSetPhoneCounts, ordersSetSelected, ordersSetTotalCount, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, totalCount } from './state.js';
 import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
 import { initShipTicker } from './ship.js';
+import { initJtHealth } from './jt-health.js';
 
 export function ordersInPeriod(){
   var p=ordersPeriod;
@@ -170,6 +171,8 @@ export function fetchPhoneCounts(rawPhones, cb){
 }
 
 export function loadAll(){
+  // بانر «مزامنة J&T واقفة» للأدمن — بعد الدخول (initNav بيشتغل قبل ما sb يجهز) ومع كل ↻
+  initJtHealth();
   if(!ensureTenant())return;
   selectedIds.clear();updateBulkBar();
   // مش بنحمّل كل الأوردرات عند البداية — صفحة الأوردرات كلها من السيرفر.

@@ -276,3 +276,68 @@ export function redactRequest(r: JtRequest, creds: JtCreds): Record<string, unkn
   }
   return { url: r.url, method: r.method, headers, bizContent: biz, timestamp: r.timestamp };
 }
+
+// ── المصالحة بالسحب (pull) — 30 سبتمبر ─────────────────────────────────
+// 🔴 الـpush مش مضمون: اتقاس 30 سبتمبر إن 19 مسح من 1,995 (~1%) عند J&T عمرهم
+// ما وصلوا jt-status — منهم مسحين تسليم (100)، فأوردرين فضلوا «استثناء» و«خرج
+// للتسليم» وهم متسلّمين ومتحصّلين. الدوال دي بتحوّل رد logistics/trace لنفس
+// مفاتيح الـpush بالظبط، فالتطبيق بيعدّي على نفس jt_apply_trace ونفس الخريطة.
+
+/** "2026-09-20 10:26:15" (توقيت J&T) → ISO. 🔴 J&T = UTC+2 ثابت (من غير DST) —
+ *  اتقاس 24 سبتمبر على 137 callback. **لازم تفضل مطابقة لنسخة jt-status**
+ *  (فيه عقد في check-functions.py) — لو اختلفوا حارس stale بيرمي مسحات صح. */
+export function parseJtTime(s: unknown): string | null {
+  const t = String(s || "").trim();
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) { const d = new Date(t); return isNaN(d.getTime()) ? null : d.toISOString(); }
+  const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  return new Date(utc - 120 * 60000).toISOString();
+}
+
+export interface JtPullScan {
+  scanCode: string;      // نفس مفتاح الـpush: "94" · "refund:50" · "name:holding scan"…
+  scanType: string;
+  scanAt: string | null; // ISO
+  rawTime: string;       // زي ما J&T بعتته — للـhash والتدقيق
+  desc: string;
+  refund: boolean;
+}
+
+/** تفاصيل logistics/trace (pull) → مسحات بالترتيب الزمني بنفس مفاتيح الـpush.
+ *  🔴 الـpull **مافيهوش isRefund** (اتقاس على 1,995 مسح) — والـpush بيعلّم بيه رحلة
+ *  المرتجع عشان مسحاتها (50/92/94/120) بنفس أكواد الذهاب وكانت بترجّع أوردر
+ *  مرتجع لـ«خرج للتسليم». الشكل المقيس: رحلة المرتجع **بتبدأ بـ172** (Returned
+ *  parcel scan) وبتخلص بـ**111** (Return Sign = «13 Returned Signed» في الـpush).
+ *  فأي مسح **بعد** أول 172 = رحلة مرتجع، إلا 172 و111 نفسهم (دول اللي بيحسموا). */
+export function jtPullScans(details: unknown): JtPullScan[] {
+  const arr = Array.isArray(details) ? details as Record<string, unknown>[] : [];
+  // J&T بترجّعها الأحدث الأول — الترتيب بالوقت، وعند التساوي الأقرب لآخر المصفوفة أقدم
+  const rows = arr.map((d, i) => ({ d: (d && typeof d === "object") ? d : {}, i }))
+    .map((r) => ({ ...r, t: String((r.d as Record<string, unknown>).scanTime ?? "").trim() }))
+    .sort((a, b) => a.t.localeCompare(b.t) || b.i - a.i);
+  const out: JtPullScan[] = [];
+  let returning = false;
+  for (const r of rows) {
+    const d = r.d as Record<string, unknown>;
+    const code = String(d.scanTypeCode ?? "").trim();
+    const scanType = String(d.scanType ?? "").trim();
+    const refund = returning && code !== "172" && code !== "111";
+    const scanCode = refund ? "refund:" + (code || "name:" + scanType.toLowerCase()) : code;
+    out.push({ scanCode, scanType, scanAt: parseJtTime(r.t), rawTime: r.t,
+      desc: String(d.desc || d.probleDescription || ""), refund });
+    if (code === "172") returning = true;
+  }
+  return out;
+}
+
+/** المسحات اللي لسه ماتطبّقتش على الأوردر: الأحدث من `carrier_status_at` بس.
+ *  لو الأوردر لسه مالوش مسح تتبع (`order:*` أو مفيش وقت) → كله.
+ *  ⚠️ الكود الفاضي **مش** «مفيش مسح»: Holding/Enter branch scan بيوصلوا في الـpush من
+ *  غير scanTypeCode فبيتخزن فاضي والوقت مظبوط — أول تشغيل حي رجّع 63 مسح قديم لـ6
+ *  أوردرات بالسبب ده (النتيجة كانت stale صح، بس ضجيج في jt_events كل 15 دقيقة). */
+export function jtScansToApply(scans: JtPullScan[], sinceIso: string | null | undefined, sinceCode: string | null | undefined): JtPullScan[] {
+  const code = String(sinceCode || "");
+  const since = sinceIso ? Date.parse(sinceIso) : NaN;
+  if (code.startsWith("order:") || !Number.isFinite(since)) return scans.filter((s) => s.scanAt);
+  return scans.filter((s) => s.scanAt && Date.parse(s.scanAt) > since);
+}
