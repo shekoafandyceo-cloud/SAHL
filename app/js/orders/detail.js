@@ -271,6 +271,19 @@ export function jtFeeRow(o){
     +total+parts+' · '+tag+'</span></div>';
 }
 
+// (1 أكتوبر) الـCOD اللي J&T بتحصّله فعلاً (getOrders itemsValue — من trace_sync).
+// بيظهر بس لو مختلف عن الإجمالي: 3 من 223 أوردر كانوا مختلفين (الإجمالي اتعدّل بعد الشحن ·
+// أو اتعدّل في بوابة J&T) — والمتحصّل في الماليات من الإجمالي، فالفرق ده لازم يبان.
+export function jtCodRow(o){
+  if(!o || o.jt_cod_amount===null || o.jt_cod_amount===undefined || o.jt_cod_amount==='') return '';
+  var jt=Number(o.jt_cod_amount), tot=Number(o.total_cost||0);
+  if(!isFinite(jt) || Math.abs(jt-tot)<0.005) return '';
+  var f2=function(v){ return (Math.round(Number(v||0)*100)/100).toFixed(2)+' ج'; };
+  return '<div class="drow" id="jt-cod-row"><span class="dkey">التحصيل عند J&T</span><span class="dval ar">'
+    +'<b style="color:var(--red)">'+f2(jt)+'</b> · مختلف عن الإجمالي ('+f2(tot)+') بـ'+f2(jt-tot)
+    +' — J&T بتحصّل المبلغ اللي معاها، والمتحصّل في الماليات محسوب من الإجمالي</span></div>';
+}
+
 export function renderDetail(){
   var o=sel;
   if(!o)return;
@@ -370,7 +383,7 @@ export function renderDetail(){
       +dr('كود الفرز (J&T)','<span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+(o.jt_sorting_code?esc(o.jt_sorting_code):'<span style="color:var(--muted);font-style:italic">J&T مرجّعتش كود</span>')+'</span>')
       +(o.ship_prov?dr('عنوان J&T','<span class="dval ar">'+esc([o.ship_prov,o.ship_city,o.ship_area].filter(Boolean).join(' — '))+(o.shipping_weight_kg?' · '+esc(String(o.shipping_weight_kg))+' كجم':'')+'</span>'):'')
       +(o.carrier_status_raw?dr('آخر حالة من J&T','<span class="dval">'+esc(o.carrier_status_raw)+(o.carrier_status_at?' <span style="color:var(--muted);font-size:.78rem">'+fmtDT(o.carrier_status_at)+'</span>':'')+'</span>'):'')
-      +(isAdmin()?jtFeeRow(o):'')
+      +(isAdmin()?jtFeeRow(o)+jtCodRow(o):'')
       :'')
     +'</div>'
 

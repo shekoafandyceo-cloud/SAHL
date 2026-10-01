@@ -88,7 +88,7 @@ const E = await run({ role: 'employee' });
 ok(E.o1 === null && E.o4 === null, '5) الموظف مايشوفش سطر التكلفة');
 
 console.log('— المعايرات');
-const cA = await run({ role: 'employee', patch: s => s.replace("+(isAdmin()?jtFeeRow(o):'')", '+jtFeeRow(o)') });
+const cA = await run({ role: 'employee', patch: s => s.replace("+(isAdmin()?jtFeeRow(o)+jtCodRow(o):'')", '+jtFeeRow(o)+jtCodRow(o)') });
 ok(cA.o1 !== null, '(أ) من غير حارس isAdmin الموظف بيشوف السطر — فحص 5 بيمسكها');
 const cB = await run({ patch: s => s.replace('o.jt_fee_final && o.real_shipping_fee!=null', 'o.real_shipping_fee!=null') });
 ok(cB.o5 && cB.o5.bold && /88/.test(cB.o5.text), '(ب) من غير شرط النهائي الرقم القديم بيتعرض كإجمالي — فحص 2 بيمسكها');

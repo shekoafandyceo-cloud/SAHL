@@ -1,4 +1,4 @@
-// بانر «مزامنة حالات J&T واقفة» — للأدمن بس (30 سبتمبر)
+// بانر «مزامنة حالات J&T واقفة» + «حسابات J&T محتاجة مراجعة» — للأدمن بس (30 سبتمبر · 1 أكتوبر)
 //
 // 🔴 ليه: الـpush من J&T بيضيع ~1% من المسحات (17309 فضل «استثناء» 3 أيام وهو
 // متسلّم ومتحصّل). الحل الجذري `trace_sync` كل 15 دقيقة (pg_cron) — بس لو المزامنة
@@ -24,10 +24,32 @@ export function jtSyncState(h){
   var now = Date.parse(h.now || '');
   var last = Date.parse(h.trace_last_ok || '');
   if(!isFinite(now)) return { show: false };
-  if(!isFinite(last)) return { show: true, minutes: null, error: h.trace_last_error || '' };
+  var issues = jtAccountingIssues(h);
+  if(!isFinite(last)) return { show: true, stale: true, minutes: null, error: h.trace_last_error || '', issues: issues };
   var min = Math.floor((now - last) / 60000);
-  return { show: min >= JT_SYNC_STALE_MIN, minutes: min, error: h.trace_last_error || '' };
+  var stale = min >= JT_SYNC_STALE_MIN;
+  return { show: stale || issues.length > 0, stale: stale, minutes: min, error: h.trace_last_error || '', issues: issues };
 }
+
+// (1 أكتوبر — مراجعة الحسابات) حاجات بتخلّي رقم يكدب في صمت حتى والمزامنة شغّالة:
+//   مسلّم بقاله > 24 ساعة من غير تكلفة شحن نهائية (fee_sync واقفة — الطبيعي 10 دقايق) ·
+//   مسح J&T جديد مالوش مكان في الخريطة (الحالة واقفة لحد ما يتضاف) ·
+//   الـCOD اللي J&T بتحصّله ≠ إجمالي الأوردر عندنا (المتحصّل في الماليات غلط بالفرق)
+export function jtAccountingIssues(h){
+  var out = [];
+  if(!h) return out;
+  var stuck = Array.isArray(h.fee_stuck) ? h.fee_stuck : [];
+  if(stuck.length) out.push('تكلفة شحن J&T ماتقفلتش لـ' + stuck.length + ' أوردر متسلّم من أكتر من يوم (' + stuck.slice(0, 5).join('، ') + (stuck.length > 5 ? '…' : '') + ') — تكلفة الشحن في الماليات ناقصة بيهم');
+  var um = Number(h.unmapped_48h || 0);
+  if(um > 0) out.push('J&T بعتت ' + um + ' مسح بنوع جديد مش في خريطة الحالات — الأوردرات دي حالتها ممكن تكون واقفة');
+  var cm = Array.isArray(h.cod_mismatch) ? h.cod_mismatch : [];
+  cm.forEach(function(x){
+    out.push('أوردر ' + x.uid + ': J&T بتحصّل ' + money2(x.jt) + ' والإجمالي عندنا ' + money2(x.total) + ' — المتحصّل في الماليات مختلف بالفرق. صحّح الإجمالي أو راجع J&T');
+  });
+  return out;
+}
+
+function money2(v){ var n = Number(v); return isFinite(n) ? (Math.round(n * 100) / 100).toLocaleString('en-US') + ' ج' : '—'; }
 
 function ago(min){
   if(min == null) return 'عمرها ما اشتغلت';
@@ -42,15 +64,19 @@ export function renderJtSyncAlert(st){
   var el = $id('jt-sync-alert');
   if(!el) return;
   if(!st || !st.show || dismissed){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  var issues = Array.isArray(st.issues) ? st.issues : [];
+  var staleHtml = (st.stale === false) ? '' :
+        '<b>مزامنة حالات J&amp;T واقفة — آخر مزامنة ناجحة ' + esc(ago(st.minutes)) + '</b>'
+    +   '<span>حالات الشحنات في الجدول ممكن تكون متأخرة عن J&amp;T (أوردر متسلّم ممكن يفضل «استثناء» أو «خرج للتسليم»). '
+    +   'ماتعتمدش على الحالات لحد ما التنبيه يختفي.</span>'
+    +   (st.error ? '<span class="jsa-err">آخر خطأ: ' + esc(String(st.error).slice(0, 160)) + '</span>' : '');
+  var issuesHtml = issues.length
+    ? '<b>حسابات J&amp;T محتاجة مراجعة</b>' + issues.map(function(t){ return '<span class="jsa-issue">• ' + esc(t) + '</span>'; }).join('')
+    : '';
   el.innerHTML =
       '<div class="jt-sync-alert" role="alert">'
     +   '<span class="jsa-ic">⚠️</span>'
-    +   '<div class="jsa-body">'
-    +     '<b>مزامنة حالات J&amp;T واقفة — آخر مزامنة ناجحة ' + esc(ago(st.minutes)) + '</b>'
-    +     '<span>حالات الشحنات في الجدول ممكن تكون متأخرة عن J&amp;T (أوردر متسلّم ممكن يفضل «استثناء» أو «خرج للتسليم»). '
-    +     'ماتعتمدش على الحالات لحد ما التنبيه يختفي.</span>'
-    +     (st.error ? '<span class="jsa-err">آخر خطأ: ' + esc(String(st.error).slice(0, 160)) + '</span>' : '')
-    +   '</div>'
+    +   '<div class="jsa-body">' + staleHtml + issuesHtml + '</div>'
     +   '<button type="button" class="jsa-x" id="jsa-x" title="إخفاء لحد الريفريش">×</button>'
     + '</div>';
   el.style.display = '';

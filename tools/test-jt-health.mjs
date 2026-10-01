@@ -9,7 +9,8 @@
 //  (2) بانر «مزامنة J&T واقفة» للأدمن من jt_sync_health — العمر من ساعة السيرفر.
 //
 // معايرات: (أ) parseStatusLog القديمة · (ب) العمر من ساعة الجهاز · (ج) شيل العتبة ·
-//          (د) الإقفال (×) مابيعملش حاجة.
+//          (د) الإقفال (×) مابيعملش حاجة · (هـ) مشاكل الحسابات مش في شرط الظهور.
+//  (3) 1 أكتوبر: «حسابات J&T محتاجة مراجعة» — تكلفة ماتقفلتش · مسح مش في الخريطة · COD مختلف.
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -137,6 +138,39 @@ console.log('── (2) بانر المزامنة');
   await p.close();
 }
 
+console.log('── (3) حسابات J&T محتاجة مراجعة (1 أكتوبر)');
+{
+  const H_ISS = Object.assign({}, H_FRESH, { fee_stuck: ['17309', 'W-22'], unmapped_48h: 2,
+    cod_mismatch: [{ uid: '17260', total: 3328, jt: 3554, status: 'Delivered' }] });
+  let p = await openApp({ health: H_ISS });
+  const s = await banner(p);
+  ok(s && /حسابات J&T محتاجة مراجعة/.test(s.text), '16) 🔴 مزامنة شغّالة بس فيه مشاكل حسابات = بانر «محتاجة مراجعة»');
+  ok(s && !/مزامنة حالات J&T واقفة/.test(s.text), '17) المزامنة شغّالة = مفيش «واقفة» في البانر');
+  ok(s && /17309، W-22/.test(s.text) && /2 مسح بنوع جديد/.test(s.text), '18) تكلفة شحن ماتقفلتش + مسح مش في الخريطة ظاهرين');
+  ok(s && /17260/.test(s.text) && /3,554/.test(s.text) && /3,328/.test(s.text), '19) 🔴 اختلاف الـCOD بالأرقام التلاتة (الأوردر · J&T · عندنا)');
+  await p.close();
+
+  p = await openApp({ health: Object.assign({}, H_STALE, { cod_mismatch: [{ uid: '17399', total: 2845, jt: 2745 }] }) });
+  const s2 = await banner(p);
+  ok(s2 && /مزامنة حالات J&T واقفة/.test(s2.text) && /17399/.test(s2.text), '20) واقفة + مشكلة حسابات = الاتنين في نفس البانر');
+  await p.close();
+
+  // سطر «التحصيل عند J&T» في نافذة التفاصيل
+  p = await openApp({ health: H_FRESH });
+  await p.evaluate(() => { const o = window.__ORDERS.find((x) => x.id === 'o1'); o.jt_cod_amount = Number(o.total_cost || 0) + 226; });
+  await p.evaluate(() => document.querySelector('#tbody tr[data-id="o1"]').click());
+  await p.waitForFunction(() => document.querySelector('#dcnt .log-list'), null, { timeout: 8000 });
+  const row = await p.evaluate(() => { const r = document.getElementById('jt-cod-row'); return r ? r.textContent : null; });
+  ok(row && /226\.00/.test(row), '21) 🔴 COD عند J&T مختلف = سطر «التحصيل عند J&T» بالفرق (' + (row || 'مفيش').slice(0, 60) + ')');
+  await p.close();
+  p = await openApp({ health: H_FRESH });
+  await p.evaluate(() => { const o = window.__ORDERS.find((x) => x.id === 'o1'); o.jt_cod_amount = Number(o.total_cost || 0); });
+  await p.evaluate(() => document.querySelector('#tbody tr[data-id="o1"]').click());
+  await p.waitForFunction(() => document.querySelector('#dcnt .log-list'), null, { timeout: 8000 });
+  ok(await p.evaluate(() => !document.getElementById('jt-cod-row')), '22) COD مطابق = مفيش سطر (مايبقاش ضجيج على 220 أوردر سليم)');
+  await p.close();
+}
+
 console.log('── المعايرات');
 {
   const OLD = `export function parseStatusLog(val){
@@ -159,7 +193,7 @@ function __unused_new(val){`;
   await p.close();
 }
 {
-  const p = await openApp({ health: H_FRESH, patchHealth: s => s.replace('show: min >= JT_SYNC_STALE_MIN', 'show: min >= 0') });
+  const p = await openApp({ health: H_FRESH, patchHealth: s => s.replace('var stale = min >= JT_SYNC_STALE_MIN;', 'var stale = min >= 0;') });
   ok(!!(await banner(p)), 'معايرة ج: من غير العتبة البانر بيطلع على دورة عادية — فحص 8 بيمسكها');
   await p.close();
 }
@@ -167,6 +201,13 @@ function __unused_new(val){`;
   const p = await openApp({ health: H_STALE, patchHealth: s => s.replace('dismissed = true; renderJtSyncAlert(null);', '') });
   await p.click('#jsa-x');
   ok(!!(await banner(p)), 'معايرة د: × من غير فعل = البانر فاضل — فحص 12 بيمسكها');
+  await p.close();
+}
+
+{
+  const H_ISS = Object.assign({}, H_FRESH, { cod_mismatch: [{ uid: '17260', total: 3328, jt: 3554 }] });
+  const p = await openApp({ health: H_ISS, patchHealth: s => s.replace('show: stale || issues.length > 0', 'show: stale') });
+  ok(!(await banner(p)), 'معايرة هـ: من غير المشاكل في شرط الظهور، اختلاف الـCOD بيعدّي في صمت — فحص 16 بيمسكها');
   await p.close();
 }
 

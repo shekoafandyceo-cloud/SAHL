@@ -17,6 +17,7 @@
 //   fee_sync      → (diag/service بس) getWaybillInfo للمسلّم/المرتجع → jt_apply_fee_v1 (التكلفة النهائية + رسوم COD)
 //   trace_sync    → (diag/service بس) مصالحة بالسحب: logistics/trace لكل أوردر لسه ماوصلش حالة نهائية →
 //                   المسحات الناقصة على **نفس** jt_apply_trace_v1 (30 سبتمبر — الـpush بيضيع ~1%)
+//                   + الـCOD الحقيقي عند J&T (getOrders itemsValue → jt_set_cod_v1 — 1 أكتوبر)
 //   (الاتنين بيسجّلوا كل تشغيل في jt_sync_runs — الواجهة بتنبّه الأدمن لو المزامنة وقفت)
 //
 // env: الموظف دايماً على البيئة الافتراضية (JT_ENV). diag/service يقدروا يطلبوا sandbox.
@@ -125,17 +126,18 @@ Deno.serve(async (req: Request) => {
     const codes = (cand || []).map((r: { bill_code: string }) => String(r.bill_code || "")).filter(Boolean);
     const tally: Record<string, number> = {};
     const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
+    let failMsg: string | null = null;   // دفعة وقعت مابتوقفش الباقي (1 أكتوبر)
     for (let i = 0; i < codes.length; i += 30) {
       const batch = codes.slice(i, i + 30);
       let r;
       try {
         r = await jtCall(cfg, JT_PATHS.getWaybillInfo, withBusinessDigest({ waybillNos: batch }, creds), { timeoutMs: 25000 });
       } catch (e) {
-        const m = String((e as Error).message || e);
-        await logRun("fee_sync", false, codes.length, tally, "jt_unreachable: " + m);
-        return json({ ok: false, error: "jt_unreachable", message: m, candidates: codes.length, tally }, 502);
+        failMsg = "jt_unreachable: " + String((e as Error).message || e);
+        bump("batch_error");
+        continue;
       }
-      if (r.code !== "1") { await logRun("fee_sync", false, codes.length, tally, "jt " + r.code + ": " + r.msg); return json({ ok: false, code: r.code, msg: r.msg, candidates: codes.length, tally }, 502); }
+      if (r.code !== "1") { failMsg = "jt " + r.code + ": " + r.msg; bump("batch_error"); continue; }
       // deno-lint-ignore no-explicit-any
       const rows: any[] = Array.isArray(r.data) ? r.data : [];
       // deno-lint-ignore no-explicit-any
@@ -153,8 +155,8 @@ Deno.serve(async (req: Request) => {
         bump(aErr ? "error" : String(a?.note || "?"));
       }
     }
-    await logRun("fee_sync", true, codes.length, tally, null);
-    return json({ ok: true, env, candidates: codes.length, tally });
+    await logRun("fee_sync", !failMsg, codes.length, tally, failMsg);
+    return json({ ok: !failMsg, env, candidates: codes.length, tally, error: failMsg }, failMsg ? 502 : 200);
   }
 
   // trace_sync — المصالحة بالسحب (بيتنده من pg_cron كل 15 دقيقة)
@@ -171,22 +173,24 @@ Deno.serve(async (req: Request) => {
     const tally: Record<string, number> = {};
     const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
     const changed: Array<{ bill: string; status: string }> = [];
+    // 🔴 (1 أكتوبر) دفعة وقعت مابقتش بتوقف الباقي — كانت بترجع فوراً فالدفعات اللي بعدها
+    // عمرها ما بتتشاف في التشغيل ده. الخطأ بيتسجّل والتشغيل بيتعلّم ok=false (البانر بيقراه).
+    let failMsg: string | null = null;
     for (let i = 0; i < codes.length; i += 30) {
       const batch = codes.slice(i, i + 30);
       let r;
       try {
         r = await jtCall(cfg, JT_PATHS.trace, withBusinessDigest({ billCodes: batch.join(",") }, creds), { timeoutMs: 25000 });
       } catch (e) {
-        const m = String((e as Error).message || e);
-        await logRun("trace_sync", false, codes.length, tally, "jt_unreachable: " + m);
-        return json({ ok: false, error: "jt_unreachable", message: m, candidates: codes.length, tally }, 502);
+        failMsg = "jt_unreachable: " + String((e as Error).message || e);
+        bump("batch_error");
+        continue;
       }
-      if (r.code !== "1") {
-        await logRun("trace_sync", false, codes.length, tally, "jt " + r.code + ": " + r.msg);
-        return json({ ok: false, code: r.code, msg: r.msg, candidates: codes.length, tally }, 502);
-      }
+      if (r.code !== "1") { failMsg = "jt " + r.code + ": " + r.msg; bump("batch_error"); continue; }
       // deno-lint-ignore no-explicit-any
       const items: any[] = Array.isArray(r.data) ? r.data : [];
+      const seen = new Set(items.map((it) => String(it?.billCode || "")));
+      for (const bc of batch) if (!seen.has(bc)) bump("not_in_response");   // J&T بتسقطها في صمت
       for (const it of items) {
         const bc = String(it?.billCode || "");
         const c = byBill.get(bc);
@@ -209,8 +213,36 @@ Deno.serve(async (req: Request) => {
         }
       }
     }
-    await logRun("trace_sync", true, codes.length, { ...tally, changed: changed.length }, null);
-    return json({ ok: true, env, candidates: codes.length, tally, changed });
+    // ── الـCOD عند J&T (1 أكتوبر) ──
+    // 🔴 J&T بتحصّل itemsValue اللي اتبعت وقت الشحن (أو اللي اتعدّل في البوابة) — مش
+    // total_cost عندنا. اتقاس: 3 من 223 مختلفين (إجمالي اتعدّل بعد الشحن · تعديل في البوابة).
+    // jt_set_cod_v1 بيسجّله وبيعيد حساب رسوم COD على المبلغ الحقيقي لو التكلفة نهائية.
+    // ⚠️ getOrders بيرجّع 20 بس في النداء ويسقط الباقي **في صمت** (اتقاس) — الدفعة 20.
+    const codTally: Record<string, number> = {};
+    const codBump = (k: string) => { codTally[k] = (codTally[k] || 0) + 1; };
+    const { data: codCand, error: codErr } = await admin.rpc("jt_cod_candidates_v1", { p_limit: 300 });
+    if (codErr) codBump("db_error");
+    const codCodes = (codCand || []).map((r: { bill_code: string }) => String(r.bill_code || "")).filter(Boolean);
+    for (let i = 0; i < codCodes.length; i += 20) {
+      const batch = codCodes.slice(i, i + 20);
+      let r;
+      try {
+        r = await jtCall(cfg, JT_PATHS.getOrders, withBusinessDigest({ command: 2, serialNumber: batch }, creds), { timeoutMs: 25000 });
+      } catch { codBump("batch_error"); continue; }
+      if (r.code !== "1") { codBump("batch_error"); continue; }
+      // deno-lint-ignore no-explicit-any
+      const rows: any[] = Array.isArray(r.data) ? r.data : [];
+      for (const x of rows) {
+        const bc = String(x?.billCode || "");
+        const cod = Number(x?.itemsValue);
+        if (!bc || !Number.isFinite(cod)) { codBump("no_value"); continue; }
+        const { data: a, error: aErr } = await admin.rpc("jt_set_cod_v1", { p_bill_code: bc, p_cod: cod });
+        codBump(aErr ? "error" : String(a?.note || "?"));
+      }
+    }
+
+    await logRun("trace_sync", !failMsg, codes.length, { ...tally, changed: changed.length, cod: codTally }, failMsg);
+    return json({ ok: !failMsg, env, candidates: codes.length, tally, changed, cod: codTally, error: failMsg }, failMsg ? 502 : 200);
   }
 
   let path = "", biz: Record<string, unknown> = {};
@@ -220,7 +252,8 @@ Deno.serve(async (req: Request) => {
     path = JT_PATHS.pca; biz = withBusinessDigest({ type: "4" }, creds);
   } else if (action === "query") {
     const sn = asStrArr(body.serialNumber);
-    if (!sn.length) return json({ error: "bad_request", message: "serialNumber ناقص" }, 400);
+    // ⚠️ J&T بترجّع 20 بس وبتسقط الباقي في صمت (اتقاس 1 أكتوبر) — «مش موجود» كاذبة
+    if (!sn.length || sn.length > 20) return json({ error: "bad_request", message: "serialNumber: 1–20 (J&T بتسقط الزيادة في صمت)" }, 400);
     const command = Number(body.command || 2);
     path = JT_PATHS.getOrders; biz = withBusinessDigest({ command, serialNumber: sn }, creds);
   } else if (action === "trace") {

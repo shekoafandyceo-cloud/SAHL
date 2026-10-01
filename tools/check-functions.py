@@ -245,6 +245,14 @@ CONTRACTS = [
     ("_shared/jt", u"الـpull مافيهوش isRefund — رحلة المرتجع بتتستنتج من أول 172",
      lambda s: 'if (code === "172") returning = true;' in s
      and 'returning && code !== "172" && code !== "111"' in s),
+    # ── مراجعة الحسابات (1 أكتوبر) ──
+    ("jt-lookup", u"trace_sync بيسجّل الـCOD الحقيقي عند J&T (itemsValue → jt_set_cod_v1) بدفعات ≤20",
+     lambda s: '"jt_set_cod_v1"' in s and "x?.itemsValue" in s and "i += 20" in s
+     and "command: 2, serialNumber: batch" in s),
+    ("jt-lookup", u"getOrders بيسقط أكتر من 20 في صمت — query بيرفض الزيادة",
+     lambda s: "sn.length > 20)" in s),
+    ("jt-lookup", u"دفعة وقعت مابتوقفش الباقي (continue مش return جوّه اللوب)",
+     lambda s: len(re.findall(r'bump\("batch_error"\);\s*continue;', s)) >= 4),
     ("_shared/jt", u"parseJtTime المشتركة = UTC+2 ثابت زي jt-status",
      lambda s: "export function parseJtTime" in s and "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
 ]
