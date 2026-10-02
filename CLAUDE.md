@@ -15,8 +15,8 @@
 | **فرع الشغل** | `claude/ecstatic-hamilton-olzaa8` (سيشن J&T — مرفوع على origin بقرار المالك 20 سبتمبر مساءً) |
 | **جاهز للتسليم** | **v64** — 2 أكتوبر (**صور الشات والردود المحفوظة بتتحوّل JPEG قبل الرفع · ⚠️ على الرد اللي صورته webp**) + كل v63 (بانر «حسابات J&T محتاجة مراجعة» · سطر «التحصيل عند J&T») — زيب `sahl-app-v64` · ⚠️ v63 مااتأكدش إنها اترفعت |
 | `check.sh` | ✅ أخضر (14 فحص) |
-| الهارنسات | **32 هارنس** — 🔴 **بتتشغّل بـ`node --import ./clock-preload.mjs test-x.mjs`** (بيمنع supabase-js الحقيقي من الـCDN — لو اتحمّل بيدوس الستب) و**`CLOCK=2026-10-15T10:00:00Z`** لهارنسات الأوردرات أول يومين في الشهر (`test-wa-followup` **محتاج** `CLOCK` · باقي `test-wa-*` و`test-ship` من غير — درس 52) · ⚠️ **`test-wa-labels` فحص 12ح (ارتفاع الشريط 85px مش 129px) بيقع في بيئة الوكيل على الكود القديم كمان** (اتقاس بـ`git stash` 1 أكتوبر) = بيئة مش باج · **`test-jt-health.mjs` 22 فحص + 5 معايرات** · `test-jt-reconcile.mjs` 18 + 5 · `test-wa-complaint.mjs` 26 + 4 · `test-wa-labels.mjs` بفيكستشر `[]` + معايرة (ز) · `test-jt-sign.mjs` 57 · `test-jt-awb.mjs` 5 · `test-jt-ship.mjs` 33 · `test-realtime-status.mjs` 16 · `test-jt-fee.mjs` 10 · `test-wa-search.mjs` 18 · `test-wa-qr.mjs` 47 · **`test-wa-imgfmt.mjs` 23 + 3** (2 أكتوبر) |
-| آخر migration | **`jt_accounting_audit_fixes`** + **`ai_finance_no_default_shipping`** (1 أكتوبر) · قبلهم `jt_trace_sync_cron` · `jt_trace_reconcile` · `wa_complaint_timer` · `wa_quick_reply_title` · `jt_fee_sync_cron` — **مطبّقين على الحي**. EFs: ⏳ **`wa-send` v9 في المرآة ولسه مااتنشرش** (حارس `unsupported_image_type` — 2 أكتوبر) · `jt-lookup` **v8** (+ COD من J&T) · `jt-status` **v4** · pg_cron `sahl-jt-fee-sync` (`*/15`) + **`sahl-jt-trace-sync` (`7-59/15`)** |
+| الهارنسات | **32 هارنس** — 🔴 **بتتشغّل بـ`node --import ./clock-preload.mjs test-x.mjs`** (بيمنع supabase-js الحقيقي من الـCDN — لو اتحمّل بيدوس الستب) و**`CLOCK=2026-10-15T10:00:00Z`** لهارنسات الأوردرات أول يومين في الشهر (`test-wa-followup` **محتاج** `CLOCK` · باقي `test-wa-*` و`test-ship` من غير — درس 52) · ⚠️ **`test-wa-labels` فحص 12ح (ارتفاع الشريط 85px مش 129px) بيقع في بيئة الوكيل على الكود القديم كمان** (اتقاس بـ`git stash` 1 أكتوبر) = بيئة مش باج · **`test-jt-health.mjs` 22 فحص + 5 معايرات** · `test-jt-reconcile.mjs` 18 + 5 · `test-wa-complaint.mjs` 26 + 4 · `test-wa-labels.mjs` بفيكستشر `[]` + معايرة (ز) · `test-jt-sign.mjs` 57 · `test-jt-awb.mjs` 5 · `test-jt-ship.mjs` 33 · `test-realtime-status.mjs` 16 · `test-jt-fee.mjs` 10 · `test-wa-search.mjs` 18 · `test-wa-qr.mjs` 47 · **`test-wa-imgfmt.mjs` 26 + 4** (2 أكتوبر) |
+| آخر migration | **`jt_accounting_audit_fixes`** + **`ai_finance_no_default_shipping`** (1 أكتوبر) · قبلهم `jt_trace_sync_cron` · `jt_trace_reconcile` · `wa_complaint_timer` · `wa_quick_reply_title` · `jt_fee_sync_cron` — **مطبّقين على الحي**. EFs: **`wa-send` v9** (حارس `unsupported_image_type` بـ200 — اتنشر 2 أكتوبر واتأكد مطابق للمرآة + نداء تجريبي) · `jt-lookup` **v8** (+ COD من J&T) · `jt-status` **v4** · pg_cron `sahl-jt-fee-sync` (`*/15`) + **`sahl-jt-trace-sync` (`7-59/15`)** |
 
 **🟢 J&T اشتغلت على الإنتاج — 5 شحنات حقيقية (21 سبتمبر، 15:09–15:46 بتوقيت القاهرة):**
 الصلاحية اتفتحت، والمالك شحن بنفسه. **الدليل مقيس من الداتابيز ومن J&T مش من كلام:**
@@ -400,18 +400,27 @@ backfill جاي **يتقاس وقت التنفيذ مش يتقرا من هنا**
 العميلة. «ميكروويف» لسه webp وقت الكتابة.
 
 **الإصلاح الدائم (v64 + `wa-send` v9):**
-- `waEnsureSendableImage` في `inbox.js`: أي صورة مش JPEG/PNG بتتحوّل JPEG في المتصفح
-  (canvas · **خلفية بيضا** — JPEG مالوش شفافية والشفاف كان هيطلع أسود · جودة 0.92) **قبل
-  الرفع** في المرفق (`waSend`) وفي صور الرد المحفوظ (`waQrmSave`). JPEG/PNG بيعدّوا **زي ما هم**
-  (نفس الملف — مفيش إعادة ضغط). صيغة المتصفح مايعرفش يفكّها (HEIC على كروم) = رسالة صريحة
-  ومفيش رفع ولا إرسال، والكلام بيرجع للخانة.
+- `waEnsureSendableImage` في `inbox.js`: 🔴 **الحكم من البايتات (`FF D8 FF` / `89 50 4E 47`)
+  مش من `f.type`** — المتصفح بيستنتج الـtype من الامتداد، فـwebp متسمّي `.jpg` (شائع في صور
+  المنتجات) كان هيعدّي (اتمسك في المراجعة العدائية). JPEG/PNG بيعدّوا **زي ما هم** (ولو الـtype
+  غلط بياخدوا الـtype الصح من غير إعادة ضغط) · أي حاجة تانية بتتحوّل JPEG في المتصفح (canvas ·
+  **خلفية بيضا** — JPEG مالوش شفافية والشفاف كان هيطلع أسود · سقف 4096px لحد iOS) **قبل الرفع**
+  في المرفق (`waSend`) وفي صور الرد المحفوظ (`waQrmSave`). **لو الناتج فوق 5 ميجا**: جودة
+  0.92 → 0.8 → 0.7 وبعدين المقاس ×0.75 لحد 640px — بدل الرفض. صيغة المتصفح مايعرفش يفكّها
+  (HEIC على كروم) = رسالة صريحة ومفيش رفع ولا إرسال، والكلام بيرجع للخانة.
 - رد محفوظ صورته القديمة مش `.jpg/.jpeg/.png` (`waQrBroken`): الزرار عليه ⚠️ والضغطة
   **مابتبعتش** (رسالة بالحل) · في نافذة الإدارة «⚠️ صورة webp — عدّلها» و⚠️ على الصورة ·
   **الحفظ ممنوع** لحد ما تتشال — وإعادة إضافتها (حتى بنفس ملف webp) بتتحوّل JPEG لوحدها.
-- **`wa-send` v9**: `image_path` مش `.jpg/.jpeg/.png` → `400 unsupported_image_type` **قبل**
-  ميتا (للمسارات القديمة واللوحات المتكيّشة). عقد في `check-functions.py` (بقى 40) متعاير.
-- `tools/test-wa-imgfmt.mjs` — **23 فحص + 3 معايرات**: webp حقيقي من Chromium نفسه، والفحص
-  على **البايتات اللي اترفعت** (`FF D8 FF`) مش الامتداد (webp متسمّي .jpg = نفس الموت).
+- **`wa-send` v9 (منشورة)**: `image_path` مش `.jpg/.jpeg/.png` → `unsupported_image_type` **قبل**
+  ميتا (للمسارات القديمة واللوحات المتكيّشة). 🔴 **بـ200 مش 400** — `supabase-js` بيخفي جسم أي
+  رد مش 2xx (`data:null`) فالواجهة كانت هتقول «حاول تاني» بدل السبب، والستب كان مخبّي ده لأنه
+  مابيحاكيش الـstatus (المراجعة مسكته). ⚠️ **نفس العمى موجود من زمان في `bad_media_path` و
+  `bad_reply_target` (400)** — رسالتهم العربية عمرها ما ظهرت. عقد في `check-functions.py` (40).
+- `tools/test-wa-imgfmt.mjs` — **26 فحص + 4 معايرات**: webp حقيقي من Chromium نفسه، والفحص
+  على **البايتات اللي اترفعت** (`FF D8 FF`) مش الامتداد · webp متسمّي `.jpg` · PNG بـtype غلط ·
+  التصغير (السقف بيتحط 60% من أول محاولة فالحلقة **لازم** تشتغل). ⚠️ أول فيكستشر للتصغير كان
+  noise عشوائي مستحيل يدخل في السقف حتى بأصغر مقاس — العيب كان في الفيكستشر مش الكود.
+  ⚠️ **الفاحص (`check.py`) مابيقراش أرقام `0x..`** (بيقرا `xFF` اسم حر) — الأرقام بالعشري.
   الستب بقى بيسجّل الملف نفسه في `__UPLOAD_FILES` (المسارات في `__UPLOADS` زي ما هي).
 
 ⏳ **مفتوح:** تخزين `errors[]` من webhook الحالة (عشان أي `failed` جاي يبان سببه من غير
@@ -892,7 +901,7 @@ node test-jt-fee.mjs                          # سطر تكلفة J&T النها
 node test-wa-search.mjs                       # بحث المحادثات من السيرفر — الشات القديم بره الـ200 (18 فحص + 5 معايرات)
 node test-wa-complaint.mjs                    # عدّاد الشكاوى 10/14 يوم: حدود + صف + هيدر/بانر + chip «⚠️» + ترتيب الإلحاح (26 فحص + 4 معايرات)
 node test-jt-reconcile.mjs                    # مصالحة J&T بالسحب: ترتيب المسحات + استنتاج رحلة المرتجع + الناقص بس + parseJtTime = jt-status (18 فحص + 5 معايرات — من غير متصفح)
-node test-wa-imgfmt.mjs                       # صور webp بتتحوّل JPEG بالبايتات (شات + ردود محفوظة) + ⚠️ ومنع الرد القديم (23 فحص + 3 معايرات)
+node test-wa-imgfmt.mjs                       # صور webp بتتحوّل JPEG بالبايتات (شات + ردود محفوظة) + ⚠️ ومنع الرد القديم (26 فحص + 4 معايرات)
 node test-jt-health.mjs                       # سجل الحالة المخلوط + بانر «مزامنة J&T واقفة» + «حسابات J&T محتاجة مراجعة» + سطر التحصيل عند J&T (22 فحص + 5 معايرات)
 # 🔴 دايماً: node --import ./clock-preload.mjs test-x.mjs (بيمنع supabase-js الحقيقي — بيئة بتثق في شهادة البروكسي بتحمّله فيدوس الستب)
 #    + CLOCK=2026-10-15T10:00:00Z لهارنسات الأوردرات أول يومين في الشهر — ولـtest-wa-followup · مش لباقي test-wa-* ولا test-ship (درس 52)

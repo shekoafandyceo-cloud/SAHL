@@ -15,9 +15,12 @@
 //   6) رد محفوظ صورته webp قديمة: الزرار عليه ⚠️ · الضغطة مابتبعتش · رسالة بالحل
 //   7) نافذة الإدارة: ⚠️ في القايمة وعلى الصورة · الحفظ ممنوع لحد ما تتشال ·
 //      شيلها وضيف webp تاني = بتترفع JPEG والحمولة image/jpeg
-//   8) رد السيرفر `unsupported_image_type` (wa-send v9) بيتقال بالعربي
+//   8) رد السيرفر `unsupported_image_type` (wa-send v9 — بـ200 عشان supabase-js مايخفيش الجسم)
+//   9) 🔴 webp متسمّي .jpg بيتحوّل (الحكم من البايتات) · 10) PNG بـtype غلط بيعدّي زي ما هو
+//  11) الصورة اللي تكبر بعد التحويل بتتصغّر بدل الرفض
 // المعايرات (كل واحدة بحارس «المرساة اتلقت» — درس 47):
-//   (أ) شيل التحويل → 1 · (ب) شيل حارس الرد المحفوظ → 6 · (ج) شيل الخلفية البيضا → 4
+//   (أ) شيل التحويل → 1 · (ب) شيل حارس الرد المحفوظ → 6 · (ج) شيل الخلفية البيضا → 4 ·
+//   (د) الحكم بالـtype مش البايتات → 9
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -157,6 +160,42 @@ async function attachAndSend(p, img, name) {
   ok(u5.n === nUp && (await sentImgs(p)).length === nSent, `5أ) صورة مش متفكّة: مفيش رفع ولا إرسال (${u5.n}/${nUp})`);
   ok(/مش مدعومة في واتساب/.test(t5), `5ب) الرسالة صريحة: «${t5}»`);
   ok((await p.inputValue('#wa-input')) === 'دي الصورة', '5ج) الكلام رجع للخانة (مااتمسحش)');
+
+  // 9) 🔴 webp متسمّي .jpg (المتصفح بيدّيه image/jpeg من الامتداد) — الحكم من البايتات
+  const webp9 = await makeImg(p, 'image/webp', true);
+  await attachAndSend(p, { type: 'image/jpeg', bytes: webp9.bytes }, 'product.jpg');
+  const u9 = await lastUpload(p);
+  ok(u9 && u9.head[0] === 0xFF && u9.head[1] === 0xD8 && u9.contentType === 'image/jpeg' && /\.jpg$/.test(u9.path),
+    `9) 🔴 webp متسمّي .jpg اتحوّل JPEG بالبايتات (${u9 && u9.head.map(x => x.toString(16)).join(' ')})`);
+  // 10) PNG بالبايتات وtype غلط = نفس البايتات بالـtype الصح (من غير إعادة ضغط)
+  const png10 = await makeImg(p, 'image/png');
+  await attachAndSend(p, { type: 'image/jpeg', bytes: png10.bytes }, 'shot.jpg');
+  const u10 = await lastUpload(p);
+  ok(u10 && /\.png$/.test(u10.path) && u10.contentType === 'image/png' && u10.size === png10.bytes.length,
+    `10) PNG متسمّي .jpg اترفع PNG زي ما هو: ${u10 && u10.path} (${u10 && u10.size} بايت)`);
+  await p.context().close();
+}
+// 11) صورة كبيرة بعد التحويل: بتتصغّر/تقل جودتها بدل الرفض. السقف بيتحط على 60% من
+//     حجم أول محاولة (q 0.92 بالمقاس الكامل) — يعني أول محاولة **لازم** تفشل والحلقة تشتغل
+const BIG = async (p) => p.evaluate(async () => {
+  const c = document.createElement('canvas'); c.width = 1200; c.height = 1200;
+  const x = c.getContext('2d');
+  for (let i = 0; i < 400; i++) { x.fillStyle = 'hsl(' + (i * 37 % 360) + ',70%,' + (30 + i % 50) + '%)'; x.fillRect((i * 97) % 1200, (i * 53) % 1200, 60 + i % 90, 40 + i % 70); }
+  const w = await new Promise(r => c.toBlob(r, 'image/webp', 0.95));
+  const j = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
+  return { type: w.type, bytes: Array.from(new Uint8Array(await w.arrayBuffer())), jpegFull: j.size };
+});
+{
+  const p0 = await openInbox();
+  const big = await BIG(p0);
+  await p0.context().close();
+  const cap = Math.floor(big.jpegFull * 0.6);
+  const p = await openInbox({ patch: [["var WA_IMG_MAX=5*1024*1024;", "var WA_IMG_MAX=" + cap + ";"]] });
+  await attachAndSend(p, big, 'big.webp');
+  await p.waitForTimeout(1500);
+  const u = await lastUpload(p);
+  ok(u && u.head[0] === 0xFF && u.size <= cap && (await sentImgs(p)).length === 1,
+    `11) الصورة اللي كبرت بعد التحويل اتصغّرت واتبعتت (${u && u.size} ≤ ${cap} · أول محاولة كانت ${big.jpegFull})`);
   await p.context().close();
 }
 {
@@ -221,7 +260,15 @@ async function attachAndSend(p, img, name) {
 // ════ المعايرات ════
 console.log('──── المعايرات ────');
 {
-  const p = await openInbox({ patch: [["if(!f || WA_IMG_SENDABLE.test(f.type||'')) return Promise.resolve(f);", "return Promise.resolve(f);"]] });
+  const p = await openInbox({ patch: [["  if(!f) return Promise.resolve(f);\n  return waSniffImage(f)", "  if(!f || /^image\\/(jpeg|png)$/i.test(f.type||'')) return Promise.resolve(f);\n  return waSniffImage(f)"]] });
+  const webp = await makeImg(p, 'image/webp', true);
+  await attachAndSend(p, { type: 'image/jpeg', bytes: webp.bytes }, 'product.jpg');
+  const u = await lastUpload(p);
+  ok(u && !(u.head[0] === 0xFF && u.head[1] === 0xD8), `(د) الحكم بالـtype بس (الشكل الأول): webp متسمّي .jpg اترفع webp (${u && u.head.map(x => x.toString(16)).join(' ')}) → فحص 9 كان هيقع`);
+  await p.context().close();
+}
+{
+  const p = await openInbox({ patch: [["    return waToJpeg(f);\n  });", "    return f;\n  });"]] });
   const webp = await makeImg(p, 'image/webp', true);
   await attachAndSend(p, webp, 'mugs.webp');
   const u = await lastUpload(p);

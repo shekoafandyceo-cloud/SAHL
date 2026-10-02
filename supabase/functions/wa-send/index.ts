@@ -68,7 +68,9 @@ Deno.serve(async (req: Request) => {
     // مرفقات)، jpg 1 من 498. فالرفض هنا **قبل** ميتا وبسبب صريح.
     // (اللوحة من v64 بتحوّل أي صورة لـJPEG قبل الرفع — ده للمسارات القديمة.)
     if (imagePath && !/\.(jpe?g|png)$/i.test(String(imagePath))) {
-      return J({ ok: false, error: "unsupported_image_type" }, 400);
+      // 200 مش 400 عن قصد: supabase-js بيخفي جسم أي رد مش 2xx فالواجهة كانت
+      // هتقول «حاول تاني» بدل السبب (نفس شكل `window_closed`).
+      return J({ ok: false, error: "unsupported_image_type" });
     }
 
     // 1ب) 🔴 مين اللي بيبعت؟ **من التوكن مش من الـbody**.

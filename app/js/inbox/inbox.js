@@ -883,35 +883,65 @@ export function waUpdateWindow(c){
 // «بيت مجات» · «ميكروويف» · مرفقات من الشات) و`jpg` 1 من 498.
 // فأي صورة مش JPEG/PNG بتتحوّل JPEG في المتصفح **قبل الرفع** — المعاينة
 // بتفضل زي ما هي والموظف مابيعملش أي حاجة. والحارس التاني في `wa-send` (v9).
-var WA_IMG_SENDABLE=/^image\/(jpeg|png)$/i;
 var WA_IMG_MAX=5*1024*1024;   // حد ميتا للصورة
 export function waIsSendableImagePath(p){ return /\.(jpe?g|png)$/i.test(String(p||'')); }
+// 🔴 النوع بيتحكم من **البايتات** مش من `f.type` — المتصفح بيستنتج الـtype من
+// الامتداد، فصورة webp متسمّية `.jpg` (شائع في صور المنتجات من المواقع) كانت
+// هتعدّي على إنها JPEG وتموت عند ميتا بنفس الشكل (مراجعة 2 أكتوبر).
+function waSniffImage(f){
+  if(!f || !f.slice) return Promise.resolve('');
+  return f.slice(0,12).arrayBuffer().then(function(ab){
+    var b=new Uint8Array(ab);
+    // JPEG = FF D8 FF · PNG = 89 50 4E 47 (بالعشري — فاحص check.py مابيقراش 0x)
+    if(b[0]===255 && b[1]===216 && b[2]===255) return 'image/jpeg';
+    if(b[0]===137 && b[1]===80 && b[2]===78 && b[3]===71) return 'image/png';
+    return '';
+  }, function(){ return ''; });
+}
+var WA_IMG_MAX_DIM=4096;   // سقف آمن للـcanvas — iOS Safari بيرجّع null فوق ~16.7 ميجابكسل
+function waBaseName(f){ return String((f&&f.name)||'image').replace(/\.[^.]*$/,'')||'image'; }
 export function waEnsureSendableImage(f){
-  if(!f || WA_IMG_SENDABLE.test(f.type||'')) return Promise.resolve(f);
+  if(!f) return Promise.resolve(f);
+  return waSniffImage(f).then(function(kind){
+    if(kind){
+      if(f.type===kind) return f;   // JPEG/PNG سليم — نفس الملف بالظبط
+      // البايتات JPEG/PNG والـtype غلط — نفس البايتات بالـtype والامتداد الصح
+      return new File([f], waBaseName(f)+(kind==='image/png'?'.png':'.jpg'), {type:kind});
+    }
+    return waToJpeg(f);
+  });
+}
+// تحويل لـJPEG: خلفية بيضا (JPEG مالوش شفافية — الشفاف كان هيطلع أسود) ·
+// لو الناتج فوق 5 ميجا بنقلّل الجودة وبعدين المقاس بدل ما نرفض — الموظف
+// مايضطرش يحوّل بإيده (ده كان الحل اليدوي قبل الإصلاح).
+function waToJpeg(f){
   return new Promise(function(resolve,reject){
     var url=URL.createObjectURL(f);
     var img=new Image();
-    function bail(code){ try{ URL.revokeObjectURL(url); }catch(e){} reject(new Error(code)); }
+    function done(){ try{ URL.revokeObjectURL(url); }catch(e){} }
     img.onload=function(){
-      try{
-        var w=img.naturalWidth, h=img.naturalHeight;
-        if(!w||!h){ bail('unsupported_image'); return; }
+      var w0=img.naturalWidth, h0=img.naturalHeight;
+      if(!w0||!h0){ done(); reject(new Error('unsupported_image')); return; }
+      var scale=Math.min(1, WA_IMG_MAX_DIM/Math.max(w0,h0));
+      var qs=[0.92,0.8,0.7];
+      function attempt(qi){
+        var w=Math.max(1,Math.round(w0*scale)), h=Math.max(1,Math.round(h0*scale));
         var c=document.createElement('canvas'); c.width=w; c.height=h;
         var ctx=c.getContext('2d');
-        // JPEG مالوش شفافية — الأجزاء الشفافة كانت هتطلع سودا
+        if(!ctx){ done(); reject(new Error('too_big')); return; }
         ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
-        ctx.drawImage(img,0,0);
+        ctx.drawImage(img,0,0,w,h);
         c.toBlob(function(b){
-          try{ URL.revokeObjectURL(url); }catch(e){}
-          if(!b){ reject(new Error('unsupported_image')); return; }
-          if(b.size>WA_IMG_MAX){ reject(new Error('too_big')); return; }
-          var base=String(f.name||'image').replace(/\.[^.]*$/,'')||'image';
-          resolve(new File([b], base+'.jpg', {type:'image/jpeg'}));
-        },'image/jpeg',0.92);
-      }catch(e){ bail('unsupported_image'); }
+          if(b && b.size<=WA_IMG_MAX){ done(); resolve(new File([b], waBaseName(f)+'.jpg', {type:'image/jpeg'})); return; }
+          if(b && qi+1<qs.length){ attempt(qi+1); return; }
+          if(b && Math.max(w,h)>640){ scale*=0.75; attempt(0); return; }
+          done(); reject(new Error(b?'too_big':'unsupported_image'));
+        },'image/jpeg',qs[qi]);
+      }
+      try{ attempt(0); }catch(e){ done(); reject(new Error('unsupported_image')); }
     };
     // صيغة المتصفح نفسه مايعرفش يفكّها (HEIC على كروم مثلاً) — رفض صريح
-    img.onerror=function(){ bail('unsupported_image'); };
+    img.onerror=function(){ done(); reject(new Error('unsupported_image')); };
     img.src=url;
   });
 }
