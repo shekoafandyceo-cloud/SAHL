@@ -283,9 +283,13 @@
       // رفع بيشغّل `window.__UPLOAD_OK=true`، والمسارات بتتسجّل في
       // `__UPLOADS` عشان الفحص يتأكد من **شكل المسار** اللي اتبعت فعلاً
       // (عزل المتجر بيعتمد على أول مجلد).
-      upload: function(path){
+      upload: function(path, file, opts){
         window.__UPLOADS = window.__UPLOADS || [];
         window.__UPLOADS.push(path);
+        // الملف نفسه + الـcontentType — عشان الفحص يقرا **البايتات اللي اترفعت**
+        // مش الامتداد بس (webp متسمّي .jpg = نفس الموت عند ميتا)
+        window.__UPLOAD_FILES = window.__UPLOAD_FILES || [];
+        window.__UPLOAD_FILES.push({ path: path, file: file, contentType: opts && opts.contentType });
         if(!window.__UPLOAD_OK) return Promise.resolve({data:null, error:{message:'stub'}});
         return Promise.resolve({data:{path:path}, error:null});
       }

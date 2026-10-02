@@ -169,6 +169,10 @@ CONTRACTS = [
     ("wa-send", u"حارس مسار الميديا `bad_media_path` (عزل التجار)",
      lambda s: "bad_media_path" in s and "mediaPath.startsWith(prefix)" in s
      and "`${conv.tenant_id}/`" in s),
+    # webp بيعدّي من ميتا بـ200 وبيموت `failed` في صمت (17 من 17 — 2 أكتوبر)
+    ("wa-send", u"حارس صيغة الصورة `unsupported_image_type` (JPEG/PNG بس)",
+     lambda s: "unsupported_image_type" in s
+     and "/\\.(jpe?g|png)$/i.test(String(imagePath))" in s),
     ("wa-send", u"حارس نافذة الـ24 ساعة",
      lambda s: "window_closed" in s and "24 * 3600 * 1000" in s),
     ("wa-followup", u"الحمولة `order_id` بس — مفيش نص من المتصفح",

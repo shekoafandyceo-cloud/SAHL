@@ -876,6 +876,51 @@ export function waUpdateWindow(c){
   var qp=$id('wa-qr-panel'); if(qp) qp.style.display=open?'':'none';
 }
 
+// 🔴 **واتساب بيقبل الصور JPEG وPNG بس** (Cloud API — Supported Media Types).
+// أي صيغة تانية (webp · gif · avif…) بتعدّي من ميتا بـ200 و`wamid`، وبعدها
+// بثواني الـwebhook يرجّع `failed` — الموظف شاف الرسالة اتبعتت والعميل عمره
+// ما استلمها. اتقاس 2 أكتوبر على كل التاريخ: **webp 17 من 17 وقعوا** (رد
+// «بيت مجات» · «ميكروويف» · مرفقات من الشات) و`jpg` 1 من 498.
+// فأي صورة مش JPEG/PNG بتتحوّل JPEG في المتصفح **قبل الرفع** — المعاينة
+// بتفضل زي ما هي والموظف مابيعملش أي حاجة. والحارس التاني في `wa-send` (v9).
+var WA_IMG_SENDABLE=/^image\/(jpeg|png)$/i;
+var WA_IMG_MAX=5*1024*1024;   // حد ميتا للصورة
+export function waIsSendableImagePath(p){ return /\.(jpe?g|png)$/i.test(String(p||'')); }
+export function waEnsureSendableImage(f){
+  if(!f || WA_IMG_SENDABLE.test(f.type||'')) return Promise.resolve(f);
+  return new Promise(function(resolve,reject){
+    var url=URL.createObjectURL(f);
+    var img=new Image();
+    function bail(code){ try{ URL.revokeObjectURL(url); }catch(e){} reject(new Error(code)); }
+    img.onload=function(){
+      try{
+        var w=img.naturalWidth, h=img.naturalHeight;
+        if(!w||!h){ bail('unsupported_image'); return; }
+        var c=document.createElement('canvas'); c.width=w; c.height=h;
+        var ctx=c.getContext('2d');
+        // JPEG مالوش شفافية — الأجزاء الشفافة كانت هتطلع سودا
+        ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0);
+        c.toBlob(function(b){
+          try{ URL.revokeObjectURL(url); }catch(e){}
+          if(!b){ reject(new Error('unsupported_image')); return; }
+          if(b.size>WA_IMG_MAX){ reject(new Error('too_big')); return; }
+          var base=String(f.name||'image').replace(/\.[^.]*$/,'')||'image';
+          resolve(new File([b], base+'.jpg', {type:'image/jpeg'}));
+        },'image/jpeg',0.92);
+      }catch(e){ bail('unsupported_image'); }
+    };
+    // صيغة المتصفح نفسه مايعرفش يفكّها (HEIC على كروم مثلاً) — رفض صريح
+    img.onerror=function(){ bail('unsupported_image'); };
+    img.src=url;
+  });
+}
+var WA_IMG_ERR={
+  unsupported_image:'صيغة الصورة دي مش مدعومة في واتساب — ابعتها JPG أو PNG',
+  too_big:'الصورة كبيرة بعد التحويل (الحد 5 ميجا)',
+  unsupported_image_type:'واتساب بيقبل صور JPG وPNG بس — الصورة دي بصيغة تانية'
+};
+
 export function waPickImage(e){
   var f=e.target.files&&e.target.files[0];
   if(!f) return;
@@ -979,6 +1024,7 @@ export function waSend(){
     // لأن اللوحة بتبني المسار بنفسها، فظهورها معناها فيه حاجة غلط في الرفع
     else if(code==='bad_media_path'){ toast('الملف مش من ملفات متجرك — جرّب ترفعه تاني','er'); }
     else if(code==='reply_failed'){ toast('واتساب رفض الرد على الرسالة دي (غالباً قديمة) — ابعتها كرسالة عادية','er'); }
+    else if(WA_IMG_ERR[code]){ toast(WA_IMG_ERR[code],'er'); }
     else { toast('الرسالة ماتبعتتش — حاول تاني','er'); }
     if(text && !$id('wa-input').value) $id('wa-input').value=text;
   }
@@ -998,12 +1044,15 @@ export function waSend(){
     waFetchConvos(false);
   }
   if(imgFile){
-    var ext=((imgFile.type.split('/')[1])||'jpg').replace('jpeg','jpg');
-    var path=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+ext;
-    sb.storage.from('wa-media').upload(path,imgFile,{contentType:imgFile.type,upsert:false}).then(function(up){
-      if(up.error){ fail('upload'); return; }
-      return sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,image_path:path,caption:text,reply_to:replyAtSend}}).then(done);
-    }).catch(function(){ fail('upload'); });
+    // webp وأخواتها بتتحوّل JPEG قبل الرفع (شوف `waEnsureSendableImage`)
+    waEnsureSendableImage(imgFile).then(function(sf){
+      var ext=((sf.type.split('/')[1])||'jpg').replace('jpeg','jpg');
+      var path=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+ext;
+      return sb.storage.from('wa-media').upload(path,sf,{contentType:sf.type,upsert:false}).then(function(up){
+        if(up.error){ fail('upload'); return; }
+        return sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,image_path:path,caption:text,reply_to:replyAtSend}}).then(done);
+      });
+    }, function(e){ fail((e&&e.message)||'unsupported_image'); }).catch(function(){ fail('upload'); });
   } else if(docFile){
     var dext=((docFile.name.split('.').pop()||'bin').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8))||'bin';
     var dpath=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+dext;
@@ -1066,6 +1115,9 @@ export function waSendQuickReply(item){
   var text=String(item.body==null?'':item.body).trim();
   var med=waQrMedia(item).slice();
   if(!text && !med.length) return;
+  // 🔴 صورة متخزّنة webp (من قبل التحويل التلقائي) = الرد هيوصل `failed` عند
+  // العميل. مانبعتش رد عارفين إنه هيموت — الموظف بيعرف دلوقتي وبيعرف يصلّحه.
+  if(waQrBroken(item)){ toast(WA_QR_BROKEN_MSG,'er'); return; }
   // الكلام بيركب آخر صورة طالما داخل الحد، وغير كده بيتبعت لوحده
   var asCaption = !!(text && med.length && text.length<=WA_CAPTION_MAX);
   var replyAtSend=(waReplyTo && waReplyTo.wa_message_id) ? waReplyTo.wa_message_id : null;
@@ -1080,6 +1132,7 @@ export function waSendQuickReply(item){
   function fail(code){
     if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); if(waActiveId===convAtSend) waUpdateWindow(waConvById(convAtSend)); }
     else if(code==='bad_media_path') toast('صور الرد المحفوظ مش من ملفات متجرك — عدّل الرد وارفع الصور تاني','er');
+    else if(code==='unsupported_image_type') toast(WA_QR_BROKEN_MSG,'er');
     else if(sent>0) toast('اتبعت '+sent+' من '+med.length+' صورة وبعدين وقف — الباقي والكلام مااتبعتوش','er');
     else toast('الرد المحفوظ مااتبعتش — حاول تاني','er');
     finish();
@@ -1179,6 +1232,11 @@ export function waQrMedia(q){
   var m=(q&&q.media);
   return (m && m.length && typeof m.length==='number') ? m : [];
 }
+// رد فيه صورة واتساب مابيقبلهاش (webp اترفعت قبل التحويل التلقائي)
+export function waQrBroken(q){
+  return waQrMedia(q).some(function(m){ return !waIsSendableImagePath(m && m.path); });
+}
+var WA_QR_BROKEN_MSG='صورة في الرد ده بصيغة واتساب مابيقبلهاش (webp) — افتح ⚡ إضافة و تعديل ← ✏️ وشيلها بـ✕ وضيفها تاني';
 
 // اسم الزرار: الاسم المختصر، ولو الرد قديم من قبل الأسماء — أول كلامه
 // (مقصوص). رد صور بس من غير اسم = «صور (N)» بدل زرار فاضي.
@@ -1200,7 +1258,10 @@ export function waRenderQuickReplies(){
     var body=String(q.body==null?'':q.body).trim();
     // التلميح = الرد كامل تقريباً: الموظف بيشوف هيبعت إيه قبل ما يدوس
     var tip='يبعت فوراً: '+(med.length?(med.length+' صورة'+(body?' + ':'')):'')+(body?body.slice(0,300):'');
-    html+='<button type="button" class="wa-qr" data-qid="'+esc(q.id)+'" title="'+esc(tip)+'">'
+    var broken=waQrBroken(q);
+    if(broken) tip=WA_QR_BROKEN_MSG;
+    html+='<button type="button" class="wa-qr'+(broken?' wa-qr-bad':'')+'" data-qid="'+esc(q.id)+'" title="'+esc(tip)+'">'
+      +(broken?'<span class="wa-qr-warn">⚠️</span>':'')
       +(med.length?('<span class="wa-qr-badge">📎'+med.length+'</span>'):'')
       +'<span class="wa-qr-txt">'+esc(waQrLabel(q))+'</span></button>';
   }
@@ -1293,7 +1354,8 @@ export function waQrmRender(){
       +'<span class="wa-qrm-n">'+(i+1)+'</span>'
       +'<div class="wa-qrm-main"><div class="wa-qrm-name">'+esc(waQrLabel(q))
       +(named?'':' <span class="wa-qrm-noname">بدون اسم</span>')
-      +(med.length?' <span class="wa-qr-badge">📎'+med.length+'</span>':'')+'</div>'
+      +(med.length?' <span class="wa-qr-badge">📎'+med.length+'</span>':'')
+      +(waQrBroken(q)?' <span class="wa-qrm-bad">⚠️ صورة webp — عدّلها</span>':'')+'</div>'
       +'<div class="wa-qrm-prev">'+esc(body||'(صور بس)')+'</div></div>'
       +'<div class="wa-qrm-acts">'
       +'<button type="button" class="wa-qrm-b" data-mv="-1" title="لفوق"'+(i===0?' disabled':'')+'>▲</button>'
@@ -1404,7 +1466,10 @@ function waQrmThumbs(){
   var box=$id('wa-qrm-thumbs'); if(!box) return;
   var html='';
   for(var i=0;i<waQrmKeep.length;i++){
-    html+='<span class="wa-qr-thumb">'+(waQrmKeep[i].url?'<img src="'+esc(waQrmKeep[i].url)+'" alt="">':'<span class="wa-qrm-ph">🖼️</span>')
+    var bad=!waIsSendableImagePath(waQrmKeep[i].path);
+    html+='<span class="wa-qr-thumb'+(bad?' wa-qr-thumb-bad':'')+'"'+(bad?' title="صيغة webp — واتساب مابيقبلهاش. شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها"':'')+'>'
+      +(waQrmKeep[i].url?'<img src="'+esc(waQrmKeep[i].url)+'" alt="">':'<span class="wa-qrm-ph">🖼️</span>')
+      +(bad?'<span class="wa-qr-thumb-warn">⚠️</span>':'')
       +'<button type="button" class="wa-qr-thumb-x" data-keep="'+i+'" title="شيل">✕</button></span>';
   }
   for(var j=0;j<waQrmUrls.length;j++){
@@ -1432,6 +1497,10 @@ export function waQrmSave(){
   if(!title){ toast('اكتب اسم مختصر للرد — ده اللي هيظهر على الزرار','er'); $id('wa-qrm-name').focus(); return; }
   if(title.length>40){ toast('الاسم طويل (الحد 40 حرف)','er'); return; }
   if(!body && !waQrmKeep.length && !waQrmFiles.length){ toast('اكتب نص أو ضيف صورة','er'); return; }
+  // صورة قديمة webp فاضلة = رد هيتحفظ وهو عارف إنه مش هيوصل
+  if(waQrmKeep.some(function(m){ return !waIsSendableImagePath(m.path); })){
+    toast('فيه صورة ⚠️ بصيغة webp واتساب مابيقبلهاش — شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها','er'); return;
+  }
   var btn=$id('wa-qrm-save');
   var label=btn.textContent;
   waQrmBusy=true; btn.disabled=true; btn.textContent='بيحفظ…';
@@ -1441,14 +1510,17 @@ export function waQrmSave(){
   var i=0;
   function next(){
     if(i>=waQrmFiles.length){ save(); return; }
-    var f=waQrmFiles[i];
-    var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
-    var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;
-    sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
-      if(up.error){ fail('فشل رفع الصورة'); return; }
-      media.push({path:path,mime:f.type,name:f.name});
-      i++; next();
-    }).catch(function(){ fail('فشل رفع الصورة'); });
+    // webp وأخواتها بتتحوّل JPEG قبل الرفع (شوف `waEnsureSendableImage`)
+    waEnsureSendableImage(waQrmFiles[i]).then(function(f){
+      var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
+      var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;
+      return sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
+        if(up.error){ fail('فشل رفع الصورة'); return; }
+        media.push({path:path,mime:f.type,name:f.name});
+        i++; next();
+      });
+    }, function(e){ fail(WA_IMG_ERR[(e&&e.message)||'unsupported_image']||WA_IMG_ERR.unsupported_image); })
+      .catch(function(){ fail('فشل رفع الصورة'); });
   }
   function save(){
     var row={title:title, body:body, media:media};
