@@ -184,7 +184,7 @@ END$$;
 | **جاهز للتسليم** | **v66** — 3 أكتوبر (**«➕ أوردر جديد» · «🔁 طلب استبدال» من أوردر متسلّم · ملاحظة البوليصة في نافذة J&T** + إصلاحات المراجعة العدائية) + كل v65 (منع الشحن والتعديل مش محفوظ — 17532) + v64 (webp → JPEG) + v63 (بانرات J&T) — زيب `sahl-app-v66` · ⚠️ v63–v65 مااتأكدش إنهم اترفعوا · 🔴 **الـDB وjt-ship v7 اتنشروا خلاص** — متوافقين مع الواجهة القديمة بالتصميم (مابتبعتش `note` = من غير ملاحظة زي v6 · القفل الجديد على أوردرات استبدال مفيش منها لسه) |
 | `check.sh` | ✅ أخضر (14 فحص) |
 | الهارنسات | **35 هارنس** — 🔴 **بتتشغّل بـ`node --import ./clock-preload.mjs test-x.mjs`** (بيمنع supabase-js الحقيقي من الـCDN — لو اتحمّل بيدوس الستب) و**`CLOCK=2026-10-15T10:00:00Z`** لهارنسات الأوردرات أول يومين في الشهر (`test-wa-followup` **محتاج** `CLOCK` · باقي `test-wa-*` و`test-ship` من غير — درس 52) · ⚠️ **`test-wa-labels` فحص 12ح (ارتفاع الشريط 85px مش 129px) بيقع في بيئة الوكيل على الكود القديم كمان** (اتقاس بـ`git stash` 1 أكتوبر) = بيئة مش باج · **`test-jt-health.mjs` 22 فحص + 5 معايرات** · `test-jt-reconcile.mjs` 18 + 5 · `test-wa-complaint.mjs` 26 + 4 · `test-wa-labels.mjs` بفيكستشر `[]` + معايرة (ز) · `test-jt-sign.mjs` 57 · `test-jt-awb.mjs` 5 · `test-jt-ship.mjs` 33 · `test-realtime-status.mjs` 16 · `test-jt-fee.mjs` 10 · `test-wa-search.mjs` 18 · `test-wa-qr.mjs` 47 · `test-wa-imgfmt.mjs` 26 + 4 · **`test-ship-dirty.mjs` 16 + 4** · **`test-order-form.mjs` 63 + 14** · **`test-jt-remark.mjs` 14 + 3** (3 أكتوبر) |
-| آخر migration | **`staff_orders_review_fixes`** + **`staff_orders_exchange_ship_note`** + **`save_products_jt_waybill_lock`** (3 أكتوبر — أوردر يدوي/استبدال · قفل الاستبدال وin-flight · NaN) · `jt_accounting_audit_fixes` + `ai_finance_no_default_shipping` (1 أكتوبر) · قبلهم `jt_trace_sync_cron` · `jt_trace_reconcile` · `wa_complaint_timer` · `wa_quick_reply_title` · `jt_fee_sync_cron` — **مطبّقين على الحي**. EFs: **`jt-ship` v7** (ملاحظة البوليصة · اللقطة من J&T في الاسترجاع · `order_changed` — 3 أكتوبر) · `wa-send` v9 (حارس `unsupported_image_type` بـ200 — اتنشر 2 أكتوبر واتأكد مطابق للمرآة + نداء تجريبي) · `jt-lookup` **v8** (+ COD من J&T) · `jt-status` **v4** · pg_cron `sahl-jt-fee-sync` (`*/15`) + **`sahl-jt-trace-sync` (`7-59/15`)** |
+| آخر migration | **`jt_holding_scan_raw_only`** (3 أكتوبر مساءً — Holding مش استثناء) + **`staff_orders_review_fixes`** + **`staff_orders_exchange_ship_note`** + **`save_products_jt_waybill_lock`** (3 أكتوبر — أوردر يدوي/استبدال · قفل الاستبدال وin-flight · NaN) · `jt_accounting_audit_fixes` + `ai_finance_no_default_shipping` (1 أكتوبر) · قبلهم `jt_trace_sync_cron` · `jt_trace_reconcile` · `wa_complaint_timer` · `wa_quick_reply_title` · `jt_fee_sync_cron` — **مطبّقين على الحي**. EFs: **`jt-ship` v7** (ملاحظة البوليصة · اللقطة من J&T في الاسترجاع · `order_changed` — 3 أكتوبر) · `wa-send` v9 (حارس `unsupported_image_type` بـ200 — اتنشر 2 أكتوبر واتأكد مطابق للمرآة + نداء تجريبي) · `jt-lookup` **v8** (+ COD من J&T) · `jt-status` **v4** · pg_cron `sahl-jt-fee-sync` (`*/15`) + **`sahl-jt-trace-sync` (`7-59/15`)** |
 
 **🟢 J&T اشتغلت على الإنتاج — 5 شحنات حقيقية (21 سبتمبر، 15:09–15:46 بتوقيت القاهرة):**
 الصلاحية اتفتحت، والمالك شحن بنفسه. **الدليل مقيس من الداتابيز ومن J&T مش من كلام:**
@@ -271,7 +271,7 @@ END$$;
 | Delivery scan | 94 | 54 | `Out for delivery` |
 | Abnormal parcels scan | 110 | 27 | `Exception` |
 | Signing scan | 100 | 21 | **`Delivered`** |
-| Holding scan | **—** | 19 | `Exception` |
+| Holding scan | **—** | 19 | ~~`Exception`~~ → **خام بس** (3 أكتوبر — شوف «Holding مش استثناء») |
 | Returned parcel scan | 172 | 6 | **`Returned to business`** |
 
 ⚠️ **كل القيم المستهدفة موجودة أصلاً في `constants.js`** — صفر قيمة جديدة، فكروت
@@ -488,7 +488,7 @@ backfill جاي **يتقاس وقت التنفيذ مش يتقرا من هنا**
 
 | الـpull (`logistics/trace`) | الـpush | القرار |
 |---|---|---|
-| `120 Left Over Scan` | `Holding scan` **من غير كود** | صف خريطة جديد `120 → Exception` |
+| `120 Left Over Scan` | `Holding scan` **من غير كود** | صف خريطة جديد ~~`120 → Exception`~~ → **خام بس** (3 أكتوبر) |
 | `111 Return Sign` | `13 Returned Signed` | صف خريطة جديد `111 → Returned to business` |
 | `92 Arrival Scan` | `92 DC arrival & Station arrival` | نفس الكود — الاسم مش مهم |
 | **مفيش `isRefund` خالص** | `isRefund=1` على رحلة المرتجع | **استنتاج** (تحت) |
@@ -553,6 +553,31 @@ backfill جاي **يتقاس وقت التنفيذ مش يتقرا من هنا**
   تشغيلي (استلام · إلغاء عند J&T). المصالحة هتلقطهم أوتوماتيك أول ما يتمسحوا.
 - **مرآة `jt-lookup` v7 اتنشرت من الملفات دي بالحرف** — ⚠️ v6 (اللي عاشت ~ساعة) كان فيها
   غلطة كتابة مني في `normPlace` جوّه `jt-runtime` (مش مستخدمة في `jt-lookup`) واتصلحت في v7.
+
+## 🔴 «Holding scan» مش استثناء — 43 أوردر اتعلّموا Exception غلط (3 أكتوبر — بلاغ المالك)
+
+«هو ليه حالات الاوردرات كلها استثناء ! و هما مش استثناء ولا حاجة».
+
+**السبب مقيس:** فرع J&T في السلام (اللي بيستلم من مخزننا) عمل على 43 شحنة جديدة مسح `Holding scan`
+(«Detention Scaned» = الشحنة محجوزة في الفرع) بين 18:08 و18:11 بتوقيت القاهرة، **بعد** مسح خروجهم
+لـ10th Ramadan. والخريطة كانت `Holding → Exception` من 24 سبتمبر (اتبنت على 19 حدث من غير ما أبص على
+النص). القياس على **كل** الـ247 مسح Holding من 22 سبتمبر: **كلهم نفس النص «Detention Scaned»** — يعني
+حجز في فرع، مش مشكلة. الاستثناء الحقيقي («Fail to Receive» · «Customer refuse») بييجي كمسح **110 Abnormal**،
+وأغلب الـHolding أصلاً جاي **بعد** 110 (68 مرة) فالحالة كانت Exception من الـ110 مش منه.
+
+**الإصلاح (migration `jt_holding_scan_raw_only`):** `jt_status_map.sahl_status` بقى يقبل `NULL` =
+**«مسح معروف — خام بس»**: الخام والساعة بيتكتبوا (فالمصالحة مابتعيدوش، ومابيتعدّش `unmapped` في
+البانر) والحالة **ماتتغيّرش** (`apply_note='raw_only'`). `name:holding scan` و`120` بقوا `NULL`.
+🔴 **ده مختلف عن «مش في الخريطة»** (`unmapped` — مابيكتبش حرف وبيتعاد كل دورة) — متخلطهمش.
++ تصحيح: أي أوردر حالته `Exception` **وآخر سطر في سجله** «Detention» → رجع للحالة اللي قبله بسطر
+`by = J&T API · تصحيح`. **اتجرّب بترانزاكشن راجعة:** التلجرام صفر · العمولات من غير تغيير · مسح Holding
+جديد = `raw_only` والحالة زي ما هي · **ضابط: 110 لسه بيعمل Exception**. وقت التطبيق (بعد التجربة بساعات)
+**33 اتصلّحوا** والباقي كانت J&T حرّكتهم لوحدها بمسحات أحدث (فرز · تسليم · مرتجع). الـ`Exception` الفاضل:
+17458 (Fail to Receive) و17498 — حقيقيين.
+
+⚠️ **لقطة تانية من نفس اليوم (مااتصلحتش — حصلت مرة واحدة):** الـ42 شحنة دول خدوا **`Delivery scan` (94) في فرع
+السلام قبل مسح الاستلام** → اتعلّموا «Out for delivery» الصبح وهم لسه ماخرجوش من عندنا. على كل التاريخ ده حصل
+**3 أكتوبر بس** (0 قبل كده) = تخبيط تشغيلي عند J&T مش نمط. لو اتكرر: حارس «94 في فرع المرسل قبل أي Pickup = خام».
 
 ## 🔴 البوليصة اتعملت بالمنتج اللي اتشال — 17532 (3 أكتوبر — بلاغ المالك)
 
