@@ -22,6 +22,14 @@
 //      بالباقي). من غير `note`: موظف = مفيش ملاحظة (نسخة واجهة قديمة مابتعرضهاش عليه) · n8n/diag = ملاحظة
 //      العميل زي ما هي. 🔴 internal_notes عمرها ما بتتبعت. والـremark اللي اتبعت بيتسجّل في jt_remark
 //      والبوليصة المطبوعة بتطبعه هو بالحرف.
+//   9. (v7 — مراجعة 3 أكتوبر) اللي بيتسجّل = اللي **عند J&T** مش اللي في الطلب ده:
+//      · المسارات اللي بتلاقي شحنة من محاولة سابقة (timeout/تكرار) بتسجّل remark وitemsValue بتوع J&T
+//        (getOrders) — الموظف ممكن يكون عدّل المنتجات أو الملاحظة بين المحاولتين. COD مختلف = jt_cod_amount
+//        بقيمة J&T (بانر «حسابات J&T محتاجة مراجعة» بيولّع فوراً) + رد mismatch للواجهة.
+//      · لحظة المحاولة: jt_ship_error بيتمسح (save_order_products بترفض التعديل وهي «في السكة» —
+//        jt_ship_in_flight) والصف بيتقري تاني بعد التعليم: اتعدّل بين القراية والتعليم = رفض order_changed.
+//      · ملاحظة فاضية بتتحفظ '' مش NULL (= «من غير ملاحظة» صريحة؛ NULL = الموظف لسه ماختارش) ·
+//        dry_run مابيحفظش الملاحظة.
 //
 // الحمولة: { order_id, receiver?: {prov, city, area}, weight_kg?, note?, dry_run? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -161,9 +169,11 @@ Deno.serve(async (req: Request) => {
   const noteGiven = typeof body.note === "string";
   const shipNote = noteGiven ? cleanShipNote(body.note) : (caller.mode === "user" ? "" : cleanShipNote(order.customer_notes));
 
-  // نحفظ اختيار الموظف على الأوردر (حتى لو الإرسال فشل بعدين — عشان مايعيدش الاختيار)
+  // نحفظ اختيار الموظف على الأوردر (حتى لو الإرسال فشل بعدين — عشان مايعيدش الاختيار).
+  // الملاحظة: '' = «من غير ملاحظة» صريحة (NULL = لسه ماتختارتش → النافذة بتعبّيها من ملاحظة العميل) ·
+  // dry_run مابيلمسهاش (تجربة diag بملاحظة كانت بتتحفظ وتتبعت في الشحنة الحقيقية بعدها).
   await admin.from("orders").update({ ship_prov: prov, ship_city: city, ship_area: area, shipping_weight_kg: weight,
-    ...(noteGiven ? { ship_note: shipNote || null } : {}) }).eq("id", orderId);
+    ...(noteGiven && !dryRun ? { ship_note: shipNote } : {}) }).eq("id", orderId);
 
   // ── إعدادات J&T ─────────────────────────────────────────────────────
   const env = caller.mode !== "user" && String(body.env || "") === "sandbox" ? "sandbox" : defaultEnv();
@@ -211,11 +221,18 @@ Deno.serve(async (req: Request) => {
       return found && found.billCode ? found : null;
     } catch { return null; }
   };
-  const record = async (bill: string, sorting: unknown, fee: unknown) => {
+  // held = اللي J&T شايلاه فعلاً: الشحنة الجديدة = اللي بعتناه دلوقتي · المسترجعة = رد getOrders
+  // (remark/itemsValue). مجهول = null ومابنكتبش حاجة بنقول إنها «عند J&T» وإحنا مش متأكدين.
+  const record = async (bill: string, sorting: unknown, fee: unknown, held: { remark: string | null; cod: number | null }) => {
     const { data, error } = await admin.rpc("jt_record_shipment_v1", { p_order_id: orderId, p_bill_code: bill, p_sorting_code: sorting == null ? null : String(sorting), p_fee_estimated: fee == null || fee === "" ? null : Number(fee), p_weight: weight, p_by: "J&T API · " + byName });
     if (error) throw new Error("db:" + error.message);
-    // اللي اتبعت لـJ&T بالحرف — البوليصة المطبوعة بتطبعه هو (مش بتعيد التركيب من صف ممكن يتعدّل بعد الشحن)
-    await admin.from("orders").update({ jt_remark: remark }).eq("id", orderId);
+    // idempotent = البوليصة متسجّلة من قبل — اللقطة اللي اتكتبت ساعتها هي الصح، مانكتبش فوقها
+    if (!(data && (data as Record<string, unknown>).idempotent)) {
+      // اللي عند J&T بالحرف — البوليصة المطبوعة بتطبعه هو (مش بتعيد التركيب من صف ممكن يتعدّل بعد الشحن)
+      if (held.remark != null) await admin.from("orders").update({ jt_remark: held.remark }).eq("id", orderId);
+      // المبلغ اللي المندوب هيحصّله — لو مختلف عن total_cost البانر بيولّع من دلوقتي مش بعد مصالحة الـ15 دقيقة
+      if (held.cod != null) await admin.rpc("jt_set_cod_v1", { p_bill_code: bill, p_cod: held.cod });
+    }
     // مرادف المدينة → عنوان J&T (بيخلي الأوردر الجاي بنفس المدينة يتحل أوتوماتيك)
     const key = normPlace(String(order.city || ""));
     if (key) {
@@ -238,14 +255,39 @@ Deno.serve(async (req: Request) => {
     return data;
   };
 
+  // شحنة لقيناها عند J&T من محاولة سابقة: نسجّلها باللي J&T شايلاه، ولو مختلف عن الطلب ده نقول
+  const recover = async (prior: Record<string, unknown>) => {
+    const heldRemark = typeof prior.remark === "string" && prior.remark.trim() ? String(prior.remark) : null;
+    const iv = prior.itemsValue == null || prior.itemsValue === "" ? NaN : Number(prior.itemsValue);
+    const heldCod = isFinite(iv) && iv >= 0 ? Math.round(iv * 100) / 100 : null;
+    const bill = String(prior.billCode);
+    const rec = await record(bill, prior.sortingCode, prior.sumFreight, { remark: heldRemark, cod: heldCod });
+    const codDiff = heldCod != null && heldCod !== Math.round(cod * 100) / 100;
+    // المسافات/السطور ممكن تتطبّع عند J&T — المقارنة على النص مش على التنسيق (مايطلعش إنذار كاذب)
+    const flat = (x: string) => x.replace(/\s+/g, " ").trim();
+    const remarkDiff = heldRemark != null && flat(heldRemark) !== flat(remark);
+    if (codDiff || remarkDiff) {
+      await setError(orderId, "⚠️ الشحنة اتعملت عند J&T من محاولة سابقة" + (codDiff ? " بمبلغ " + heldCod + " ج (السيستم " + cod + " ج)" : "") +
+        (remarkDiff ? " ومنتجاتها/ملاحظتها غير الحالية" : "") + " — صلّحها عند J&T أو هنا");
+    }
+    return json({ ok: true, recovered: true, tracking_no: bill, sorting_code: prior.sortingCode ?? null, fee_estimated: prior.sumFreight ?? null, record: rec, env,
+      ...(codDiff || remarkDiff ? { mismatch: { cod_jt: heldCod, cod_sahl: cod, remark_differs: remarkDiff } } : {}) });
+  };
+
   if (order.jt_ship_attempted_at) {
     const prior = await lookup();
-    if (prior) {
-      const rec = await record(String(prior.billCode), prior.sortingCode, prior.sumFreight);
-      return json({ ok: true, recovered: true, tracking_no: String(prior.billCode), sorting_code: prior.sortingCode ?? null, fee_estimated: prior.sumFreight ?? null, record: rec, env });
-    }
+    if (prior) return await recover(prior);
   }
-  await admin.from("orders").update({ jt_ship_attempted_at: new Date().toISOString() }).eq("id", orderId);
+  // تعليم المحاولة + مسح الخطأ القديم (save_order_products بتقفل التعديل طول ما المحاولة «في السكة»)،
+  // وقراية الصف تاني في نفس الخطوة: لو اتعدّل بعد ما قريناه فوق وقبل القفل = نرفض بدل ما نبعت القديم.
+  const { data: fresh } = await admin.from("orders").update({ jt_ship_attempted_at: new Date().toISOString(), jt_ship_error: null })
+    .eq("id", orderId).select("total_cost, product_name, manufacturer_note, var, tracking_no").maybeSingle();
+  if (!fresh || String(fresh.tracking_no || "").trim() || (Number(fresh.total_cost) || 0) !== cod ||
+      String(fresh.product_name || "") !== String(order.product_name || "") ||
+      String(fresh.manufacturer_note || fresh.var || "") !== String(order.manufacturer_note || order.var || "")) {
+    await setError(orderId, "الأوردر اتعدّل أثناء الشحن — مااتبعتش لـJ&T");
+    return json({ error: "order_changed", message: "المنتجات أو المبلغ اتغيّروا وإحنا بنجهّز الشحنة — مابعتناش حاجة لـJ&T. افتح النافذة تاني وراجع." }, 409);
+  }
 
   // ── الإنشاء ─────────────────────────────────────────────────────────
   let res;
@@ -254,29 +296,25 @@ Deno.serve(async (req: Request) => {
   } catch (e) {
     // timeout/شبكة بعد الإرسال — ممكن تكون اتعملت. نسأل قبل ما نعلن فشل.
     const prior = await lookup();
-    if (prior) {
-      const rec = await record(String(prior.billCode), prior.sortingCode, prior.sumFreight);
-      return json({ ok: true, recovered: true, tracking_no: String(prior.billCode), sorting_code: prior.sortingCode ?? null, record: rec, env });
-    }
+    if (prior) return await recover(prior);
     await setError(orderId, "J&T مردّتش (" + String((e as Error).message || e) + ") — استعلمنا ومفيش شحنة");
-    return json({ error: "jt_unreachable", message: "J&T مردّتش والشحنة ماتعملتش — جرّب تاني بعد شوية" }, 502);
+    // ⚠️ «مالقيناش» مش «ماتعملتش»: ممكن تكون اتعملت والاستعلام لسه مش شايفها — المحاولة الجاية
+    // بتستعلم الأول (jt_ship_attempted_at) فمفيش تكرار، ولو اتعملت بمبلغ قديم بنقول (recover → mismatch).
+    return json({ error: "jt_unreachable", message: "J&T مردّتش ومالقيناش الشحنة عندها لسه — جرّب تاني بعد دقيقة (لو كانت اتعملت هنسجّلها من غير تكرار). ماتعدّلش المنتجات قبل ما تجرّب تاني." }, 502);
   }
 
   if (res.code === "1" && res.data && typeof res.data === "object") {
     const d = res.data as Record<string, unknown>;
     const bill = String(d.billCode || "").trim();
     if (!bill) { await setError(orderId, "رد J&T من غير billCode"); return json({ error: "no_bill_code", message: "J&T ردّت بنجاح من غير رقم بوليصة", data: d }, 502); }
-    const rec = await record(bill, d.sortingCode, d.sumFreight);
+    const rec = await record(bill, d.sortingCode, d.sumFreight, { remark, cod: Math.round(cod * 100) / 100 });
     return json({ ok: true, env, tracking_no: bill, sorting_code: d.sortingCode ?? null, fee_estimated: d.sumFreight ?? null, last_center: d.lastCenterName ?? null, record: rec });
   }
 
   // تكرار عند J&T (اتعملت قبل كده وردّها ضاع) → نجيب البوليصة ونسجّلها
   if (res.code === "145002001" || res.code === "145003101") {
     const prior = await lookup();
-    if (prior) {
-      const rec = await record(String(prior.billCode), prior.sortingCode, prior.sumFreight);
-      return json({ ok: true, recovered: true, tracking_no: String(prior.billCode), sorting_code: prior.sortingCode ?? null, record: rec, env });
-    }
+    if (prior) return await recover(prior);
   }
   const why = "J&T رفضت (" + (res.code || res.status) + "): " + (res.msg || res.raw.slice(0, 200));
   await setError(orderId, why);

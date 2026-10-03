@@ -343,6 +343,8 @@
       if(st.eqStatus) rows = rows.filter(function(o){ return o.status === st.eqStatus; });
       if(st.inStatus) rows = rows.filter(function(o){ return st.inStatus.indexOf(o.status) >= 0; });
       if(st.eqPhone)  rows = rows.filter(function(o){ return o.phone === st.eqPhone; });
+      // «🔁 اتعمله استبدال» في التفاصيل — من غير الفلتر كل أوردر كان بيعرض كل أوردرات المعاينة كاستبدالات
+      if(st.eqExchange !== undefined) rows = rows.filter(function(o){ return (o.exchange_of || null) === st.eqExchange; });
       rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     }
     // رسايل الشات: من غير الفلتر ده كل محادثة كانت بتعرض رسايل كل المحادثات
@@ -383,7 +385,7 @@
           if(m === 'select') st.cols = a;
           if(m === 'gte' && a === 'created_at') st.gte = b;
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
-          if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; }
+          if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; if(a === 'exchange_of') st.eqExchange = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
           if(m === 'or')    st.or = a;
           if(m === 'not')   st.not = {col:a, op:b, val:c};
@@ -541,6 +543,9 @@
       its.forEach(function(it){ sum += Number(it.price) * Number(it.qty); lines.push(it.name + ' (عدد ' + it.qty + ')'); });
       var orig = null;
       if(args.p_exchange_of){ orig = TABLES.orders.filter(function(o){ return o.id === args.p_exchange_of; })[0] || null; }
+      // نفس شرط السيرفر: الاستبدال من أوردر متسلّم بس
+      if(orig && String(orig.status||'').toLowerCase() !== 'delivered')
+        return Promise.resolve({ data:{ ok:false, error:'exchange_not_delivered' }, error:null });
       var mx2 = 0;
       TABLES.orders.forEach(function(o){ var m = /^W-([0-9]+)$/.exec(String(o.order_uid||'')); if(m && +m[1] > mx2) mx2 = +m[1]; });
       var uid2 = 'W-' + (mx2 + 1), now2 = new Date().toISOString();

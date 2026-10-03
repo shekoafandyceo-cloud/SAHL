@@ -270,8 +270,18 @@ CONTRACTS = [
      and "internal_notes" not in re.search(r'const ORDER_COLS = "([^"]*)"', s).group(1)),
     ("jt-ship", u"موظف من غير note = من غير ملاحظة (مفيش ملاحظة ماتراجعتش)",
      lambda s: 'caller.mode === "user" ? "" : cleanShipNote(order.customer_notes)' in s),
-    ("jt-ship", u"الـremark اللي اتبعت بيتسجّل في jt_remark (البوليصة بتطبعه بالحرف)",
-     lambda s: "update({ jt_remark: remark })" in s),
+    ("jt-ship", u"jt_remark = اللي عند J&T: الجديدة = اللي اتبعت · المسترجعة = remark بتاع getOrders (مش الطلب الحالي)",
+     lambda s: "update({ jt_remark: held.remark })" in s
+     and "record(bill, d.sortingCode, d.sumFreight, { remark, cod:" in s
+     and "{ remark: heldRemark, cod: heldCod }" in s
+     and len(re.findall(r'if \(prior\) return await recover\(prior\);', s)) == 3),
+    # ── مراجعة 3 أكتوبر ──
+    ("jt-ship", u"ملاحظة فاضية بتتحفظ '' مش NULL · dry_run مابيحفظش الملاحظة",
+     lambda s: "...(noteGiven && !dryRun ? { ship_note: shipNote } : {})" in s and "shipNote || null" not in s),
+    ("jt-ship", u"لحظة المحاولة: jt_ship_error بيتمسح والصف بيتقري تاني — اتعدّل = order_changed قبل addOrder",
+     lambda s: "jt_ship_attempted_at: new Date().toISOString(), jt_ship_error: null" in s
+     and 'error: "order_changed"' in s
+     and s.index('error: "order_changed"') < s.index("jtCall(cfg, JT_PATHS.addOrder, biz")),
 ]
 
 

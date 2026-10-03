@@ -12,7 +12,7 @@
 
 import { currentTenant, currentTenantId } from '../auth/auth.js';
 import { code128Modules } from '../core/code128.js';
-import { remarkBaseLines } from './jt-remark.js';
+import { NOTE_PREFIX, remarkBaseLines } from './jt-remark.js';
 import { routeBase } from '../core/router.js';
 import { esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
@@ -44,9 +44,24 @@ function svgVertical(mods, lengthMm, barMm){
 // تعديل بعد الشحن كان بيطلّع بوليصة مختلفة عن اللي عند J&T. الأوردرات القديمة (قبل v6) مالهاش jt_remark
 // فبتفضل زي ما كانت بالظبط (remarkBaseLines = remarkFor القديمة) — إصلاح للأمام بس.
 export function jtRemarkLines(o){
+  var base = remarkBaseLines(o.product_name, o.manufacturer_note || o['var']);
   var snap = String((o && o.jt_remark) || '').replace(/\r/g, '');
-  if(snap.trim()) return snap.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
-  return remarkBaseLines(o.product_name, o.manufacturer_note || o['var']);
+  if(!snap.trim()) return base;
+  var lines = snap.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+  // (مراجعة 3 أكتوبر) منتجات فوق الـ200 حرف: J&T خدت أول 199 + «…» ومن غير ملاحظة (composeRemark) —
+  // البوليصة ليها سلّم تصغير للنص الطويل، فبتطبع المنتجات كاملة (المخزن بيجهّز منها). قبل اللقطة كانت
+  // بتطبعها كاملة، واللقطة بالحرف كانت هتقص آخر منتج من غير ما حد ياخد باله.
+  var last = lines[lines.length - 1] || '';
+  if(/…$/.test(last) && last.indexOf(NOTE_PREFIX) !== 0) return base;
+  return lines;
+}
+
+// مبلغ التحصيل المطبوع = اللي المندوب هيحصّله: مبلغ J&T لو متسجّل (jt_cod_amount — jt-ship v7 بيسجّله وقت
+// الشحن، والمصالحة بتحدّثه)، وإلا إجمالي الأوردر. لو مختلفين، البوليصة بتطابق تطبيق المندوب مش السيستم.
+export function jtAwbCod(o){
+  var j = o && o.jt_cod_amount;
+  if(j !== null && j !== undefined && j !== '' && isFinite(Number(j))) return Number(j);
+  return o ? o.total_cost : 0;
 }
 
 var ARABIC_RANGE = 'U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0898-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC';
@@ -96,7 +111,7 @@ export function jtLabelHtml(o, sender, printedAt){
     + '<div class="row r-head" dir="ltr"><div class="jt">J&amp;T<small>EXPRESS</small></div><div class="brand"><img class="logo" src="' + logo + '" alt="3ataba.com"></div><div class="service">Standard</div></div>'
     + '<div class="row r-bar" dir="ltr"><div class="bc">' + svgFromModules(mods, 70, 10) + '</div><div class="wb">' + esc(wb) + '</div></div>'
     + '<div class="row body">'
-    + '<div class="lcell r-info"><div class="cell c-cod"><div class="lbl">COD — مبلغ التحصيل</div><div class="val">' + fmtNum(o.total_cost) + ' ج.م</div></div><div class="cell c-wt"><div class="lbl">Weight — الوزن</div><div class="val">' + fmtNum(o.shipping_weight_kg || 1) + ' كجم</div></div></div>'
+    + '<div class="lcell r-info"><div class="cell c-cod"><div class="lbl">COD — مبلغ التحصيل</div><div class="val">' + fmtNum(jtAwbCod(o)) + ' ج.م</div></div><div class="cell c-wt"><div class="lbl">Weight — الوزن</div><div class="val">' + fmtNum(o.shipping_weight_kg || 1) + ' كجم</div></div></div>'
     + '<div class="side"><div class="vwb">' + esc(wb) + '</div><div class="vbc">' + svgVertical(mods, 54, 9) + '</div></div>'
     + '<div class="lcell r-sort"><div class="sort-box"><span class="sort-text">' + esc(o.jt_sorting_code || '') + '</span></div></div>'
     + '<div class="lcell r-to"><div class="to-name"><span class="tag">To:</span>' + esc(o.customer_name || '') + '</div>'
@@ -131,7 +146,7 @@ function senderFromTenant(){
   return { name: t.sender_name || t.store_name || 'عتبة', phone: t.sender_phone || t.support_phone || '', address: addr };
 }
 
-export var JT_AWB_COLS = 'id,order_uid,tracking_no,jt_sorting_code,awb_print_count,shipping_carrier,total_cost,shipping_weight_kg,customer_name,phone,alt_phone,city,address,ship_prov,ship_city,ship_area,product_name,manufacturer_note,var,jt_remark';
+export var JT_AWB_COLS = 'id,order_uid,tracking_no,jt_sorting_code,awb_print_count,shipping_carrier,total_cost,shipping_weight_kg,customer_name,phone,alt_phone,city,address,ship_prov,ship_city,ship_area,product_name,manufacturer_note,var,jt_remark,jt_cod_amount';
 
 // طباعة بوالص J&T لمجموعة أوردرات — صفحة لكل أوردر في نافذة واحدة
 export async function printJtAwb(orderIds){

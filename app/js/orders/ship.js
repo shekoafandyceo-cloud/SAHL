@@ -404,7 +404,9 @@ async function jtShipFlow(ord){
   // اللي هيتبعت لـJ&T بالحرف (itemsValue + remark من نفس الصف) — الموظف بيأكد على المبلغ
   // اللي المندوب هيحصّله مش على «شحنة» وخلاص (17532)، وعلى نص الملاحظات اللي هيتطبع.
   var noteIn = $id('jt-note-in');
-  noteIn.value = ord.ship_note != null && String(ord.ship_note).trim() ? ord.ship_note : (ord.customer_notes || '');
+  // ship_note: NULL = الموظف لسه ماختارش (نعبّي من ملاحظة العميل) · '' = اختار «من غير ملاحظة» صراحةً
+  // (jt-ship v7 بيحفظها '' مش NULL) — من غير الفرق ده المسح كان بيرجع بعد أي محاولة فاشلة.
+  noteIn.value = ord.ship_note != null ? String(ord.ship_note) : (ord.customer_notes || '');
   noteIn.oninput = function(){ jtPaintPreview(ord); };
   jtPaintPreview(ord);
   $id('jt-err').textContent = '';
@@ -472,6 +474,15 @@ async function jtSubmit(ord){
   var btn = $id('jt-go');
   btn.disabled = true; btn.textContent = '⏳ بنبعت لـJ&T...'; err.textContent = '';
   var out = {};
+  var noteVal = $id('jt-note-in') ? $id('jt-note-in').value : '';
+  // اختيار الموظف للملاحظة بيفضل في الذاكرة سواء نجح أو فشل — فتح النافذة تاني من غير جلب
+  // كان بيرجّع ملاحظة العميل اللي هو مسحها (السيرفر بيحفظها كمان، بس الريل-تايم مش مضمون)
+  function keepNote(){
+    var nv = cleanShipNote(noteVal);
+    if(sel && sel.id === ord.id) sel.ship_note = nv;
+    ord.ship_note = nv;
+    var r0 = findRow(ord.id); if(r0) r0.ship_note = nv;
+  }
   try{
     var sess = await sb.auth.getSession();
     var tk = sess && sess.data && sess.data.session ? sess.data.session.access_token : null;
@@ -479,11 +490,12 @@ async function jtSubmit(ord){
     var res = await fetch(SUPABASE_URL + '/functions/v1/jt-ship', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + tk },
-      body: JSON.stringify({ order_id: ord.id, receiver: { prov: prov, city: city, area: area }, weight_kg: w, note: $id('jt-note-in') ? $id('jt-note-in').value : '' })
+      body: JSON.stringify({ order_id: ord.id, receiver: { prov: prov, city: city, area: area }, weight_kg: w, note: noteVal })
     });
     out = await res.json().catch(function(){ return {}; });
     if(!res.ok || !out.ok) throw new Error(out.message || 'حصلت مشكلة — حاول تاني');
   }catch(e){
+    keepNote();
     btn.disabled = false; btn.textContent = 'إنشاء البوليصة عند J&T';
     err.textContent = String(e.message || e);
     var row0 = findRow(ord.id); if(row0) row0.jt_ship_error = String(e.message || e);
@@ -491,12 +503,25 @@ async function jtSubmit(ord){
     return;
   }
   // نجاح: الصف والجدول بيتحدّثوا من رد J&T (البوليصة + كود الفرز)
+  keepNote();
   var row = findRow(ord.id);
   if(row){ row.shipping_carrier = 'jt'; row.jt_sorting_code = out.sorting_code || null; row.jt_ship_error = null; row.ship_prov = prov; row.ship_city = city; row.ship_area = area; row.shipping_weight_kg = w; }
   if(sel && sel.id === ord.id){ sel.shipping_carrier = 'jt'; sel.jt_sorting_code = out.sorting_code || null; sel.jt_ship_error = null; }
   applyShipped(ord.id, (out.record && out.record.status) || 'BOSTA AUTO', out.tracking_no);
-  toast('البوليصة اتعملت عند J&T ✓ ' + out.tracking_no + (out.sorting_code ? ' · كود الفرز ' + out.sorting_code : ''), 'ok');
-  $id('jt-note').textContent = 'رقم البوليصة: ' + out.tracking_no + '\nكود الفرز: ' + (out.sorting_code || '— (J&T مرجّعتش كود)') + (out.recovered ? '\n(الشحنة كانت متعملة عند J&T من محاولة سابقة — اتسجّلت من غير تكرار)' : '');
+  // 🔴 jt-ship v7: الشحنة اللي اتلقت من محاولة سابقة ممكن تكون بمبلغ/منتجات قديمة (الموظف عدّل بين
+  // المحاولتين) — السيرفر سجّل اللي عند J&T، والموظف لازم يعرف دلوقتي مش من البانر بعدين
+  var mm = out.mismatch || null;
+  if(mm && mm.cod_jt != null){
+    if(sel && sel.id === ord.id) sel.jt_cod_amount = mm.cod_jt;
+    if(row) row.jt_cod_amount = mm.cod_jt;
+  }
+  var mmMsg = mm ? ('⚠️ الشحنة كانت متعملة عند J&T من محاولة سابقة'
+    + (mm.cod_jt != null && Number(mm.cod_jt) !== Number(mm.cod_sahl) ? ' بمبلغ ' + num(mm.cod_jt) + ' ج (السيستم ' + num(mm.cod_sahl) + ' ج)' : '')
+    + (mm.remark_differs ? ' ومنتجاتها/ملاحظتها غير الحالية' : '')
+    + ' — صلّحها عند J&T أو هنا') : '';
+  toast(mm ? mmMsg : ('البوليصة اتعملت عند J&T ✓ ' + out.tracking_no + (out.sorting_code ? ' · كود الفرز ' + out.sorting_code : '')), mm ? 'er' : 'ok');
+  $id('jt-note').textContent = 'رقم البوليصة: ' + out.tracking_no + '\nكود الفرز: ' + (out.sorting_code || '— (J&T مرجّعتش كود)')
+    + (mm ? '\n' + mmMsg : (out.recovered ? '\n(الشحنة كانت متعملة عند J&T من محاولة سابقة — اتسجّلت من غير تكرار)' : ''));
   btn.style.display = 'none'; $id('jt-cancel').style.display = 'none';
   $id('jt-done').style.display = '';
   $id('jt-print').onclick = function(){ printJtAwb([ord.id]); };

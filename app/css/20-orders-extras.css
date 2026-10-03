@@ -15,7 +15,9 @@
 /* نافذة شحن J&T — المحافظة/المدينة/المنطقة بأسماء J&T + الوزن (ship.js jtShipFlow) */
 .jt-bd{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);z-index:9998;align-items:center;justify-content:center;}
 .jt-bd.open{display:flex;}
-.jt-box{background:var(--card);border-radius:22px;padding:24px 22px;max-width:460px;width:94%;box-shadow:0 24px 64px rgba(0,0,0,.18);}
+.jt-box{background:var(--card);border-radius:22px;padding:24px 22px;max-width:460px;width:94%;box-shadow:0 24px 64px rgba(0,0,0,.18);max-height:92vh;max-height:92dvh;overflow-y:auto;}
+/* (مراجعة 3 أكتوبر) خانة الملاحظة + معاينة الـremark طوّلوا نافذة J&T لـ940px على الموبايل — من غير السقف ده
+   العنوان بيطلع فوق الشاشة وزرار «إنشاء البوليصة» تحتها على 375×667، والـ.jt-bd ثابت فمفيش سكرول يوصلهم. */
 .jt-ttl{font-size:1.08rem;font-weight:900;color:var(--txt);margin-bottom:6px;}
 .jt-sub{font-size:.84rem;color:var(--muted);white-space:pre-line;line-height:1.55;margin-bottom:14px;}
 .jt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -51,7 +53,13 @@
 .of-row{display:grid;grid-template-columns:1fr 96px 64px 38px;gap:6px;align-items:center}
 .of-row .fsel{width:100%;min-width:0}
 .of-row .of-qty{text-align:center}
-.of-sum{font-size:.86rem;font-weight:800;color:var(--txt);margin-top:10px;line-height:1.6}
+.of-sum{font-size:.86rem;font-weight:800;color:var(--txt);margin-top:10px;line-height:1.6;white-space:pre-line}
+/* الاستبدال: المنتجات اللي راجعة — الفرق بيتحسب على المعلَّم بس (مراجعة 3 أكتوبر) */
+.of-ret-wrap{margin-top:4px}
+.of-ret-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--brd);border-radius:10px;margin-bottom:5px;font-size:.84rem;font-weight:700;color:var(--txt);cursor:pointer}
+.of-ret-row input{width:17px;height:17px;flex:0 0 auto;accent-color:#10b981}
+.of-ret-name{flex:1;min-width:0}
+.of-ret-val{font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--muted);white-space:nowrap}
 .jt-note-lbl{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:700;color:var(--muted);margin-top:10px}
 .jt-note-lbl textarea{width:100%;resize:vertical;font-family:inherit}
 .ex-badge{margin-inline-end:4px;font-size:.85em}

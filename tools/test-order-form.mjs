@@ -13,6 +13,11 @@
 //  D) البوليصة المطبوعة بتطبع jt_remark بالحرف لو موجود، وغير كده زي ما كانت.
 //  E) المعايرات: زرار الاستبدال على كل حاجة · شيل p_exchange_of · الملاحظة من الداخلية ·
 //     الطباعة بتتجاهل jt_remark · المبلغ المكتوب بيتمسح.
+//  F) (مراجعة 3 أكتوبر) الاستبدال من متسلّم بس (مش «في السكة») · الفرق على المنتجات الراجعة بس ·
+//     استبدال لاستبدال بسعر المخزون · قيمة مجهولة = الموظف يكتب · رد قديم مايلمسش فورم جديد ·
+//     الصف قبل المخزون · الملاحظة الممسوحة بتفضل ممسوحة بعد فشل · تحذير شحنة مسترجعة بمبلغ مختلف ·
+//     نافذة J&T بتتسكرل على 375×667 · البوليصة بتطبع المنتجات كاملة لو اتقصّت · مبلغ J&T على البوليصة ·
+//     أوردر الاستبدال مقفول في محرر المنتجات — وكل واحدة بمعايرتها.
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -34,9 +39,14 @@ const PRE = `
   ];
   window.__STAFF = []; window.__FETCH_BODIES = [];
   window.__RPC_HOOK = function(name, args){
+    if(name === 'save_order_products' && window.__SAVE_ERR) return { data: null, error: { message: window.__SAVE_ERR } };
     if(name !== 'create_staff_order') return null;
     window.__STAFF.push(JSON.parse(JSON.stringify(args)));
     if(window.__STAFF_REPLY) return { data: window.__STAFF_REPLY, error: null };
+    if(window.__STAFF_SLOW){ var self = window.__RPC_HOOK_SLOW_IMPL; return new Promise(function(res){ setTimeout(function(){ res(self(args)); }, 2000); }); }
+    return window.__RPC_HOOK_SLOW_IMPL(args);
+  };
+  window.__RPC_HOOK_SLOW_IMPL = function(args){
     var base = (window.__ORDERS || []).filter(function(x){ return x.id === 'o3'; })[0];
     var row = Object.assign({}, base, { id:'new' + window.__STAFF.length, order_uid:'W-4' + window.__STAFF.length, status:'confirmed', tracking_no:null,
       customer_name: args.p_customer_name, phone: args.p_phone, product_name: args.p_items.map(function(i){ return i.name + ' (عدد ' + i.qty + ')'; }).join('\\n+ '),
@@ -47,6 +57,7 @@ const PRE = `
   (function(){ var of = window.fetch; window.fetch = function(u, init){
     if(String(u).indexOf('/functions/v1/jt-ship') >= 0){
       var body = JSON.parse(init.body); window.__FETCH_BODIES.push(body);
+      if(window.__JT_REPLY) return Promise.resolve(new Response(JSON.stringify(window.__JT_REPLY.body), { status: window.__JT_REPLY.status, headers:{ 'Content-Type':'application/json' } }));
       return Promise.resolve(new Response(JSON.stringify({ ok:true, tracking_no:'JEG000000000001', sorting_code:'20,X', record:{ status:'BOSTA AUTO' } }), { status: 200, headers:{ 'Content-Type':'application/json' } }));
     }
     return of.apply(this, arguments);
@@ -82,11 +93,17 @@ const POST = `
 async function openApp(patches, viewport){
   const ctx = await b.newContext({ viewport: viewport || { width:1440, height:1100 } });
   await ctx.route('**/data/jt-areas.json', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ 'القاهرة': { 'مدينة نصر': ['الحي الثامن'] } }) }));
-  for(const [file, a, c] of (patches || [])){
-    await ctx.route('**/js/orders/' + file, async r => {
-      const res = await r.fetch(); let body = await res.text(); const before = body;
-      body = body.replace(a, c);
-      if(body === before) throw new Error('المعايرة مالقتش المرساة: ' + String(a).slice(0, 60));
+  // كل التعديلات على نفس الملف في route واحد — Playwright بيشغّل آخر route متسجّل بس لنفس المسار
+  const byFile = {};
+  for(const [file, a, c] of (patches || [])) (byFile[file] = byFile[file] || []).push([a, c]);
+  for(const file of Object.keys(byFile)){
+    await ctx.route(file.indexOf('css/') === 0 ? '**/' + file : '**/js/orders/' + file, async r => {
+      const res = await r.fetch(); let body = await res.text();
+      for(const [a, c] of byFile[file]){
+        const before = body;
+        body = body.replace(a, c);
+        if(body === before) throw new Error('المعايرة مالقتش المرساة: ' + String(a).slice(0, 60));
+      }
       await r.fulfill({ response: res, body });
     });
   }
@@ -199,14 +216,17 @@ async function fillAddr(p){
 async function scenarioExchangeBtn(p){
   await openDetail(p, 'o3');
   const onPending = !!(await p.$('#da-ex'));
+  await openDetail(p, 'o2');
+  const onTransit = !!(await p.$('#da-ex'));
   await openDetail(p, 'o1');
   const onDelivered = !!(await p.$('#da-ex'));
-  return { onPending, onDelivered };
+  return { onPending, onTransit, onDelivered };
 }
 {
   const p = await openApp();
   const s = await scenarioExchangeBtn(p);
-  ok(s.onDelivered && !s.onPending, 'B1) «🔁 طلب استبدال» على أوردر اتشحن/اتسلّم بس — مش على pending');
+  ok(s.onDelivered && !s.onPending, 'B1) «🔁 طلب استبدال» على أوردر اتسلّم — ومش على pending');
+  ok(!s.onTransit, 'B1ج) (مراجعة) ومش على أوردر لسه في السكة (Received at warehouse) — بوليصتين شغّالين لنفس العميل');
   ok(await hit(p, '#da-ex'), 'B1ب) الزرار شايفه الماوس');
   await p.click('#da-ex');
   await p.waitForSelector('#of-modal.open');
@@ -287,12 +307,210 @@ async function scenarioAwb(p){
   await p.context().close();
 }
 
+// ════ F) مراجعة 3 أكتوبر ════
+// أوردر أصلي فيه منتجين بأسعار سطور محفوظة — الاستبدال لواحد بس
+async function setOrig(p, patch){
+  await p.evaluate((patch) => { const o = window.__ORDERS.filter(x => x.id === patch.id)[0]; Object.assign(o, patch); }, patch);
+}
+async function openExchange(p, id){
+  await openDetail(p, id); await p.click('#da-ex');
+  await p.waitForSelector('#of-modal.open');
+  await p.waitForFunction(() => document.querySelectorAll('#of-items .of-row').length === 1 && document.querySelectorAll('#of-items .of-prod option').length > 1);
+}
+async function scenarioPartial(p){
+  await setOrig(p, { id:'o1', product_name: KITCHEN + ' (عدد 1)\n+ ' + TURBO + ' (عدد 1)', total_cost: 2900,
+    line_prices: [{ n: KITCHEN, q: 1, p: 1400 }, { n: TURBO, q: 1, p: 1500 }], jt_cod_amount: null });
+  await openExchange(p, 'o1');
+  await pickRow(p, 0, TURBO, 1, null);
+  const all = { cod: await p.$eval('#of-cod', i => i.value), sum: await p.textContent('#of-sum'), n: (await p.$$('#of-ret .of-ret-cb')).length };
+  // الراجع: التيربو بس — المنظم فاضل مع العميل
+  await p.$$eval('#of-ret .of-ret-cb', cbs => { cbs[0].click(); });
+  await p.waitForTimeout(80);
+  return { all, cod: await p.$eval('#of-cod', i => i.value), note: await p.$eval('#of-note', t => t.value) };
+}
+{
+  const p = await openApp();
+  const r = await scenarioPartial(p);
+  ok(r.all.n === 2 && r.all.cod === '0' && r.all.sum.indexOf('1,340') >= 0, 'F1) كل المنتجات راجعة: الفرق = 1560 − المدفوع 2900 → تحصيل 0 والباقي للعميل 1,340 ظاهر — «' + r.all.sum + '»');
+  ok(r.cod === '60', 'F1ب) راجع التيربو بس (1500 من أسعار السطور): التحصيل = 1560 − 1500 = 60 مش 0 — «' + r.cod + '»');
+  ok(r.note.indexOf(TURBO) >= 0 && r.note.indexOf(KITCHEN) < 0, 'F1ج) الملاحظة بتقول المنتج الراجع بس');
+  await p.context().close();
+}
+{
+  // استبدال لأوردر استبدال: إجماليه 50 (فرق) — قيمة الراجع بسعر المخزون مش الـ50
+  const p = await openApp();
+  await setOrig(p, { id:'o4', product_name: KITCHEN + ' (عدد 1)', total_cost: 50, exchange_of: 'o1', status: 'Delivered' });
+  await openExchange(p, 'o4');
+  await pickRow(p, 0, TURBO, 1, null);
+  ok((await p.$eval('#of-cod', i => i.value)) === '110', 'F2) استبدال لاستبدال: 1560 − سعر المنظم في المخزون 1450 = 110 (مش 1560 − 50) · وDelivered بحرف كبير مسموح');
+  // قيمة مش معروفة: منتج مش في المخزون ومعلَّم لوحده
+  await p.evaluate(() => { document.getElementById('of-cancel').click(); });
+  await setOrig(p, { id:'o1', product_name: 'منتج أ (عدد 1)\n+ منتج ب (عدد 1)', total_cost: 1800, line_prices: null });
+  await openExchange(p, 'o1');
+  await pickRow(p, 0, TURBO, 1, null);
+  await p.$$eval('#of-ret .of-ret-cb', cbs => { cbs[1].click(); });
+  await p.waitForTimeout(80);
+  const cod = await p.$eval('#of-cod', i => i.value), sum = await p.textContent('#of-sum');
+  ok(cod === '' && sum.indexOf('اكتب مبلغ التحصيل') >= 0, 'F3) قيمة الراجع مش معروفة = الخانة فاضية والموظف يكتب — صفر تخمين — «' + sum + '»');
+  await fillAddr(p).catch(() => {});
+  await p.click('#of-save');
+  ok((await p.textContent('#of-err')).indexOf('مبلغ التحصيل') >= 0, 'F3ب) ومن غير ما يكتب مفيش إرسال');
+  await p.context().close();
+}
+async function scenarioStale(p, reopen){
+  await p.evaluate(() => { window.__STAFF_SLOW = true; });
+  await p.click('#ord-new-btn');
+  await p.waitForSelector('#of-modal.open');
+  await p.waitForFunction(() => document.querySelectorAll('#of-items .of-prod option').length > 1);
+  await p.fill('#of-name', 'عميل أ'); await p.fill('#of-phone', '01011111111'); await p.fill('#of-addr', 'عنوان طويل كفاية للتجربة');
+  await fillAddr(p); await pickRow(p, 0, KITCHEN, 1, null);
+  await p.click('#of-save'); await p.click('#cmodal-ok');
+  await p.waitForFunction(() => window.__STAFF.length === 1);
+  await p.evaluate(() => document.getElementById('of-cancel').click());
+  const stayed = await p.evaluate(() => !!document.querySelector('#of-modal.open'));
+  let bName = null;
+  if(reopen && !stayed){
+    // ضغطة برمجية: الفحص عن «الرد القديم» مش عن الـhit-test (A1 بيغطيه) — ومن غيرها لو الرد سبق
+    // الضغطة، التفاصيل اللي اتفتحت بتحجب الزرار والفحص بيقع بـtimeout بدل نتيجة
+    await p.evaluate(() => document.getElementById('ord-new-btn').click());
+    await p.waitForSelector('#of-modal.open');
+    await p.fill('#of-name', 'عميل ب');
+  }
+  await p.waitForTimeout(2600);
+  const open = await p.evaluate(() => !!document.querySelector('#of-modal.open'));
+  if(reopen) bName = await p.$eval('#of-name', i => i.value);
+  return { stayed, open, bName, toast: await toastTxt(p) };
+}
+{
+  const p = await openApp();
+  const r = await scenarioStale(p, false);
+  ok(r.stayed, 'F4) الطلب لسه ماردّش = «إلغاء» مابيقفلش الفورم (رد متأخر كان بيقفل فورم تاني)');
+  ok(!r.open && /W-41/.test(r.toast), 'F4ب) لما الرد يوصل الفورم بيتقفل والـtoast برقم الأوردر');
+  await p.context().close();
+}
+{
+  // حزام تاني: حتى لو الفورم اتقفل وهو مستني (من غير حارس الإلغاء) الرد مايقفلش الفورم الجديد
+  const p = await openApp([['order-form.js', '  if(ofState && ofState.busy) return;\n', '']]);
+  const r = await scenarioStale(p, true);
+  ok(!r.stayed && r.open && r.bName === 'عميل ب', 'F4ج) رد الفورم القديم مالمسش الفورم الجديد (مفتوح والاسم زي ما هو)');
+  ok(/W-41/.test(r.toast), 'F4د) والأوردر القديم اتقال إنه اتسجّل (toast) — مش ضاع في صمت');
+  await p.context().close();
+}
+async function scenarioReopen(p){
+  return p.evaluate(async () => {
+    const m = await import('./js/orders/order-form.js');
+    m.openOrderForm({ mode: 'new' });
+    document.getElementById('of-cancel').click();
+    m.openOrderForm({ mode: 'new' });
+    await new Promise(r => setTimeout(r, 250));
+    return { rows: document.querySelectorAll('#of-items .of-row').length, opts: document.querySelector('#of-items .of-prod').options.length };
+  });
+}
+{
+  const p = await openApp();
+  const r = await scenarioReopen(p);
+  ok(r.rows === 1 && r.opts > 1, 'F5) فتح/قفل/فتح بسرعة = صف واحد بمنتجات (كان بيبقى صفين والفاضي يمنع الحفظ) — ' + JSON.stringify(r));
+  await p.context().close();
+}
+async function scenarioClearedNote(p){
+  await openDetail(p, 'o3');
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  await p.fill('#jt-note-in', '');
+  await p.selectOption('#jt-city', 'مدينة نصر');
+  await p.fill('#jt-area', 'الحي الثامن');
+  await p.evaluate(() => { window.__JT_REPLY = { status: 422, body: { error: 'address_not_in_pca', message: 'العنوان مش في نطاق J&T' } }; });
+  await p.click('#jt-go');
+  await p.waitForFunction(() => (document.getElementById('jt-err').textContent || '').length > 0);
+  await p.evaluate(() => document.getElementById('jt-cancel').click());
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  return { sent: await p.evaluate(() => window.__FETCH_BODIES[0].note), val: await p.$eval('#jt-note-in', t => t.value) };
+}
+{
+  const p = await openApp();
+  const r = await scenarioClearedNote(p);
+  ok(r.sent === '' && r.val === '', 'F6) الموظف مسح الملاحظة والشحنة فشلت → فتح النافذة تاني مايرجّعش ملاحظة العميل — «' + r.val + '»');
+  await p.context().close();
+}
+{
+  // شحنة مسترجعة من محاولة سابقة بمبلغ قديم
+  const p = await openApp();
+  await openDetail(p, 'o3');
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  await p.selectOption('#jt-city', 'مدينة نصر'); await p.fill('#jt-area', 'الحي الثامن');
+  await p.evaluate(() => { window.__JT_REPLY = { status: 200, body: { ok: true, recovered: true, tracking_no: 'JEG000000000009', sorting_code: '20,Y', record: { status: 'BOSTA AUTO' }, mismatch: { cod_jt: 1759, cod_sahl: 1450, remark_differs: true } } }; });
+  await p.click('#jt-go');
+  await p.waitForFunction(() => document.getElementById('jt-done').style.display !== 'none');
+  const t = await toastTxt(p), n = await p.textContent('#jt-note');
+  ok(t.indexOf('1,759') >= 0 && t.indexOf('1,450') >= 0 && t.indexOf('صلّحها') >= 0, 'F7) شحنة مسترجعة بمبلغ مختلف = toast تحذير بالرقمين مش «اتعملت ✓» — «' + t + '»');
+  ok(n.indexOf('1,759') >= 0, 'F7ب) والتحذير فاضل في النافذة');
+  await p.context().close();
+}
+async function scenarioJtMobile(p){
+  await openDetail(p, 'o3');
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  const geo = await p.evaluate(() => { const b = document.querySelector('#jt-modal .jt-box').getBoundingClientRect(), t = document.querySelector('#jt-modal .jt-ttl').getBoundingClientRect(); return { top: Math.round(b.top), h: Math.round(b.height), ttlTop: Math.round(t.top), vh: innerHeight }; });
+  return { geo, go: await hit(p, '#jt-go') };
+}
+{
+  const p = await openApp(null, { width: 375, height: 667 });
+  const r = await scenarioJtMobile(p);
+  ok(r.go && r.geo.ttlTop >= 0 && r.geo.h <= r.geo.vh, 'F8) نافذة J&T على 375×667: العنوان جوّه الشاشة وزرار «إنشاء البوليصة» شايفه الماوس بعد السكرول — ' + JSON.stringify(r.geo));
+  await p.context().close();
+}
+async function scenarioAwb2(p){
+  return p.evaluate(async () => {
+    const m = await import('./js/orders/jt-awb.js');
+    const r = await import('./js/orders/jt-remark.js');
+    const L = 'استاند امريكانا 5 دور - جزامة و شماعة للشنط و الملابس (عدد 2)';
+    // 4 منتجات = فوق الـ200 بأكيد (3 كانوا 193 حرف ومااتقصّوش — الفحص كان بيعدّي على حالة مش هي)
+    const pn = L + '\n+ ' + L + '\n+ ' + L + '\n+ ' + L.replace('(عدد 2)', '(عدد 1)');
+    const snap = r.composeRemark(pn, 'أبيض', 'ملاحظة');
+    return { lines: m.jtRemarkLines({ product_name: pn, manufacturer_note: 'أبيض', jt_remark: snap }), snapCut: /…$/.test(snap),
+      cod1: m.jtAwbCod({ total_cost: 1450, jt_cod_amount: 1759 }), cod2: m.jtAwbCod({ total_cost: 1450, jt_cod_amount: null }) };
+  });
+}
+{
+  const p = await openApp();
+  const r = await scenarioAwb2(p);
+  ok(r.snapCut && r.lines.length === 5 && r.lines[3].indexOf('(عدد 1)') >= 0 && !/…$/.test(r.lines[r.lines.length - 1]), 'F9) منتجات فوق الـ200: J&T خدت نص مقصوص بس البوليصة بتطبع الأربع منتجات كاملة + الخصائص');
+  ok(r.cod1 === 1759 && r.cod2 === 1450, 'F9ب) مبلغ التحصيل على البوليصة = مبلغ J&T لو متسجّل (المندوب بيحصّله) وإلا الإجمالي');
+  await p.context().close();
+}
+async function scenarioExLock(p, err){
+  await setOrig(p, { id:'o4', exchange_of: 'o1' });
+  await openDetail(p, 'o4');
+  const lock = await p.evaluate(() => (document.getElementById('prod-lock') || {}).textContent || '');
+  await p.evaluate((e) => { window.__SAVE_ERR = e; }, err);
+  await p.evaluate(() => { const i = document.querySelector('#prod-list .prod-price'); i.value = '999'; });
+  await p.click('#save-prod');
+  await p.waitForFunction(() => (document.getElementById('prod-status').textContent || '').length > 0);
+  return { lock, status: await p.textContent('#prod-status') };
+}
+{
+  const p = await openApp();
+  const r = await scenarioExLock(p, 'exchange_locked');
+  ok(r.lock.indexOf('أوردر استبدال') >= 0, 'F10) أوردر الاستبدال: ملحوظة القفل ظاهرة فوق المنتجات قبل ما يعدّل');
+  ok(r.status.indexOf('أوردر استبدال') >= 0 && r.status.indexOf('exchange_locked') < 0, 'F10ب) رفض السيرفر بيتقال بالعربي — «' + r.status.trim() + '»');
+  await p.evaluate(() => { window.__SAVE_ERR = 'jt_ship_in_flight'; document.querySelector('#prod-list .prod-price').value = '998'; });
+  await p.click('#save-prod');
+  await p.waitForFunction(() => (document.getElementById('prod-status').textContent || '').indexOf('بتتعمل') >= 0, null, { timeout: 3000 }).catch(() => {});
+  ok((await p.textContent('#prod-status')).indexOf('بتتعمل عند J&T') >= 0, 'F10ج) الشحنة في السكة لـJ&T (jt_ship_in_flight) = «استنى» بالعربي');
+  await p.context().close();
+}
+
 // ════ E) المعايرات ════
 console.log('\n  المعايرات:');
 {
-  const p = await openApp([['order-form.js', "return !!o && st !== 'pending' && st !== 'confirmed' && st !== 'cancelled';", 'return !!o;']]);
+  const p = await openApp([['order-form.js', "return !!o && String(o.status || '').toLowerCase() === 'delivered';", 'return !!o;']]);
   const s = await scenarioExchangeBtn(p);
-  ok(s.onPending, 'معايرة أ) زرار الاستبدال على أي أوردر → فحص B1 بيقع');
+  ok(s.onPending && s.onTransit, 'معايرة أ) زرار الاستبدال على أي أوردر → فحصين B1 وB1ج بيقعوا');
   await p.context().close();
 }
 {
@@ -307,13 +525,13 @@ console.log('\n  المعايرات:');
   await p.context().close();
 }
 {
-  const p = await openApp([['ship.js', "noteIn.value = ord.ship_note != null && String(ord.ship_note).trim() ? ord.ship_note : (ord.customer_notes || '');", "noteIn.value = ord.internal_notes || '';"]]);
+  const p = await openApp([['ship.js', "noteIn.value = ord.ship_note != null ? String(ord.ship_note) : (ord.customer_notes || '');", "noteIn.value = ord.internal_notes || '';"]]);
   const s = await scenarioShipNote(p);
   ok(s.val.indexOf(SECRET) >= 0, 'معايرة ج) الملاحظة من الداخلية → فحص C1ج بيقع');
   await p.context().close();
 }
 {
-  const p = await openApp([['jt-awb.js', "if(snap.trim()) return snap.split('\\n')", "if(false) return snap.split('\\n')"]]);
+  const p = await openApp([['jt-awb.js', "if(!snap.trim()) return base;", "return base;"]]);
   const r = await scenarioAwb(p);
   ok(r.snap.join('|') !== 'منتج أ (عدد 1)|ملاحظة: الاتصال قبل الوصول', 'معايرة د) الطباعة بتتجاهل jt_remark → فحص D1 بيقع');
   await p.context().close();
@@ -327,6 +545,61 @@ console.log('\n  المعايرات:');
   await (await p.$('#of-items .of-row .of-qty')).fill('2');
   await p.waitForTimeout(100);
   ok((await p.$eval('#of-cod', i => i.value)) !== '300', 'معايرة هـ) المبلغ المكتوب بيتمسح → فحص B3ب بيقع');
+  await p.context().close();
+}
+
+{
+  const p = await openApp([['order-form.js', '  if(all && !o.exchange_of) return ofPaid(o);\n', '  return ofPaid(o);\n']]);
+  const r = await scenarioPartial(p);
+  ok(r.cod !== '60', 'معايرة و) الفرق على إجمالي الأوردر كله (الشكل القديم) → فحص F1ب بيقع');
+  await p.context().close();
+}
+{
+  const p = await openApp([['order-form.js', '  if(ofState && ofState.busy) return;\n', '']]);
+  const r = await scenarioStale(p, false);
+  ok(!r.stayed, 'معايرة ز) شيل حارس الإلغاء وهو مستني → فحص F4 بيقع');
+  await p.context().close();
+}
+{
+  const p = await openApp([['order-form.js', '  if(ofState && ofState.busy) return;\n', ''], ['order-form.js', 'if(ofState === st){ ofClose(); openDetail(d.order_id); }', 'ofClose(); openDetail(d.order_id);']]);
+  const r = await scenarioStale(p, true);
+  ok(!r.open || r.bName !== 'عميل ب', 'معايرة ح) الرد القديم بيقفل أي فورم مفتوح (الشكل القديم) → فحص F4ج بيقع');
+  await p.context().close();
+}
+{
+  const p = await openApp([['order-form.js', "  ofAddRow('', 1, null);\n  ofEnsureStock().then(function(){\n    if(ofState !== st) return;", "  ofEnsureStock().then(function(){\n    if(ofState) ofAddRow('', 1, null);\n    if(!ofState) return;"]]);
+  const r = await scenarioReopen(p);
+  ok(r.rows !== 1, 'معايرة ط) الصف بيتضاف من رد المخزون من غير حارس الفورم (الشكل القديم) → فحص F5 بيقع — ' + JSON.stringify(r));
+  await p.context().close();
+}
+{
+  const p = await openApp([['ship.js', "noteIn.value = ord.ship_note != null ? String(ord.ship_note) : (ord.customer_notes || '');", "noteIn.value = ord.ship_note != null && String(ord.ship_note).trim() ? ord.ship_note : (ord.customer_notes || '');"]]);
+  const r = await scenarioClearedNote(p);
+  ok(r.val !== '', 'معايرة ي) الملاحظة الفاضية بتتقري «مااختارش» (الشكل القديم) → فحص F6 بيقع');
+  await p.context().close();
+}
+{
+  const p = await openApp([['ship.js', "  }catch(e){\n    keepNote();\n", "  }catch(e){\n"]]);
+  const r = await scenarioClearedNote(p);
+  ok(r.val !== '', 'معايرة ك) من غير حفظ الاختيار بعد الفشل → فحص F6 بيقع');
+  await p.context().close();
+}
+{
+  const p = await openApp([['css/20-orders-extras.css', 'max-height:92vh;max-height:92dvh;overflow-y:auto;}', '}']], { width: 375, height: 667 });
+  const r = await scenarioJtMobile(p);
+  ok(!(r.go && r.geo.ttlTop >= 0 && r.geo.h <= r.geo.vh), 'معايرة ل) نافذة J&T من غير سقف ارتفاع → فحص F8 بيقع — ' + JSON.stringify(r.geo));
+  await p.context().close();
+}
+{
+  const p = await openApp([['jt-awb.js', "  if(/…$/.test(last) && last.indexOf(NOTE_PREFIX) !== 0) return base;\n", '']]);
+  const r = await scenarioAwb2(p);
+  ok(r.lines.length !== 5 || /…$/.test(r.lines[r.lines.length - 1]), 'معايرة م) طباعة اللقطة المقصوصة بالحرف → فحص F9 بيقع');
+  await p.context().close();
+}
+{
+  const p = await openApp([['products-editor.js', ": em.indexOf('exchange_locked') >= 0 ? EX_LOCK_MSG\n", '\n']]);
+  const r = await scenarioExLock(p, 'exchange_locked');
+  ok(r.status.indexOf('أوردر استبدال') < 0, 'معايرة ن) من غير ترجمة exchange_locked → فحص F10ب بيقع');
   await p.context().close();
 }
 

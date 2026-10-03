@@ -7,8 +7,12 @@
 //
 // 🔴 اللي السيرفر بيقرره (مش المتصفح): الحالة (مؤكد بسطر سجل حالة) · رقم W-n · الإجمالي = مجموع
 // السطور · المنتج لازم يكون في المخزون (اسم حر = تكلفة صفر في الأرباح — W-24) · رقم الموبايل بنفس
-// egMobile بتاع jt-ship · عنوان J&T في نطاق jt_pca. والاستبدال: الأصلي لازم يكون اتشحن، والمنصة
-// بتتورث منه، ومبلغ التحصيل الموظف بيكتبه (الافتراضي فرق السعر — قرار المالك) وبيتحسب أوردر جديد كامل.
+// egMobile بتاع jt-ship · عنوان J&T في نطاق jt_pca. والاستبدال: الأصلي لازم يكون **اتسلّم** (مراجعة
+// 3 أكتوبر — قبل التسليم = بوليصتين شغّالين، والمرتجع ماتحصّلش أصلاً)، والمنصة بتتورث منه، ومبلغ التحصيل
+// الموظف بيكتبه (الافتراضي فرق السعر — قرار المالك) وبيتحسب أوردر جديد كامل.
+// الفرق = سعر الجديد − قيمة **المنتجات اللي راجعة** (الموظف بيعلّم عليها) — مش إجمالي الأوردر الأصلي كله:
+// استبدال منتج واحد من أوردر فيه اتنين كان بيطلع فرقه صفر. واستبدال لأوردر استبدال: قيمة الراجع بسعر
+// المخزون (إجمالي أوردر الاستبدال = فرق مش سعر بضاعة).
 // ⚠️ الفورم ده **مش** #prod-list: نافذة التفاصيل ممكن تكون مفتوحة تحته، ومحرر منتجاتها بيقرا #prod-list
 // (وحارس «تعديل مش محفوظ» قبل الشحن كمان) — فالصفوف هنا بكلاسات وid مختلفين عمداً.
 import { walletStateCache } from '../billing/billing.js';
@@ -48,14 +52,12 @@ export var OF_ERR = {
   bad_weight: 'الوزن مش صحيح',
   duplicate: 'فيه أوردر لنفس الرقم اتسجّل من أقل من دقيقة ونص — راجع القايمة الأول',
   exchange_not_found: 'الأوردر الأصلي مش موجود',
-  exchange_not_shipped: 'الأوردر الأصلي لسه ماتشحنش — عدّل منتجاته بدل الاستبدال',
-  exchange_cancelled: 'الأوردر الأصلي ملغي — اعمل أوردر جديد بدل الاستبدال'
+  exchange_not_delivered: 'الاستبدال من أوردر اتسلّم بس — الأوردر ده لسه ماتسلّمش أو رجع. اعمل «➕ أوردر جديد» بالسعر الكامل (ولو لسه في السكة: الغي بوليصته عند J&T الأول)'
 };
 
-// الاستبدال مسموح بعد ما الأصلي يتشحن بس (نفس شرط السيرفر بالحرف)
+// الاستبدال مسموح بعد التسليم بس (نفس شرط السيرفر بالحرف — الحالة جاية Delivered وdelivered)
 export function ofExchangeAllowed(o){
-  var st = String((o && o.status) || '').toLowerCase();
-  return !!o && st !== 'pending' && st !== 'confirmed' && st !== 'cancelled';
+  return !!o && String(o.status || '').toLowerCase() === 'delivered';
 }
 
 // نفس egMobile في _shared/jt-runtime.ts وapp.eg_mobile على السيرفر — الرفض هنا بس أسرع
@@ -73,7 +75,7 @@ export function ofMobile(raw){
   return /^01[0-9]{9}$/.test(d) ? d : null;
 }
 
-var ofState = null;   // { mode:'new'|'exchange', orig, busy, codTouched }
+var ofState = null;   // { mode:'new'|'exchange', orig, busy, codTouched, noteTouched, ret:[{label,value}] }
 
 function ofStockPrice(name){
   for(var i = 0; i < (stockProducts || []).length; i++){
@@ -90,6 +92,78 @@ function ofEnsureStock(){
     .then(function(r){ if(!r.error && r.data) stockSetProducts(r.data); });
 }
 
+// المبلغ اللي العميل دفعه فعلاً في الأصلي: مبلغ J&T لو متسجّل (ممكن يختلف عن total_cost — 17260)، وإلا الإجمالي
+function ofPaid(o){
+  var j = o && o.jt_cod_amount;
+  if(j !== null && j !== undefined && j !== '' && isFinite(Number(j))) return Number(j);
+  return Number(o && o.total_cost) || 0;
+}
+
+// سطور الأوردر الأصلي بقيمة كل سطر (null = مش معروفة). أوردر استبدال: بسعر المخزون — إجماليه وأسعار سطوره
+// فرق سعر مش قيمة بضاعة. عادي: سعر السطر المحفوظ (line_prices) ← سطر واحد = المدفوع كله ← سعر المخزون.
+export function ofOrigLines(o){
+  var segs = parseProducts((o && o.product_name) || '').filter(function(x){ return String(x).trim(); });
+  var lp = (!o.exchange_of && Array.isArray(o.line_prices)) ? o.line_prices : [];
+  var used = {};
+  return segs.map(function(seg){
+    var name = String(seg).replace(/\s*\(عدد\s*\d+\)\s*$/, '').trim();
+    var m = String(seg).match(/\(عدد\s*(\d+)\)/);
+    var qty = m ? parseInt(m[1], 10) : 1;
+    var value = null;
+    if(!o.exchange_of){
+      for(var i = 0; i < lp.length; i++){
+        var e = lp[i];
+        if(!used[i] && e && e.n === name && Number(e.q) === qty && e.p != null && isFinite(Number(e.p))){ used[i] = true; value = Number(e.p) * qty; break; }
+      }
+      if(value == null && segs.length === 1) value = ofPaid(o);
+    }
+    if(value == null){ var sp = ofStockPrice(name); if(sp != null) value = sp * qty; }
+    return { label: String(seg).trim(), value: value == null ? null : Math.round(value * 100) / 100 };
+  });
+}
+
+// قيمة الراجع: كل السطور في أوردر عادي = المدفوع بالظبط (مش مجموع تقديرات) · غير كده مجموع المعلَّم ·
+// سطر معلَّم قيمته مش معروفة = null (الموظف يكتب المبلغ بإيده — صفر تخمين صامت)
+export function ofReturnedCredit(o, lines, checked){
+  var all = lines.length > 0 && checked.every(Boolean);
+  if(all && !o.exchange_of) return ofPaid(o);
+  var sum = 0;
+  for(var i = 0; i < lines.length; i++){
+    if(!checked[i]) continue;
+    if(lines[i].value == null) return null;
+    sum += lines[i].value;
+  }
+  return Math.round(sum * 100) / 100;
+}
+
+function ofRetChecked(){
+  var out = [];
+  ($id('of-ret') ? $id('of-ret').querySelectorAll('.of-ret-cb') : []).forEach(function(cb){ out.push(!!cb.checked); });
+  return out;
+}
+
+function ofRenderReturned(){
+  if(!ofState || ofState.mode !== 'exchange') return;
+  var prev = ofRetChecked();
+  var lines = ofOrigLines(ofState.orig);
+  ofState.ret = lines;
+  $id('of-ret').innerHTML = lines.map(function(l, i){
+    var on = prev.length === lines.length ? prev[i] : true;
+    return '<label class="of-ret-row"><input type="checkbox" class="of-ret-cb" data-i="' + i + '"' + (on ? ' checked' : '') + '>'
+      + '<span class="of-ret-name">' + esc(l.label) + '</span>'
+      + '<span class="of-ret-val">' + (l.value == null ? '؟' : num(l.value) + ' ج') + '</span></label>';
+  }).join('');
+  $id('of-ret').querySelectorAll('.of-ret-cb').forEach(function(cb){ cb.addEventListener('change', function(){ ofSyncNote(); ofRefreshTotals(); }); });
+}
+
+// الملاحظة الافتراضية بتمشي مع المعلَّم لحد ما الموظف يكتب فيها بنفسه
+function ofSyncNote(){
+  if(!ofState || ofState.mode !== 'exchange' || ofState.noteTouched) return;
+  var ck = ofRetChecked();
+  var olds = (ofState.ret || []).filter(function(l, i){ return ck[i]; }).map(function(l){ return l.label; });
+  $id('of-note').value = 'استبدال لأوردر #' + (ofState.orig.order_uid || '') + (olds.length ? ' — المنتج القديم: ' + olds.join(' + ') : '');
+}
+
 function ofModalEl(){
   var bd = $id('of-modal');
   if(bd) return bd;
@@ -98,6 +172,7 @@ function ofModalEl(){
   bd.innerHTML = '<div class="jt-box of-box" role="dialog" aria-modal="true">'
     + '<div class="jt-ttl" id="of-ttl"></div>'
     + '<div class="jt-sub" id="of-sub"></div>'
+    + '<div class="of-ret-wrap" id="of-ret-wrap"><div class="of-items-head">المنتجات اللي راجعة من العميل <span class="of-hint">(شيل العلامة عن اللي هيفضل معاه)</span></div><div id="of-ret"></div></div>'
     + '<div class="jt-grid">'
     + '<label>اسم العميل<input class="fsel" id="of-name" type="text" autocomplete="off"></label>'
     + '<label>التليفون<input class="fsel" id="of-phone" type="tel" inputmode="tel" placeholder="01xxxxxxxxx" autocomplete="off"></label>'
@@ -124,6 +199,7 @@ function ofModalEl(){
   $id('of-add').addEventListener('click', function(){ ofAddRow('', 1, null); });
   $id('of-save').addEventListener('click', ofSubmit);
   $id('of-cod').addEventListener('input', function(){ if(ofState) ofState.codTouched = true; });
+  $id('of-note').addEventListener('input', function(){ if(ofState) ofState.noteTouched = true; });
   return bd;
 }
 
@@ -173,9 +249,16 @@ function ofRefreshTotals(){
   var c = ofCollect();
   var el = $id('of-sum');
   if(ofState.mode === 'exchange'){
-    var origTotal = Number(ofState.orig.total_cost) || 0;
-    var diff = Math.max(0, Math.round((c.sum - origTotal) * 100) / 100);
-    el.textContent = 'سعر المنتجات الجديدة ' + num(c.sum) + ' ج − الأوردر الأصلي ' + num(origTotal) + ' ج = فرق ' + num(diff) + ' ج';
+    var credit = ofReturnedCredit(ofState.orig, ofState.ret || [], ofRetChecked());
+    if(credit == null){
+      el.textContent = '⚠️ مقدرناش نحسب قيمة المنتج الراجع (مش في المخزون بسعر) — اكتب مبلغ التحصيل بإيدك';
+      if(!ofState.codTouched) $id('of-cod').value = '';
+      return;
+    }
+    var raw = Math.round((c.sum - credit) * 100) / 100;
+    var diff = Math.max(0, raw);
+    el.textContent = 'سعر المنتجات الجديدة ' + num(c.sum) + ' ج − قيمة الراجع ' + num(credit) + ' ج = فرق ' + num(diff) + ' ج'
+      + (raw < 0 ? '\n↩️ العميل ليه ' + num(-raw) + ' ج — بيترجعوله بره السيستم (التحصيل صفر)' : '');
     if(!ofState.codTouched) $id('of-cod').value = String(diff);
   }else{
     el.textContent = 'الإجمالي (مبلغ التحصيل): ' + num(c.sum) + ' ج';
@@ -221,12 +304,12 @@ export function openOrderForm(opts){
   if(!ensureTenant()) return;
   var ex = opts.mode === 'exchange';
   var o = ex ? opts.order : null;
-  if(ex && !ofExchangeAllowed(o)){ toast(OF_ERR.exchange_not_shipped, 'er'); return; }
-  ofState = { mode: ex ? 'exchange' : 'new', orig: o, busy: false, codTouched: false };
+  if(ex && !ofExchangeAllowed(o)){ toast(OF_ERR.exchange_not_delivered, 'er'); return; }
+  ofState = { mode: ex ? 'exchange' : 'new', orig: o, busy: false, codTouched: false, noteTouched: false, ret: [] };
   var bd = ofModalEl();
   $id('of-ttl').textContent = ex ? ('🔁 طلب استبدال لأوردر #' + (o.order_uid || '')) : '➕ أوردر جديد';
   $id('of-sub').textContent = ex
-    ? ('المنتجات القديمة: ' + parseProducts(o.product_name || '').filter(Boolean).join(' + ') + ' · الإجمالي ' + num(Number(o.total_cost) || 0) + ' ج\n'
+    ? ('الأوردر الأصلي: ' + parseProducts(o.product_name || '').filter(Boolean).join(' + ') + ' · اتدفع ' + num(ofPaid(o)) + ' ج\n'
       + 'الاستبدال بيتسجّل أوردر جديد مؤكد (W-…) بشحنة J&T جديدة — والأوردر الأصلي مابيتغيّرش.')
     : 'للطلبات اللي جاية من فيسبوك/إنستجرام/التليفون — بيتسجّل مؤكد وتشحنه J&T من نافذة الأوردر زي أي أوردر.';
   $id('of-name').value = ex ? (o.customer_name || '') : '';
@@ -239,20 +322,33 @@ export function openOrderForm(opts){
   $id('of-plat-wrap').style.display = ex ? 'none' : '';
   $id('of-cod-wrap').style.display = ex ? '' : 'none';
   $id('of-cod').value = '';
-  $id('of-note').value = ex
-    ? ('استبدال لأوردر #' + (o.order_uid || '') + ' — المنتج القديم: ' + parseProducts(o.product_name || '').filter(Boolean).join(' + '))
-    : '';
+  $id('of-note').value = '';
+  $id('of-ret-wrap').style.display = ex ? '' : 'none';
+  $id('of-ret').innerHTML = '';
   $id('of-err').textContent = '';
   $id('of-save').textContent = ex ? 'تسجيل الاستبدال' : 'تسجيل الأوردر';
   $id('of-save').disabled = false;
   bd.querySelectorAll('.of-jt').forEach(function(l){ l.style.display = isJt() ? '' : 'none'; });
   $id('of-items').innerHTML = '';
   bd.classList.add('open');
-  ofEnsureStock().then(function(){ if(ofState) ofAddRow('', 1, null); });
+  var st = ofState;
+  if(ex){ ofRenderReturned(); ofSyncNote(); }
+  // الصف بيظهر فوراً (من غير منتجات لحد ما المخزون يوصل) — وأي رد متأخر من فورم اتقفل مايلمسش الجديد:
+  // قبل كده فتح/قفل سريع كان بيضيف صفين، والصف الفاضي بيمنع الحفظ برسالة غلط (مراجعة 3 أكتوبر)
+  ofAddRow('', 1, null);
+  ofEnsureStock().then(function(){
+    if(ofState !== st) return;
+    if(!stockProducts || !stockProducts.length){ $id('of-err').textContent = 'مقدرناش نحمّل المخزون — اقفل الفورم وافتحه تاني'; return; }
+    $id('of-items').querySelectorAll('.of-prod').forEach(function(sl){ if(sl.options.length <= 1) sl.innerHTML = buildProductOptions(sl.value || ''); });
+    if(ex) ofRenderReturned();
+    ofRefreshTotals();
+  }, function(){ if(ofState === st) $id('of-err').textContent = 'مقدرناش نحمّل المخزون — اقفل الفورم وافتحه تاني'; });
   if(isJt()) ofFillAddress(o);
 }
 
 function ofClose(){
+  // طلب التسجيل لسه ماردّش = الفورم مايتقفلش (رد متأخر كان بيقفل فورم تاني اتفتح بعده ويضيّع اللي فيه)
+  if(ofState && ofState.busy) return;
   var bd = $id('of-modal'); if(bd) bd.classList.remove('open');
   ofState = null;
 }
@@ -318,18 +414,22 @@ function ofCreate(f){
     var d = r && r.data;
     if(r.error || !d || !d.ok){
       st.busy = false;
+      var code0 = d && d.error;
+      // الرد ده بتاع فورم اتقفل؟ (مايحصلش والفورم مقفول وهو busy — حزام تاني) — مانكتبش على فورم تاني
+      if(ofState !== st){ toast('الأوردر مااتسجّلش — ' + ((code0 && OF_ERR[code0]) || 'حاول تاني'), 'er'); return; }
       btn.disabled = false; btn.textContent = f.ex ? 'تسجيل الاستبدال' : 'تسجيل الأوردر';
       var code = d && d.error;
       $id('of-err').textContent = (code && OF_ERR[code]) ? OF_ERR[code] + (code === 'unknown_product' && d.name ? ' («' + d.name + '»)' : '')
         : 'الأوردر مااتسجّلش — حاول تاني' + (r.error ? ' (' + (r.error.message || '') + ')' : '');
       return;
     }
-    ofClose();
+    st.busy = false;
     toast((f.ex ? 'الاستبدال اتسجّل ✅ ' : 'الأوردر اتسجّل ✅ ') + d.order_uid + ' — مؤكد. اشحنه من «🚚 شحن J&T»', 'ok');
     try{ fetchOrdersPage(); loadOrdersCards(); }catch(e){}
-    openDetail(d.order_id);
+    if(ofState === st){ ofClose(); openDetail(d.order_id); }
   }, function(){
     st.busy = false;
+    if(ofState !== st){ toast('الأوردر مااتسجّلش — حاول تاني', 'er'); return; }
     btn.disabled = false; btn.textContent = f.ex ? 'تسجيل الاستبدال' : 'تسجيل الأوردر';
     $id('of-err').textContent = 'الأوردر مااتسجّلش — حاول تاني';
   });
