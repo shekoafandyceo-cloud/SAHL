@@ -27,7 +27,8 @@ import { all, fil, ordersSetSelected, sel } from './state.js';
 import { renderTable } from './table.js';
 import { doFilter } from './orders.js';
 import { printJtAwb } from './jt-awb.js';
-import { parseProducts, productsEditorDirty } from './products-editor.js';
+import { productsEditorDirty } from './products-editor.js';
+import { cleanShipNote, composeRemark, NOTE_PREFIX, REMARK_MAX } from './jt-remark.js';
 import { num } from '../core/format.js';
 
 // المدة اللي بعدها المحاولة المعلّقة بتتحسب «ماكملتش». النجاح المقاس حي
@@ -323,10 +324,10 @@ function applyShipped(orderId, status, tracking, requestedAt){
 // prov+city بس)، و6.4k صف في الجدول كانوا هيبقوا 7 نداءات PostgREST كل جلسة بلا فايدة.
 // الإنشاء نفسه في Edge Function jt-ship (تسجيل البوليصة وكود الفرز بعد رد J&T).
 var jtPca = null, jtPcaLoading = null, jtAreas = null, jtAreasLoading = null;
-function jtNorm(s){
+export function jtNorm(s){
   return String(s || '').replace(/[ً-ْـ‎‏؜]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/^ال/, '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
-async function jtLoadPca(){
+export async function jtLoadPca(){
   if(jtPca) return jtPca;
   if(jtPcaLoading) return jtPcaLoading;
   jtPcaLoading = (async function(){
@@ -348,7 +349,7 @@ async function jtLoadPca(){
 // اقتراحات المناطق: { محافظة: { مدينة: [مناطق] } } — ملف ساكن جنب اللوحة.
 // المسار من import.meta.url عشان يشتغل على الجذر وعلى أي مجلد فرعي (المعاينة) زي router.js.
 // 🔴 الفشل **مايوقفش الشحن**: مفيش اقتراحات والكتابة الحرة زي ما هي.
-async function jtLoadAreas(){
+export async function jtLoadAreas(){
   if(jtAreas) return jtAreas;
   if(jtAreasLoading) return jtAreasLoading;
   jtAreasLoading = (async function(){
@@ -360,8 +361,8 @@ async function jtLoadAreas(){
   })();
   try{ return await jtAreasLoading; } finally { jtAreasLoading = null; }
 }
-function jtUniq(list){ var seen = {}, out = []; list.forEach(function(x){ if(x && !seen[x]){ seen[x] = 1; out.push(x); } }); return out; }
-function jtOpts(sel, values, chosen, placeholder){
+export function jtUniq(list){ var seen = {}, out = []; list.forEach(function(x){ if(x && !seen[x]){ seen[x] = 1; out.push(x); } }); return out; }
+export function jtOpts(sel, values, chosen, placeholder){
   sel.innerHTML = '<option value="">' + esc(placeholder) + '</option>' + values.map(function(v){ return '<option value="' + esc(v) + '"' + (v === chosen ? ' selected' : '') + '>' + esc(v) + '</option>'; }).join('');
 }
 function jtModalEl(){
@@ -379,6 +380,9 @@ function jtModalEl(){
     + '<label>المنطقة (اكتبها)<input class="fsel" id="jt-area" type="text" maxlength="60" list="jt-area-list" placeholder="مثال: الحي السابع" autocomplete="off"><datalist id="jt-area-list"></datalist></label>'
     + '<label>الوزن (كجم)<input class="fsel" id="jt-weight" type="number" min="0.1" step="0.1" inputmode="decimal"></label>'
     + '</div>'
+    // ملاحظة البوليصة (3 أكتوبر — قرار المالك): متعبّية من ملاحظة العميل والموظف يعدّلها أو يمسحها.
+    // 🔴 الملاحظات الداخلية بين الموظفين عمرها ما بتيجي هنا (فيها تفاصيل دفع وكلام مش للعميل).
+    + '<label class="jt-note-lbl">ملاحظة على البوليصة (اختياري — بتتطبع وبتتبعت لـJ&T)<textarea class="fsel" id="jt-note-in" rows="2" maxlength="300" placeholder="مثال: الاتصال قبل الوصول"></textarea></label>'
     + '<div class="jt-note" id="jt-note"></div>'
     + '<div class="jt-err" id="jt-err"></div>'
     + '<div class="dacts"><button class="abtn ok" id="jt-go">إنشاء البوليصة عند J&T</button><button class="abtn" id="jt-cancel">إلغاء</button></div>'
@@ -398,9 +402,11 @@ async function jtShipFlow(ord){
   $id('jt-uid').textContent = '#' + (ord.order_uid || '');
   $id('jt-sub').textContent = (ord.customer_name || '') + ' · ' + (ord.phone || '') + ' · ' + (ord.city || '') + '\n' + (ord.address || '');
   // اللي هيتبعت لـJ&T بالحرف (itemsValue + remark من نفس الصف) — الموظف بيأكد على المبلغ
-  // اللي المندوب هيحصّله مش على «شحنة» وخلاص (17532)
-  $id('jt-cod').textContent = 'مبلغ التحصيل اللي هيتبعت لـJ&T: ' + num(Number(ord.total_cost) || 0) + ' ج'
-    + '\nالمنتجات: ' + parseProducts(ord.product_name || '').filter(Boolean).join(' + ');
+  // اللي المندوب هيحصّله مش على «شحنة» وخلاص (17532)، وعلى نص الملاحظات اللي هيتطبع.
+  var noteIn = $id('jt-note-in');
+  noteIn.value = ord.ship_note != null && String(ord.ship_note).trim() ? ord.ship_note : (ord.customer_notes || '');
+  noteIn.oninput = function(){ jtPaintPreview(ord); };
+  jtPaintPreview(ord);
   $id('jt-err').textContent = '';
   $id('jt-note').textContent = 'اختار المحافظة والمدينة بأسماء J&T (اسم غلط = J&T ترفض الشحنة) — الاقتراح جاي من مدينة اللاندنج. المنطقة اكتبها زي ما هي في العنوان (نص حر، مطلوبة).';
   $id('jt-done').style.display = 'none';
@@ -444,6 +450,17 @@ async function jtShipFlow(ord){
   $id('jt-go').onclick = function(){ jtSubmit(ord); };
 }
 
+// المعاينة = composeRemark نفسها اللي jt-ship بتستخدمها (jt-remark.js متولّدة من _shared/jt-remark.ts)
+function jtPaintPreview(ord){
+  var note = $id('jt-note-in') ? $id('jt-note-in').value : '';
+  var remark = composeRemark(ord.product_name, ord.manufacturer_note || ord['var'], note);
+  var clean = cleanShipNote(note);
+  var cut = !!clean && remark.indexOf(NOTE_PREFIX + clean) < 0;
+  $id('jt-cod').textContent = 'مبلغ التحصيل اللي هيتبعت لـJ&T: ' + num(Number(ord.total_cost) || 0) + ' ج'
+    + '\nملاحظات البوليصة (' + Array.from(remark).length + '/' + REMARK_MAX + '):\n' + remark
+    + (cut ? '\n⚠️ الملاحظة اتقصّت عشان المنتجات طويلة — المنتجات ليها الأولوية' : '');
+}
+
 async function jtSubmit(ord){
   // النافذة بتغطي التفاصيل فمفيش تعديل من وراها — بس الحارس هنا كمان عشان أي مسار تاني يفتحها
   if(productsEditorDirty()){ $id('jt-err').textContent = SHIP_DIRTY_MSG; return; }
@@ -462,7 +479,7 @@ async function jtSubmit(ord){
     var res = await fetch(SUPABASE_URL + '/functions/v1/jt-ship', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + tk },
-      body: JSON.stringify({ order_id: ord.id, receiver: { prov: prov, city: city, area: area }, weight_kg: w })
+      body: JSON.stringify({ order_id: ord.id, receiver: { prov: prov, city: city, area: area }, weight_kg: w, note: $id('jt-note-in') ? $id('jt-note-in').value : '' })
     });
     out = await res.json().catch(function(){ return {}; });
     if(!res.ok || !out.ok) throw new Error(out.message || 'حصلت مشكلة — حاول تاني');

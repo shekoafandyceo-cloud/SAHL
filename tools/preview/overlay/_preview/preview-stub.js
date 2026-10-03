@@ -526,6 +526,41 @@
       TABLES.orders.unshift(row);
       return Promise.resolve({ data:{ ok:true, order_id:row.id, order_uid:uid }, error:null });
     }
+    // «➕ أوردر جديد» و«🔁 طلب استبدال» (3 أكتوبر) — نفس شكل create_staff_order على السيرفر:
+    // المنتجات من المخزون · الإجمالي = مجموع السطور (الاستبدال = المبلغ المكتوب) · W-n · مؤكد بسطر سجل
+    if(name === 'create_staff_order'){
+      var dd = String((args && args.p_phone) || '').replace(/[^0-9]/g,'');
+      if(dd.indexOf('0020') === 0) dd = dd.slice(4); else if(dd.indexOf('20') === 0 && dd.length === 12) dd = dd.slice(2);
+      if(dd.length === 10 && dd.charAt(0) === '1') dd = '0' + dd;
+      if(!/^01[0-9]{9}$/.test(dd)) return Promise.resolve({ data:{ ok:false, error:'bad_phone' }, error:null });
+      if(String((args&&args.p_address)||'').replace(/\s+/g,' ').trim().length < 10)
+        return Promise.resolve({ data:{ ok:false, error:'short_address' }, error:null });
+      var its = (args && args.p_items) || [];
+      if(!its.length) return Promise.resolve({ data:{ ok:false, error:'no_items' }, error:null });
+      var sum = 0, lines = [];
+      its.forEach(function(it){ sum += Number(it.price) * Number(it.qty); lines.push(it.name + ' (عدد ' + it.qty + ')'); });
+      var orig = null;
+      if(args.p_exchange_of){ orig = TABLES.orders.filter(function(o){ return o.id === args.p_exchange_of; })[0] || null; }
+      var mx2 = 0;
+      TABLES.orders.forEach(function(o){ var m = /^W-([0-9]+)$/.exec(String(o.order_uid||'')); if(m && +m[1] > mx2) mx2 = +m[1]; });
+      var uid2 = 'W-' + (mx2 + 1), now2 = new Date().toISOString();
+      var total2 = orig ? Number(args.p_total) : Math.round(sum * 100) / 100;
+      var row2 = { id:'so-' + uid2, tenant_id:TENANT, order_uid:uid2, tracking_no:null,
+        customer_name:args.p_customer_name, phone:dd, alt_phone:args.p_alt_phone||null,
+        city:args.p_city||args.p_ship_prov||null, address:args.p_address, product_name:lines.join('\n+ '),
+        total_cost:total2, status:'confirmed', payment_stage:'cod',
+        platform: orig ? orig.platform : (args.p_platform||'fb'), campaign_name:null, var:null,
+        customer_notes:args.p_customer_notes||null, internal_notes:null,
+        created_at:now2, status_changed_at:now2, created_by:'preview-user', call_attempts:[],
+        status_log:[{ from:'pending', to:'confirmed', at:now2, by:'شيكو', reason: orig ? ('استبدال لأوردر #' + (orig.order_uid||'')) : 'أوردر يدوي من اللوحة' }],
+        has_upsell:false, shipping_cost:85, shipping_requested_at:null, awb_print_count:0,
+        line_prices: orig ? null : its.map(function(it){ return { n:it.name, q:it.qty, p:it.price }; }),
+        manufacturer_note:null, manufacturer_cost:null, wa_followup_sent_at:null,
+        ship_prov:args.p_ship_prov||null, ship_city:args.p_ship_city||null, ship_area:args.p_ship_area||null,
+        shipping_weight_kg:args.p_weight||null, exchange_of: orig ? orig.id : null, ship_note:null, jt_remark:null };
+      TABLES.orders.unshift(row2);
+      return Promise.resolve({ data:{ ok:true, order_id:row2.id, order_uid:uid2, status:'confirmed', total_cost:total2 }, error:null });
+    }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.

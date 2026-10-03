@@ -190,9 +190,10 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
 // ════ 6) معايرة: شيل receiver من الحمولة → الفحص بيقع ════
 {
   const src = fs.readFileSync(new URL('../app/js/orders/ship.js', import.meta.url), 'utf8');
-  const ANCHOR = "body: JSON.stringify({ order_id: ord.id, receiver: { prov: prov, city: city, area: area }, weight_kg: w })";
+  // (3 أكتوبر) الحمولة بقى فيها note (ملاحظة البوليصة) — المرساة اتحدّثت معاها
+  const ANCHOR = "body: JSON.stringify({ order_id: ord.id, receiver: { prov: prov, city: city, area: area }, weight_kg: w, note:";
   if(src.indexOf(ANCHOR) < 0) throw new Error('المعايرة مالقتش المرساة');
-  const tampered = src.replace(ANCHOR, "body: JSON.stringify({ order_id: ord.id, weight_kg: w })");
+  const tampered = src.replace(ANCHOR, "body: JSON.stringify({ order_id: ord.id, weight_kg: w, note:");
   const p = await openApp(FN_OK);
   await p.route('**/js/orders/ship.js', r => r.fulfill({ status: 200, contentType: 'application/javascript', body: tampered }));
   await p.reload({ waitUntil:'networkidle' });

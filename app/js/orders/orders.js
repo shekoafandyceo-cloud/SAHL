@@ -25,6 +25,7 @@ import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, or
 import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
 import { initShipTicker } from './ship.js';
 import { initJtHealth } from './jt-health.js';
+import { initOrderForm } from './order-form.js';
 
 export function ordersInPeriod(){
   var p=ordersPeriod;
@@ -423,7 +424,7 @@ export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bost
 
 // manufacturer_note = خصائص المنتج كاملة من الويبهوك (لون + مقاس…) — **عرض بس**.
 // عمود نصي قصير فمالوش أثر يُذكر على حجم النقل (درس 32 عن الـJSONB).
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg';
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){
@@ -617,6 +618,8 @@ export function initOrdersUI(){
   $id('bb-sel').addEventListener('change',function(){if(this.value){doBulkUpdate(this.value);this.value='';}});
   $id('bclear').addEventListener('click',function(){selectedIds.clear();updateBulkBar();renderTable();});
      $id('bb-print').addEventListener('click', printSelectedAwb);
+  // «➕ أوردر جديد» (فيسبوك/إنستجرام/تليفون) — order-form.js
+  initOrderForm();
 
   // ─────────────────────────────────────────────────
   // STOCK MANAGEMENT

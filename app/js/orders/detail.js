@@ -20,6 +20,7 @@ import { isAdmin } from './guards.js';
 import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from './mutations.js';
 import { doFilter } from './orders.js';
 import { addEmptyProductRow, jtWaybillLocked, renderProductsEditor, saveProducts } from './products-editor.js';
+import { ofExchangeAllowed, openOrderForm } from './order-form.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
 import { manualShipFlow, shipControlsHtml, wireShipControls } from './ship.js';
 import { parseStatusLog, RANK_GOOD, RANK_MID, renderTable } from './table.js';
@@ -183,6 +184,33 @@ function sendWaFollowup(o){
     if(btn){ btn.disabled=false; btn.style.opacity=''; }
     swallow('waFollowup/invoke',err);
     toast('الرسالة ماتبعتتش — حاول تاني','er');
+  });
+}
+
+// 🔁 ربط الاستبدال في التفاصيل: «الأوردر ده استبدال لأوردر #…» و«اتعمله استبدال: #…» — بضغطة بيفتح
+// التاني. استعلامين صغيرين بعد الرسم؛ الرد القديم (الموظف فتح أوردر تاني) بيترمي.
+function loadExchangeLinks(o){
+  var box = $id('ex-links');
+  if(!box || !o || tourActive || !sb || !currentTenantId) return;
+  var parts = [];
+  function paint(){
+    if(!sel || sel.id !== o.id || !$id('ex-links')) return;
+    if(!parts.length){ box.style.display = 'none'; return; }
+    box.innerHTML = parts.join('');
+    box.style.display = '';
+    box.querySelectorAll('[data-ex-open]').forEach(function(a){
+      a.addEventListener('click', function(){ openDetail(a.getAttribute('data-ex-open')); });
+    });
+  }
+  function link(r){ return '<button type="button" class="ex-link" data-ex-open="' + esc(r.id) + '">#' + esc(r.order_uid || '—') + '</button>'; }
+  if(o.exchange_of){
+    sb.from('orders').select('id,order_uid').eq('id', o.exchange_of).eq('tenant_id', currentTenantId).maybeSingle().then(function(r){
+      if(r && r.data){ parts.unshift('<div class="ex-line">🔁 الأوردر ده <b>استبدال</b> لأوردر ' + link(r.data) + '</div>'); paint(); }
+    });
+  }
+  sb.from('orders').select('id,order_uid,status').eq('exchange_of', o.id).eq('tenant_id', currentTenantId).then(function(r){
+    var rows = (r && r.data) || [];
+    if(rows.length){ parts.push('<div class="ex-line">🔁 اتعمله استبدال: ' + rows.map(link).join(' · ') + '</div>'); paint(); }
   });
 }
 
@@ -387,6 +415,8 @@ export function renderDetail(){
       :'')
     +'</div>'
 
+    // 🔁 ربط الاستبدال (الأوردر ده استبدال لـ… / اتعمله استبدال) — بيتملى بعد الرسم (loadExchangeLinks)
+    +'<div class="ex-links" id="ex-links" style="display:none"></div>'
     +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">\uD83D\uDCE6</span>المنتجات</div>'
     +(function(){
        // خصائص المنتج كاملة من الويبهوك — سطر واحد بس: manufacturer_note
@@ -530,10 +560,14 @@ export function renderDetail(){
     +((o.tracking_no||'').trim()?'':'<button class="abtn bs" id="da-bs">📦 اتشحن يدوي</button>')
     +'<button class="abtn cn" id="da-cn">✕ إلغاء</button>'
     +'</div>'
-    +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>';
+    +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>'
+    // 🔁 طلب استبدال (3 أكتوبر) — بعد ما الأوردر يتشحن بس (نفس شرط create_staff_order)
+    +(ofExchangeAllowed(o)?'<button class="abtn ex-btn" id="da-ex" style="width:100%;margin-top:8px">🔁 طلب استبدال — أوردر جديد بنفس بيانات العميل</button>':'');
 
   if($id('da-ok'))$id('da-ok').addEventListener('click',function(){doUpdate('confirmed');});
   if($id('da-bs'))$id('da-bs').addEventListener('click',function(){manualShipFlow();});
+  if($id('da-ex'))$id('da-ex').addEventListener('click',function(){ if(sel) openOrderForm({ mode:'exchange', order: sel }); });
+  loadExchangeLinks(o);
   wireShipControls();
   if($id('wa-follow-btn'))$id('wa-follow-btn').addEventListener('click',function(){waFollowupFlow();});
   $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);});});

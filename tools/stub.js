@@ -28,7 +28,8 @@
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
       has_upsell:false, shipping_requested_at:null, line_prices:null,
       wa_followup_sent_at:null,
-      'var':null, manufacturer_note:null, manufacturer_cost:null
+      'var':null, manufacturer_note:null, manufacturer_cost:null,
+      exchange_of:null, ship_note:null, jt_remark:null
     }, o);
   }
   var ORDERS = [
@@ -97,6 +98,7 @@
       // الاستعلام**. الحقن على DOMContentLoaded ماينفعش — موديولات ES بتتنفّذ
       // قبله، فالـ16 استعلام كلهم بيخرجوا والصفحة اترسمت قبل ما الحدث يولّع.
       if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
+      if(st.eqExchange !== undefined) rows = rows.filter(function(o){ return o.exchange_of === st.eqExchange; });
       // علامة الشحن في الجدول: الاختبار بيحقن {id: iso} والستب بيطبّقها
       // وقت الاستعلام — نفس نمط __UPSELL_IDS
       var sq = window.__SHIP_REQS || {};
@@ -187,6 +189,9 @@
         if(m === 'lt'  && a === 'created_at') st.lt  = {col:a, val:b};
         if(m === 'eq'  && a === 'status')     st.eqStatus = b;
         if(m === 'eq'  && a === 'id')         st.eqId = b;
+        // ربط الاستبدال (3 أكتوبر): «اتعمله استبدال» بيستعلم بـexchange_of — من غير التطبيق الستب
+        // بيرجّع كل الأوردرات كأنها استبدالات والفحص بيعدّي أعمى (درس 33)
+        if(m === 'eq'  && a === 'exchange_of') st.eqExchange = b;
         if(m === 'in'  && a === 'status')     st.inStatus = b;
         if(m === 'range'){ st.from = a; st.to = b; }
         if(m === 'order'){ st.order = a; st.orderOpts = b; }

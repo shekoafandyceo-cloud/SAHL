@@ -12,6 +12,7 @@
 
 import { currentTenant, currentTenantId } from '../auth/auth.js';
 import { code128Modules } from '../core/code128.js';
+import { remarkBaseLines } from './jt-remark.js';
 import { routeBase } from '../core/router.js';
 import { esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
@@ -37,13 +38,15 @@ function svgVertical(mods, lengthMm, barMm){
   return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + barMm + ' ' + lengthMm.toFixed(4) + '" shape-rendering="crispEdges" fill="#000" style="width:' + barMm + 'mm;height:' + lengthMm + 'mm;display:block">' + rects + '</svg>';
 }
 
-// ── الملاحظات — نفس remarkFor في jt-ship (200 حرف) ───────────────
+// ── الملاحظات ───────────────────────────────────────────────────────
+// (3 أكتوبر) البوليصة بتطبع **اللي اتبعت لـJ&T بالحرف** (orders.jt_remark — jt-ship v6 بتسجّله بعد
+// النجاح): منتجات + خصائص + «ملاحظة: …». من غيره الطباعة كانت بتعيد التركيب من الصف وقت الطبع، فأي
+// تعديل بعد الشحن كان بيطلّع بوليصة مختلفة عن اللي عند J&T. الأوردرات القديمة (قبل v6) مالهاش jt_remark
+// فبتفضل زي ما كانت بالظبط (remarkBaseLines = remarkFor القديمة) — إصلاح للأمام بس.
 export function jtRemarkLines(o){
-  var lines = [];
-  String(o.product_name || '').replace(/\r/g, '').split(/\s*\+\s*|\n/).forEach(function(p){ var t = p.trim(); if(t) lines.push(t); });
-  var props = String(o.manufacturer_note || o['var'] || '').trim();
-  if(props && !lines.some(function(l){ return l.indexOf(props) >= 0; })) lines.push(props);
-  return lines;
+  var snap = String((o && o.jt_remark) || '').replace(/\r/g, '');
+  if(snap.trim()) return snap.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+  return remarkBaseLines(o.product_name, o.manufacturer_note || o['var']);
 }
 
 var ARABIC_RANGE = 'U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0898-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC';
@@ -128,7 +131,7 @@ function senderFromTenant(){
   return { name: t.sender_name || t.store_name || 'عتبة', phone: t.sender_phone || t.support_phone || '', address: addr };
 }
 
-export var JT_AWB_COLS = 'id,order_uid,tracking_no,jt_sorting_code,awb_print_count,shipping_carrier,total_cost,shipping_weight_kg,customer_name,phone,alt_phone,city,address,ship_prov,ship_city,ship_area,product_name,manufacturer_note,var';
+export var JT_AWB_COLS = 'id,order_uid,tracking_no,jt_sorting_code,awb_print_count,shipping_carrier,total_cost,shipping_weight_kg,customer_name,phone,alt_phone,city,address,ship_prov,ship_city,ship_area,product_name,manufacturer_note,var,jt_remark';
 
 // طباعة بوالص J&T لمجموعة أوردرات — صفحة لكل أوردر في نافذة واحدة
 export async function printJtAwb(orderIds){

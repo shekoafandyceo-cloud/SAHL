@@ -296,3 +296,7 @@ html.dark .wa-filter.has-alert.active{background:var(--acc);border-color:var(--a
 html.dark .jt-sync-alert{background:#3b0d0d;border-color:#ef4444;color:#fecaca}
 html.dark .prod-lock{background:#3a1d0a;border-color:#c2410c;color:#fed7aa}
 html.dark .jt-cod{background:#0f1f3a;border-color:#1d4ed8;color:#dbeafe}
+html.dark .new-order-btn{background:#047857;border-color:#065f46}
+html.dark .ex-links{background:#052e16;border-color:#166534;color:#bbf7d0}
+html.dark .ex-link{color:#93c5fd}
+html.dark .ex-btn{background:#052e16!important;color:#bbf7d0!important;border-color:#166534!important}

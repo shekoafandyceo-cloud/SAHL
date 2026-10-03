@@ -38,3 +38,24 @@
 /* قفل المنتجات بعد بوليصة J&T — detail.js (17532 — 3 أكتوبر) */
 .prod-lock{margin-top:8px;padding:8px 10px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:.8rem;font-weight:700;line-height:1.6}
 .jt-cod{font-size:.86rem;font-weight:800;color:var(--txt);white-space:pre-line;line-height:1.6;margin:-6px 0 12px;padding:8px 10px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe}
+
+/* «➕ أوردر جديد» + «🔁 طلب استبدال» — order-form.js (3 أكتوبر) */
+.new-order-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:.82rem;font-weight:800;border:1px solid #059669;background:#10b981;color:#fff;border-radius:10px;cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s}
+.new-order-btn:hover{background:#059669;transform:translateY(-1px)}
+.of-box{max-width:600px;max-height:92vh;overflow-y:auto}
+.of-full{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:700;color:var(--muted);margin-top:10px}
+.of-full textarea{width:100%;resize:vertical;font-family:inherit}
+.of-items-head{font-size:.84rem;font-weight:800;color:var(--txt);margin:12px 0 6px}
+.of-hint{font-weight:600;color:var(--muted);font-size:.76rem}
+#of-items{display:flex;flex-direction:column;gap:7px;margin-bottom:8px}
+.of-row{display:grid;grid-template-columns:1fr 96px 64px 38px;gap:6px;align-items:center}
+.of-row .fsel{width:100%;min-width:0}
+.of-row .of-qty{text-align:center}
+.of-sum{font-size:.86rem;font-weight:800;color:var(--txt);margin-top:10px;line-height:1.6}
+.jt-note-lbl{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:700;color:var(--muted);margin-top:10px}
+.jt-note-lbl textarea{width:100%;resize:vertical;font-family:inherit}
+.ex-badge{margin-inline-end:4px;font-size:.85em}
+.ex-links{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#f0fdf4;border:1px solid #86efac;color:#14532d;font-size:.84rem;line-height:1.7}
+.ex-link{background:none;border:none;padding:0 2px;color:#1d4ed8;font-weight:800;cursor:pointer;font-family:inherit;font-size:inherit;text-decoration:underline}
+.ex-btn{background:#ecfdf5!important;color:#065f46!important;border:1px solid #6ee7b7!important}
+@media(max-width:600px){.of-row{grid-template-columns:1fr 80px 54px 38px}}
