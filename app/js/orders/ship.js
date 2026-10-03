@@ -27,6 +27,8 @@ import { all, fil, ordersSetSelected, sel } from './state.js';
 import { renderTable } from './table.js';
 import { doFilter } from './orders.js';
 import { printJtAwb } from './jt-awb.js';
+import { parseProducts, productsEditorDirty } from './products-editor.js';
+import { num } from '../core/format.js';
 
 // المدة اللي بعدها المحاولة المعلّقة بتتحسب «ماكملتش». النجاح المقاس حي
 // 12–30 ثانية والفشل أسرع — 60 ثانية (نزلت من 90 بطلب المالك 8 أغسطس:
@@ -129,6 +131,7 @@ export function wireShipControls(){
 export function manualShipFlow(){
   var ord = sel;
   if(!ord) return;
+  if(blockIfProductsDirty()) return;
   if((ord.tracking_no || '').trim()){
     toast('الأوردر له بوليصة بالفعل (' + ord.tracking_no + ')','er');
     return;
@@ -171,10 +174,24 @@ export function manualShipFlow(){
   });
 }
 
+// 🔴 تعديل منتجات مش محفوظ = الشحن ممنوع (بلاغ 17532 — 3 أكتوبر). الشحنة بتتعمل من
+// **المحفوظ في الداتابيز** (jt-ship بتقرا total_cost وproduct_name من صف الأوردر)، فالموظف
+// اللي شال منتج وداس شحن قبل الحفظ بعت لـJ&T المنتجين والمبلغ القديم — والحفظة اللي بعدها
+// خلّت السيستم يقول رقم والمندوب يحصّل رقم تاني. بعد البوليصة السيرفر بيقفل التعديل كمان.
+export var SHIP_DIRTY_MSG = 'فيه تعديل في المنتجات لسه ماتحفظش — اضغط «💾 حفظ المنتجات» الأول (أو رجّعه زي ما كان) وبعدين اشحن. الشحنة بتتعمل باللي محفوظ بس.';
+function blockIfProductsDirty(){
+  if(!productsEditorDirty()) return false;
+  toast(SHIP_DIRTY_MSG, 'er');
+  var st = $id('prod-status');
+  if(st){ st.textContent = '⚠️ احفظ المنتجات الأول — الشحن مستني الحفظ'; st.className = 'save-status'; }
+  return true;
+}
+
 // ── المسار الأوتوماتيك — بوليصة حقيقية بفلوس ────────────────────────
 function autoShipFlow(){
   var ord = sel;
   if(!ord || !shippable(ord)) return;
+  if(blockIfProductsDirty()) return;
   if(isJt()){ jtShipFlow(ord); return; }
   showModal({
     icon: '🚚',
@@ -355,6 +372,7 @@ function jtModalEl(){
   bd.innerHTML = '<div class="jt-box" role="dialog" aria-modal="true">'
     + '<div class="jt-ttl">🚚 شحنة J&T — <span id="jt-uid"></span></div>'
     + '<div class="jt-sub" id="jt-sub"></div>'
+    + '<div class="jt-cod" id="jt-cod"></div>'
     + '<div class="jt-grid">'
     + '<label>المحافظة<select class="fsel" id="jt-prov"></select></label>'
     + '<label>المدينة<select class="fsel" id="jt-city"></select></label>'
@@ -379,6 +397,10 @@ async function jtShipFlow(ord){
   bd.classList.add('open');
   $id('jt-uid').textContent = '#' + (ord.order_uid || '');
   $id('jt-sub').textContent = (ord.customer_name || '') + ' · ' + (ord.phone || '') + ' · ' + (ord.city || '') + '\n' + (ord.address || '');
+  // اللي هيتبعت لـJ&T بالحرف (itemsValue + remark من نفس الصف) — الموظف بيأكد على المبلغ
+  // اللي المندوب هيحصّله مش على «شحنة» وخلاص (17532)
+  $id('jt-cod').textContent = 'مبلغ التحصيل اللي هيتبعت لـJ&T: ' + num(Number(ord.total_cost) || 0) + ' ج'
+    + '\nالمنتجات: ' + parseProducts(ord.product_name || '').filter(Boolean).join(' + ');
   $id('jt-err').textContent = '';
   $id('jt-note').textContent = 'اختار المحافظة والمدينة بأسماء J&T (اسم غلط = J&T ترفض الشحنة) — الاقتراح جاي من مدينة اللاندنج. المنطقة اكتبها زي ما هي في العنوان (نص حر، مطلوبة).';
   $id('jt-done').style.display = 'none';
@@ -423,6 +445,8 @@ async function jtShipFlow(ord){
 }
 
 async function jtSubmit(ord){
+  // النافذة بتغطي التفاصيل فمفيش تعديل من وراها — بس الحارس هنا كمان عشان أي مسار تاني يفتحها
+  if(productsEditorDirty()){ $id('jt-err').textContent = SHIP_DIRTY_MSG; return; }
   var prov = $id('jt-prov').value, city = $id('jt-city').value, area = $id('jt-area').value.replace(/\s+/g, ' ').trim(), w = parseFloat($id('jt-weight').value);
   var err = $id('jt-err');
   if(!prov || !city){ err.textContent = 'اختار المحافظة والمدينة الأول'; return; }

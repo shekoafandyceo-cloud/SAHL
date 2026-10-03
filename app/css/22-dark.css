@@ -294,3 +294,5 @@ html.dark .wa-filter.has-alert.active{background:var(--acc);border-color:var(--a
 
 /* بانر مزامنة J&T */
 html.dark .jt-sync-alert{background:#3b0d0d;border-color:#ef4444;color:#fecaca}
+html.dark .prod-lock{background:#3a1d0a;border-color:#c2410c;color:#fed7aa}
+html.dark .jt-cod{background:#0f1f3a;border-color:#1d4ed8;color:#dbeafe}

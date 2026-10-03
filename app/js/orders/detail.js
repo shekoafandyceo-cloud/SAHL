@@ -19,7 +19,7 @@ import { orderInventoryCost, orderInventoryCostSource } from './costs.js';
 import { isAdmin } from './guards.js';
 import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from './mutations.js';
 import { doFilter } from './orders.js';
-import { addEmptyProductRow, renderProductsEditor, saveProducts } from './products-editor.js';
+import { addEmptyProductRow, jtWaybillLocked, renderProductsEditor, saveProducts } from './products-editor.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
 import { manualShipFlow, shipControlsHtml, wireShipControls } from './ship.js';
 import { parseStatusLog, RANK_GOOD, RANK_MID, renderTable } from './table.js';
@@ -397,6 +397,9 @@ export function renderDetail(){
     +'<div class="prod-list" id="prod-list"></div>'
     +'<button class="prod-add-btn" id="prod-add">+ إضافة منتج آخر</button>'
     +'<div class="save-row" style="margin-top:10px"><button class="save-btn" id="save-prod">💾 حفظ المنتجات</button><button class="copy-prod-btn" id="copy-prod">📋 نسخ كل المنتجات</button><span class="save-status" id="prod-status"></span></div>'
+    // 🔴 بعد بوليصة J&T المنتجات والإجمالي مقفولين على السيرفر (17532) — الموظف يعرف
+    // قبل ما يعدّل، مش بعد ما يدوس حفظ ويترفض
+    +(jtWaybillLocked(o)?'<div class="prod-lock" id="prod-lock">🔒 البوليصة اتعملت عند J&T — المنتجات والإجمالي مقفولين عشان السيستم يفضل مطابق للي المندوب هيحصّله. أي تعديل يتعمل عند J&T الأول.</div>':'')
     +'</div>'
 
     +'<div class="dsec" data-tone="sky"><div class="dstt"><span class="dstt-ico">\uD83E\uDDEE</span>تفاصيل إضافية</div>'
