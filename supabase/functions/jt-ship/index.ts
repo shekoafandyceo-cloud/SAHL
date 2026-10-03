@@ -17,17 +17,23 @@
 //      بيوصل للبوليصة دي والأوردر بيفضل على آخر حالة للأبد. فشله بيتسجّل في
 //      orders.jt_subscribe_error ومابيضيّعش الشحنة.
 //
-// الحمولة: { order_id, receiver?: {prov, city, area}, weight_kg?, dry_run? }
+//   8. (v6 — 3 أكتوبر) ملاحظة البوليصة: `note` من الـbody = اللي الموظف راجعه في نافذة الشحن (متعبّي من
+//      ملاحظة العميل) → سطر «ملاحظة: …» في الـremark (_shared/jt-remark.ts — المنتجات أولاً والملاحظة
+//      بالباقي). من غير `note`: موظف = مفيش ملاحظة (نسخة واجهة قديمة مابتعرضهاش عليه) · n8n/diag = ملاحظة
+//      العميل زي ما هي. 🔴 internal_notes عمرها ما بتتبعت. والـremark اللي اتبعت بيتسجّل في jt_remark
+//      والبوليصة المطبوعة بتطبعه هو بالحرف.
+//
+// الحمولة: { order_id, receiver?: {prov, city, area}, weight_kg?, note?, dry_run? }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildRequest, JT_PATHS, jtCall, redactRequest, withBusinessDigest } from "../_shared/jt.ts";
 import { authCaller, cors, defaultEnv, egMobile, json, loadJtConfig, normPlace } from "../_shared/jt-runtime.ts";
+import { cleanShipNote, composeRemark } from "../_shared/jt-remark.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
 const MIN_ADDRESS = 10;
-const REMARK_MAX = 200;          // من توثيق مصر: remark String(200)
 const AREA_MAX = 60;             // من توثيق مصر: receiver.area String(60) — نص حر (قرار 21 سبتمبر)
 // الحقول من طلب Postman الناجح على الـSandbox (المالك، 20 سبتمبر): expressType "EZ" ·
 // deliveryType "04" · goodsType "ITN1" · operateType 1 (رقم) · payType "PP_PM".
@@ -38,19 +44,7 @@ const ADDORDER_REQUIRED = ["expressType", "deliveryType", "goodsType", "operateT
 // نفس القيمة الافتراضية في jt-lookup action=subscribe — لازم يفضلوا متطابقين.
 const TRACE_NODES = "1&3&4&5&6&8&9&10&11&12&13&14&15";
 
-const ORDER_COLS = "id, tenant_id, order_uid, status, tracking_no, customer_name, phone, alt_phone, city, address, product_name, manufacturer_note, var, total_cost, shipping_carrier, carrier_ref, ship_prov, ship_city, ship_area, shipping_weight_kg, jt_ship_attempted_at, jt_ship_error";
-
-function remarkFor(o: Record<string, unknown>): string {
-  // المنتجات زي ما هي متسجّلة (اسم (عدد N)) + خصائص المنتج — نفس النص بيتطبع في البوليصة
-  const lines: string[] = [];
-  const pn = String(o.product_name || "").replace(/\r/g, "");
-  for (const part of pn.split(/\s*\+\s*|\n/)) { const t = part.trim(); if (t) lines.push(t); }
-  const props = String(o.manufacturer_note || o.var || "").trim();
-  if (props && !lines.some((l) => l.includes(props))) lines.push(props);
-  let remark = lines.join("\n");
-  if ([...remark].length > REMARK_MAX) remark = [...remark].slice(0, REMARK_MAX - 1).join("") + "…";
-  return remark;
-}
+const ORDER_COLS = "id, tenant_id, order_uid, status, tracking_no, customer_name, phone, alt_phone, city, address, product_name, manufacturer_note, var, customer_notes, total_cost, shipping_carrier, carrier_ref, ship_prov, ship_city, ship_area, shipping_weight_kg, jt_ship_attempted_at, jt_ship_error";
 
 async function setError(orderId: string, msg: string) {
   await admin.from("orders").update({ jt_ship_error: msg.slice(0, 500) }).eq("id", orderId);
@@ -163,8 +157,13 @@ Deno.serve(async (req: Request) => {
   }
   if (!(weight > 0) || weight > 100) return json({ error: "weight_missing", message: "الوزن (كجم) مطلوب لـJ&T — حدده في نافذة الشحن" }, 422);
 
+  // ملاحظة البوليصة: من الموظف (حتى لو فاضية = «من غير ملاحظة» صريحة) · غير كده n8n/diag بياخدوا ملاحظة العميل
+  const noteGiven = typeof body.note === "string";
+  const shipNote = noteGiven ? cleanShipNote(body.note) : (caller.mode === "user" ? "" : cleanShipNote(order.customer_notes));
+
   // نحفظ اختيار الموظف على الأوردر (حتى لو الإرسال فشل بعدين — عشان مايعيدش الاختيار)
-  await admin.from("orders").update({ ship_prov: prov, ship_city: city, ship_area: area, shipping_weight_kg: weight }).eq("id", orderId);
+  await admin.from("orders").update({ ship_prov: prov, ship_city: city, ship_area: area, shipping_weight_kg: weight,
+    ...(noteGiven ? { ship_note: shipNote || null } : {}) }).eq("id", orderId);
 
   // ── إعدادات J&T ─────────────────────────────────────────────────────
   const env = caller.mode !== "user" && String(body.env || "") === "sandbox" ? "sandbox" : defaultEnv();
@@ -176,7 +175,7 @@ Deno.serve(async (req: Request) => {
   }
   const creds = cfg.creds;
   const cod = Number(order.total_cost) || 0;
-  const remark = remarkFor(order);
+  const remark = composeRemark(order.product_name, order.manufacturer_note || order.var, shipNote);
 
   const biz = withBusinessDigest({
     txlogisticId: order.id,                        // مرجعنا عندهم = id الأوردر — بيمنع التكرار عند J&T نفسها
@@ -215,6 +214,8 @@ Deno.serve(async (req: Request) => {
   const record = async (bill: string, sorting: unknown, fee: unknown) => {
     const { data, error } = await admin.rpc("jt_record_shipment_v1", { p_order_id: orderId, p_bill_code: bill, p_sorting_code: sorting == null ? null : String(sorting), p_fee_estimated: fee == null || fee === "" ? null : Number(fee), p_weight: weight, p_by: "J&T API · " + byName });
     if (error) throw new Error("db:" + error.message);
+    // اللي اتبعت لـJ&T بالحرف — البوليصة المطبوعة بتطبعه هو (مش بتعيد التركيب من صف ممكن يتعدّل بعد الشحن)
+    await admin.from("orders").update({ jt_remark: remark }).eq("id", orderId);
     // مرادف المدينة → عنوان J&T (بيخلي الأوردر الجاي بنفس المدينة يتحل أوتوماتيك)
     const key = normPlace(String(order.city || ""));
     if (key) {

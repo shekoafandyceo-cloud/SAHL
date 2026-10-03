@@ -259,6 +259,19 @@ CONTRACTS = [
      lambda s: len(re.findall(r'bump\("batch_error"\);\s*continue;', s)) >= 4),
     ("_shared/jt", u"parseJtTime المشتركة = UTC+2 ثابت زي jt-status",
      lambda s: "export function parseJtTime" in s and "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
+    # ── ملاحظة البوليصة (3 أكتوبر) ──
+    ("_shared/jt-remark", u"تركيب الـremark: المنتجات أولاً والملاحظة بالباقي · الروابط بتتشال · من غير import",
+     lambda s: "export function composeRemark" in s and 'NOTE_PREFIX = "ملاحظة: "' in s
+     and "REMARK_MAX = 200" in s and "https?:" in s
+     and not any(l.strip().startswith("import ") for l in s.splitlines())),
+    ("jt-ship", u"الـremark من composeRemark المشتركة · internal_notes مش في الأعمدة",
+     lambda s: "composeRemark(order.product_name, order.manufacturer_note || order.var, shipNote)" in s
+     and bool(re.search(r'const ORDER_COLS = "([^"]*)"', s))
+     and "internal_notes" not in re.search(r'const ORDER_COLS = "([^"]*)"', s).group(1)),
+    ("jt-ship", u"موظف من غير note = من غير ملاحظة (مفيش ملاحظة ماتراجعتش)",
+     lambda s: 'caller.mode === "user" ? "" : cleanShipNote(order.customer_notes)' in s),
+    ("jt-ship", u"الـremark اللي اتبعت بيتسجّل في jt_remark (البوليصة بتطبعه بالحرف)",
+     lambda s: "update({ jt_remark: remark })" in s),
 ]
 
 
