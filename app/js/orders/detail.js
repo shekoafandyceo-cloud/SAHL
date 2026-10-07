@@ -22,8 +22,9 @@ import { doFilter } from './orders.js';
 import { addEmptyProductRow, EX_LOCK_MSG, exchangeLocked, jtWaybillLocked, renderProductsEditor, saveProducts } from './products-editor.js';
 import { ofExchangeAllowed, openOrderForm } from './order-form.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
+import { deliveryScoreSection } from './delivery-score.js';
 import { manualShipFlow, shipControlsHtml, wireShipControls } from './ship.js';
-import { parseStatusLog, RANK_GOOD, RANK_MID, renderTable } from './table.js';
+import { parseStatusLog, renderTable } from './table.js';
 
 export var intNotesTimer=null;
 
@@ -391,18 +392,14 @@ export function renderDetail(){
 
     +'<div class="dsec" data-tone="blue"><div class="dstt"><span class="dstt-ico">\uD83D\uDC64</span>بيانات العميل</div>'
     +dr('الاسم',copyable(o.customer_name,'الاسم'))
-    +(function(){
-       if(o.customer_ranking===null||o.customer_ranking===undefined||o.customer_ranking==='')return '';
-       var _rk=Number(o.customer_ranking); if(isNaN(_rk))return '';
-       var _c=_rk>=RANK_GOOD?'rk-good':(_rk>=RANK_MID?'rk-mid':'rk-bad');
-       var _l=_rk>=RANK_GOOD?'جامد':(_rk>=RANK_MID?'متوسط':'زبالة');
-       return dr('سمعة العميل (شركة الشحن)','<span class="rk-badge '+_c+'" style="margin:0">'+_l+'</span> <span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+_rk.toFixed(1)+'%</span>');
-     })()
     +dr('الموبايل الأساسي',fieldEditable(o.phone,'الموبايل','phone'))
     +dr('الموبايل الإضافي',copyable(o.alt_phone,'الموبايل'))
     +dr('المدينة','<span class="dval ar">'+esc(fmt(o.city))+'</span>')
     +dr('العنوان',fieldEditable(o.address,'العنوان','address'))
     +'</div>'
+
+    // 📊 نسبة استلام العميل — EasyOrders + شركة الشحن (orders/delivery-score.js)
+    +deliveryScoreSection(o)
 
     +'<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">\uD83E\uDDFE</span>بيانات الطلب</div>'
     +dr('رقم الطلب','<span class="dval">'+esc(fmt(o.order_uid))+'</span>')

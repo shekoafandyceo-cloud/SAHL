@@ -74,6 +74,9 @@
       internal_notes: i % 9 === 0 ? 'العميلة طلبت تأجيل التسليم للأسبوع الجاي' : null,
       customer_ranking: i % 4 === 0 ? (55 + (i % 45)) : null,
       customer_ranking_at: i % 4 === 0 ? iso(days, 15, 0) : null,
+      // نسبة استلام العميل عند EasyOrders (بيتحسب على السيرفر من eo_metadata — المعاينة بتحطه جاهز)
+      eo_rate: ['high','moderate','low','unknown','pending',null][i % 6],
+      eo_rate_alt: i % 5 === 0 ? ['low','high','unknown'][i % 3] : null,
       real_shipping_fee: shipped ? (85 + (i % 4) * 9) : 0,
       inventory_cost_snapshot: 380 + (i % 5) * 45,
       inventory_value_snapshot: 0,

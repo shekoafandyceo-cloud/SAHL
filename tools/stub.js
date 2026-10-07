@@ -23,7 +23,7 @@
       product_name:'منتج أ (عدد 1)', total_cost:1000, payment_stage:'cod', platform:'fb',
       campaign_name:'حملة', real_shipping_fee:0, inventory_cost_snapshot:0,
       inventory_value_snapshot:0, inventory_value_at_bosta:0, packaging_cost:0,
-      customer_notes:null, internal_notes:null, customer_ranking:null,
+      customer_notes:null, internal_notes:null, customer_ranking:null, eo_rate:null, eo_rate_alt:null,
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
       has_upsell:false, shipping_requested_at:null, line_prices:null,

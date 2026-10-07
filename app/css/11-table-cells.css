@@ -110,3 +110,11 @@ td.id.has-cx .cx-badge{display:block;width:max-content;margin:3px 0 0;}
   direction:ltr;text-align:center!important;outline:none;}
 .prod-price::placeholder{font-family:'Cairo',sans-serif;font-weight:400;color:var(--muted2);}
 .prod-price:focus{border-color:var(--acc);box-shadow:0 0 0 4px rgba(255,159,28,.1);}
+/* نسبة استلام العميل (orders/delivery-score.js) — rk-new = «عميل جديد» عند EasyOrders · شريط 5 خانات زي لوحة EasyOrders (بيتملى من اليمين في الـRTL زي نسختهم العربي) */
+.rk-new{background:#e2e8f0;color:#334155;}
+.ds-eo{display:inline-flex;align-items:center;gap:8px;justify-content:flex-start;}
+.eo-meter{display:inline-flex;gap:3px;}
+.eo-meter i{display:inline-block;width:14px;height:6px;border-radius:4px;background:#e2e8f0;}
+.eo-meter.rk-good,.eo-meter.rk-mid,.eo-meter.rk-bad,.eo-meter.rk-new{background:none;}
+.eo-meter.rk-good i.on{background:#10b981;}.eo-meter.rk-mid i.on{background:#f59e0b;}.eo-meter.rk-bad i.on{background:#ef4444;}
+.ds-muted{color:var(--muted);font-size:.8rem;font-style:italic;}

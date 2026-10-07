@@ -13,6 +13,7 @@ import { lockMaybe } from './billing-summary.js';
 import { CALL_WAIT_MS, startTimerTick } from './call-timer.js';
 import { openDetail } from './detail.js';
 import { customerOrderCount } from './merge.js';
+import { deliveryScoreBadges } from './delivery-score.js';
 import { fetchOrdersPage } from './orders.js';
 import { cur, fil, ordersPeriod, ordersSetPage, PS, selectedIds, totalCount } from './state.js';
 
@@ -134,15 +135,8 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     var noteIcon=(o.customer_notes&&o.customer_notes.trim())?'<span class="note-icon" title="يوجد ملاحظة من العميل">📝</span>':'';
     var vipCount=customerOrderCount(o);
     var vipBadge=vipCount>1?'<span class="vip-badge" title="عميل متكرر — '+vipCount+' طلبات">×'+vipCount+'</span>':'';
-    var rankBadge='';
-    if(o.customer_ranking !== null && o.customer_ranking !== undefined && o.customer_ranking !== ''){
-      var _rk=Number(o.customer_ranking);
-      if(!isNaN(_rk)){
-        var _rkCls=_rk>=RANK_GOOD?'rk-good':(_rk>=RANK_MID?'rk-mid':'rk-bad');
-        var _rkLbl=_rk>=RANK_GOOD?'جامد':(_rk>=RANK_MID?'متوسط':'زبالة');
-        rankBadge='<span class="rk-badge '+_rkCls+'" title="نسبة استلام العميل عبر شركة الشحن: '+_rk.toFixed(1)+'%">'+_rkLbl+'</span>';
-      }
-    }
+    // نسبة استلام العميل: EasyOrders (تصنيف) + شركة الشحن (نسبة %) — orders/delivery-score.js
+    var rankBadge=deliveryScoreBadges(o);
     // شارة الـupsell — الأوردر اتزوّد فيه منتج بعد ما اتسجّل. العلامة جاية
     // من عمود `has_upsell` على السيرفر (بيتحط جوّه save_order_products)
     // مش من حساب في المتصفح — فبتشتغل حتى لو الحدث القديم مش محمّل.
