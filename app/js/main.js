@@ -48,6 +48,7 @@ import { WA_LABELS, handleWaRealtime, initInbox, loadInbox, openConversation, re
 import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.js';
 
 import { initExceptions, loadJtIssues } from './exceptions/exceptions.js';
+import { initAlertSound } from './core/alert-sound.js';
 
 import { copyWebhookUrl } from './settings/webhook.js';
 
@@ -501,6 +502,7 @@ initOrdersUI();
   initNav();
   initInbox();
   initExceptions();
+  initAlertSound();
   initStockTabs();
   initAnalyticsTabs();
   initStockButtons();

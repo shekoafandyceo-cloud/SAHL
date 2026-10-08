@@ -430,6 +430,7 @@
         <button type="button" class="jx-chip" data-jx-chip="review"><span class="jx-rv-lbl">👀 مستنية مراجعتك</span> <span class="n">0</span></button>
         <span class="jx-flow" aria-hidden="true">←</span>
         <button type="button" class="jx-chip" data-jx-chip="done">✅ اتراجعت — تابع النتيجة <span class="n">0</span></button>
+        <button type="button" class="jx-chip jx-chip-rep" data-jx-chip="reports">📣 بلاغاتنا لـJ&amp;T <span class="n">0</span><span class="jx-nn" hidden></span></button>
         <button type="button" class="jx-chip jx-chip-all" data-jx-chip="all">🗂️ الكل <span class="n">0</span></button>
       </div>
       <div class="jx-filters">
@@ -440,7 +441,12 @@
           <option value="returned">رجعت / راجعة</option>
           <option value="cancelled">اتلغت عندنا</option>
         </select>
-        <select id="jx-fdays" class="jx-sel jx-f-all" title="الفترة">
+        <select id="jx-frep" class="jx-sel jx-f-rep" title="نوع البلاغ">
+          <option value="">كل البلاغات</option>
+          <option value="fake_update">FAKE UPDATE</option>
+          <option value="jt_error">غلطة من J&amp;T</option>
+        </select>
+        <select id="jx-fdays" class="jx-sel jx-f-days" title="الفترة">
           <option value="1">النهارده</option>
           <option value="3">آخر 3 أيام</option>
           <option value="7" selected>آخر 7 أيام</option>
@@ -988,6 +994,33 @@
           </div>
           <p class="sc-hint np-note">⚠️ تنبيهات نفاد الرصيد وطلبات الإلغاء بعد التأكيد شغالة دايماً — تفويتها بيوقف شغلك.</p>
         </div>
+      </div>
+    </section>
+
+    <!-- صوت تنبيه الاستثناءات -->
+    <section class="settings-card" data-tone="orange" id="set-jx-sound-card">
+      <div class="sc-head">
+        <div class="sc-ico">🔔</div>
+        <div class="sc-titles">
+          <h3>صوت تنبيه الاستثناءات</h3>
+          <p>صوت إنذار أول ما استثناء جديد من J&amp;T ينزل في السيستم — من أي صفحة في اللوحة</p>
+        </div>
+      </div>
+      <div class="sc-body">
+        <div class="jxs-rows">
+          <label class="sc-toggle-row" for="set-jx-sound-team">
+            <span class="sc-toggle-txt"><span class="sc-toggle-name">الصوت للفريق كله</span><span class="sc-toggle-desc">لو قفلته، مفيش جهاز في المتجر هيرنّ — الإشعار المكتوب والشارة على الزرار بيفضلوا زي ما هم</span></span>
+            <input type="checkbox" class="swx" id="set-jx-sound-team">
+          </label>
+          <label class="sc-toggle-row" for="set-jx-sound-device">
+            <span class="sc-toggle-txt"><span class="sc-toggle-name">الصوت على الجهاز ده</span><span class="sc-toggle-desc">بيتحفظ في المتصفح ده بس — تكتمه عندك من غير ما يأثر على أجهزة الموظفين</span></span>
+            <input type="checkbox" class="swx" id="set-jx-sound-device">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button class="sbtn settings-save-btn" id="set-jx-sound-test" type="button">▶️ جرّب الصوت</button>
+        </div>
+        <p class="sc-hint">ℹ️ المتصفح مابيسمحش بأي صوت لحد ما تضغط مرة جوّه اللوحة بعد ما تفتحها — بعدها بيرنّ لوحده طول ما اللوحة مفتوحة، حتى لو إنت على صفحة تانية أو التاب في الخلفية.</p>
       </div>
     </section>
   </div>

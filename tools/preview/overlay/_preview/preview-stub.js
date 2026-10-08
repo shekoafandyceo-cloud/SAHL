@@ -44,6 +44,8 @@
   ];
 
   var ORDERS = [];
+  var PREVIEW_RT = [];   // هاندلرز الريل-تايم — المعاينة بتولّع حدث jt_issues بإيدها (صوت التنبيه)
+  var PREVIEW_PREFS = {};
   for(var i = 0; i < 46; i++){
     var st   = STATUSES[i % STATUSES.length];
     var days = i % 26;                         // موزّعين على الشهر عشان الكالندر يبان
@@ -383,8 +385,30 @@
               reason_ar: 'غلطة فرز من J&T', verdict: 'jt_error', staff_note: 'الشحنة راحت فرع غلط — اتصلحت بعد يومين',
               verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(4 * D - 5 * H), outcome: 'delivered', outcome_at: ago(2 * D),
               order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(4 * D - 2 * H) });
+    // بلاغاتنا لـJ&T (8 أكتوبر): FAKE UPDATE اتسلمت بعد البلاغ بساعات · واحدة رجعت رغم البلاغ · وواحدة J&T سجّلت عليها تاني بعد البلاغ
+    add(18, { tracking_no: 'JEG000553100118', event_at: ago(1 * D + 6 * H), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', verdict: 'fake_update', staff_note: 'العميلة قالت محدش كلّمها — بلّغت J&T',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(1 * D + 4 * H), outcome: 'delivered', outcome_at: ago(3 * H),
+              order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(1 * D + 3 * H) });
+    add(22, { tracking_no: 'JEG000553100122', event_at: ago(3 * D), reason_code: '202', verdict: 'fake_update',
+              staff_note: 'قال التليفون كان شغّال ومحدش رنّ', verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(3 * D - 2 * H),
+              outcome: 'returning', outcome_at: ago(1 * D), order_status: 'returned', branch: 'Giza DP', courier_name: 'كريم عادل',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(3 * D - 1 * H) });
+    add(24, { tracking_no: 'JEG000553100124', event_at: ago(2 * D), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', verdict: 'fake_update', staff_note: 'العميل عايزه — بلّغت J&T',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(2 * D - 3 * H), order_status: 'Out for delivery',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(2 * D - 2 * H) });
+    add(24, { tracking_no: 'JEG000553100124', attempt: 2, event_at: ago(6 * H), reason_code: '202', order_status: 'Out for delivery' });
     TABLES.v_jt_issues = J;
     TABLES.jt_issues = J;
+    // صوت التنبيه: بعد 40 ثانية من فتح المعاينة بينزل استثناء جديد لوحده (زي ما J&T هتبعته) — اضغط مرة في الصفحة قبلها عشان المتصفح يسمح بالصوت
+    setTimeout(function(){
+      add(26, { tracking_no: 'JEG000553100126', event_at: new Date(Date.now() - 60000).toISOString(), reason_code: '1002',
+                reason_en: 'Customer refuse by call', reason_ar: 'العميل رفض في التليفون', courier_note: 'العميل رافض' });
+      var nr = J[J.length - 1];
+      nr.updated_at = new Date().toISOString();
+      PREVIEW_RT.forEach(function(h){ if(h.opts && h.opts.table === 'jt_issues') h.cb({ eventType: 'INSERT', new: { id: nr.id, tracking_no: nr.tracking_no } }); });
+    }, 40000);
     // سجل التعامل (jt_issue_log) — سطر لكل حفظة ومراجعة
     var L = [];
     J.forEach(function(r){
@@ -523,7 +547,7 @@
       sum_paymob:    s(function(o){ return o.payment_stage === 'paymob'; }) };
   }
 
-  var chan = { on: function(){ return chan; },
+  var chan = { on: function(ev, opts, cb){ if(opts && typeof cb === 'function') PREVIEW_RT.push({ opts: opts, cb: cb }); return chan; },
                subscribe: function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); }, 0); return chan; } };
 
   // زرار «شحن أوتوماتيك» بينده Edge Function بـfetch مباشر — في المعاينة
@@ -698,7 +722,8 @@
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
       if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:true, has_number:true, has_token:true, sahl_ready:false, wa_enabled:true }, error:null });
-      if(name === 'get_notify_prefs')  return Promise.resolve({ data:{}, error:null });
+      if(name === 'get_notify_prefs')  return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null });
+      if(name === 'update_notify_prefs'){ Object.assign(PREVIEW_PREFS, (args && args.p_prefs) || {}); return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null }); }
       return Promise.resolve({ data:null, error:null });
     },
     channel: function(){ return chan; },

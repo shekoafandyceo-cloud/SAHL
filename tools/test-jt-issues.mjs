@@ -103,9 +103,12 @@ const FIX = `(function(){
   ];
 })();`;
 
-const HOOK = `window.__SAVES = []; window.__REVIEWS = [];
+const HOOK = `window.__SAVES = []; window.__REVIEWS = []; window.__PREF_SAVES = [];
+window.__ALERTS = 0; window.addEventListener('sahl:alert', function(){ window.__ALERTS++; });
 window.__RPC_HOOK = function(name, args){
   if(name === 'wa_inbox_status') return { data:{ verified:true }, error:null };
+  if(name === 'get_notify_prefs') return { data: Object.assign({}, window.__NOTIFY_PREFS || {}), error:null };
+  if(name === 'update_notify_prefs'){ window.__PREF_SAVES.push(args); window.__NOTIFY_PREFS = Object.assign({}, window.__NOTIFY_PREFS || {}, args.p_prefs); return { data: window.__NOTIFY_PREFS, error:null }; }
   var isAdmin = (window.__ROLE || 'admin') === 'admin';
   var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','verdict_set_by_name','verdict_set_at','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
   if(name === 'jt_issue_review'){
@@ -673,6 +676,163 @@ async function pointerProbe(T){
   await T.ctx.close();
 }
 
+// ═══ «📣 بلاغاتنا لـJ&T» (8 أكتوبر — طلب المالك) ═══
+// الشحنات المتبلّغ عنها (FAKE UPDATE + غلطة من J&T) — اتسلمت بعد البلاغ ولا لأ.
+// المتوقع (30 يوم): 31 اتسلمت بعده بـ20 ساعة · 33 لسه (واتكرر عليها 34 بعد البلاغ) · 13 لسه · 32 رجعت · 3 اتسلمت قبل البلاغ
+console.log('— بلاغاتنا لـJ&T');
+const EXTRA_REP = `(function(){ var now = Date.now(), H = 3600000, ago = function(ms){ return new Date(now - ms).toISOString(); };
+  var b = window.__JT_ISSUES.find(function(x){ return x.id === 1; });
+  var mk = function(o){ var r = Object.assign({}, b, { verdict:null, staff_note:null, staff_updated_at:null, verdict_by_name:null, verdict_set_by_name:null, verdict_set_at:null,
+    staff_rev:0, reviewed_rev:null, review_state:null, review_note:null, reviewed_at:null, reviewed_by_name:null, photo_url:null, courier_note:null,
+    outcome:null, outcome_at:null, order_status:'Exception', attempt:1 }, o); r.updated_at = r.updated_at || r.staff_updated_at || r.event_at; return r; };
+  window.__JT_ISSUES.push(
+    mk({ id:31, tracking_no:'JEG031', order_id:'o31', order_uid:'9031', phone:'01000000031', customer_name:'اتسلمت بعد البلاغ', event_at:ago(32*H),
+      verdict:'fake_update', staff_note:'العميل قال محدش جاله', verdict_by_name:'ebrahim', verdict_set_by_name:'ebrahim', staff_updated_at:ago(30*H), verdict_set_at:ago(30*H),
+      staff_rev:1, reviewed_rev:1, review_state:'ok', reviewed_by_name:'shekoz', reviewed_at:ago(29*H), outcome:'delivered', outcome_at:ago(10*H), order_status:'Delivered', updated_at:ago(10*H) }),
+    mk({ id:32, tracking_no:'JEG032', order_id:'o32', order_uid:'9032', phone:'01000000032', customer_name:'رجعت رغم البلاغ', event_at:ago(52*H), branch:'Giza Hub', courier_name:'سيد',
+      verdict:'jt_error', verdict_by_name:'shekoz', verdict_set_by_name:'shekoz', staff_updated_at:ago(50*H), verdict_set_at:ago(50*H), staff_rev:1, reviewed_rev:1, review_state:'self',
+      reviewed_by_name:'shekoz', reviewed_at:ago(50*H), outcome:'returning', outcome_at:ago(20*H), order_status:'Returned to business', updated_at:ago(20*H) }),
+    mk({ id:33, tracking_no:'JEG033', order_id:'o33', order_uid:'9033', phone:'01000000033', customer_name:'اتكرر بعد البلاغ', event_at:ago(45*H),
+      verdict:'fake_update', verdict_by_name:'ebrahim', verdict_set_by_name:'ebrahim', staff_updated_at:ago(40*H), verdict_set_at:ago(40*H), staff_rev:1, reviewed_rev:1, review_state:'ok',
+      reviewed_by_name:'shekoz', reviewed_at:ago(39*H) }),
+    mk({ id:34, tracking_no:'JEG033', attempt:2, order_id:'o33', order_uid:'9033', phone:'01000000033', customer_name:'اتكرر بعد البلاغ', event_at:ago(5*H),
+      reason_code:'205', reason_en:'Change The Delivery Time', reason_ar:'العميل طلب تأجيل', courier_name:'<i id="xss9">م</i>' })
+  );
+})();`;
+const repIds = (p) => p.evaluate(() => [...document.querySelectorAll('#jx-list .jx-rep')].map(c => Number(c.dataset.id)));
+async function repProbe(T){
+  const p = T.p;
+  await p.waitForSelector('#jx-list .jx-card, #jx-list .empt', { timeout: 8000 }).catch(() => {});
+  const before = await p.evaluate(() => { const c = document.querySelector('#jx-chips [data-jx-chip="reports"]'); const nn = c.querySelector('.jx-nn');
+    return { n: c.querySelector('.n').textContent, nn: nn.hidden ? '' : nn.textContent }; });
+  await chip(p, 'reports');
+  const inside = await p.evaluate(() => ({ ids: [...document.querySelectorAll('#jx-list .jx-rep')].map(c => Number(c.dataset.id)),
+    sum: (document.querySelector('.jx-repsum') || {}).innerText.replace(/\s+/g, ' '),
+    groups: [...document.querySelectorAll('.jx-rep-group')].map(g => g.className.replace(/.*g-/, '') + ':' + g.querySelector('.n').textContent),
+    c31: (document.querySelector('.jx-rep[data-id="31"]') || {}).textContent.replace(/\s+/g, ' '),
+    new31: !!document.querySelector('.jx-rep[data-id="31"] .jx-newtag'), new32: !!document.querySelector('.jx-rep[data-id="32"] .jx-newtag'),
+    rpt33: (document.querySelector('.jx-rep[data-id="33"] .jx-rep-rpt') || {}).textContent || '', xss: !!document.getElementById('xss9'),
+    nn: document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn').hidden,
+    visF: ['jx-frep', 'jx-fdays', 'jx-freason', 'jx-fverdict', 'jx-fwho', 'jx-fout', 'jx-export', 'jx-search', 'jx-refresh']
+      .filter(i => { const el = document.getElementById(i); return el && getComputedStyle(el).display !== 'none'; }),
+    fd: document.getElementById('jx-fdays').value, rb: getComputedStyle(document.getElementById('jx-report-box')).display }));
+  await chip(p, 'open');
+  const after = await p.evaluate(() => ({ nn: document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn').hidden,
+    seen: Object.keys(localStorage).filter(k => /^sahl_jx_rep_seen_/.test(k)).length }));
+  return { before, inside, after };
+}
+{
+  const T = await open('/exceptions', { post: EXTRA_REP });
+  const r = await repProbe(T);
+  const p = T.p;
+  ok(r.before.n === '5' && r.before.nn === '🆕 1', 'R1) شريحة «📣 بلاغاتنا لـJ&T» = 5 شحنات · و«🆕 1» (اتسلمت بعد البلاغ من آخر 24 ساعة — أول مرة) — ' + JSON.stringify(r.before));
+  ok(JSON.stringify(r.inside.ids) === '[31,33,13,32,3]' && r.inside.groups.join() === 'after:1,pending:2,returned:1,before:1',
+    'R2) شحنة لكل بوليصة بالمجموعات: اتسلمت بعد البلاغ (31) · لسه مع J&T الأقدم بلاغ فوق (33 ثم 13) · رجعت (32) · قبل البلاغ (3) — ' + JSON.stringify({ ids: r.inside.ids, g: r.inside.groups }));
+  ok(/5 شحنة بلّغنا عنها/.test(r.inside.sum) && /FAKE UPDATE 3/.test(r.inside.sum) && /غلطة J&T 2/.test(r.inside.sum) && /1 اتسلمت بعد البلاغ في المتوسط بعد 20 ساعة/.test(r.inside.sum)
+    && /1 رجعت رغم البلاغ/.test(r.inside.sum) && /2 لسه مع J&T/.test(r.inside.sum) && /50%/.test(r.inside.sum) && /1 من 2 اتقفلت/.test(r.inside.sum)
+    && /🔁 1 شحنة J&T سجّلت عليها استثناء تاني بعد البلاغ/.test(r.inside.sum) && /1 اتسلمت قبل ما نبلّغ/.test(r.inside.sum),
+    'R3) الملخص: 5 (FAKE 3 · غلطة J&T 2) · اتسلمت بعده 1 (متوسط 20 ساعة) · رجعت 1 · لسه 2 · اتحلّت 50% (1 من 2) · 🔁 1 · قبل البلاغ 1 مش محسوبة — ' + r.inside.sum.slice(0, 260));
+  ok(/اتسلمت بعد البلاغ بـ20 ساعة/.test(r.inside.c31) && /ebrahim بلّغ/.test(r.inside.c31) && /العميل قال محدش جاله/.test(r.inside.c31) && /JEG031/.test(r.inside.c31)
+    && r.inside.new31 && !r.inside.new32 && /العميل طلب تأجيل/.test(r.inside.rpt33) && !r.inside.xss,
+    'R4) الكارت: «اتسلمت بعد البلاغ بـ20 ساعة» · مين بلّغ وكتب إيه · البوليصة · 🆕 على 31 بس · 33 عليه «🔁 J&T سجّلت استثناء تاني بعد البلاغ: العميل طلب تأجيل» (متهرّب) — ' + JSON.stringify({ c31: r.inside.c31.slice(0, 160), rpt: r.inside.rpt33.slice(0, 120) }));
+  ok(r.inside.nn && r.after.nn && r.after.seen === 1, 'R5) جوّه المرحلة «🆕» على الشريحة بيختفي، وبعد ما تخرج مابيرجعش (اتسجّل إنك شفته — sahl_jx_rep_seen_<uid>) — ' + JSON.stringify(r.after));
+  ok(r.inside.visF.join() === 'jx-frep,jx-fdays,jx-fout,jx-export,jx-search,jx-refresh' && r.inside.fd === '30' && r.inside.rb === 'none',
+    'R6) فلاتر المرحلة: نوع البلاغ · الفترة (افتراضي 30 يوم — مش فترة «الكل») · النتيجة · تصدير · بحث — والتقرير مستخبي — ' + JSON.stringify({ v: r.inside.visF, fd: r.inside.fd }));
+  await chip(p, 'reports');
+  await p.selectOption('#jx-fout', 'with_jt'); await p.waitForTimeout(150);
+  const fo = await repIds(p);
+  await p.selectOption('#jx-fout', ''); await p.selectOption('#jx-frep', 'jt_error'); await p.waitForTimeout(150);
+  const fr = await repIds(p);
+  const frSum = await p.evaluate(() => document.querySelector('.jx-repsum').innerText.replace(/\s+/g, ' '));
+  await p.selectOption('#jx-frep', ''); await days(p, 1);
+  const f1 = await repIds(p);
+  await chip(p, 'all');
+  const allDays = await p.evaluate(() => document.getElementById('jx-fdays').value);
+  ok(JSON.stringify(fo) === '[33,13]' && JSON.stringify(fr) === '[13,32]' && /2 شحنة بلّغنا عنها/.test(frSum) && JSON.stringify(f1) === '[13,3]' && allDays === '7',
+    'R7) «لسه مع J&T» = [33،13] · «غلطة من J&T» = [13،32] والملخص بقى 2 · الفترة «النهارده» بتاريخ البلاغ = [13،3] · «الكل» لسه على 7 أيام بتاعتها — ' + JSON.stringify({ fo, fr, f1, allDays }));
+  await chip(p, 'reports'); await days(p, 30);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#jx-export')]);
+  const rcsv = fs.readFileSync(await dl.path(), 'utf8').split('\r\n').filter(Boolean);
+  const copy = await p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); const l = m.jxReportFilter(m.jxReportedShipments(m.jxRows), { repDays: 30, q: '', out: '', rep: '' }, Date.now());
+    return m.jxReportCopyText(l, m.jxReportTotals(l), { repDays: 30 }, Date.now()); });
+  ok(rcsv.length === 6 && /reports-/.test(dl.suggestedFilename()) && /بلّغنا عن 5 شحنة/.test(copy) && /اتسلم بعد البلاغ: 1/.test(copy) && /اتحلّت 50%/.test(copy) && /JEG032 — رجعت — Giza Hub — سيد/.test(copy) && /JEG033 — اتكرر الاستثناء 1 مرة/.test(copy),
+    'R8) التصدير = صف لكل شحنة (5 + العناوين) · «📋 نسخ الملخص لـJ&T» فيه الأرقام والشحنات اللي المشكلة فضلت فيها (الفرع والمندوب) — ' + JSON.stringify({ n: rcsv.length, f: dl.suggestedFilename(), copy: copy.slice(0, 200) }));
+  await chip(p, 'done');
+  const strip = await p.evaluate(() => (document.querySelector('.jx-card[data-id="31"] .jx-m-rep') || {}).textContent || '');
+  ok(/نتيجة البلاغ/.test(strip) && /اتسلمت بعد البلاغ بـ20 ساعة/.test(strip), 'R9) في باقي المراحل الكارت المتبلّغ عنه عليه سطر «📣 نتيجة البلاغ: ✅ اتسلمت بعد البلاغ بـ20 ساعة» — ' + strip.trim().slice(0, 120));
+  // R10) شحنة بلّغنا عنها (13) اتسلمت دلوقتي على الريل-تايم → toast فوري
+  await p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 13); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() + 1000).toISOString(); r.order_status = 'Delivered'; r.updated_at = r.outcome_at;
+    (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 13, tracking_no: 'JEG011' } }); });
+  await p.waitForTimeout(1000);
+  const t10 = await p.evaluate(() => ({ toast: document.getElementById('toast').textContent, nn: (() => { const nn = document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn'); return nn.hidden ? '' : nn.textContent; })() }));
+  ok(/شحنة بلّغنا عنها J&T اتسلمت/.test(t10.toast) && t10.nn === '🆕 1', 'R10) شحنة متبلّغ عنها اتسلمت على الريل-تايم: toast «✅ شحنة بلّغنا عنها J&T اتسلمت» + «🆕 1» على الشريحة — ' + JSON.stringify(t10));
+  ok(p.__errs.length === 0, 'R11) صفر أخطاء جافاسكربت في مرحلة البلاغات — ' + (p.__errs[0] || 'نضيف'));
+  await T.ctx.close();
+}
+
+// ═══ صوت التنبيه (8 أكتوبر — طلب المالك) ═══
+console.log('— صوت التنبيه');
+const NEW50 = () => { const b0 = window.__JT_ISSUES.find(x => x.id === 1); const r = Object.assign({}, b0, { id: 50, tracking_no: 'JEG050', attempt: 1, order_id: 'o50', order_uid: '9050',
+  customer_name: 'عميل جديد', event_at: new Date(Date.now() - 60000).toISOString(), updated_at: new Date().toISOString(), reason_ar: 'العميل رفض في التليفون' });
+  window.__JT_ISSUES.push(r); (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'INSERT', new: { id: 50, tracking_no: 'JEG050' } }); };
+async function soundProbe(o){
+  const T = await open('/orders', o);
+  await T.p.waitForTimeout(500);
+  const a0 = await T.p.evaluate(() => window.__ALERTS);
+  await T.p.evaluate(NEW50);
+  await T.p.waitForTimeout(1500);
+  const a1 = await T.p.evaluate(() => ({ n: window.__ALERTS, toast: document.getElementById('toast').textContent }));
+  // نفس الصف تاني (حدث تحديث عليه) = مفيش رنّة تانية
+  await T.p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 50); r.verdict = 'real_delay'; r.updated_at = new Date().toISOString();
+    (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 50, tracking_no: 'JEG050' } }); });
+  await T.p.waitForTimeout(1500);
+  const a2 = await T.p.evaluate(() => window.__ALERTS);
+  return { T, a0, a1, a2 };
+}
+{
+  const r = await soundProbe();
+  ok(r.a0 === 0 && r.a1.n === 1 && /استثناء جديد من J&T/.test(r.a1.toast) && r.a2 === 1,
+    'S1) على صفحة الأوردرات (تاب الاستثناءات ماتفتحتش): اللي موجود وقت الفتح مابيرنّش · استثناء جديد = رنّة واحدة + toast «🔔 استثناء جديد من J&T» · تحديث نفس الصف مابيرنّش تاني — ' + JSON.stringify({ a0: r.a0, a1: r.a1, a2: r.a2 }));
+  await r.T.ctx.close();
+}
+{
+  const r = await soundProbe({ pre: "window.__NOTIFY_PREFS = { jx_sound: false };" });
+  ok(r.a1.n === 0 && /استثناء جديد/.test(r.a1.toast), 'S2) الأدمن قفل الصوت للفريق (jx_sound=false): مفيش رنّة — والـtoast فاضل — ' + JSON.stringify(r.a1));
+  await r.T.ctx.close();
+}
+{
+  const r = await soundProbe({ pre: "try{ localStorage.setItem('sahl_jx_sound', '0'); }catch(e){}" });
+  ok(r.a1.n === 0, 'S3) الصوت مكتوم على الجهاز ده (sahl_jx_sound=0): مفيش رنّة — ' + JSON.stringify(r.a1));
+  await r.T.ctx.close();
+}
+{
+  const r = await soundProbe({ pre: "try{ localStorage.setItem('sahl_jx_beep_last', '50'); }catch(e){}" });
+  ok(r.a1.n === 0, 'S4) تاب تانية (المحادثات) رنّت على نفس الاستثناء (sahl_jx_beep_last ≥ id): مفيش رنّة مكررة — ' + JSON.stringify(r.a1));
+  await r.T.ctx.close();
+}
+{
+  // S5) الإعدادات: الاتنين شغّالين افتراضياً · قفل «للفريق» بيكتب jx_sound=false ويوقف الرنّة فوراً · «الجهاز ده» في localStorage · «جرّب الصوت» بيرنّ
+  const T = await open('/settings');
+  const p = T.p;
+  await p.waitForSelector('#set-jx-sound-team', { state: 'visible', timeout: 8000 });
+  await p.waitForTimeout(400);
+  const d0 = await p.evaluate(() => ({ team: document.getElementById('set-jx-sound-team').checked, dev: document.getElementById('set-jx-sound-device').checked }));
+  const hit = await p.evaluate(() => { const el = document.querySelector('label[for="set-jx-sound-team"]'); el.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = el.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(at && el.contains(at)); });
+  await p.click('label[for="set-jx-sound-team"]'); await p.waitForTimeout(300);
+  const saves = await p.evaluate(() => window.__PREF_SAVES);
+  await p.click('#set-jx-sound-test'); await p.waitForTimeout(300);
+  const tested = await p.evaluate(() => window.__ALERTS);
+  await p.evaluate(NEW50); await p.waitForTimeout(1500);
+  const afterOff = await p.evaluate(() => window.__ALERTS);
+  await p.click('label[for="set-jx-sound-device"]'); await p.waitForTimeout(200);
+  const dev = await p.evaluate(() => localStorage.getItem('sahl_jx_sound'));
+  ok(d0.team && d0.dev && hit && saves.length === 1 && saves[0].p_prefs && saves[0].p_prefs.jx_sound === false && tested === 1 && afterOff === 1 && dev === '0',
+    'S5) الإعدادات: كارت «🔔 صوت تنبيه الاستثناءات» (hit-test) · الاتنين شغّالين افتراضياً · قفل «للفريق كله» = update_notify_prefs({jx_sound:false}) والاستثناء الجديد بعدها مارنّش · «▶️ جرّب الصوت» رنّ · «الجهاز ده» = localStorage — ' + JSON.stringify({ d0, hit, saves, tested, afterOff, dev }));
+  ok(p.__errs.length === 0, 'S6) صفر أخطاء جافاسكربت في الإعدادات — ' + (p.__errs[0] || 'نضيف'));
+  await T.ctx.close();
+}
+
 // ═══ المعايرات ═══
 console.log('— المعايرات');
 async function calib(label, patches, probe, expectFail, o){
@@ -815,6 +975,23 @@ await calib('(ث) المسودة بتتسجّل حتى لو نفس المحفو�
     await T.p.waitForTimeout(1200);
     return T.p.evaluate(() => (document.querySelector('.jx-card[data-id="1"] textarea.jx-note') || {}).value);
   }, v => v !== 'زميل كتب الجديد', { role: 'employee' });
+
+await calib('(خ) من غير خط البداية → كل الموجود وقت الفتح رنّ (الفحص S1 كان هيقع)',
+  { exc: s => s.replace('    if(jxKnownReady && id > jxKnownMax) fresh.push(rows[i]);', '    if(id > jxKnownMax) fresh.push(rows[i]);') },
+  T => T.p.evaluate(() => window.__ALERTS), n => n > 0);
+await calib('(ذ) إعداد الفريق متطنّش → رنّ والأدمن قافله (الفحص S2 كان هيقع)',
+  { exc: s => s.replace('export function jxSoundEnabled(){ return jxTeamSound && deviceSoundOn(); }', 'export function jxSoundEnabled(){ return deviceSoundOn(); }') },
+  async T => { await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500); return T.p.evaluate(() => window.__ALERTS); }, n => n > 0,
+  { pre: "window.__NOTIFY_PREFS = { jx_sound: false };" });
+await calib('(ض) «اتسلمت قبل البلاغ» بتتحسب «بعده» → الملخص بقى 2 بعد البلاغ (الفحص R3 كان هيقع)',
+  { exc: s => s.replace("  if(out === 'delivered') return (outAt && outAt < firstAt) ? 'before' : 'after';", "  if(out === 'delivered') return 'after';") },
+  async T => { await chip(T.p, 'reports'); return T.p.evaluate(() => (document.querySelector('.jx-repsum') || {}).innerText.replace(/\s+/g, ' ')); }, t => !/1 اتسلمت بعد البلاغ في المتوسط/.test(t), { post: EXTRA_REP });
+await calib('(ظ) «اتكرر» بيعدّ استثناءات قبل البلاغ → كل شحنة بقت «اتكرر» (الفحص R3 كان هيقع)',
+  { exc: s => s.replace("      if(x.kind === 'exception' && jxTs(x.event_at) > s.firstAt) repeats.push(x);", "      if(x.kind === 'exception') repeats.push(x);") },
+  async T => { await chip(T.p, 'reports'); return T.p.evaluate(() => (document.querySelector('.jx-repsum') || {}).innerText.replace(/\s+/g, ' ')); }, t => !/🔁 1 شحنة/.test(t), { post: EXTRA_REP });
+await calib('(غ) المرحلة مابتسجّلش إنك شفتها → «🆕» رجع على الشريحة بعد ما خرجت (الفحص R5 كان هيقع)',
+  { exc: s => s.replace('  jxRepSeenSet(now);\n  var period', '  var period') },
+  async T => { await chip(T.p, 'reports'); await chip(T.p, 'open'); return T.p.evaluate(() => document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn').hidden); }, hid => !hid, { post: EXTRA_REP });
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

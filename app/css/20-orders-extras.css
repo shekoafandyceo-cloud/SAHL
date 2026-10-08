@@ -67,3 +67,4 @@
 .ex-link{background:none;border:none;padding:0 2px;color:#1d4ed8;font-weight:800;cursor:pointer;font-family:inherit;font-size:inherit;text-decoration:underline}
 .ex-btn{background:#ecfdf5!important;color:#065f46!important;border:1px solid #6ee7b7!important}
 @media(max-width:600px){.of-row{grid-template-columns:1fr 80px 54px 38px}}
+#page-settings .jxs-rows{display:flex;flex-direction:column;gap:10px;}

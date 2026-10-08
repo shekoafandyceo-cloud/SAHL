@@ -15,6 +15,8 @@ import { loadStaff, wireStaffEvents } from './staff.js';
 import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
 import { refreshInboxGate } from '../orders/billing-summary.js';
 import { ensureTenant, isAdmin } from '../orders/guards.js';
+import { deviceSoundOn, playAlert, setDeviceSound, unlockAudio } from '../core/alert-sound.js';
+import { jxSetTeamSound, jxSoundEnabled } from '../exceptions/exceptions.js';
 
 export var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
 
@@ -181,13 +183,51 @@ export var NOTIFY_KEYS = ['staff_activity','confirmations','cancellations','outg
 
 export function loadNotifyPrefs(){
   if(!sb) return;
+  var dev = $id('set-jx-sound-device');
+  if(dev) dev.checked = deviceSoundOn();
   sb.rpc('get_notify_prefs').then(function(r){
     var prefs = (!r.error && r.data) ? r.data : {};
     NOTIFY_KEYS.forEach(function(k){
       var el = $id('np-'+k);
       if(el) el.checked = (prefs[k] === undefined || prefs[k] === null) ? true : !!prefs[k];
     });
+    // صوت الاستثناءات: الغايب = شغّال (زي باقي المفاتيح)
+    var team = $id('set-jx-sound-team');
+    if(team && !r.error){ team.checked = prefs.jx_sound !== false; jxSetTeamSound(team.checked); }
   });
+}
+
+// صوت تنبيه الاستثناءات للفريق كله — jx_sound في notify_prefs (الأدمن بس على السيرفر)
+export function saveJxSoundTeam(){
+  var el = $id('set-jx-sound-team'); if(!el) return;
+  var desired = !!el.checked;
+  el.disabled = true;
+  sb.rpc('update_notify_prefs', { p_prefs: { jx_sound: desired } }).then(function(r){
+    el.disabled = false;
+    if(r.error){
+      el.checked = !desired;
+      var m = r.error.message || '';
+      toast(m.indexOf('admin_only') >= 0 ? 'الصلاحية دي للأدمن فقط' : ('الحفظ مانفعش: ' + m), 'er');
+      return;
+    }
+    jxSetTeamSound(desired);
+    toast(desired ? 'صوت الاستثناءات اتفعّل للفريق ✓' : 'صوت الاستثناءات اتقفل للفريق كله', 'ok');
+  }).catch(function(e){ el.disabled = false; el.checked = !desired; toast('خطأ: ' + (e.message || e), 'er'); });
+}
+
+export function saveJxSoundDevice(){
+  var el = $id('set-jx-sound-device'); if(!el) return;
+  setDeviceSound(!!el.checked);
+  toast(el.checked ? 'الصوت شغّال على الجهاز ده ✓' : 'الصوت اتكتم على الجهاز ده', 'ok');
+}
+
+export function testJxSound(){
+  unlockAudio();
+  // الضغطة نفسها بتفتح الصوت — بس resume() مش لحظي، فبنستنى لحظة قبل ما نحكم
+  setTimeout(function(){
+    if(!playAlert()) toast('المتصفح لسه مانع الصوت — اضغط تاني، ولو مفيش صوت شوف صوت الجهاز أو إعدادات الموقع', 'er');
+    else if(!jxSoundEnabled()) toast('الصوت شغّال ✓ — بس التنبيه مقفول ' + ($id('set-jx-sound-team') && !$id('set-jx-sound-team').checked ? 'للفريق' : 'على الجهاز ده') + '، فمش هيرنّ لوحده', 'er');
+  }, 60);
 }
 
 export function saveNotifyPref(key){
@@ -405,4 +445,7 @@ export function wireSettingsEvents(){
     var el = $id('np-'+k);
     if(el) el.addEventListener('change', function(){ saveNotifyPref(k); });
   });
+  if($id('set-jx-sound-team'))   $id('set-jx-sound-team').addEventListener('change', saveJxSoundTeam);
+  if($id('set-jx-sound-device')) $id('set-jx-sound-device').addEventListener('change', saveJxSoundDevice);
+  if($id('set-jx-sound-test'))   $id('set-jx-sound-test').addEventListener('click', testJxSound);
 }

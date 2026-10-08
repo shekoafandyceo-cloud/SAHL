@@ -45,7 +45,8 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { veilDone } from '../core/veil.js';
 import { copyTextToClipboard } from '../ui/clipboard.js';
-import { currentTenantId, currentRole } from '../auth/auth.js';
+import { audioReady, deviceSoundOn, playAlert } from '../core/alert-sound.js';
+import { currentTenantId, currentRole, currentUser } from '../auth/auth.js';
 import { walletStateCache } from '../billing/billing.js';
 import { tourActive } from '../tour/tour.js';
 import { openDetail } from '../orders/detail.js';
@@ -102,11 +103,12 @@ var jxSaving = {}, jxResave = {};
 var jxNew = {};                // id → وقت وصوله لحظي
 var jxPendingRender = false, jxPendingFromOthers = false;
 // chip = المرحلة: open · review · done · all. days/reason/verdict/who بيتطبّقوا في «الكل» بس · out في «اتراجعت» و«الكل»
-export var jxFilter = { chip: 'open', days: 7, reason: '', verdict: '', who: '', out: '', q: '' };
+export var jxFilter = { chip: 'open', days: 7, repDays: 30, reason: '', verdict: '', who: '', out: '', rep: '', q: '' };
 var jxReviewing = {};          // id → مراجعة في السكة (قفل في الكود — مش disabled)
 var jxEditOpen = {};           // id → الأدمن داس «✏️ عدّل» على كارت متصنّف
 var jxLogOpen = {}, jxLogCache = {};  // id → السجل مفتوح / { key: updated_at, rows }
 var jxStageChosen = false;
+var jxRepRef = 0;              // «🆕» في مرحلة البلاغات = اتسلم بعد آخر مرة اتفتحت (بيتثبّت لحظة الدخول)
 // الكارت اللي الأدمن لسه راجعه بيفضل مكانه (متعلّم) لحد ما يغيّر المرحلة — الطابور مايتحركش تحت إيده فضغطة سريعة
 // تانية ماتقعش على كارت ماقراهوش. العدّادات بتتحدّث فوراً عادي.
 var jxHold = {};               // id → المرحلة اللي اتعمل فيها الفعل (review · done)
@@ -275,7 +277,168 @@ function jxMatches(r, q, qd){
 
 function jxTs(iso){ var t = Date.parse(iso || ''); return isFinite(t) ? t : 0; }
 
+// ── بلاغاتنا لـJ&T (8 أكتوبر — طلب المالك) ─────────────────────────────
+// «لو اوردر اتسلم من الي احنا مبلغين عليهم انهم Fake Update او مشكلة … عشان نعرف المتابعة مجدية ولا لا، هل هما في J&T حلوا
+// المشكلة فعلا بعد الابلاغ». البلاغ = التصنيف الحالي FAKE UPDATE أو «غلطة من J&T». الوحدة = **الشحنة** (البوليصة): وقت البلاغ =
+// أول مرة اتصنّفت كده (verdict_set_at) · النتيجة من مسحات J&T (outcome_at = وقت التسليم/المرتجع الحقيقي) ·
+// «اتكرر» = J&T سجّلت استثناء تاني على نفس الشحنة **بعد** البلاغ (يعني ماحلّتش).
+export var JX_REPORTED = ['fake_update', 'jt_error'];
+export function jxIsReported(r){ return !!(r && JX_REPORTED.indexOf(r.verdict) >= 0); }
+function jxReportAt(r){ return jxTs(r.verdict_set_at || r.staff_updated_at); }
+
+// bucket: after (اتسلمت بعد البلاغ) · before (اتسلمت قبل ما نبلّغ — مابتتحسبش للمتابعة) · pending (لسه مع J&T) ·
+//         returned (رجعت رغم البلاغ) · cancelled (اتلغت عندنا)
+function jxRepBucket(out, outAt, firstAt){
+  if(out === 'delivered') return (outAt && outAt < firstAt) ? 'before' : 'after';
+  if(out === 'returning' || out === 'returned') return 'returned';
+  if(out === 'cancelled') return 'cancelled';
+  return 'pending';
+}
+
+// كل الشحنات اللي بلّغنا عنها (من غير فلاتر) — مصدر واحد للمرحلة والملخص والعدّاد وسطر الكارت
+export function jxReportedShipments(rows){
+  var by = {}, order = [];
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
+    if(!jxIsReported(r)) continue;
+    var b = by[r.tracking_no];
+    if(!b){ b = by[r.tracking_no] = { bill: r.tracking_no, rows: [], firstAt: Infinity, latest: null, verdicts: {} }; order.push(b); }
+    b.rows.push(r);
+    b.verdicts[r.verdict] = 1;
+    var t = jxReportAt(r);
+    if(t && t < b.firstAt){ b.firstAt = t; b.first = r; }
+    if(!b.latest || jxTs(r.event_at) > jxTs(b.latest.event_at)) b.latest = r;
+  }
+  var list = [];
+  for(var j = 0; j < order.length; j++){
+    var s = order[j];
+    if(!isFinite(s.firstAt)) continue;
+    // النتيجة من أحدث صف على البوليصة (أي نوع) — المسحات اللي بعد آخر استثناء هي اللي بتحسم
+    var last = s.latest, repeats = [];
+    for(var k = 0; k < rows.length; k++){
+      var x = rows[k];
+      if(x.tracking_no !== s.bill) continue;
+      if(jxTs(x.event_at) > jxTs(last.event_at)) last = x;
+      if(x.kind === 'exception' && jxTs(x.event_at) > s.firstAt) repeats.push(x);
+    }
+    var out = jxOutcome(last), outAt = last.outcome ? jxTs(last.outcome_at) : 0;
+    repeats.sort(function(a, b2){ return jxTs(a.event_at) - jxTs(b2.event_at); });
+    s.out = out; s.outAt = outAt; s.repeats = repeats;
+    s.bucket = jxRepBucket(out, outAt, s.firstAt);
+    s.hours = (s.bucket === 'after' && outAt) ? (outAt - s.firstAt) / 3600000 : null;
+    list.push(s);
+  }
+  return list;
+}
+
+var JX_REP_ORDER = { after: 0, pending: 1, returned: 2, before: 3, cancelled: 4 };
+var JX_REP_GROUP = {
+  after:     '✅ اتسلمت بعد البلاغ',
+  pending:   '⏳ لسه مع J&T',
+  returned:  '↩️ رجعت رغم البلاغ',
+  before:    '✅ اتسلمت قبل ما نبلّغ (مابتتحسبش للمتابعة)',
+  cancelled: 'اتلغت عندنا'
+};
+
+// الفترة في المرحلة دي ليها قيمتها (الافتراضي 30 يوم = كل اللي اتحمّل) — مش فترة «الكل»
+export function jxRepDays(f){ return f.repDays != null ? f.repDays : 30; }
+
+// فلاتر المرحلة: الفترة بتاريخ البلاغ (مش الاستثناء) · النتيجة · نوع البلاغ · البحث
+export function jxReportFilter(list, f, now){
+  var from = jxPeriodFrom(jxRepDays(f), now), q = jxNorm(toLatinDigits(f.q)), qd = normalizePhone(f.q);
+  var out = list.filter(function(s){
+    if(!(jxYmd(s.firstAt) >= from)) return false;
+    if(f.rep && !s.verdicts[f.rep]) return false;
+    if(f.out){
+      if(f.out === 'with_jt' && s.bucket !== 'pending') return false;
+      if(f.out === 'delivered' && s.bucket !== 'after' && s.bucket !== 'before') return false;
+      if(f.out === 'returned' && s.bucket !== 'returned') return false;
+      if(f.out === 'cancelled' && s.bucket !== 'cancelled') return false;
+    }
+    if(q){
+      var hit = false;
+      for(var i = 0; i < s.rows.length && !hit; i++) hit = jxMatches(s.rows[i], q, qd);
+      if(!hit) return false;
+    }
+    return true;
+  });
+  // اتسلمت بعد البلاغ فوق (الأحدث تسليم) · لسه مع J&T (الأقدم بلاغ) · رجعت · قبل البلاغ · اتلغت
+  out.sort(function(a, b){
+    return JX_REP_ORDER[a.bucket] - JX_REP_ORDER[b.bucket]
+      || (a.bucket === 'after' ? b.outAt - a.outAt : (a.bucket === 'pending' ? a.firstAt - b.firstAt : b.firstAt - a.firstAt));
+  });
+  return out;
+}
+
+function jxMedian(a){
+  if(!a.length) return null;
+  var b = a.slice().sort(function(x, y){ return x - y; }), m = Math.floor(b.length / 2);
+  return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
+}
+
+// الأرقام: «اتحلّت» = اتسلمت بعد البلاغ ÷ (اتسلمت بعد البلاغ + رجعت رغمه) — اللي لسه مع J&T مابيدخلش الحساب لسه.
+// ⚠️ مفيش مقارنة بالشحنات اللي مابلّغناش عنها عن قصد: فيها الرفض الحقيقي (هترجع أكيد) فالمقارنة هتنفخ أثر البلاغ.
+export function jxReportTotals(list){
+  var t = { n: list.length, after: 0, before: 0, pending: 0, returned: 0, cancelled: 0, repeated: 0, hours: [], oldestPending: null, byV: {} };
+  for(var i = 0; i < list.length; i++){
+    var s = list[i];
+    t[s.bucket]++;
+    if(s.repeats.length) t.repeated++;
+    if(s.hours != null) t.hours.push(s.hours);
+    if(s.bucket === 'pending' && (t.oldestPending === null || s.firstAt < t.oldestPending)) t.oldestPending = s.firstAt;
+    for(var v in s.verdicts){
+      if(!Object.prototype.hasOwnProperty.call(s.verdicts, v)) continue;
+      var e = t.byV[v] || (t.byV[v] = { n: 0, after: 0, returned: 0 });
+      e.n++; if(s.bucket === 'after') e.after++; if(s.bucket === 'returned') e.returned++;
+    }
+  }
+  t.closed = t.after + t.returned;
+  t.medianHours = jxMedian(t.hours);
+  return t;
+}
+
+export function jxDur(h){
+  if(h == null || !isFinite(h)) return '';
+  if(h < 1) return 'أقل من ساعة';
+  if(h < 48) return Math.round(h) + ' ساعة';
+  return (Math.round(h / 24 * 10) / 10) + ' يوم';
+}
+
+// اتسلمت بعد البلاغ من آخر مرة فتحت المرحلة دي (لكل جهاز — localStorage راحة مش مصدر حقيقة)
+var JX_REP_SEEN_KEY = 'sahl_jx_rep_seen_';
+function jxRepSeenKey(){ return JX_REP_SEEN_KEY + (currentUser && currentUser.id || 'x'); }
+function jxRepSeenGet(){
+  try{ var v = Number(localStorage.getItem(jxRepSeenKey())); if(isFinite(v) && v > 0) return v; }catch(e){ /* مفيش storage */ }
+  return 0;
+}
+function jxRepSeenSet(t){ try{ localStorage.setItem(jxRepSeenKey(), String(t)); }catch(e){ /* مفيش storage */ } }
+// أول مرة خالص: اللي اتسلم آخر 24 ساعة يتعلّم جديد (مش التاريخ كله)
+function jxRepSeenRef(now){ return jxRepSeenGet() || (now - DAY_MS); }
+export function jxRepIsNew(s, ref){ return s.bucket === 'after' && !!s.outAt && s.outAt > ref; }
+
+export function jxReportCopyText(list, t, f, now){
+  var from = jxPeriodFrom(jxRepDays(f), now), to = jxYmd(now);
+  var lines = ['نتيجة بلاغاتنا لـJ&T (FAKE UPDATE + غلطة من J&T) — من ' + from + ' لـ ' + to,
+    '• بلّغنا عن ' + t.n + ' شحنة',
+    '• اتسلم بعد البلاغ: ' + t.after + (t.medianHours != null ? ' (في المتوسط بعد ' + jxDur(t.medianHours) + ')' : ''),
+    '• رجع رغم البلاغ: ' + t.returned + (t.closed ? ' — يعني اتحلّت ' + Math.round(t.after * 100 / t.closed) + '% من اللي اتقفلت' : ''),
+    '• لسه مع J&T: ' + t.pending,
+    '• J&T سجّلت استثناء تاني بعد البلاغ على: ' + t.repeated];
+  if(t.before) lines.push('• اتسلم قبل البلاغ: ' + t.before);
+  var bad = list.filter(function(s){ return s.bucket === 'returned' || s.repeats.length; }).slice(0, 15);
+  if(bad.length){
+    lines.push('', 'الشحنات اللي المشكلة فضلت فيها بعد البلاغ:');
+    bad.forEach(function(s, i){
+      lines.push((i + 1) + ') ' + s.bill + ' — ' + (s.bucket === 'returned' ? 'رجعت' : 'اتكرر الاستثناء ' + s.repeats.length + ' مرة')
+        + (s.latest.branch ? ' — ' + s.latest.branch : '') + (s.latest.courier_name ? ' — ' + s.latest.courier_name : ''));
+    });
+  }
+  return lines.join('\n');
+}
+
 export function jxFilterRows(rows, f, now){
+  // بلاغاتنا: صف لكل شحنة (أحدث استثناء متبلّغ عنه) — والتصدير بياخد نفس القايمة
+  if(f.chip === 'reports') return jxReportFilter(jxReportedShipments(rows), f, now).map(function(x){ return x.latest; });
   var lv = jxLatestVerdictAt(rows);
   var openBills = f.chip === 'done' ? jxDoneBills(rows, lv, now) : null;
   var from = jxPeriodFrom(f.days, now);
@@ -482,6 +645,7 @@ function jxNoteSync(iso){
 }
 
 function jxSetRows(rows){
+  jxSeeRows(rows);
   jxRows = rows;
   jxById = {};
   jxSyncMs = 0;
@@ -621,7 +785,8 @@ function jxFetchTrackings(list){
 }
 
 function jxMerge(rows, noNew){
-  var changed = [], now = Date.now();
+  var changed = [], now = Date.now(), delivered = {};
+  jxSeeRows(rows);
   for(var i = 0; i < rows.length; i++){
     var n = rows[i], old = jxById[n.id];
     if(!old){
@@ -633,13 +798,35 @@ function jxMerge(rows, noNew){
     } else if(jxOlderSnapshot(n, old)){
       // نسخة أقدم وصلت متأخرة (جلب خرج قبل الحفظ/المراجعة ورجع بعدها) — مانرجّعش اللي اتأكد
     } else if(JSON.stringify(jxPlain(old)) !== JSON.stringify(jxPlain(n))){
+      var wasDel = jxOutcome(old) === 'delivered';
       Object.assign(old, n);
       jxPrep(old);
       changed.push(n.id);
+      if(!wasDel && jxOutcome(old) === 'delivered') delivered[old.tracking_no] = 1;
     }
     jxNoteSync(n.updated_at);
   }
+  jxToastReportedDelivered(Object.keys(delivered));
   return changed;
+}
+
+// شحنة بلّغنا عنها اتسلمت دلوقتي — ده بالظبط اللي المالك عايز يعرفه لحظتها (مرة لكل بوليصة)
+var jxToasted = {};
+function jxToastReportedDelivered(bills){
+  if(!bills.length) return;
+  var hits = [];
+  for(var i = 0; i < bills.length; i++){
+    if(jxToasted[bills[i]]) continue;
+    var bill = [];
+    for(var j = 0; j < jxRows.length; j++) if(jxRows[j].tracking_no === bills[i]) bill.push(jxRows[j]);
+    var sh = jxReportedShipments(bill)[0];
+    if(sh && sh.bucket === 'after'){ jxToasted[bills[i]] = 1; hits.push(sh); }
+  }
+  if(!hits.length) return;
+  var h = hits[0];
+  toast(hits.length === 1
+    ? '✅ شحنة بلّغنا عنها J&T اتسلمت: ' + (h.latest.customer_name || h.bill) + (h.hours != null ? ' — بعد البلاغ بـ' + jxDur(h.hours) : '')
+    : '✅ ' + hits.length + ' شحنات بلّغنا عنها J&T اتسلمت — شوف «📣 بلاغاتنا لـJ&T»', 'ok');
 }
 
 // الـrev بيزيد مع كل حفظة و`updated_at` مع كل تغيير (حفظ · مراجعة · نتيجة) — الأقل من اللي عندنا = نسخة قديمة
@@ -653,6 +840,58 @@ function jxPlain(r){
   var o = {};
   for(var k in r){ if(Object.prototype.hasOwnProperty.call(r, k) && k.charAt(0) !== '_') o[k] = r[k]; }
   return o;
+}
+
+// ── صوت التنبيه: أول ما استثناء جديد ينزل (من أي صفحة في اللوحة) ────────────
+// «جديد» = id أكبر من أكبر id شفناه في الجلسة دي (أول جلب = خط البداية، مابيرنّش على اللي موجود).
+// المصادر التلاتة: الشارة (الصفحة لسه ماتفتحتش) · التحميل الكامل · المزامنة/الريل-تايم (jxMerge).
+// الإعداد: jx_sound في notify_prefs (الأدمن للفريق كله — الغايب = شغّال) + الجهاز ده (localStorage).
+var jxKnownMax = 0, jxKnownReady = false;
+var jxTeamSound = true, jxPrefAt = 0;
+var JX_BEEP_LAST = 'sahl_jx_beep_last';   // أكبر id رنّ عليه — بين التابات (المحادثات تاب لوحدها)
+
+export function jxSetTeamSound(on){ jxTeamSound = on !== false; jxPrefAt = Date.now(); }
+export function jxSoundEnabled(){ return jxTeamSound && deviceSoundOn(); }
+
+function jxLoadSoundPref(){
+  if(!sb || (jxPrefAt && Date.now() - jxPrefAt < 5 * 60000)) return;
+  jxPrefAt = Date.now();
+  try{
+    sb.rpc('get_notify_prefs').then(function(r){
+      if(r && !r.error && r.data) jxTeamSound = r.data.jx_sound !== false;
+    });
+  }catch(e){ swallow('exceptions/sound-pref', e); }
+}
+
+function jxSeeRows(rows){
+  if(tourActive) return;
+  var mx = jxKnownMax, fresh = [];
+  for(var i = 0; i < rows.length; i++){
+    var id = Number(rows[i] && rows[i].id) || 0;
+    if(jxKnownReady && id > jxKnownMax) fresh.push(rows[i]);
+    if(id > mx) mx = id;
+  }
+  jxKnownMax = mx;
+  jxKnownReady = true;
+  if(fresh.length) jxAlertNew(fresh, mx);
+}
+
+function jxAlertNew(fresh, maxId){
+  var f = fresh[0];
+  var what = f.reason_ar ? ': ' + f.reason_ar + (f.customer_name ? ' — ' + f.customer_name : '') : '';
+  toast('🔔 ' + (fresh.length > 1 ? fresh.length + ' استثناءات جديدة من J&T' : 'استثناء جديد من J&T' + what), 'er');
+  if(!jxSoundEnabled()) return;
+  // كذا تاب مفتوحة (اللوحة + المحادثات) = صوت واحد: التاب اللي قدامك الأول، وبعدها اللي الصوت فيها جاهز
+  var focused = false;
+  try{ focused = !document.hidden && document.hasFocus(); }catch(e){ focused = false; }
+  var delay = focused && audioReady() ? 0 : (audioReady() ? 250 : 600);
+  setTimeout(function(){
+    try{
+      if((Number(localStorage.getItem(JX_BEEP_LAST)) || 0) >= maxId) return;   // تاب تانية رنّت عليه
+      localStorage.setItem(JX_BEEP_LAST, String(maxId));
+    }catch(e){ /* مفيش storage = نرنّ وخلاص */ }
+    playAlert();
+  }, delay);
 }
 
 // ── الشارة على زرار التبويب ──────────────────────────────────────────
@@ -685,6 +924,7 @@ function jxBadgeAll(rows, now){ jxSetNavBadge(jxCountOpen(rows, now), jxCountRev
 // بتتنادى من loadAll (بعد الدخول ومع كل ↻) ومن الريل-تايم لما الصفحة لسه ماتحمّلتش
 export function jtRefreshNavBadge(){
   if(!sb || !currentTenantId || tourActive) return;
+  jxLoadSoundPref();
   if(jxLoadedAt){ jxBadgeAll(jxRows, Date.now()); jxEnsureRealtime(); return; }
   var since = new Date(Date.now() - JX_WINDOW_DAYS * DAY_MS).toISOString();
   Promise.all([
@@ -701,6 +941,7 @@ export function jtRefreshNavBadge(){
       if(r.error){ jxSetNavBadge(0, 0); return; }
       var rows = jxWithKept(r.data || [], res[1]);
       for(var i = 0; i < rows.length; i++) jxPrep(rows[i]);
+      jxSeeRows(rows);
       jxBadgeAll(rows, Date.now());
       jxEnsureRealtime();
     });
@@ -819,13 +1060,16 @@ function jxIsAdmin(){ return currentRole === 'admin'; }
 function jxApplyStage(){
   var page = $id('page-exceptions');
   if(page) page.setAttribute('data-stage', jxFilter.chip);
+  // الفترة ليها قيمة في «بلاغاتنا» وقيمة في «الكل»
+  var fd = $id('jx-fdays');
+  if(fd && document.activeElement !== fd) fd.value = String(jxFilter.chip === 'reports' ? jxRepDays(jxFilter) : jxFilter.days);
 }
 
 // عدّادات المراحل — نفس الدوال اللي بتفلتر الطوابير (مصدر واحد: رقم الشريحة = الكروت اللي تحتها)
 export function jxStageCounts(rows, now, f){
   f = f || jxFilter;
   var lv = jxLatestVerdictAt(rows), openBills = jxDoneBills(rows, lv, now), from = jxPeriodFrom(f.days, now);
-  var c = { open: 0, review: 0, done: 0, done_jt: 0, all: 0 };
+  var c = { open: 0, review: 0, done: 0, done_jt: 0, all: 0, reports: 0, reports_new: 0 };
   for(var i = 0; i < rows.length; i++){
     var r = rows[i], st = jxStage(r, lv, now);
     if(st === 'open') c.open++;
@@ -833,6 +1077,11 @@ export function jxStageCounts(rows, now, f){
     if(jxInDone(r, lv, openBills, now)){ c.done++; if(jxOutcome(r) === null) c.done_jt++; }
     if(r._ymd >= from) c.all++;
   }
+  // بلاغاتنا: نفس قايمة المرحلة بفترتها (من غير النتيجة/النوع/البحث) — والـ🆕 = اتسلمت بعد آخر مرة اتفتحت
+  var rl = jxReportFilter(jxReportedShipments(rows), { repDays: jxRepDays(f), q: '', out: '', rep: '' }, now);
+  var ref = f.seenRef != null ? f.seenRef : jxRepSeenRef(now);
+  c.reports = rl.length;
+  for(var k = 0; k < rl.length; k++) if(jxRepIsNew(rl[k], ref)) c.reports_new++;
   return c;
 }
 
@@ -859,6 +1108,14 @@ function jxRenderChips(now){
     var n = chips[j].querySelector('.n');
     if(n) n.textContent = String(c[k] || 0);
     if(k === 'done') chips[j].title = c.done_jt + ' لسه مع J&T من ' + c.done + ' اتعاملنا معاها واتراجعت';
+    if(k === 'reports'){
+      var nn = chips[j].querySelector('.jx-nn');
+      // جوّه المرحلة نفسها مفيش «جديد» على الشريحة — الكروت نفسها عليها 🆕
+      var nw = jxFilter.chip === 'reports' ? 0 : c.reports_new;
+      if(nn){ nn.textContent = nw ? '🆕 ' + nw : ''; nn.hidden = !nw; }
+      chips[j].title = 'الشحنات اللي صنّفناها FAKE UPDATE أو «غلطة من J&T» — اتسلمت بعد البلاغ ولا لأ'
+        + (nw ? ' · ' + nw + ' اتسلمت من آخر مرة فتحتها' : '');
+    }
   }
   // الموظف مش هو اللي بيراجع — نفس الشريحة بكلام تاني
   var lbl = document.querySelector('#jx-chips [data-jx-chip="review"] .jx-rv-lbl');
@@ -914,6 +1171,7 @@ function jxRenderList(force){
   jxPendingRender = false; jxPendingFromOthers = false;
   jxShowNewBar(false);
   var now = Date.now();
+  if(jxFilter.chip === 'reports'){ jxRenderReports(list, now); return; }
   var rows = jxFilterRows(jxRows, jxFilter, now);
   var lv = jxLatestVerdictAt(jxRows);
   if(!jxRows.length){
@@ -938,6 +1196,113 @@ function jxRenderList(force){
   jxRenderHint(rows.length, now);
 }
 
+// ── مرحلة «📣 بلاغاتنا لـJ&T» ─────────────────────────────────────────
+function jxRepResult(s, now){
+  if(s.bucket === 'after'){
+    return '✅ اتسلمت بعد البلاغ' + (s.hours != null ? ' بـ' + jxDur(s.hours) : '')
+      + (s.outAt ? ' <span class="jx-sep">·</span> ' + jxAtHtml(new Date(s.outAt).toISOString(), now) : ' <span class="jx-muted">(من حالة الأوردر)</span>');
+  }
+  if(s.bucket === 'before') return '✅ اتسلمت قبل ما نبلّغ' + (s.outAt ? ' <span class="jx-sep">·</span> ' + jxAtHtml(new Date(s.outAt).toISOString(), now) : '');
+  if(s.bucket === 'returned') return (s.out === 'returned' ? '📦 رجعت لينا رغم البلاغ' : '↩️ راجعة رغم البلاغ')
+    + (s.outAt ? ' <span class="jx-sep">·</span> ' + jxAtHtml(new Date(s.outAt).toISOString(), now) : '');
+  if(s.bucket === 'cancelled') return 'اتلغت عندنا';
+  return '⏳ لسه مع J&amp;T — بقالها ' + esc(jxDur((now - s.firstAt) / 3600000)) + ' من البلاغ';
+}
+
+function jxRepRepeatsHtml(s, now){
+  if(!s.repeats.length) return '';
+  var x = s.repeats[s.repeats.length - 1];
+  return '<div class="jx-rep-rpt">🔁 J&amp;T سجّلت استثناء تاني بعد البلاغ'
+    + (s.repeats.length > 1 ? ' (' + s.repeats.length + ' مرات)' : '') + ': <b>' + esc(x.reason_ar || x.reason_en || 'استثناء') + '</b> · '
+    + jxAtHtml(x.event_at, now) + (x.courier_name ? ' · 🛵 ' + esc(x.courier_name) : '') + '</div>';
+}
+
+function jxRepItemHtml(s, now, isNew){
+  var r = s.latest, f = s.first || r;
+  var cod = r.jt_cod_amount != null ? r.jt_cod_amount : r.total_cost;
+  var vs = Object.keys(s.verdicts).map(jxVerdictPill).join(' ');
+  return '<article class="jx-rep b-' + s.bucket + (isNew ? ' is-new' : '') + '" data-id="' + esc(String(r.id)) + '">'
+    + '<div class="jx-rep-top"><span class="jx-rep-res">' + jxRepResult(s, now) + '</span>'
+    + (isNew ? '<span class="jx-newtag">🆕 جديد</span>' : '') + vs + '</div>'
+    + '<div class="jx-rep-line">📣 <b>' + esc(f.verdict_set_by_name || f.verdict_by_name || 'موظف') + '</b> بلّغ '
+    + jxAtHtml(new Date(s.firstAt).toISOString(), now)
+    + (f.staff_note ? ' — <span class="jx-rep-note" title="' + esc(f.staff_note) + '">«' + esc(f.staff_note) + '»</span>' : '') + '</div>'
+    + '<div class="jx-rep-line jx-muted">J&amp;T قالت: <b>' + esc(f.reason_ar || f.reason_en || 'استثناء') + '</b>'
+    + (f.kind === 'return' ? '' : ' (المحاولة ' + (Number(f.attempt) || 1) + ')')
+    + (f.courier_name ? ' · 🛵 ' + esc(f.courier_name) : '') + (f.branch ? ' · 🏢 ' + esc(f.branch) : '') + '</div>'
+    + jxRepRepeatsHtml(s, now)
+    + '<div class="jx-rep-line">👤 <b>' + esc(r.customer_name || '—') + '</b>'
+    + (r.order_uid && r.order_id ? ' <button type="button" class="jx-link" data-jx="detail" title="افتح تفاصيل الأوردر">#' + esc(r.order_uid) + '</button>' : '')
+    + ' <span class="jx-sep">·</span> <span class="jx-mono" dir="ltr">' + esc(s.bill) + '</span>' + jxCopyBtn(s.bill, 'رقم البوليصة')
+    + (cod != null ? ' <span class="jx-sep">·</span> <b class="jx-cod">' + money(cod) + '</b>' : '') + '</div>'
+    + '</article>';
+}
+
+function jxRepSummaryHtml(t, now){
+  var rate = t.closed ? jxPct(t.after, t.closed) : '—';
+  var v = function(k){ var e = t.byV[k]; return e ? e.n : 0; };
+  return '<div class="jx-repsum">'
+    + '<div class="jx-rs-cards">'
+    + '<div class="jx-rs b-n"><b>' + t.n + '</b><span>شحنة بلّغنا عنها</span><small><bdi>FAKE UPDATE</bdi> ' + v('fake_update') + ' · غلطة <bdi>J&amp;T</bdi> ' + v('jt_error') + '</small></div>'
+    + '<div class="jx-rs b-after"><b>' + t.after + '</b><span>اتسلمت بعد البلاغ</span><small>' + (t.medianHours != null ? 'في المتوسط بعد ' + esc(jxDur(t.medianHours)) : '—') + '</small></div>'
+    + '<div class="jx-rs b-returned"><b>' + t.returned + '</b><span>رجعت رغم البلاغ</span><small>' + (t.cancelled ? t.cancelled + ' اتلغت عندنا' : '&nbsp;') + '</small></div>'
+    + '<div class="jx-rs b-pending"><b>' + t.pending + '</b><span>لسه مع J&amp;T</span><small>' + (t.oldestPending ? 'أقدمها من ' + esc(jxDur((now - t.oldestPending) / 3600000)) : '&nbsp;') + '</small></div>'
+    + '<div class="jx-rs b-rate"><b>' + rate + '</b><span>اتحلّت</span><small>' + (t.closed ? t.after + ' من ' + t.closed + ' اتقفلت' : 'لسه مفيش حاجة اتقفلت') + '</small></div>'
+    + '</div>'
+    + '<div class="jx-rs-foot">'
+    + (t.repeated ? '<span class="jx-rs-warn">🔁 ' + t.repeated + ' شحنة J&amp;T سجّلت عليها استثناء تاني بعد البلاغ</span>' : '<span class="jx-muted">مفيش شحنة اتكرر عليها استثناء بعد البلاغ</span>')
+    + (t.before ? ' <span class="jx-sep">·</span> <span class="jx-muted">' + t.before + ' اتسلمت قبل ما نبلّغ (مش محسوبة)</span>' : '')
+    + '<button type="button" class="jx-btn" id="jx-rep-copy" title="ملخص نصي تبعته لمسؤول حسابك في J&amp;T">📋 نسخ الملخص لـJ&amp;T</button>'
+    + '</div></div>';
+}
+
+function jxRenderReports(list, now){
+  var all = jxReportedShipments(jxRows);
+  // جوّه المرحلة: اللي شافه خلاص — الشريحة تتصفّر، والكروت عليها 🆕 من ساعة الدخول
+  jxRepSeenSet(now);
+  var period = jxReportFilter(all, { repDays: jxRepDays(jxFilter), q: '', out: '', rep: jxFilter.rep }, now);
+  var shown = jxReportFilter(all, jxFilter, now);
+  var html = '';
+  if(!all.length){
+    html = emptyState({ icon: '📣', title: 'لسه مفيش شحنات اتصنّفت FAKE UPDATE أو «غلطة من J&amp;T»',
+      sub: 'أول ما الفريق يصنّف استثناء كده، الشحنة هتنزل هنا ونتابع J&amp;T حلّت المشكلة ولا لأ.' });
+  } else {
+    html = jxRepSummaryHtml(jxReportTotals(period), now);
+    if(!shown.length) html += emptyState({ icon: '📭', title: 'مفيش بلاغات بالفلتر ده' });
+    var cur = '', cnt = 0;
+    for(var i = 0; i < shown.length && cnt < JX_RENDER_MAX; i++, cnt++){
+      var s = shown[i];
+      if(s.bucket !== cur){
+        cur = s.bucket;
+        var gn = shown.filter(function(x){ return x.bucket === cur; }).length;
+        html += '<div class="jx-rep-group g-' + cur + '">' + esc(JX_REP_GROUP[cur]) + ' <span class="n">' + gn + '</span></div>';
+      }
+      html += jxRepItemHtml(s, now, jxRepIsNew(s, jxRepRef));
+    }
+    if(shown.length > cnt) html += '<div class="jx-more">بيعرض أول ' + cnt + ' من ' + shown.length + ' — ضيّق الفلتر، أو صدّرهم كلهم بزرار «تصدير».</div>';
+  }
+  list.innerHTML = html;
+  jxRenderHint(shown.length, now);
+}
+
+function jxCopyReportsSummary(){
+  var now = Date.now();
+  var list = jxReportFilter(jxReportedShipments(jxRows), { repDays: jxRepDays(jxFilter), q: '', out: '', rep: jxFilter.rep }, now);
+  if(!list.length){ toast('مفيش بلاغات في الفترة دي', 'er'); return; }
+  copyTextToClipboard(jxReportCopyText(list, jxReportTotals(list), jxFilter, now), 'الملخص');
+}
+
+// سطر «نتيجة البلاغ» على الكارت في باقي المراحل
+function jxRepStripHtml(r, now){
+  if(!jxIsReported(r)) return '';
+  var bill = [];
+  for(var i = 0; i < jxRows.length; i++) if(jxRows[i].tracking_no === r.tracking_no) bill.push(jxRows[i]);
+  var s = jxReportedShipments(bill)[0];
+  if(!s) return '';
+  return '<div class="jx-m-row jx-m-rep b-' + s.bucket + '">📣 نتيجة البلاغ: ' + jxRepResult(s, now)
+    + (s.repeats.length ? ' <span class="jx-sep">·</span> <span class="jx-rs-warn">🔁 J&amp;T سجّلت استثناء تاني بعده</span>' : '') + '</div>';
+}
+
 function jxRenderHint(n, now){
   var h = $id('jx-hint'); if(!h) return;
   var admin = jxIsAdmin(), k = jxFilter.chip, t;
@@ -949,6 +1314,9 @@ function jxRenderHint(n, now){
     t = (admin ? 'اللي الموظفين اتعاملوا معاه ولسه ماراجعتهوش — الأقدم فوق. «✓ تمام» لو مظبوط، «↩️ رجّعها للموظف» لو عايزه يكمّل.'
                : 'اللي اتعاملتوا معاه ومستني الأدمن يراجعه — لو عدّلت فيه بيفضل هنا بالجديد.')
       + ' · ' + (tb ? 'النهارده: ' + tb : 'لسه محدش سجّل حاجة النهارده');
+  } else if(k === 'reports'){
+    t = 'الشحنات اللي صنّفناها FAKE UPDATE أو «غلطة من J&T» — شحنة واحدة لكل بوليصة، والفترة بتاريخ البلاغ. «اتحلّت» = اتسلمت بعد البلاغ من اللي اتقفلت (اللي لسه مع J&T مابتدخلش الحساب لسه).'
+      + (jxFilter.out || jxFilter.rep || jxFilter.q ? ' · بيعرض ' + n + ' بالفلتر' : '');
   } else if(k === 'done'){
     t = 'اتعاملنا معاها واتراجعت — آخر محاولة لكل شحنة. اللي لسه مع J&T فوق (الأقدم من ساعة التعامل)، وبعدها اللي اتسلمت أو رجعت.'
       + (jxFilter.out || jxFilter.q ? ' · بيعرض ' + n + ' بالفلتر' : '');
@@ -1083,6 +1451,7 @@ export function jxMetaHtml(r, superseded, now){
       h += '<div class="jx-m-row jx-m-edit">✏️ <b>' + esc(r.verdict_by_name || 'موظف') + '</b> عدّل الملاحظة بعدها <span class="jx-sep">·</span> '
         + jxAtHtml(r.staff_updated_at, now) + '</div>';
     }
+    h += jxRepStripHtml(r, now);
   } else if(acted){
     var stillOpen = jxNeedsFollow(r, jxLatestVerdictAt(jxRows), now);
     h += '<div class="jx-m-row">✍️ <b class="jx-by">' + esc(r.verdict_by_name || 'موظف') + '</b> كتب ملاحظة <span class="jx-sep">·</span> '
@@ -1448,7 +1817,8 @@ function jxExport(){
   var now = Date.now();
   var rows = jxFilterRows(jxRows, jxFilter, now);
   if(!rows.length){ toast('مفيش صفوف بالفلتر ده تتصدّر', 'er'); return; }
-  var name = 'jt-exceptions-' + (jxFilter.chip === 'all' ? (jxPeriodFrom(jxFilter.days, now) + '_' + jxYmd(now)) : jxFilter.chip) + '.csv';
+  var name = 'jt-exceptions-' + (jxFilter.chip === 'all' ? (jxPeriodFrom(jxFilter.days, now) + '_' + jxYmd(now))
+    : (jxFilter.chip === 'reports' ? 'reports-' + jxPeriodFrom(jxRepDays(jxFilter), now) + '_' + jxYmd(now) : jxFilter.chip)) + '.csv';
   try{
     var blob = new Blob([jxCsv(rows)], { type: 'text/csv;charset=utf-8' });
     var url = URL.createObjectURL(blob);
@@ -1621,9 +1991,11 @@ function jxRebuildAct(id){
 // ── الأحداث ──────────────────────────────────────────────────────────
 function jxSetChip(k){
   if(!k) return;
+  var now = Date.now();
+  // داخل «بلاغاتنا»: الـ🆕 من آخر مرة اتفتحت (بيتثبّت هنا — والشريحة بتتصفّر لحظة الرسم)
+  if(k === 'reports' && jxFilter.chip !== 'reports') jxRepRef = jxRepSeenRef(now);
   jxFilter.chip = k;
   jxEditOpen = {}; jxHold = {};
-  var now = Date.now();
   jxApplyStage();
   jxRenderChips(now);
   jxRenderFilterOptions(now);
@@ -1632,7 +2004,7 @@ function jxSetChip(k){
 }
 
 function jxCardId(el){
-  var card = el && el.closest ? el.closest('.jx-card') : null;
+  var card = el && el.closest ? el.closest('.jx-card,.jx-rep') : null;
   return card ? card.getAttribute('data-id') : null;
 }
 
@@ -1645,6 +2017,7 @@ function jxOnClick(e){
   if(t.closest('#jx-refresh')){ jxHold = {}; loadJtIssues(true); return; }
   if(t.closest('#jx-export')){ jxExport(); return; }
   if(t.closest('#jx-copy-report')){ jxCopyReport(); return; }
+  if(t.closest('#jx-rep-copy')){ jxCopyReportsSummary(); return; }
   if(t.closest('#jx-newbar')){ jxRenderList(true); return; }
   var b = t.closest('[data-jx]');
   if(!b) return;
@@ -1671,7 +2044,12 @@ function jxOnClick(e){
 function jxOnChange(e){
   var t = e.target;
   if(!t) return;
-  if(t.id === 'jx-fdays'){ jxFilter.days = Number(t.value) || 7; jxRenderAll(); return; }
+  if(t.id === 'jx-fdays'){
+    if(jxFilter.chip === 'reports') jxFilter.repDays = Number(t.value) || 30;
+    else jxFilter.days = Number(t.value) || 7;
+    jxRenderAll(); return;
+  }
+  if(t.id === 'jx-frep'){ jxFilter.rep = t.value; jxRenderList(true); return; }
   if(t.id === 'jx-freason'){ jxFilter.reason = t.value; jxRenderList(true); return; }
   if(t.id === 'jx-fverdict'){ jxFilter.verdict = t.value; jxRenderList(true); return; }
   if(t.id === 'jx-fwho'){ jxFilter.who = t.value; jxRenderList(true); return; }
