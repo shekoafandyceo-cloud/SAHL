@@ -5,6 +5,7 @@ import { loadBilling, loadWalletState, wireBillingEvents } from '../billing/bill
 import { $id } from '../core/dom.js';
 import { loadFinance } from '../finance/finance.js';
 import { loadInbox, waActiveId, waFetchMessages } from '../inbox/inbox.js';
+import { loadJtIssues } from '../exceptions/exceptions.js';
 import { loadIssues } from '../issues/issues.js';
 import { loadSettings } from '../settings/settings.js';
 import { loadStock } from '../stock/stock.js';
@@ -37,6 +38,9 @@ export function initRefreshAndSearch(){
       // ما يرندر الصفحة نفسها. هنا: تصفير الكاش + إعادة جلب فعلية ورندر
       ordersSetAll([]); ordersSetAllLoaded(false);
       loadAnalytics();
+      loadWalletState();
+    } else if(page === 'exceptions'){
+      loadJtIssues(true);   // تحميل كامل (مش تدريجي) — اللي داس ↻ عايز نسخة طازة
       loadWalletState();
     } else if(page === 'inbox'){
       loadInbox();   // بيعيد فحص البوابة والنفاد وبيجيب المحادثات

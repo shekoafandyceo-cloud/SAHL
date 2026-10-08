@@ -328,6 +328,58 @@
     });
   })();
 
+  // ══ استثناءات الشحن (8 أكتوبر) — صفوف بشكل v_jt_issues بالحرف (الفيو بيحسب `attempt`
+  // وبيجيب بيانات العميل من الأوردر على السيرفر — هنا بنبنيها من أوردرات المعاينة نفسها).
+  // فيها: مفتوح · محاولتين على نفس الشحنة · FAKE UPDATE · اتسلمت بعد الاستثناء · راجعة ·
+  // رجوع من غير سبب · غلطة J&T — عشان كل حتة في التاب تبان للمالك.
+  (function(){
+    var H = 3600000, D = 86400000, now = Date.now();
+    var ago = function(ms){ return new Date(now - ms).toISOString(); };
+    var past = new Date(now - 2 * D).toISOString().replace(/\.\d+Z$/, 'Z');
+    var J = [];
+    function add(oi, o){
+      var od = ORDERS[oi];
+      var r = Object.assign({
+        id: J.length + 1, tenant_id: TENANT, order_id: od.id, kind: 'exception', attempt: 1,
+        reason_code: '202', reason_en: 'No Answer or Phone Switched Off', reason_ar: 'العميل مش بيرد أو تليفونه مقفول',
+        courier_note: null, branch: 'Maadi DP', branch_phone: '0225252525', courier_name: 'أحمد فؤاد', courier_phone: '01020304050',
+        photo_url: null, verdict: null, staff_note: null, staff_updated_at: null, verdict_by_name: null,
+        outcome: null, outcome_at: null,
+        order_uid: od.order_uid, customer_name: od.customer_name, phone: od.phone, alt_phone: od.alt_phone, city: od.city,
+        address: od.address, ship_prov: null, ship_city: null, ship_area: null, product_name: od.product_name,
+        total_cost: od.total_cost, jt_cod_amount: od.total_cost, order_status: 'Exception'
+      }, o);
+      r.updated_at = r.staff_updated_at || r.event_at;
+      J.push(r);
+    }
+    add(16, { tracking_no: 'JEG000553100116', event_at: ago(3 * H), courier_note: 'اتصلت 3 مرات والتليفون مقفول',
+              ship_prov: 'القاهرة', ship_city: 'مدينة نصر', ship_area: 'الحي العاشر' });
+    add(34, { tracking_no: 'JEG000553100134', event_at: ago(1 * D + 2 * H), reason_code: '205', reason_en: 'Change The Delivery Time',
+              reason_ar: 'العميل طلب تأجيل', courier_note: 'قال كلمني بكرة', branch: 'Nasr City DP', branch_phone: '0224040404',
+              courier_name: 'محمود سعيد', courier_phone: '01122334455' });
+    add(34, { tracking_no: 'JEG000553100134', attempt: 2, event_at: ago(40 * 60000), courier_note: 'مش بيرد',
+              branch: 'Nasr City DP', branch_phone: '0224040404', courier_name: 'محمود سعيد', courier_phone: '01122334455' });
+    add(8,  { tracking_no: 'JEG000553100108', event_at: ago(5 * H), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', courier_note: 'رافض الاستلام', verdict: 'fake_update',
+              staff_note: 'كلمتها وقالت محدش اتصل بيها خالص وعايزة الأوردر — بلّغت J&T يعيدوا التسليم',
+              verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(2 * H), order_status: 'Out for delivery' });
+    add(10, { tracking_no: 'JEG000553100110', event_at: ago(2 * D), reason_code: '205', reason_en: 'Change The Delivery Time',
+              reason_ar: 'العميل طلب تأجيل', verdict: 'real_delay', staff_note: 'طلبت السبت واستلمت', verdict_by_name: 'عمر حسن',
+              staff_updated_at: ago(2 * D - 3 * H), outcome: 'delivered', outcome_at: ago(1 * D), order_status: 'delivered' });
+    add(14, { tracking_no: 'JEG000553100114', event_at: ago(3 * D), reason_code: '1001', reason_en: 'Directly refuse without opening the package',
+              reason_ar: 'العميل رفض من غير ما يفتح', outcome: 'returning', outcome_at: ago(2 * D), order_status: 'returned',
+              photo_url: 'https://jtjms-eg.blob.core.windows.net/abnormal/preview.jpg?se=' + encodeURIComponent(past) + '&sig=preview' });
+    add(32, { tracking_no: 'JEG000553100132', kind: 'return', attempt: null, event_at: ago(20 * H), reason_code: null,
+              reason_en: 'Returned parcel scan without an exception', reason_ar: 'بدأت ترجع من غير ما J&T تسجّل أي سبب',
+              outcome: 'returning', outcome_at: ago(20 * H), order_status: 'returned', courier_name: null, courier_phone: null });
+    add(12, { tracking_no: 'JEG000553100112', event_at: ago(4 * D), reason_code: '306', reason_en: 'miss-sorting from DC',
+              reason_ar: 'غلطة فرز من J&T', verdict: 'jt_error', staff_note: 'الشحنة راحت فرع غلط — اتصلحت بعد يومين',
+              verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(4 * D - 5 * H), outcome: 'delivered', outcome_at: ago(2 * D),
+              order_status: 'Delivered' });
+    TABLES.v_jt_issues = J;
+    TABLES.jt_issues = J;
+  })();
+
   // قطع الأعمدة زي PostgREST — عشان المعاينة تتصرّف زي السيرفر بالظبط
   function project(rows, cols){
     if(!cols || cols === '*' || String(cols).indexOf('*') >= 0) return rows;
@@ -376,6 +428,20 @@
       if(st.limit) rows = rows.slice(0, st.limit);
     }
     if(t === 'stock_movements') rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
+    // استثناءات الشحن: الفترة والمزامنة التدريجية (updated_at) والبوالص (in) بتتطبّق زي السيرفر
+    if(t === 'v_jt_issues' || t === 'jt_issues'){
+      (st.f || []).forEach(function(f){
+        rows = rows.filter(function(r){
+          var v = r[f.col];
+          if(f.op === 'gte') return v != null && String(v) >= String(f.val);
+          if(f.op === 'in')  return (f.val || []).map(String).indexOf(String(v)) >= 0;
+          if(f.op === 'eq')  return f.col === 'tenant_id' ? true : String(v) === String(f.val);
+          return true;
+        });
+      });
+      rows.sort(function(a,b){ return String(a.event_at) < String(b.event_at) ? 1 : -1; });
+      rows = rows.map(function(r){ return Object.assign({}, r); });
+    }
     return rows;
   }
 
@@ -390,6 +456,7 @@
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
           if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; if(a === 'exchange_of') st.eqExchange = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
+          if(m === 'eq' || m === 'gte' || m === 'in') (st.f = st.f || []).push({ op:m, col:a, val:b });
           if(m === 'or')    st.or = a;
           if(m === 'not')   st.not = {col:a, op:b, val:c};
           if(m === 'limit') st.limit = a;
@@ -568,6 +635,15 @@
         shipping_weight_kg:args.p_weight||null, exchange_of: orig ? orig.id : null, ship_note:null, jt_remark:null };
       TABLES.orders.unshift(row2);
       return Promise.resolve({ data:{ ok:true, order_id:row2.id, order_uid:uid2, status:'confirmed', total_cost:total2 }, error:null });
+    }
+    // تاب استثناءات الشحن: التصنيف والملاحظة بيتكتبوا في صف المعاينة فعلاً (والاسم من البروفايل زي السيرفر)
+    if(name === 'jt_issue_save'){
+      var ji = (TABLES.jt_issues || []).filter(function(r){ return r.id === (args && args.p_id); })[0];
+      if(!ji) return Promise.resolve({ data:null, error:{ code:'P0002', message:'not_found' } });
+      ji.verdict = args.p_verdict || null; ji.staff_note = args.p_note || null;
+      ji.staff_updated_at = new Date().toISOString(); ji.updated_at = ji.staff_updated_at; ji.verdict_by_name = 'أدمن المعاينة';
+      return Promise.resolve({ data:{ id:ji.id, verdict:ji.verdict, staff_note:ji.staff_note, staff_updated_at:ji.staff_updated_at,
+        verdict_by_name:ji.verdict_by_name }, error:null });
     }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false

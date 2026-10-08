@@ -105,6 +105,8 @@ export function waFetchConvos(showLoading){
       waConvosCapped=(waConvos.length===200);
       renderConvos();
       veilDone('inbox');
+      // طلب «افتح شات العميل ده» جاي من تاب الاستثناءات — بعد ما القايمة اتحمّلت
+      waConsumeOpenRequest();
     });
 }
 
@@ -1771,6 +1773,94 @@ export function waRefreshNavBadge(){
   });
 }
 
+// ═══ فتح شات عميل من مكان تاني في اللوحة (تاب «استثناءات الشحن» — 8 أكتوبر) ═══
+// المحادثات ليها **تاب لوحدها** (`openOwnTab`)، فالطلب لازم يعدّي بين التابات: بيتكتب في
+// localStorage — التاب المفتوحة بتسمعه بحدث `storage` (بيولّع في **التابات التانية بس**)، والتاب
+// الجديدة بتلاقيه أول ما المحادثات تتحمّل. ولو المحادثات هتتفتح في **نفس** التاب (موبايل · حاجب
+// نوافذ) الطلب بيتسلّم في الذاكرة — localStorage ساعتها كانت هتخلّي أي تاب محادثات تانية تخطفه.
+// والطلب عمره 60 ثانية بس: طلب قديم مايفتحش شات فجأة بعد ساعة.
+export var WA_OPEN_KEY='sahl_open_chat';
+var WA_OPEN_TTL=60000;
+var waOpenHere=null;
+
+// رقم الأوردر → wa_id بنفس قاعدة `app.wa_id_from_phone` بالحرف (تريجر المحادثات) — نسخة
+// مختلفة = نفتح محادثة غير اللي الرسايل فيها. الدالة بتشيل أي حاجة مش [0-9] زي SQL بالظبط.
+export function waIdFromPhone(p){
+  var d=String(p==null?'':p).replace(/[^0-9]/g,'');
+  if(d.indexOf('20')===0 && d.length===12) return d;
+  if(d.indexOf('0')===0 && d.length===11) return '20'+d.slice(1);
+  if(d.length===10) return '20'+d;
+  return '';
+}
+
+export function waRequestOpenChat(req, here){
+  if(!req || !req.wa) return;
+  var o={ wa:req.wa, name:req.name||'', phone:req.phone||'', at:Date.now() };
+  if(here){ waOpenHere=o; return; }
+  try{ localStorage.setItem(WA_OPEN_KEY, JSON.stringify(o)); }catch(e){ swallow('waRequestOpenChat', e); }
+}
+
+export function waCancelOpenRequest(){
+  try{ localStorage.removeItem(WA_OPEN_KEY); }catch(e){ swallow('waCancelOpenRequest', e); }
+}
+
+function waTakeOpenRequest(){
+  var o=waOpenHere; waOpenHere=null;
+  if(!o){
+    var raw=null;
+    try{ raw=localStorage.getItem(WA_OPEN_KEY); }catch(e){ return null; }
+    if(!raw) return null;
+    waCancelOpenRequest();
+    try{ o=JSON.parse(raw); }catch(e){ return null; }
+  }
+  if(!o || !o.wa || !(Date.now()-Number(o.at||0) < WA_OPEN_TTL)) return null;
+  return o;
+}
+
+// بيتنادى بعد ما قايمة المحادثات تتحمّل ومن حدث `storage` — بس لو التاب دي **معروض فيها**
+// المحادثات (تاب تانية على الأوردرات مش هي المقصودة)
+export function waConsumeOpenRequest(){
+  var p=$id('page-inbox');
+  if(!p || p.style.display==='none') return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  var o=waTakeOpenRequest();
+  if(o) waOpenForWaId(o.wa, o);
+}
+
+function waFindByWaId(waId){
+  var lists=[waConvos, waAdExtra, waLabelExtra, waSearchExtra];
+  for(var i=0;i<lists.length;i++){
+    for(var j=0;j<lists[i].length;j++){ if(lists[i][j].wa_id===waId) return lists[i][j]; }
+  }
+  return null;
+}
+
+export function waOpenForWaId(waId, req){
+  if(!waId) return;
+  var c=waFindByWaId(waId);
+  if(c){ openConversation(c.id); return; }
+  if(!sb||!currentTenantId) return;
+  // أقدم من أحدث 200 — بنجيبها بالرقم من السيرفر
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('wa_id',waId).limit(1).then(function(r){
+    var row=(!r.error && r.data && r.data[0]) || null;
+    if(!row){
+      // مفيش محادثة خالص مع الرقم ده — «شات جديد» بالقالب والرقم متعبّي (لو فيه قالب)
+      if(waStartTpls.length){
+        waNewChatOpen();
+        var ph=$id('wa-nc-phone'); if(ph) ph.value=(req && req.phone) || waId;
+        var nm=$id('wa-nc-name'); if(nm) nm.value=(req && req.name) || '';
+        toast('مفيش محادثة مع الرقم ده لسه — ابعتله قالب «شات جديد»','er');
+      } else {
+        toast('مفيش محادثة مع الرقم ده لسه','er');
+      }
+      return;
+    }
+    // بنفس طريقة نتيجة البحث: `waConvById` لازم يلاقيها وإلا الهيدر يفضل على المحادثة اللي قبلها
+    if(!waConvById(row.id)) waSearchExtra.push(row);
+    openConversation(row.id);
+  });
+}
+
 // ═══ «إنشاء طلب» يدوي من الشات (طلب المالك 16 سبتمبر) ═══
 // العميل بيطلب على الواتساب ويكتب بياناته، والموظف بيسجّل الأوردر زي أي
 // أوردر جاي من اللاندنج.
@@ -2078,6 +2168,10 @@ export function waNewChatSend(){
 
 // تفاعلات صندوق المحادثات
 export function initInbox(){
+  // طلب فتح شات من تاب تانية (استثناءات الشحن) — بيولّع هنا لو التاب دي هي تاب المحادثات
+  try{
+    window.addEventListener('storage',function(e){ if(e && e.key===WA_OPEN_KEY && e.newValue) waConsumeOpenRequest(); });
+  }catch(e){ swallow('initInbox/storage', e); }
   if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
   if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waOnSearchInput(this.value); });
   if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});
