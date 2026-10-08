@@ -87,9 +87,10 @@ var JX_COLS = 'id,tenant_id,order_id,tracking_no,kind,event_at,reason_code,reaso
   + 'outcome,outcome_at,updated_at,attempt,order_uid,customer_name,phone,alt_phone,city,address,'
   + 'ship_prov,ship_city,ship_area,product_name,total_cost,jt_cod_amount,order_status,'
   + 'reviewed_at,reviewed_by_name,verdict_by,staff_rev,reviewed_rev,review_state,review_note,verdict_set_by_name,verdict_set_at,'
-  + 'reported_at,return_started_at';
+  + 'reported_at,return_started_at,reported_by_name';
 // الشارة: «محتاجة تعامل» محتاجة أعمدة المراجعة كمان (المترجّعة للموظف بتتعدّ فيها) — من غير ملاحظات/عناوين
-var JX_BADGE_COLS = 'id,tracking_no,kind,event_at,verdict,outcome,outcome_at,order_status,staff_rev,reviewed_rev,review_state,reported_at';
+// verdict_set_at = احتياطي وقت البلاغ لصف مالوش reported_at — من غيره toast «اتسلمت بعد البلاغ» في مسار الشارة كان بيتخطّى الشحنة
+var JX_BADGE_COLS = 'id,tracking_no,kind,event_at,verdict,outcome,outcome_at,order_status,staff_rev,reviewed_rev,review_state,reported_at,verdict_set_at';
 var JX_LOG_COLS = 'id,at,by_name,actor_role,action,verdict,note,prev_verdict,prev_note,verdict_changed,note_changed,review_state,review_note';
 
 // ── الحالة ───────────────────────────────────────────────────────────
@@ -288,6 +289,8 @@ export var JX_REPORTED = ['fake_update', 'jt_error'];
 export var JX_NOT_JT = ['real_delay', 'real_refusal', 'no_answer_us', 'data_fixed'];
 export function jxIsReported(r){ return !!(r && JX_REPORTED.indexOf(r.verdict) >= 0); }
 function jxReportAt(r){ return jxTs(r.reported_at || r.verdict_set_at || r.staff_updated_at); }
+// مين بلّغ: reported_by_name بيتخزّن مع reported_at (مابيتغيّرش لو حد بدّل النوع بعدين) — verdict_set_by_name بيتغيّر مع التبديل
+function jxReporter(r){ return r.reported_by_name || r.verdict_set_by_name || r.verdict_by_name || ''; }
 
 // bucket: after (اتسلمت بعد البلاغ) · before (اتسلمت قبل ما نبلّغ) · pending (لسه مع J&T) · returned (رجعت رغم البلاغ) ·
 //         ret_cust (رجعت والفريق أكّد إن السبب من العميل بعد البلاغ) · ret_before (بدأت ترجع قبل ما نبلّغ) · cancelled.
@@ -438,11 +441,13 @@ function jxRepSeenKey(){ return JX_REP_SEEN_KEY + (currentUser && currentUser.id
 var jxRepSeenFor = '';
 function jxRepSeenLoad(list, now){
   if(jxRepSeen && jxRepSeenFor === jxRepSeenKey()) return jxRepSeen;
-  jxRepSeenFor = jxRepSeenKey();
   var raw = null;
   try{ raw = localStorage.getItem(jxRepSeenKey()); }catch(e){ raw = null; }
   var arr = null;
   try{ arr = raw ? JSON.parse(raw) : null; }catch(e){ arr = null; }
+  // أول مرة والداتا لسه ماوصلتش (ضغطة شريحة وقت التحميل): مانبذرش من قايمة فاضية — كانت هتتحفظ «[]» وكل تسليم قديم يبقى «🆕»
+  if(!Array.isArray(arr) && !(list && list.length)) return {};
+  jxRepSeenFor = jxRepSeenKey();
   jxRepSeen = {};
   if(Array.isArray(arr)){ for(var i = 0; i < arr.length; i++) jxRepSeen[arr[i]] = 1; }
   else {
@@ -477,7 +482,11 @@ export function jxReportCopyText(list, t, f, now){
   if(t.ret_cust) lines.push('• رجعت بسبب العميل بعد ما اتأكدنا (مش محسوبة عليكم): ' + t.ret_cust);
   if(t.ret_before) lines.push('• كانت بدأت ترجع قبل البلاغ (مش محسوبة): ' + t.ret_before);
   if(t.before) lines.push('• اتسلمت قبل البلاغ (مش محسوبة): ' + t.before);
-  var bad = list.filter(function(s){ return s.bucket === 'returned' || s.repeats.length; }).slice(0, 15);
+  if(t.cancelled) lines.push('• اتلغت عندنا (مش محسوبة): ' + t.cancelled);
+  // اللي رجعت رغم البلاغ الأول (أوضح فشل) وبعدين الأكتر تكرار — قبل القص على 15
+  var bad = list.filter(function(s){ return s.bucket === 'returned' || s.repeats.length; })
+    .sort(function(a, b){ return ((b.bucket === 'returned') - (a.bucket === 'returned')) || (b.repeats.length - a.repeats.length); })
+    .slice(0, 15);
   if(bad.length){
     lines.push('', 'الشحنات اللي المشكلة فضلت فيها بعد البلاغ:');
     bad.forEach(function(s, i){
@@ -501,7 +510,7 @@ export function jxReportCsv(list){
     var s = list[i], f = s.first || s.latest, r = s.latest, x = s.repeats.length ? s.repeats[s.repeats.length - 1] : f;
     lines.push([
       jxCsvCell(s.bill), jxCsvDigits(r.order_uid), jxCsvCell(r.customer_name), jxCsvDigits(r.phone),
-      jxCsvCell(Object.keys(s.verdicts).map(jxVerdictLabel).join(' + ')), jxCsvCell(f.verdict_set_by_name || f.verdict_by_name),
+      jxCsvCell(Object.keys(s.verdicts).map(jxVerdictLabel).join(' + ')), jxCsvCell(jxReporter(f)),
       jxCsvCell(fmtDT(new Date(s.firstAt).toISOString())), jxCsvCell(JX_REP_RESULT_TXT[s.bucket]),
       jxCsvCell(s.outAt ? fmtDT(new Date(s.outAt).toISOString()) : ''),
       jxCsvCell(s.hours != null ? Math.round(s.hours * 10) / 10 : ''), jxCsvCell(s.repeats.length),
@@ -753,6 +762,9 @@ export function loadJtIssues(force){
     veilDone('exceptions'); return;
   }
   jxStartPoll();
+  // دخول الصفحة (مش ↻): علامات «🆕» بتاعة الزيارة اللي فاتت بتتمسح — اتشافت خلاص
+  if(!force) jxRepFresh = {};
+  jxRenderSoundBtn();
   // فتح الصفحة تاني بعد شوية: مزامنة تدريجية بس (اللي اتغيّر) بدل ما نجيب كله
   if(!force && jxLoadedAt && (Date.now() - jxLoadedAt) < JX_FULL_RELOAD_MS){
     jxRenderAll();
@@ -902,11 +914,22 @@ function jxWatchReported(rows){
     jxDelivWatch[r.id] = d;
   }
   if(!order.length) return;
-  for(var j = 0; j < order.length; j++) jxToasted[order[j].tracking_no] = 1;
-  var h = order[0], rep = jxTs(h.reported_at || h.verdict_set_at), at = jxTs(h.outcome_at);
-  jxToastQ(order.length === 1
-    ? '✅ شحنة بلّغنا عنها J&T اتسلمت: ' + (h.customer_name || h.tracking_no) + (rep && at > rep ? ' — بعد البلاغ بـ' + jxDur((at - rep) / 3600000) : '')
-    : '✅ ' + order.length + ' شحنات بلّغنا عنها J&T اتسلمت — شوف «📣 بلاغاتنا لـJ&T»', 'ok');
+  // الحكم على الشحنة كلها زي المرحلة بالظبط: اتسلمت قبل ما نبلّغ (مسح التسليم وصل متأخر) = مش «اتسلمت بعد البلاغ» = مفيش toast
+  var byId = {}, ok = [], hrs = null;
+  for(var a = 0; a < rows.length; a++) if(rows[a] && rows[a].id != null) byId[rows[a].id] = rows[a];
+  for(var j = 0; j < order.length; j++){
+    var bill = order[j].tracking_no, pool = [];
+    for(var c = 0; c < rows.length; c++) if(rows[c] && rows[c].tracking_no === bill) pool.push(rows[c]);
+    for(var d2 = 0; d2 < jxRows.length; d2++) if(jxRows[d2].tracking_no === bill && !byId[jxRows[d2].id]) pool.push(jxRows[d2]);
+    var sh = jxReportedShipments(pool)[0];
+    jxToasted[bill] = 1;
+    if(sh && sh.bucket === 'after'){ ok.push(order[j]); if(ok.length === 1) hrs = sh.hours; }
+  }
+  if(!ok.length) return;
+  var h = ok[0];
+  jxToastQ(ok.length === 1
+    ? '✅ شحنة بلّغنا عنها J&T اتسلمت: ' + (h.customer_name || h.tracking_no) + (hrs != null ? ' — بعد البلاغ بـ' + jxDur(hrs) : '')
+    : '✅ ' + ok.length + ' شحنات بلّغنا عنها J&T اتسلمت — شوف «📣 بلاغاتنا لـJ&T»', 'ok');
 }
 
 // رسالتين ورا بعض (استثناء جديد + تسليم بلاغ في نفس الجلب) — التانية بتستنى الأولى تخلص بدل ما تمسحها
@@ -942,14 +965,26 @@ var JX_BEEP_LAST = 'sahl_jx_beep_last';   // أكبر id رنّ عليه — ب�
 export function jxSetTeamSound(on){ jxTeamSound = on !== false; jxPrefAt = Date.now(); jxRenderSoundBtn(); }
 export function jxSoundEnabled(){ return jxTeamSound && deviceSoundOn(); }
 
-function jxLoadSoundPref(){
-  if(!sb || (jxPrefAt && Date.now() - jxPrefAt < 5 * 60000)) return;
+// قراية واحدة في السكة بيشاركها التحديث الدوري (كل 5 دقايق) والسؤال قبل الرنّة — من غيرها الرنّة كانت بتصدّق
+// القيمة القديمة لأن jxPrefAt اتحدّث لحظة ما الطلب خرج مش لما رجع
+var jxPrefP = null;
+function jxFetchPref(){
+  if(jxPrefP) return jxPrefP;
   jxPrefAt = Date.now();
-  try{
-    sb.rpc('get_notify_prefs').then(function(r){
-      if(r && !r.error && r.data){ jxTeamSound = r.data.jx_sound !== false; jxRenderSoundBtn(); }
-    });
-  }catch(e){ swallow('exceptions/sound-pref', e); }
+  jxPrefP = new Promise(function(res){
+    var done = function(){ jxPrefP = null; res(); };
+    try{
+      sb.rpc('get_notify_prefs').then(function(r){
+        if(r && !r.error && r.data){ jxTeamSound = r.data.jx_sound !== false; jxRenderSoundBtn(); }
+        done();
+      }, done);
+    }catch(e){ swallow('exceptions/sound-pref', e); done(); }
+  });
+  return jxPrefP;
+}
+function jxLoadSoundPref(){
+  if(!sb || jxPrefP || (jxPrefAt && Date.now() - jxPrefAt < 5 * 60000)) return;
+  jxFetchPref();
 }
 
 function jxSeeRows(rows){
@@ -988,14 +1023,9 @@ function jxToastNew(fresh){
 }
 
 function jxFreshTeamPref(cb){
-  if(!sb || (jxPrefAt && Date.now() - jxPrefAt < 60000)){ cb(jxTeamSound); return; }
-  jxPrefAt = Date.now();
-  try{
-    sb.rpc('get_notify_prefs').then(function(r){
-      if(r && !r.error && r.data) jxTeamSound = r.data.jx_sound !== false;
-      cb(jxTeamSound);
-    }, function(){ cb(jxTeamSound); });
-  }catch(e){ cb(jxTeamSound); }
+  if(!sb){ cb(jxTeamSound); return; }
+  if(!jxPrefP && jxPrefAt && Date.now() - jxPrefAt < 60000){ cb(jxTeamSound); return; }
+  jxFetchPref().then(function(){ cb(jxTeamSound); });
 }
 
 // صوت واحد بين التابات (اللوحة + المحادثات): التاب اللي قدامك الأول، بعدها أي تاب الصوت فيها جاهز.
@@ -1362,7 +1392,7 @@ function jxRepItemHtml(s, now, isNew){
   return '<article class="jx-rep b-' + s.bucket + (isNew ? ' is-new' : '') + '" data-id="' + esc(String(r.id)) + '">'
     + '<div class="jx-rep-top"><span class="jx-rep-res">' + jxRepResult(s, now) + '</span>'
     + (isNew ? '<span class="jx-newtag">🆕 جديد</span>' : '') + vs + '</div>'
-    + '<div class="jx-rep-line">📣 <b>' + esc(f.verdict_set_by_name || f.verdict_by_name || 'موظف') + '</b> بلّغ '
+    + '<div class="jx-rep-line">📣 <b>' + esc(jxReporter(f) || 'موظف') + '</b> بلّغ '
     + jxAtHtml(new Date(s.firstAt).toISOString(), now)
     + (f.staff_note ? ' — <span class="jx-rep-note" title="' + esc(f.staff_note) + '">«' + esc(f.staff_note) + '»</span>' : '') + '</div>'
     + '<div class="jx-rep-line jx-muted">J&amp;T قالت: <b>' + esc(f.reason_ar || f.reason_en || 'استثناء') + '</b>'
@@ -2287,6 +2317,15 @@ export function initExceptions(){
   }
   var fd = $id('jx-fdays'); if(fd) fd.value = String(jxFilter.days);
   jxApplyStage();
+  // كارت «🆕» اترسم والتاب في الخلفية: يتعلّم «اتشاف» أول ما التاب ترجع قدامك (مش يفضل «🆕» على الشريحة بعد ما شفته)
+  document.addEventListener('visibilitychange', function(){
+    if(document.hidden || !jxPageVisible() || jxFilter.chip !== 'reports' || !jxRepSeen) return;
+    var dirty = false;
+    for(var b in jxRepFresh){ if(Object.prototype.hasOwnProperty.call(jxRepFresh, b) && !jxRepSeen[b]){ jxRepSeen[b] = 1; dirty = true; } }
+    if(dirty) jxRepSeenSave();
+  });
+  // اتكتم/اتشغّل من تاب تانية (أو الإعدادات هناك) — الزرار هنا يقول الحقيقة قبل ما حد يدوس عليه
+  window.addEventListener('storage', function(e){ if(e.key === 'sahl_jx_sound') jxRenderSoundBtn(); });
   page.addEventListener('click', jxOnClick);
   page.addEventListener('change', jxOnChange);
   page.addEventListener('input', jxOnInput);

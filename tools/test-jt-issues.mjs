@@ -107,10 +107,14 @@ const HOOK = `window.__SAVES = []; window.__REVIEWS = []; window.__PREF_SAVES = 
 window.__ALERTS = 0; window.addEventListener('sahl:alert', function(){ window.__ALERTS++; });
 window.__RPC_HOOK = function(name, args){
   if(name === 'wa_inbox_status') return { data:{ verified:true }, error:null };
-  if(name === 'get_notify_prefs') return { data: Object.assign({}, window.__NOTIFY_PREFS || {}), error:null };
+  if(name === 'get_notify_prefs'){
+    var pr = function(){ return { data: Object.assign({}, window.__NOTIFY_PREFS || {}), error:null }; };
+    if(window.__PREF_DELAY) return new Promise(function(res){ setTimeout(function(){ res(pr()); }, window.__PREF_DELAY); });
+    return pr();
+  }
   if(name === 'update_notify_prefs'){ window.__PREF_SAVES.push(args); window.__NOTIFY_PREFS = Object.assign({}, window.__NOTIFY_PREFS || {}, args.p_prefs); return { data: window.__NOTIFY_PREFS, error:null }; }
   var isAdmin = (window.__ROLE || 'admin') === 'admin';
-  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','verdict_set_by_name','verdict_set_at','reported_at','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
+  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','verdict_set_by_name','verdict_set_at','reported_at','reported_by_name','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
   if(name === 'jt_issue_review'){
     window.__REVIEWS.push(args);
     if(!isAdmin) return { data:null, error:{ code:'42501', message:'not_allowed' } };
@@ -136,7 +140,8 @@ window.__RPC_HOOK = function(name, args){
       var self = vchg || r.verdict_set_by_name === me;
       var REP = ['fake_update', 'jt_error'], wasRep = REP.indexOf(r.verdict) >= 0, isRep = REP.indexOf(args.p_verdict) >= 0;
       var repAt = isRep ? (wasRep ? (r.reported_at || r.verdict_set_at || new Date().toISOString()) : new Date().toISOString()) : null;
-      r.verdict = args.p_verdict; r.staff_note = args.p_note; r.reported_at = repAt;
+      var repBy = isRep ? (wasRep ? (r.reported_by_name || r.verdict_set_by_name) : me) : null;
+      r.verdict = args.p_verdict; r.staff_note = args.p_note; r.reported_at = repAt; r.reported_by_name = repBy;
       r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
       r.verdict_by_name = me;
       if(vchg){ r.verdict_set_by_name = r.verdict ? me : null; r.verdict_set_at = r.verdict ? r.staff_updated_at : null; }
@@ -803,7 +808,7 @@ const EXTRA_REP2 = `(function(){ var now = Date.now(), H = 3600000, ago = functi
       reviewed_at:ago(28*H), outcome:'returned', outcome_at:ago(5*H), return_started_at:ago(20*H), order_status:'Returned to business' }, ok1)),
     // 38: بلّغنا من 30 ساعة (FAKE UPDATE) وبعدين اتغيّر لـ«غلطة من J&T» من 3 ساعات — اتسلمت من 10 ساعات = بعد البلاغ مش قبله
     mk(Object.assign({ id:38, tracking_no:'JEG038', order_id:'o38', order_uid:'9038', phone:'01000000038', customer_name:'نوع البلاغ اتغيّر', event_at:ago(32*H),
-      verdict:'jt_error', verdict_by_name:'shekoz', verdict_set_by_name:'shekoz', staff_updated_at:ago(3*H), verdict_set_at:ago(3*H), reported_at:ago(30*H),
+      verdict:'jt_error', verdict_by_name:'shekoz', verdict_set_by_name:'shekoz', staff_updated_at:ago(3*H), verdict_set_at:ago(3*H), reported_at:ago(30*H), reported_by_name:'ebrahim',
       reviewed_at:ago(3*H), outcome:'delivered', outcome_at:ago(10*H), order_status:'Delivered' }, ok1))
   );
 })();`;
@@ -818,6 +823,7 @@ const EXTRA_REP2 = `(function(){ var now = Date.now(), H = 3600000, ago = functi
     return { o, closed: t.closed, after: t.after, returned: t.returned, ret_cust: t.ret_cust, ret_before: t.ret_before,
       sum: document.querySelector('.jx-repsum').innerText.replace(/\s+/g, ' '),
       c36: (document.querySelector('.jx-rep[data-id="37"]') || document.querySelector('.jx-rep[data-id="36"]') || {}).textContent || '',
+      c38: ((document.querySelector('.jx-rep[data-id="38"] .jx-rep-line') || {}).textContent || '').replace(/\s+/g, ' '),
       groups: [...document.querySelectorAll('.jx-rep-group')].map(g => g.className.replace(/.*g-/, '')) }; });
   ok(b.o.JEG035 === 'ret_before/0/0' && b.o.JEG032 === 'returned/0/0',
     'R12) بدأت ترجع (172) قبل ما نبلّغ = «كانت بدأت ترجع قبل البلاغ» مش «رجعت رغم البلاغ» (مش محسوبة على J&T) — ' + JSON.stringify(b.o));
@@ -830,6 +836,7 @@ const EXTRA_REP2 = `(function(){ var now = Date.now(), H = 3600000, ago = functi
     const l = m.jxReportFilter(m.jxReportedShipments(m.jxRows), { repDays: 30, q: '', out: '', rep: 'jt_error' }, now);
     return m.jxReportCopyText(l, m.jxReportTotals(l), { repDays: 30, rep: 'jt_error' }, now).split('\n')[0]; });
   ok(/\(غلطة من J&T\)/.test(copyJ) && !/FAKE UPDATE/.test(copyJ), 'R15) الملخص المنسوخ بفلتر «غلطة من J&T» عنوانه النوع ده بس (مش الاتنين) — ' + copyJ);
+  ok(/📣 ebrahim بلّغ/.test(b.c38) && !/shekoz بلّغ/.test(b.c38), 'R15ب) «مين بلّغ» = reported_by_name (ebrahim) مش اللي بدّل النوع بعدين (shekoz) — ' + b.c38.slice(0, 90));
   ok(p.__errs.length === 0, 'R16) صفر أخطاء جافاسكربت — ' + (p.__errs[0] || 'نضيف'));
   await T.ctx.close();
 }
@@ -842,6 +849,52 @@ const EXTRA_REP2 = `(function(){ var now = Date.now(), H = 3600000, ago = functi
   await T.p.waitForTimeout(1300);
   const t = await T.p.evaluate(() => document.getElementById('toast').textContent);
   ok(/شحنة بلّغنا عنها J&T اتسلمت/.test(t) && /JEG011/.test(t), 'R17) والموظف على صفحة الأوردرات (تاب الاستثناءات ماتفتحتش): التسليم بيطلّع toast برضه — ' + t);
+  await T.ctx.close();
+}
+
+const BEFORE_DELIV = () => { const r = window.__JT_ISSUES.find(x => x.id === 33); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() - 41 * 3600000).toISOString(); r.order_status = 'Delivered'; r.updated_at = new Date().toISOString();
+  (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 33, tracking_no: 'JEG033' } }); };
+{
+  // R18) مسح التسليم وصل متأخر وطلع قبل البلاغ (اتسلمت 41 ساعة فاتت والبلاغ من 40) — المرحلة بتقول «قبل البلاغ» فمفيش toast «اتسلمت بعد البلاغ»
+  const T = await open('/orders', { post: EXTRA_REP });
+  await T.p.waitForTimeout(600);
+  await T.p.evaluate(BEFORE_DELIV);
+  await T.p.waitForTimeout(1300);
+  const t = await T.p.evaluate(() => document.getElementById('toast').textContent);
+  ok(!/اتسلمت/.test(t), 'R18) شحنة متبلّغ عنها اتسلمت قبل البلاغ (المسح وصل متأخر): مفيش toast «بلّغنا عنها … اتسلمت» (المرحلة بتحطها «قبل البلاغ — مش محسوبة») — ' + JSON.stringify(t));
+  await T.ctx.close();
+}
+{
+  // R19) الملخص لـJ&T: «اتلغت عندنا» بتتقال · واللي رجعت رغم البلاغ أول القايمة (قبل القص على 15)
+  const T = await open('/exceptions');
+  const c = await T.p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); const now = Date.now();
+    const row = { branch: 'Hub', courier_name: 'مندوب' };
+    const mkS = (bill, bucket, rpt) => ({ bill, bucket, repeats: rpt ? [row] : [], custLater: [], latest: row, first: row, firstAt: now - 50 * 3600000, hours: bucket === 'after' ? 5 : null, verdicts: { fake_update: 1 } });
+    const l = [];
+    for(let i = 0; i < 16; i++) l.push(mkS('JEGA' + i, 'after', true));
+    l.push(mkS('JEGRET', 'returned', false));
+    l.push(mkS('JEGCAN', 'cancelled', false));
+    return m.jxReportCopyText(l, m.jxReportTotals(l), { repDays: 30 }, now); });
+  ok(/اتلغت عندنا \(مش محسوبة\): 1/.test(c) && /1\) JEGRET — رجعت/.test(c), 'R19) نص الملخص: «اتلغت عندنا: 1» موجودة (المجموع بيقفل) · و«JEGRET — رجعت» أول الشحنات المشكلة رغم إن قبلها 16 «اتكرر» — ' + c.split('\n').filter(x => /اتلغت|JEGRET|^1\)/.test(x)).join(' | '));
+  await T.ctx.close();
+}
+const SEED_POST = EXTRA_REP + `(function(){ var now = Date.now(), H = 3600000, b = window.__JT_ISSUES.find(function(x){ return x.id === 31; });
+  window.__JT_ISSUES.push(Object.assign({}, b, { id: 39, tracking_no: 'JEG039', order_id: 'o39', order_uid: '9039', customer_name: 'اتسلمت من 30 ساعة',
+    event_at: new Date(now - 60 * H).toISOString(), staff_updated_at: new Date(now - 50 * H).toISOString(), verdict_set_at: new Date(now - 50 * H).toISOString(),
+    outcome_at: new Date(now - 30 * H).toISOString(), updated_at: new Date(now - 30 * H).toISOString() }));
+  window.__JX_HOLD = window.__JT_ISSUES; window.__JT_ISSUES = [];
+})();`;
+async function seedProbe(T){
+  await T.p.waitForTimeout(400);
+  await T.p.evaluate(() => { window.__JT_ISSUES = window.__JX_HOLD; });
+  await T.p.click('#jx-refresh'); await T.p.waitForTimeout(500);
+  return T.p.evaluate(() => { const nn = document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn'); return nn.hidden ? '' : nn.textContent; });
+}
+{
+  // R20) أول مرة على الجهاز والصفحة اتحمّلت فاضية (أو ضغطة شريحة قبل الداتا): مفيش بذر من قايمة فاضية — لما الداتا توصل اللي اتسلم من أكتر من 24 ساعة يتحسب متشاف
+  const T = await open('/exceptions', { post: SEED_POST });
+  const nn = await seedProbe(T);
+  ok(nn === '🆕 1', 'R20) الصفحة اتفتحت والداتا فاضية وبعدين وصلت: «🆕 1» (31 — من 10 ساعات) مش «🆕 2» (39 من 30 ساعة اتحسب متشاف) — ' + nn);
   await T.ctx.close();
 }
 
@@ -942,6 +995,23 @@ const SUSP = "window.AudioContext = function(){ this.state = 'suspended'; this.c
   await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500);
   const n = await T.p.evaluate(() => window.__ALERTS);
   ok(hit && before === '🔔' && st.t === '🔕' && st.ls === '0' && n === 0, 'S9) زرار 🔔 في التاب لكل الأدوار (hit-test): الموظف كتم جهازه → 🔕 + sahl_jx_sound=0 والاستثناء الجديد مارنّش — ' + JSON.stringify({ hit, before, st, n }));
+  await T.ctx.close();
+}
+
+const STALE_PREF = async (T) => {
+  await T.p.waitForTimeout(500);
+  await T.p.evaluate(() => { window.__NOTIFY_PREFS = { jx_sound: false }; window.__PREF_DELAY = 300; });
+  const t0 = await T.p.evaluate(() => Date.now());
+  await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000));
+  await T.p.evaluate(NEW50);
+  await T.p.waitForTimeout(1800);
+  return T.p.evaluate(() => window.__ALERTS);
+};
+{
+  // S10) نفس S8 بس آخر قراية أقدم من 5 دقايق (مسار الشارة بيبعت قراية جديدة) والقراية بطيئة: الرنّة بتستنى نفس القراية مش القيمة القديمة
+  const T = await open('/orders');
+  const n = await STALE_PREF(T);
+  ok(n === 0, 'S10) إعداد الفريق اتقفل والقراية الدورية في السكة (بطيئة 300ms): الرنّة استنت نفس القراية ومارنّتش — ' + n);
   await T.ctx.close();
 }
 
@@ -1101,7 +1171,7 @@ await calib('(أأ) التاب اللي مش هتقدر ترنّ بتحجز ال
   async T => { await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500); return T.p.evaluate(() => localStorage.getItem('sahl_jx_beep_last')); }, last => last === '50',
   { pre: SUSP });
 await calib('(بب) إعداد الفريق مابيتقراش تاني قبل الرنّة → رنّت والأدمن قافله من جهاز تاني (الفحص S8 كان هيقع)',
-  { exc: s => s.replace("  if(!sb || (jxPrefAt && Date.now() - jxPrefAt < 60000)){ cb(jxTeamSound); return; }", "  if(true){ cb(jxTeamSound); return; }") },
+  { exc: s => s.replace("  if(!jxPrefP && jxPrefAt && Date.now() - jxPrefAt < 60000){ cb(jxTeamSound); return; }", "  if(true){ cb(jxTeamSound); return; }") },
   async T => { await T.p.evaluate(() => { window.__NOTIFY_PREFS = { jx_sound: false }; }); const t0 = await T.p.evaluate(() => Date.now());
     await T.ctx.clock.setFixedTime(new Date(t0 + 120000)); await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500); return T.p.evaluate(() => window.__ALERTS); }, n => n > 0);
 await calib('(ض) «اتسلمت قبل البلاغ» بتتحسب «بعده» → الملخص بقى 2 بعد البلاغ (الفحص R3 كان هيقع)',
@@ -1132,6 +1202,28 @@ await calib('(وو) استعلام الشارة مابيتابعش التسلي�
       (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 13, tracking_no: 'JEG011' } }); });
     await T.p.waitForTimeout(1300); return T.p.evaluate(() => document.getElementById('toast').textContent); },
   t => !/اتسلمت/.test(t), { post: EXTRA_REP, path: '/orders' });
+
+await calib('(زز) toast التسليم من غير حكم المرحلة → «اتسلمت بعد البلاغ» على شحنة اتسلمت قبله (الفحص R18 كان هيقع)',
+  { exc: s => s.replace("    if(sh && sh.bucket === 'after'){ ok.push(order[j]); if(ok.length === 1) hrs = sh.hours; }", "    ok.push(order[j]);") },
+  async T => { await T.p.waitForTimeout(600); await T.p.evaluate(BEFORE_DELIV); await T.p.waitForTimeout(1300); return T.p.evaluate(() => document.getElementById('toast').textContent); },
+  t => /اتسلمت/.test(t), { post: EXTRA_REP, path: '/orders' });
+await calib('(حح) «مين بلّغ» من اللي اختار التصنيف → اللي بدّل النوع بعدين بقى «بلّغ» (الفحص R15ب كان هيقع)',
+  { exc: s => s.replace("function jxReporter(r){ return r.reported_by_name || r.verdict_set_by_name || r.verdict_by_name || ''; }", "function jxReporter(r){ return r.verdict_set_by_name || r.verdict_by_name || ''; }") },
+  async T => { await chip(T.p, 'reports'); return T.p.evaluate(() => ((document.querySelector('.jx-rep[data-id="38"] .jx-rep-line') || {}).textContent || '')); },
+  t => /shekoz بلّغ/.test(t), { post: EXTRA_REP + EXTRA_REP2 });
+await calib('(طط) البذر من قايمة فاضية → كل تسليم قديم بقى «🆕» (الفحص R20 كان هيقع)',
+  { exc: s => s.replace("  if(!Array.isArray(arr) && !(list && list.length)) return {};\n", '') },
+  seedProbe, nn => nn !== '🆕 1', { post: SEED_POST, stage: null });
+await calib('(يي) الملخص مابيرتّبش «رجعت» الأول → اتقصّت من القايمة (الفحص R19 كان هيقع)',
+  { exc: s => s.replace("    .sort(function(a, b){ return ((b.bucket === 'returned') - (a.bucket === 'returned')) || (b.repeats.length - a.repeats.length); })\n", '') },
+  async T => T.p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); const now = Date.now(); const row = { branch: 'Hub', courier_name: 'مندوب' };
+    const mkS = (bill, bucket, rpt) => ({ bill, bucket, repeats: rpt ? [row] : [], custLater: [], latest: row, first: row, firstAt: now - 50 * 3600000, hours: bucket === 'after' ? 5 : null, verdicts: { fake_update: 1 } });
+    const l = []; for(let i = 0; i < 16; i++) l.push(mkS('JEGA' + i, 'after', true)); l.push(mkS('JEGRET', 'returned', false));
+    return m.jxReportCopyText(l, m.jxReportTotals(l), { repDays: 30 }, now); }),
+  c => !/JEGRET/.test(c));
+await calib('(كك) الرنّة مابتستناش القراية اللي في السكة → رنّت بالقيمة القديمة (الفحص S10 كان هيقع)',
+  { exc: s => s.replace("  if(!jxPrefP && jxPrefAt && Date.now() - jxPrefAt < 60000){ cb(jxTeamSound); return; }", "  if(jxPrefP || (jxPrefAt && Date.now() - jxPrefAt < 60000)){ cb(jxTeamSound); return; }") },
+  STALE_PREF, n => n > 0, { path: '/orders' });
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
