@@ -33,6 +33,8 @@
 .jx-sel:focus,.jx-search:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(255,159,28,.15);}
 .jx-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:34px;padding:0 12px;border:1px solid var(--brd);border-radius:10px;background:#fff;color:var(--txt);font-family:inherit;font-size:.8rem;cursor:pointer;white-space:nowrap;}
 .jx-btn:hover{border-color:var(--acc);color:#b45309;}
+.jx-btn#jx-sound.is-off{background:#f1f5f9;color:var(--muted);}
+html.dark .jx-btn#jx-sound.is-off{background:#151c2c;}
 .jx-hint{margin:6px 4px 10px;font-size:.78rem;color:var(--muted);line-height:1.7;}
 /* الفلاتر حسب المرحلة — الطوابير فيها البحث و↻ بس (والكود نفسه مابيطبّقش المخفي — jxFilterRows) */
 #page-exceptions:not([data-stage="all"]) .jx-f-all{display:none !important;}

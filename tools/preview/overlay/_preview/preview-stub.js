@@ -355,6 +355,9 @@
       }, o);
       r.updated_at = r.reviewed_at || r.staff_updated_at || r.event_at;
       if(r.verdict && !r.verdict_set_by_name){ r.verdict_set_by_name = r.verdict_by_name; r.verdict_set_at = r.staff_updated_at; }
+      // وقت البلاغ (زي migration jt_issues_report_times) · بداية المرتجع = وقت النتيجة لو راجعة/رجعت
+      if(r.reported_at === undefined) r.reported_at = (r.verdict === 'fake_update' || r.verdict === 'jt_error') ? r.verdict_set_at : null;
+      if(r.return_started_at === undefined) r.return_started_at = (r.outcome === 'returning' || r.outcome === 'returned') ? r.outcome_at : null;
       J.push(r);
     }
     add(16, { tracking_no: 'JEG000553100116', event_at: ago(3 * H), courier_note: 'اتصلت 3 مرات والتليفون مقفول',
@@ -691,6 +694,9 @@
         var selfR = vchg || ji.verdict_set_by_name === 'أدمن المعاينة';
         ji.verdict = nv; ji.staff_note = nn; ji.staff_updated_at = tnow; ji.updated_at = tnow; ji.verdict_by_name = 'أدمن المعاينة';
         if(vchg){ ji.verdict_set_by_name = nv ? 'أدمن المعاينة' : null; ji.verdict_set_at = nv ? tnow : null; }
+        // وقت البلاغ: بيفضل لو اتنقل بين FAKE UPDATE و«غلطة من J&T» · بيتمسح لو خرج منهم · ودخول جديد = دلوقتي
+        var REPV = ['fake_update', 'jt_error'], isR = REPV.indexOf(nv) >= 0, wasR = REPV.indexOf(pv) >= 0;
+        ji.reported_at = isR ? (wasR ? (ji.reported_at || ji.verdict_set_at || tnow) : tnow) : null;
         ji.staff_rev = (ji.staff_rev || 0) + 1;
         if(nv){ ji.reviewed_rev = ji.staff_rev; ji.review_state = selfR ? 'self' : 'ok'; ji.review_note = null; ji.reviewed_at = tnow; ji.reviewed_by_name = 'أدمن المعاينة'; }
         (TABLES.jt_issue_log = TABLES.jt_issue_log || []).push({ id: TABLES.jt_issue_log.length + 1, tenant_id: ji.tenant_id, issue_id: ji.id, at: tnow,
@@ -698,7 +704,7 @@
           verdict_changed: pv !== nv, note_changed: pn !== nn, review_state: null, review_note: null });
       }
       return Promise.resolve({ data:{ id:ji.id, verdict:ji.verdict, staff_note:ji.staff_note, staff_updated_at:ji.staff_updated_at,
-        verdict_by_name:ji.verdict_by_name, verdict_set_by_name:ji.verdict_set_by_name, verdict_set_at:ji.verdict_set_at, updated_at:ji.updated_at, staff_rev:ji.staff_rev, reviewed_rev:ji.reviewed_rev, review_state:ji.review_state,
+        verdict_by_name:ji.verdict_by_name, verdict_set_by_name:ji.verdict_set_by_name, verdict_set_at:ji.verdict_set_at, reported_at:ji.reported_at, updated_at:ji.updated_at, staff_rev:ji.staff_rev, reviewed_rev:ji.reviewed_rev, review_state:ji.review_state,
         review_note:ji.review_note, reviewed_at:ji.reviewed_at, reviewed_by_name:ji.reviewed_by_name }, error:null });
     }
     if(name === 'jt_issue_review'){

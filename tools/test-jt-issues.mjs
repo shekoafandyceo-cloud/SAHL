@@ -110,7 +110,7 @@ window.__RPC_HOOK = function(name, args){
   if(name === 'get_notify_prefs') return { data: Object.assign({}, window.__NOTIFY_PREFS || {}), error:null };
   if(name === 'update_notify_prefs'){ window.__PREF_SAVES.push(args); window.__NOTIFY_PREFS = Object.assign({}, window.__NOTIFY_PREFS || {}, args.p_prefs); return { data: window.__NOTIFY_PREFS, error:null }; }
   var isAdmin = (window.__ROLE || 'admin') === 'admin';
-  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','verdict_set_by_name','verdict_set_at','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
+  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','verdict_set_by_name','verdict_set_at','reported_at','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
   if(name === 'jt_issue_review'){
     window.__REVIEWS.push(args);
     if(!isAdmin) return { data:null, error:{ code:'42501', message:'not_allowed' } };
@@ -134,7 +134,9 @@ window.__RPC_HOOK = function(name, args){
     if((r.verdict || null) !== (args.p_verdict || null) || (r.staff_note || null) !== (args.p_note || null)){
       var me = isAdmin ? 'أدمن الاختبار' : 'موظف الاختبار', vchg = (r.verdict || null) !== (args.p_verdict || null);
       var self = vchg || r.verdict_set_by_name === me;
-      r.verdict = args.p_verdict; r.staff_note = args.p_note;
+      var REP = ['fake_update', 'jt_error'], wasRep = REP.indexOf(r.verdict) >= 0, isRep = REP.indexOf(args.p_verdict) >= 0;
+      var repAt = isRep ? (wasRep ? (r.reported_at || r.verdict_set_at || new Date().toISOString()) : new Date().toISOString()) : null;
+      r.verdict = args.p_verdict; r.staff_note = args.p_note; r.reported_at = repAt;
       r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
       r.verdict_by_name = me;
       if(vchg){ r.verdict_set_by_name = r.verdict ? me : null; r.verdict_set_at = r.verdict ? r.staff_updated_at : null; }
@@ -755,18 +757,91 @@ async function repProbe(T){
   const rcsv = fs.readFileSync(await dl.path(), 'utf8').split('\r\n').filter(Boolean);
   const copy = await p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); const l = m.jxReportFilter(m.jxReportedShipments(m.jxRows), { repDays: 30, q: '', out: '', rep: '' }, Date.now());
     return m.jxReportCopyText(l, m.jxReportTotals(l), { repDays: 30 }, Date.now()); });
-  ok(rcsv.length === 6 && /reports-/.test(dl.suggestedFilename()) && /بلّغنا عن 5 شحنة/.test(copy) && /اتسلم بعد البلاغ: 1/.test(copy) && /اتحلّت 50%/.test(copy) && /JEG032 — رجعت — Giza Hub — سيد/.test(copy) && /JEG033 — اتكرر الاستثناء 1 مرة/.test(copy),
-    'R8) التصدير = صف لكل شحنة (5 + العناوين) · «📋 نسخ الملخص لـJ&T» فيه الأرقام والشحنات اللي المشكلة فضلت فيها (الفرع والمندوب) — ' + JSON.stringify({ n: rcsv.length, f: dl.suggestedFilename(), copy: copy.slice(0, 200) }));
+  const r31 = rcsv.find(l => /JEG031/.test(l)) || '';
+  ok(rcsv.length === 6 && /reports-/.test(dl.suggestedFilename()) && /وقت البلاغ/.test(rcsv[0]) && /النتيجة/.test(rcsv[0]) && /استثناء تاني بعد البلاغ/.test(rcsv[0])
+    && /اتسلمت بعد البلاغ/.test(r31) && /,20,/.test(r31) && r31.includes('=""01000000031""')
+    && /بلّغنا عن 5 شحنة/.test(copy) && /اتسلم بعد البلاغ: 1/.test(copy) && /اتحلّت 50%/.test(copy) && /JEG032 — رجعت — Giza Hub — سيد/.test(copy) && /JEG033 — اتكرر الاستثناء 1 مرة/.test(copy),
+    'R8) التصدير = صف لكل شحنة بأعمدة البلاغ (وقت البلاغ · النتيجة · بعد 20 ساعة · التليفون نص) · «📋 نسخ الملخص لـJ&T» فيه الأرقام والشحنات اللي المشكلة فضلت فيها (الفرع والمندوب) — ' + JSON.stringify({ n: rcsv.length, h: rcsv[0].slice(0, 120), r31: r31.slice(0, 160), copy: copy.slice(0, 160) }));
   await chip(p, 'done');
   const strip = await p.evaluate(() => (document.querySelector('.jx-card[data-id="31"] .jx-m-rep') || {}).textContent || '');
   ok(/نتيجة البلاغ/.test(strip) && /اتسلمت بعد البلاغ بـ20 ساعة/.test(strip), 'R9) في باقي المراحل الكارت المتبلّغ عنه عليه سطر «📣 نتيجة البلاغ: ✅ اتسلمت بعد البلاغ بـ20 ساعة» — ' + strip.trim().slice(0, 120));
   // R10) شحنة بلّغنا عنها (13) اتسلمت دلوقتي على الريل-تايم → toast فوري
-  await p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 13); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() + 1000).toISOString(); r.order_status = 'Delivered'; r.updated_at = r.outcome_at;
+  // التسليم اتمسح من نص ساعة (قبل آخر مرة فتحنا المرحلة) ووصلنا دلوقتي — لازم يتعلّم «🆕» برضه
+  await p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 13); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() - 30 * 60000).toISOString(); r.order_status = 'Delivered'; r.updated_at = new Date().toISOString();
     (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 13, tracking_no: 'JEG011' } }); });
   await p.waitForTimeout(1000);
   const t10 = await p.evaluate(() => ({ toast: document.getElementById('toast').textContent, nn: (() => { const nn = document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn'); return nn.hidden ? '' : nn.textContent; })() }));
-  ok(/شحنة بلّغنا عنها J&T اتسلمت/.test(t10.toast) && t10.nn === '🆕 1', 'R10) شحنة متبلّغ عنها اتسلمت على الريل-تايم: toast «✅ شحنة بلّغنا عنها J&T اتسلمت» + «🆕 1» على الشريحة — ' + JSON.stringify(t10));
+  await chip(p, 'reports');
+  const t10b = await p.evaluate(() => ({ tag13: !!document.querySelector('.jx-rep[data-id="13"] .jx-newtag'), tag31: !!document.querySelector('.jx-rep[data-id="31"] .jx-newtag') }));
+  await chip(p, 'open');
+  const t10c = await p.evaluate(() => document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn').hidden);
+  ok(/شحنة بلّغنا عنها J&T اتسلمت/.test(t10.toast) && t10.nn === '🆕 1' && t10b.tag13 && !t10b.tag31 && t10c,
+    'R10) شحنة متبلّغ عنها اتسلمت على الريل-تايم (مسح التسليم أقدم من آخر زيارة — وصل متأخر): toast + «🆕 1» · جوّه المرحلة 🆕 على 13 بس (31 اتشافت قبل كده) · وبعد الخروج اتصفّرت — ' + JSON.stringify({ t10, t10b, t10c }));
   ok(p.__errs.length === 0, 'R11) صفر أخطاء جافاسكربت في مرحلة البلاغات — ' + (p.__errs[0] || 'نضيف'));
+  await T.ctx.close();
+}
+
+// R12–R17: المراجعة العدائية — رجعت قبل البلاغ · رجعت والسبب من العميل · وقت البلاغ مابيتحركش مع تغيير النوع · التسليم من استعلام الشارة
+const EXTRA_REP2 = `(function(){ var now = Date.now(), H = 3600000, ago = function(ms){ return new Date(now - ms).toISOString(); };
+  var b = window.__JT_ISSUES.find(function(x){ return x.id === 1; });
+  var mk = function(o){ var r = Object.assign({}, b, { verdict:null, staff_note:null, staff_updated_at:null, verdict_by_name:null, verdict_set_by_name:null, verdict_set_at:null,
+    reported_at:null, return_started_at:null, staff_rev:0, reviewed_rev:null, review_state:null, review_note:null, reviewed_at:null, reviewed_by_name:null, photo_url:null,
+    courier_note:null, outcome:null, outcome_at:null, order_status:'Exception', attempt:1 }, o); r.updated_at = r.updated_at || r.staff_updated_at || r.event_at; return r; };
+  var ok1 = { staff_rev:1, reviewed_rev:1, review_state:'ok', reviewed_by_name:'shekoz' };
+  window.__JT_ISSUES.push(
+    // 35: بدأت ترجع (172) قبل ما نبلّغ بـ10 ساعات
+    mk(Object.assign({ id:35, tracking_no:'JEG035', order_id:'o35', order_uid:'9035', phone:'01000000035', customer_name:'رجعت قبل البلاغ', event_at:ago(60*H),
+      verdict:'fake_update', verdict_by_name:'ebrahim', verdict_set_by_name:'ebrahim', staff_updated_at:ago(40*H), verdict_set_at:ago(40*H), reported_at:ago(40*H),
+      reviewed_at:ago(39*H), outcome:'returning', outcome_at:ago(50*H), return_started_at:ago(50*H), order_status:'Returned to business' }, ok1)),
+    // 36 + 37: بلّغنا · المحاولة 2 الفريق أكّد إنه رفض حقيقي · ورجعت
+    mk(Object.assign({ id:36, tracking_no:'JEG036', order_id:'o36', order_uid:'9036', phone:'01000000036', customer_name:'رجعت بسبب العميل', event_at:ago(70*H),
+      verdict:'fake_update', verdict_by_name:'ebrahim', verdict_set_by_name:'ebrahim', staff_updated_at:ago(68*H), verdict_set_at:ago(68*H), reported_at:ago(68*H),
+      reviewed_at:ago(67*H), outcome:'returned', outcome_at:ago(5*H), return_started_at:ago(20*H), order_status:'Returned to business' }, ok1)),
+    mk(Object.assign({ id:37, tracking_no:'JEG036', attempt:2, order_id:'o36', order_uid:'9036', phone:'01000000036', customer_name:'رجعت بسبب العميل', event_at:ago(30*H),
+      reason_code:'1002', reason_en:'Customer refuse by call', reason_ar:'العميل رفض في التليفون',
+      verdict:'real_refusal', staff_note:'كلمته وأكّد إنه مش عايزه', verdict_by_name:'ebrahim', verdict_set_by_name:'ebrahim', staff_updated_at:ago(29*H), verdict_set_at:ago(29*H),
+      reviewed_at:ago(28*H), outcome:'returned', outcome_at:ago(5*H), return_started_at:ago(20*H), order_status:'Returned to business' }, ok1)),
+    // 38: بلّغنا من 30 ساعة (FAKE UPDATE) وبعدين اتغيّر لـ«غلطة من J&T» من 3 ساعات — اتسلمت من 10 ساعات = بعد البلاغ مش قبله
+    mk(Object.assign({ id:38, tracking_no:'JEG038', order_id:'o38', order_uid:'9038', phone:'01000000038', customer_name:'نوع البلاغ اتغيّر', event_at:ago(32*H),
+      verdict:'jt_error', verdict_by_name:'shekoz', verdict_set_by_name:'shekoz', staff_updated_at:ago(3*H), verdict_set_at:ago(3*H), reported_at:ago(30*H),
+      reviewed_at:ago(3*H), outcome:'delivered', outcome_at:ago(10*H), order_status:'Delivered' }, ok1))
+  );
+})();`;
+{
+  const T = await open('/exceptions', { post: EXTRA_REP + EXTRA_REP2 });
+  const p = T.p;
+  await p.waitForSelector('#jx-list .jx-card, #jx-list .empt', { timeout: 8000 }).catch(() => {});
+  await chip(p, 'reports');
+  const b = await p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js');
+    const l = m.jxReportedShipments(m.jxRows); const o = {}; l.forEach(s => { o[s.bill] = s.bucket + '/' + s.repeats.length + '/' + s.custLater.length; });
+    const t = m.jxReportTotals(m.jxReportFilter(l, { repDays: 30, q: '', out: '', rep: '' }, Date.now()));
+    return { o, closed: t.closed, after: t.after, returned: t.returned, ret_cust: t.ret_cust, ret_before: t.ret_before,
+      sum: document.querySelector('.jx-repsum').innerText.replace(/\s+/g, ' '),
+      c36: (document.querySelector('.jx-rep[data-id="37"]') || document.querySelector('.jx-rep[data-id="36"]') || {}).textContent || '',
+      groups: [...document.querySelectorAll('.jx-rep-group')].map(g => g.className.replace(/.*g-/, '')) }; });
+  ok(b.o.JEG035 === 'ret_before/0/0' && b.o.JEG032 === 'returned/0/0',
+    'R12) بدأت ترجع (172) قبل ما نبلّغ = «كانت بدأت ترجع قبل البلاغ» مش «رجعت رغم البلاغ» (مش محسوبة على J&T) — ' + JSON.stringify(b.o));
+  ok(b.o.JEG036 === 'ret_cust/0/1' && b.o.JEG033 === 'pending/1/0' && /المحاولة 2 اتصنّفت/.test(b.c36) && /رفض حقيقي/.test(b.c36) && /مش محسوبة على J&T/.test(b.c36),
+    'R13) محاولة بعد البلاغ الفريق صنّفها «رفض حقيقي» مابتتعدّش «🔁 اتكرر» والمرتجع = «السبب من العميل» (مش على J&T) · واللي لسه محدش صنّفها بتتعد — ' + JSON.stringify({ o: b.o, c36: b.c36.slice(0, 200) }));
+  ok(b.o.JEG038 === 'after/0/0' && b.after === 2 && b.returned === 1 && b.closed === 3 && /67%/.test(b.sum) && /1 رجعت والسبب من العميل/.test(b.sum) && /1 كانت بدأت ترجع قبل البلاغ/.test(b.sum)
+    && b.groups.indexOf('ret_cust') > b.groups.indexOf('returned') && b.groups.indexOf('ret_before') > b.groups.indexOf('ret_cust') && b.groups[0] === 'after',
+    'R14) وقت البلاغ = reported_at (FAKE UPDATE من 30 ساعة → غلطة J&T من 3) فالتسليم من 10 ساعات «بعد البلاغ» · اتحلّت 67% (2 من 3 — من غير السبب من العميل وقبل البلاغ) · المجموعات بالترتيب — ' + JSON.stringify({ o38: b.o.JEG038, closed: b.closed, groups: b.groups, sum: b.sum.slice(0, 220) }));
+  const copyJ = await p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); const now = Date.now();
+    const l = m.jxReportFilter(m.jxReportedShipments(m.jxRows), { repDays: 30, q: '', out: '', rep: 'jt_error' }, now);
+    return m.jxReportCopyText(l, m.jxReportTotals(l), { repDays: 30, rep: 'jt_error' }, now).split('\n')[0]; });
+  ok(/\(غلطة من J&T\)/.test(copyJ) && !/FAKE UPDATE/.test(copyJ), 'R15) الملخص المنسوخ بفلتر «غلطة من J&T» عنوانه النوع ده بس (مش الاتنين) — ' + copyJ);
+  ok(p.__errs.length === 0, 'R16) صفر أخطاء جافاسكربت — ' + (p.__errs[0] || 'نضيف'));
+  await T.ctx.close();
+}
+{
+  // R17) التاب ماتفتحتش (صفحة الأوردرات): شحنة متبلّغ عنها اتسلمت على الريل-تايم → toast برضه (من استعلام الشارة)
+  const T = await open('/orders', { post: EXTRA_REP });
+  await T.p.waitForTimeout(600);
+  await T.p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 13); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() - 5 * 60000).toISOString(); r.order_status = 'Delivered'; r.updated_at = new Date().toISOString();
+    (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 13, tracking_no: 'JEG011' } }); });
+  await T.p.waitForTimeout(1300);
+  const t = await T.p.evaluate(() => document.getElementById('toast').textContent);
+  ok(/شحنة بلّغنا عنها J&T اتسلمت/.test(t) && /JEG011/.test(t), 'R17) والموظف على صفحة الأوردرات (تاب الاستثناءات ماتفتحتش): التسليم بيطلّع toast برضه — ' + t);
   await T.ctx.close();
 }
 
@@ -778,7 +853,9 @@ const NEW50 = () => { const b0 = window.__JT_ISSUES.find(x => x.id === 1); const
 async function soundProbe(o){
   const T = await open('/orders', o);
   await T.p.waitForTimeout(500);
+  await T.p.waitForTimeout(1000);
   const a0 = await T.p.evaluate(() => window.__ALERTS);
+  const t0 = await T.p.evaluate(() => document.getElementById('toast').textContent);
   await T.p.evaluate(NEW50);
   await T.p.waitForTimeout(1500);
   const a1 = await T.p.evaluate(() => ({ n: window.__ALERTS, toast: document.getElementById('toast').textContent }));
@@ -787,12 +864,12 @@ async function soundProbe(o){
     (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 50, tracking_no: 'JEG050' } }); });
   await T.p.waitForTimeout(1500);
   const a2 = await T.p.evaluate(() => window.__ALERTS);
-  return { T, a0, a1, a2 };
+  return { T, a0, t0, a1, a2 };
 }
 {
   const r = await soundProbe();
-  ok(r.a0 === 0 && r.a1.n === 1 && /استثناء جديد من J&T/.test(r.a1.toast) && r.a2 === 1,
-    'S1) على صفحة الأوردرات (تاب الاستثناءات ماتفتحتش): اللي موجود وقت الفتح مابيرنّش · استثناء جديد = رنّة واحدة + toast «🔔 استثناء جديد من J&T» · تحديث نفس الصف مابيرنّش تاني — ' + JSON.stringify({ a0: r.a0, a1: r.a1, a2: r.a2 }));
+  ok(r.a0 === 0 && !/استثناء/.test(r.t0) && r.a1.n === 1 && /استثناء جديد من J&T: العميل رفض في التليفون — عميل جديد/.test(r.a1.toast) && r.a2 === 1,
+    'S1) على صفحة الأوردرات (تاب الاستثناءات ماتفتحتش): اللي موجود وقت الفتح مابيرنّش ولا بيطلّع toast · استثناء جديد = رنّة واحدة + toast «🔔 استثناء جديد من J&T: السبب — العميل» · تحديث نفس الصف مابيرنّش تاني — ' + JSON.stringify({ a0: r.a0, t0: r.t0, a1: r.a1, a2: r.a2 }));
   await r.T.ctx.close();
 }
 {
@@ -833,10 +910,45 @@ async function soundProbe(o){
   await T.ctx.close();
 }
 
+const SUSP = "window.AudioContext = function(){ this.state = 'suspended'; this.currentTime = 0; this.destination = {}; }; window.AudioContext.prototype.resume = function(){ return Promise.resolve(); }; window.webkitAudioContext = window.AudioContext;";
+{
+  // S7) التاب دي الصوت فيها مقفول من المتصفح (لسه محدش لمسها) → مابتحجزش الرنّة (التابات التانية ترنّ)
+  const r = await soundProbe({ pre: SUSP });
+  const last = await r.T.p.evaluate(() => localStorage.getItem('sahl_jx_beep_last'));
+  ok(r.a1.n === 0 && last !== '50', 'S7) تاب الصوت فيها ممنوع: مارنّتش ومحجزتش الرنّة (sahl_jx_beep_last ماتكتبش) — تاب تانية جاهزة هي اللي ترنّ — ' + JSON.stringify({ n: r.a1.n, last }));
+  await r.T.ctx.close();
+}
+{
+  // S8) الأدمن قفل الصوت من جهاز تاني والتاب دي مفتوحة من بدري → قبل ما ترنّ بتسأل تاني (آخر قراية أقدم من دقيقة)
+  const T = await open('/orders');
+  await T.p.waitForTimeout(500);
+  await T.p.evaluate(() => { window.__NOTIFY_PREFS = { jx_sound: false }; });
+  const t0 = await T.p.evaluate(() => Date.now());
+  await T.ctx.clock.setFixedTime(new Date(t0 + 120000));
+  await T.p.evaluate(NEW50);
+  await T.p.waitForTimeout(1500);
+  const n = await T.p.evaluate(() => window.__ALERTS);
+  ok(n === 0, 'S8) إعداد الفريق اتقفل من جهاز تاني: التاب المفتوحة قرت الإعداد تاني قبل ما ترنّ ومارنّتش — ' + n);
+  await T.ctx.close();
+}
+{
+  // S9) الموظف (مالوش إعدادات) يكتم جهازه من زرار 🔔 في التاب
+  const T = await open('/exceptions', { role: 'employee' });
+  await T.p.waitForSelector('#jx-sound', { state: 'visible' });
+  const hit = await T.p.evaluate(() => { const el = document.getElementById('jx-sound'); const r = el.getBoundingClientRect(); const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(at && el.contains(at)); });
+  const before = await T.p.evaluate(() => document.getElementById('jx-sound').textContent);
+  await T.p.click('#jx-sound'); await T.p.waitForTimeout(150);
+  const st = await T.p.evaluate(() => ({ t: document.getElementById('jx-sound').textContent, ls: localStorage.getItem('sahl_jx_sound') }));
+  await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500);
+  const n = await T.p.evaluate(() => window.__ALERTS);
+  ok(hit && before === '🔔' && st.t === '🔕' && st.ls === '0' && n === 0, 'S9) زرار 🔔 في التاب لكل الأدوار (hit-test): الموظف كتم جهازه → 🔕 + sahl_jx_sound=0 والاستثناء الجديد مارنّش — ' + JSON.stringify({ hit, before, st, n }));
+  await T.ctx.close();
+}
+
 // ═══ المعايرات ═══
 console.log('— المعايرات');
 async function calib(label, patches, probe, expectFail, o){
-  const T = await open('/exceptions', Object.assign({ patches, stage: 'open' }, o || {}));
+  const T = await open((o && o.path) || '/exceptions', Object.assign({ patches, stage: 'open' }, o || {}));
   await T.p.waitForSelector('#jx-list .jx-card', { timeout: 8000 }).catch(() => {});
   const r = await probe(T);
   await T.ctx.close();
@@ -976,22 +1088,50 @@ await calib('(ث) المسودة بتتسجّل حتى لو نفس المحفو�
     return T.p.evaluate(() => (document.querySelector('.jx-card[data-id="1"] textarea.jx-note') || {}).value);
   }, v => v !== 'زميل كتب الجديد', { role: 'employee' });
 
-await calib('(خ) من غير خط البداية → كل الموجود وقت الفتح رنّ (الفحص S1 كان هيقع)',
+// ⚠️ وقت التحميل صوت المتصفح لسه معلّق (مفيش ضغطة) فالرنّة نفسها مابتبانش — اللي بيبان هو الـtoast «N استثناءات جديدة» على القديم
+await calib('(خ) من غير خط البداية → كل الموجود وقت الفتح اتعامل «جديد» (الفحص S1 كان هيقع)',
   { exc: s => s.replace('    if(jxKnownReady && id > jxKnownMax) fresh.push(rows[i]);', '    if(id > jxKnownMax) fresh.push(rows[i]);') },
-  T => T.p.evaluate(() => window.__ALERTS), n => n > 0);
+  async T => { await T.p.waitForTimeout(1500); return T.p.evaluate(() => document.getElementById('toast').textContent); }, t => /استثناء/.test(t), { path: '/orders' });
 await calib('(ذ) إعداد الفريق متطنّش → رنّ والأدمن قافله (الفحص S2 كان هيقع)',
-  { exc: s => s.replace('export function jxSoundEnabled(){ return jxTeamSound && deviceSoundOn(); }', 'export function jxSoundEnabled(){ return deviceSoundOn(); }') },
+  { exc: s => s.replace('jxFreshTeamPref(function(on){ if(on && deviceSoundOn()) jxRingOnce(maxId); });', 'jxRingOnce(maxId);') },
   async T => { await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500); return T.p.evaluate(() => window.__ALERTS); }, n => n > 0,
   { pre: "window.__NOTIFY_PREFS = { jx_sound: false };" });
+await calib('(أأ) التاب اللي مش هتقدر ترنّ بتحجز الرنّة → التابات التانية سكتت (الفحص S7 كان هيقع)',
+  { exc: s => s.replace("    if(audioReady()){ claim(); return; }", "    claim(); return;") },
+  async T => { await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500); return T.p.evaluate(() => localStorage.getItem('sahl_jx_beep_last')); }, last => last === '50',
+  { pre: SUSP });
+await calib('(بب) إعداد الفريق مابيتقراش تاني قبل الرنّة → رنّت والأدمن قافله من جهاز تاني (الفحص S8 كان هيقع)',
+  { exc: s => s.replace("  if(!sb || (jxPrefAt && Date.now() - jxPrefAt < 60000)){ cb(jxTeamSound); return; }", "  if(true){ cb(jxTeamSound); return; }") },
+  async T => { await T.p.evaluate(() => { window.__NOTIFY_PREFS = { jx_sound: false }; }); const t0 = await T.p.evaluate(() => Date.now());
+    await T.ctx.clock.setFixedTime(new Date(t0 + 120000)); await T.p.evaluate(NEW50); await T.p.waitForTimeout(1500); return T.p.evaluate(() => window.__ALERTS); }, n => n > 0);
 await calib('(ض) «اتسلمت قبل البلاغ» بتتحسب «بعده» → الملخص بقى 2 بعد البلاغ (الفحص R3 كان هيقع)',
   { exc: s => s.replace("  if(out === 'delivered') return (outAt && outAt < firstAt) ? 'before' : 'after';", "  if(out === 'delivered') return 'after';") },
   async T => { await chip(T.p, 'reports'); return T.p.evaluate(() => (document.querySelector('.jx-repsum') || {}).innerText.replace(/\s+/g, ' ')); }, t => !/1 اتسلمت بعد البلاغ في المتوسط/.test(t), { post: EXTRA_REP });
 await calib('(ظ) «اتكرر» بيعدّ استثناءات قبل البلاغ → كل شحنة بقت «اتكرر» (الفحص R3 كان هيقع)',
-  { exc: s => s.replace("      if(x.kind === 'exception' && jxTs(x.event_at) > s.firstAt) repeats.push(x);", "      if(x.kind === 'exception') repeats.push(x);") },
+  { exc: s => s.replace("      if(x.kind === 'exception' && jxTs(x.event_at) > s.firstAt){", "      if(x.kind === 'exception'){") },
   async T => { await chip(T.p, 'reports'); return T.p.evaluate(() => (document.querySelector('.jx-repsum') || {}).innerText.replace(/\s+/g, ' ')); }, t => !/🔁 1 شحنة/.test(t), { post: EXTRA_REP });
 await calib('(غ) المرحلة مابتسجّلش إنك شفتها → «🆕» رجع على الشريحة بعد ما خرجت (الفحص R5 كان هيقع)',
-  { exc: s => s.replace('  jxRepSeenSet(now);\n  var period', '  var period') },
+  { exc: s => s.replace("    if(!document.hidden && jxPageVisible()){ seen[s.bill] = 1; jxRepSeenDirty = true; }", "") },
   async T => { await chip(T.p, 'reports'); await chip(T.p, 'open'); return T.p.evaluate(() => document.querySelector('#jx-chips [data-jx-chip="reports"] .jx-nn').hidden); }, hid => !hid, { post: EXTRA_REP });
+
+await calib('(جج) من غير «رجعت قبل البلاغ» → المرتجع اللي بدأ قبل البلاغ اتحسب على J&T (الفحص R12 كان هيقع)',
+  { exc: s => s.replace("    if(rs ? rs < firstAt : (outAt && outAt < firstAt)) return 'ret_before';\n", '') },
+  async T => T.p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); return (m.jxReportedShipments(m.jxRows).find(s => s.bill === 'JEG035') || {}).bucket; }),
+  b => b !== 'ret_before', { post: EXTRA_REP + EXTRA_REP2 });
+await calib('(دد) المحاولة اللي الفريق صنّفها من العميل بتتعدّ «اتكرر» → اتحسبت على J&T (الفحص R13 كان هيقع)',
+  { exc: s => s.replace("        if(JX_NOT_JT.indexOf(x.verdict) >= 0) custLater.push(x); else repeats.push(x);", "        repeats.push(x);") },
+  async T => T.p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); return (m.jxReportedShipments(m.jxRows).find(s => s.bill === 'JEG036') || {}).repeats.length; }),
+  n => n !== 0, { post: EXTRA_REP + EXTRA_REP2 });
+await calib('(هه) وقت البلاغ من verdict_set_at (بيتحرك مع تغيير النوع) → التسليم اتحسب «قبل البلاغ» (الفحص R14 كان هيقع)',
+  { exc: s => s.replace("function jxReportAt(r){ return jxTs(r.reported_at || r.verdict_set_at || r.staff_updated_at); }", "function jxReportAt(r){ return jxTs(r.verdict_set_at || r.staff_updated_at); }") },
+  async T => T.p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); return (m.jxReportedShipments(m.jxRows).find(s => s.bill === 'JEG038') || {}).bucket; }),
+  b => b !== 'after', { post: EXTRA_REP + EXTRA_REP2 });
+await calib('(وو) استعلام الشارة مابيتابعش التسليم → الموظف على الأوردرات ماعرفش (الفحص R17 كان هيقع)',
+  { exc: s => s.replace("      jxSeeRows(rows);\n      jxWatchReported(rows);\n      jxBadgeAll(rows, Date.now());", "      jxSeeRows(rows);\n      jxBadgeAll(rows, Date.now());") },
+  async T => { await T.p.waitForTimeout(600); await T.p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 13); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() - 5 * 60000).toISOString(); r.order_status = 'Delivered'; r.updated_at = new Date().toISOString();
+      (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 13, tracking_no: 'JEG011' } }); });
+    await T.p.waitForTimeout(1300); return T.p.evaluate(() => document.getElementById('toast').textContent); },
+  t => !/اتسلمت/.test(t), { post: EXTRA_REP, path: '/orders' });
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

@@ -30,8 +30,10 @@ var wired = false;
 export function initAlertSound(){
   if(wired || typeof document === 'undefined') return;
   wired = true;
-  document.addEventListener('pointerdown', unlockAudio, true);
-  document.addEventListener('keydown', unlockAudio, true);
+  // ⚠️ على اللمس pointerdown لوحده مابيعدّش «تفاعل» عند المتصفح (iOS بالذات) — touchend/pointerup/click هم اللي بيفتحوا الصوت
+  ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'].forEach(function(ev){
+    document.addEventListener(ev, unlockAudio, true);
+  });
 }
 
 export function deviceSoundOn(){
@@ -41,13 +43,20 @@ export function setDeviceSound(on){
   try{ localStorage.setItem(DEVICE_KEY, on ? '1' : '0'); }catch(e){ /* مفيش storage */ }
 }
 
-// نغمة إنذار قصيرة: 3 نبضات (عالي/واطي/عالي) × مرتين ≈ 1.6 ثانية — واضحة من غير ما تبقى مزعجة
+// نغمة إنذار قصيرة: 3 نبضات (عالي/واطي/عالي) × مرتين ≈ 1.6 ثانية — واضحة من غير ما تبقى مزعجة.
+// بترجّع Promise<boolean>: رنّت فعلاً ولا لأ. resume() مش لحظي، فلو الصوت كان معلّق بنستناه قبل ما نحكم.
+// الحدث sahl:alert بيطلع بس لما النغمة اتجدولت فعلاً (الهارنس بيعدّ الرنّات الحقيقية مش المحاولات).
 export function playAlert(){
-  try{ window.dispatchEvent(new CustomEvent('sahl:alert')); }catch(e){ /* متصفح قديم */ }
   var c = getCtx();
-  if(!c) return false;
-  if(c.state === 'suspended'){ try{ c.resume(); }catch(e){ /* */ } }
-  if(c.state !== 'running') return false;
+  if(!c) return Promise.resolve(false);
+  if(c.state === 'running') return Promise.resolve(ring(c));
+  var p;
+  try{ p = c.resume(); }catch(e){ p = null; }
+  if(!p || typeof p.then !== 'function') return Promise.resolve(c.state === 'running' ? ring(c) : false);
+  return p.then(function(){ return c.state === 'running' ? ring(c) : false; }, function(){ return false; });
+}
+
+function ring(c){
   try{
     var t0 = c.currentTime + 0.02;
     var notes = [988, 784, 988, 0, 988, 784, 988];
@@ -63,6 +72,7 @@ export function playAlert(){
       o.connect(g); g.connect(c.destination);
       o.start(at); o.stop(at + 0.2);
     }
-    return true;
   }catch(e){ return false; }
+  try{ window.dispatchEvent(new CustomEvent('sahl:alert')); }catch(e){ /* متصفح قديم */ }
+  return true;
 }
