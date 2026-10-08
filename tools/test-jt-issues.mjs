@@ -10,11 +10,16 @@
 //  15–19) الحفظ: الاختيار بيتحفظ فوراً · الملاحظة على الـblur · Ctrl+Enter · رفض السيرفر · الكتابة ماتضيعش مع الريل-تايم
 //  20–22) الشات: تاب المحادثات بتفتح على العميل (حتى لو أقدم من الـ200) · نفس التاب على الموبايل · رقم مالوش محادثة
 //  23–28) الداتابيز لسه ماتطبّقتش · التصدير (BOM + injection + أرقام) · التقرير · الموبايل · الليلي · الموظف · المزامنة التدريجية
+//  32–41) v70 — المراحل: الأدمن بيفتح على «مستنية مراجعتك» · المترجّعة فوق «محتاجة تعامل» · سطر «مين/إمتى/اختار إيه»
+//         · ✓ تمام (بالـrev اللي شافه) · ↩️ رجّعها (مودال + تعليق) · stale · الموظف مالوش أزرار مراجعة
+//         · تعديل بعد المراجعة = رجعت للطابور · السجل · «اتراجعت — تابع النتيجة» · الفلاتر المخفية مابتقصّش الطوابير
 //
 // المعايرات (لازم تقع على الكود المحقون — كل واحدة بحارس «المرساة اتلقت»):
 //  (أ) شيل «اتصنّفت محاولة أحدث» → (ب) شيل حالة الأوردر من النتيجة → (ج) شيل esc من ملاحظة المندوب
 //  (د) الجدول على قناة الأوردرات → (هـ) الرسم بيدوس على الكتابة → (و) قاعدة wa_id غلط
 //  (ز) شيل فحص انتهاء الصورة → (ح) شيل حارس CSV injection → (ط) الطابور بيتقيّد بالفترة
+//  (م) شيل قاعدة «المترجّعة» من jxNeedsFollow → (ن) p_seen_rev مابيتبعتش → (س) أزرار المراجعة للموظف
+//  (ع) فلتر السبب بيتطبّق في الطابور → (ف) الحفظ مابيطبّقش رد السيرفر (المراجعة)
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -37,6 +42,7 @@ const FIX = `(function(){
     reason_ar:'العميل مش بيرد أو تليفونه مقفول', courier_note:null, branch:'Nasr City', branch_phone:'0223456789',
     courier_name:'محمد علي', courier_phone:'01011112222', photo_url:null, verdict:null, staff_note:null,
     staff_updated_at:null, verdict_by_name:null, outcome:null, outcome_at:null, attempt:1, order_uid:'9001', order_id:'o1',
+    verdict_by:null, staff_rev:0, reviewed_rev:null, review_state:null, review_note:null, reviewed_at:null, reviewed_by_name:null,
     customer_name:'أحمد سامي', phone:'01000000001', alt_phone:null, city:'القاهره', address:'15 شارع التحرير',
     ship_prov:'القاهرة', ship_city:'مدينة نصر', ship_area:'الحي السابع', product_name:'منظم المطبخ (عدد 1)',
     total_cost:1450, jt_cod_amount:1450, order_status:'Exception' };
@@ -46,7 +52,8 @@ const FIX = `(function(){
     mk({ id:2, tracking_no:'JEG001', attempt:2, event_at:ago(30*60000), reason_code:'205', reason_en:'Change The Delivery Time', reason_ar:'العميل طلب تأجيل' }),
     mk({ id:3, tracking_no:'JEG002', order_id:'o2', order_uid:'9002', customer_name:'منى', phone:'01000000002', event_at:ago(1*D),
          verdict:'fake_update', staff_note:'العميل قال محدش كلمه', verdict_by_name:'shekoz', staff_updated_at:ago(1*H),
-         outcome:'delivered', outcome_at:ago(5*H), order_status:'Delivered' }),
+         outcome:'delivered', outcome_at:ago(5*H), order_status:'Delivered',
+         staff_rev:1, reviewed_rev:1, review_state:'self', reviewed_by_name:'shekoz', reviewed_at:ago(1*H) }),
     mk({ id:4, tracking_no:'JEG003', event_at:ago(3*D), outcome:'returning', outcome_at:ago(2*D), order_status:'Returned to business',
          order_id:'o4', order_uid:'9004', phone:'01000000004', customer_name:'كريم' }),
     mk({ id:5, tracking_no:'JEG004', event_at:ago(10*D), outcome:'returning', outcome_at:ago(9*D), order_status:'Returned to business',
@@ -58,13 +65,22 @@ const FIX = `(function(){
     mk({ id:8, tracking_no:'JEG007', event_at:ago(5*H), order_status:'Delivered', order_id:'o8', order_uid:'9008', phone:'01000000008' }),
     mk({ id:9, tracking_no:'JEG008', event_at:ago(4*D), order_id:'o9', order_uid:'9009', phone:'01000000009' }),
     mk({ id:10, tracking_no:'JEG008', attempt:2, event_at:ago(1*D), verdict:'real_delay', staff_note:'قال بكرة', verdict_by_name:'ebrahim',
-         staff_updated_at:ago(30*H), order_id:'o9', order_uid:'9009', phone:'01000000009' }),
+         staff_updated_at:ago(30*H), order_id:'o9', order_uid:'9009', phone:'01000000009', staff_rev:1 }),
     mk({ id:11, tracking_no:'JEG009', event_at:ago(20*D), order_id:'o11', order_uid:'9011', phone:'01000000011', customer_name:'قديم عالق' }),
     mk({ id:12, tracking_no:'JEG010', event_at:ago(6*H), courier_note:'<img src=x id="xss1" onerror="window.__XSS=1">',
          branch:'<b id="xss2">B</b>', courier_name:'<i id="xss3">c</i>', customer_name:'<u id="xss4">n</u>',
          order_id:'o12', order_uid:'9012', phone:'01000000012', photo_url:'javascript:window.__XSS=2' }),
     mk({ id:13, tracking_no:'JEG011', event_at:ago(7*H), photo_url:'https://jt.blob.core.windows.net/p/b.jpg?se=' + encodeURIComponent(past) + '&sig=y',
-         order_id:'o13', order_uid:'9013', phone:'01000000013', verdict:'jt_error', staff_note:'=1+1', verdict_by_name:'shekoz', staff_updated_at:ago(2*H) }),
+         order_id:'o13', order_uid:'9013', phone:'01000000013', verdict:'jt_error', staff_note:'=1+1', verdict_by_name:'shekoz', staff_updated_at:ago(2*H),
+         staff_rev:1, reviewed_rev:1, review_state:'self', reviewed_by_name:'shekoz', reviewed_at:ago(2*H) }),
+    // 16: ebrahim اتعامل والأدمن رجّعهاله بتعليق — فوق «محتاجة تعامل» (وتعليق فيه HTML عشان esc)
+    mk({ id:16, tracking_no:'JEG012', event_at:ago(3*H), order_id:'o16', order_uid:'9016', phone:'01000000016', customer_name:'مترجّعة',
+         verdict:'no_answer_us', staff_note:'اتصلت مرتين', verdict_by_name:'ebrahim', staff_updated_at:ago(150*60000), staff_rev:1,
+         reviewed_rev:1, review_state:'sent_back', review_note:'كلّمه تاني بكرة <b id="xss5">x</b>', reviewed_by_name:'shekoz', reviewed_at:ago(2*H) }),
+    // 17: ebrahim اتعامل والأدمن قال تمام — لسه مع J&T («اتراجعت — تابع النتيجة» فوق)
+    mk({ id:17, tracking_no:'JEG013', event_at:ago(26*H), order_id:'o17', order_uid:'9017', phone:'01000000017', customer_name:'اتراجعت',
+         verdict:'real_delay', staff_note:'قال السبت', verdict_by_name:'ebrahim', staff_updated_at:ago(20*H), staff_rev:1,
+         reviewed_rev:1, review_state:'ok', reviewed_by_name:'shekoz', reviewed_at:ago(19*H) }),
     mk({ id:15, tracking_no:'JEG099', event_at:ago(40*D), order_id:'o15', order_uid:'9015', phone:'01000000015', customer_name:'بره النافذة' })
   ];
   // المحادثات: 210 — العميل 1 **أقدم واحدة** (بره أحدث 200) فالفتح لازم يجيبها من السيرفر بالرقم
@@ -75,20 +91,50 @@ const FIX = `(function(){
     last_message_at:ago(9 * D), last_direction:'in', last_inbound_at:ago(9 * D), labels:[], unread_count:0 });
   window.__WA_CONVOS = cv;
   window.__WA_MSGS = [];
+  // سجل التعامل على 10: ebrahim كتب ملاحظة وبعدين صنّف
+  window.__JT_LOG = [
+    { id:1, tenant_id:'t-test-1', issue_id:10, at:ago(31*H), by_name:'ebrahim', actor_role:'employee', action:'save', verdict:null, note:'قال بكرة',
+      prev_verdict:null, prev_note:null, verdict_changed:false, note_changed:true, review_state:null, review_note:null },
+    { id:2, tenant_id:'t-test-1', issue_id:10, at:ago(30*H), by_name:'ebrahim', actor_role:'employee', action:'save', verdict:'real_delay', note:'قال بكرة',
+      prev_verdict:null, prev_note:'قال بكرة', verdict_changed:true, note_changed:false, review_state:null, review_note:null },
+    { id:3, tenant_id:'t-test-1', issue_id:3, at:ago(1*H), by_name:'shekoz', actor_role:'admin', action:'save', verdict:'fake_update', note:'x',
+      prev_verdict:null, prev_note:null, verdict_changed:true, note_changed:true, review_state:null, review_note:null }
+  ];
 })();`;
 
-const HOOK = `window.__SAVES = [];
+const HOOK = `window.__SAVES = []; window.__REVIEWS = [];
 window.__RPC_HOOK = function(name, args){
   if(name === 'wa_inbox_status') return { data:{ verified:true }, error:null };
+  var isAdmin = (window.__ROLE || 'admin') === 'admin';
+  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
+  if(name === 'jt_issue_review'){
+    window.__REVIEWS.push(args);
+    if(!isAdmin) return { data:null, error:{ code:'42501', message:'not_allowed' } };
+    var x = window.__JT_ISSUES.find(function(y){ return y.id === args.p_id; });
+    if(!x) return { data:null, error:{ code:'P0002', message:'not_found' } };
+    if(window.__REVIEW_STALE){ x.staff_rev = (x.staff_rev || 0) + 1; x.staff_note = 'عدّلها الموظف'; x.updated_at = new Date().toISOString(); var o0 = pick(x); o0.stale = true; return { data:o0, error:null }; }
+    if(args.p_action === 'sent_back' && !String(args.p_note || '').trim()) return { data:null, error:{ code:'22023', message:'note_required' } };
+    var nw = new Date().toISOString();
+    if(args.p_action === 'undo'){ x.reviewed_rev = null; x.review_state = null; x.review_note = null; x.reviewed_at = null; x.reviewed_by_name = null; }
+    else { x.reviewed_rev = x.staff_rev; x.review_state = args.p_action; x.review_note = args.p_action === 'sent_back' ? args.p_note : null; x.reviewed_at = nw; x.reviewed_by_name = 'أدمن الاختبار'; }
+    x.updated_at = nw;
+    var o1 = pick(x); o1.stale = false; return { data:o1, error:null };
+  }
   if(name !== 'jt_issue_save') return null;
   window.__SAVES.push(args);
   if(window.__SAVE_FAIL) return { data:null, error:{ code:'22023', message:'bad_verdict' } };
   var r = window.__JT_ISSUES.find(function(x){ return x.id === args.p_id; });
   if(!r) return { data:null, error:{ code:'P0002', message:'not_found' } };
+  // نفس قواعد السيرفر: تغيير فعلي = staff_rev+1 · الأدمن بتصنيف = «اتعامل بنفسه» · الموظف = المراجعة القديمة بتفضل
   var apply = function(){
-    r.verdict = args.p_verdict; r.staff_note = args.p_note;
-    r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at; r.verdict_by_name = 'أدمن الاختبار';
-    return { data:{ id:r.id, verdict:r.verdict, staff_note:r.staff_note, staff_updated_at:r.staff_updated_at, verdict_by_name:r.verdict_by_name }, error:null };
+    if((r.verdict || null) !== (args.p_verdict || null) || (r.staff_note || null) !== (args.p_note || null)){
+      r.verdict = args.p_verdict; r.staff_note = args.p_note;
+      r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
+      r.verdict_by_name = isAdmin ? 'أدمن الاختبار' : 'موظف الاختبار';
+      r.staff_rev = (r.staff_rev || 0) + 1;
+      if(isAdmin && r.verdict){ r.reviewed_rev = r.staff_rev; r.review_state = 'self'; r.review_note = null; r.reviewed_at = r.staff_updated_at; r.reviewed_by_name = 'أدمن الاختبار'; }
+    }
+    return { data:pick(r), error:null };
   };
   // حفظ «في السكة»: الرد بيتأخر — عشان سباق «غيّر ورجع قبل ما الحفظ يرجع» يتقاس
   if(window.__SAVE_DELAY) return new Promise(function(res){ setTimeout(function(){ res(apply()); }, window.__SAVE_DELAY); });
@@ -120,6 +166,12 @@ async function open(path, o){
   await p.goto(ORIGIN + path, { waitUntil: 'networkidle' });
   await p.waitForSelector('#app', { state: 'visible', timeout: 10000 });
   await p.waitForTimeout(250);
+  // الأدمن بيفتح على «مستنية مراجعتك» لما فيها حاجة — الفحوص اللي على الطابور بتروح «محتاجة تعامل» الأول
+  if(o.stage && /\/exceptions$/.test(path)){
+    await p.waitForSelector('#jx-list .jx-card, #jx-list .empt', { timeout: 8000 }).catch(() => {});
+    await p.click('#jx-chips [data-jx-chip="' + o.stage + '"]');
+    await p.waitForTimeout(150);
+  }
   return { p, ctx };
 }
 
@@ -140,7 +192,9 @@ const M = await open('/orders');
 let p = M.p;
 await p.waitForTimeout(400);
 const badge0 = await p.evaluate(() => { const b = document.getElementById('jx-nav-badge'); return b ? { shown: getComputedStyle(b).display !== 'none', t: b.textContent } : null; });
-ok(badge0 && badge0.shown && badge0.t === '6', '1) شارة «استثناءات الشحن» على الزرار = 6 من الاستعلام الخفيف (قبل فتح الصفحة) — ' + JSON.stringify(badge0));
+ok(badge0 && badge0.shown && badge0.t === '7', '1) شارة «استثناءات الشحن» على الزرار = 7 (6 + المترجّعة للموظف) من الاستعلام الخفيف (قبل فتح الصفحة) — ' + JSON.stringify(badge0));
+const badge2 = await p.evaluate(() => { const b = document.getElementById('jx-nav-badge2'); return b ? { shown: getComputedStyle(b).display !== 'none', t: b.textContent } : null; });
+ok(badge2 && badge2.shown && badge2.t === '1', '1ج) الشارة الزرقا للأدمن = 1 مستنية مراجعته (10 — ebrahim) — ' + JSON.stringify(badge2));
 const q1 = await p.evaluate(() => (window.__calls || []).filter(c => c.table === 'v_jt_issues').map(c => ({ cols: c.cols, f: c.f })));
 ok(q1.length >= 1 && q1[0].cols.indexOf('staff_note') < 0 && q1[0].f.some(f => f.op === 'eq' && f.col === 'tenant_id') && q1[0].f.some(f => f.op === 'gte' && f.col === 'event_at'),
   '1ب) استعلام الشارة خفيف (من غير الملاحظات/العناوين) ومتقيّد بالمتجر والنافذة');
@@ -153,15 +207,28 @@ await gotoExceptions(p);
 const pg = await p.evaluate(() => ({ path: location.pathname, title: document.title,
   vis: ['orders', 'stock', 'inbox', 'exceptions', 'finance', 'analytics', 'settings'].filter(n => { const el = document.getElementById('page-' + n); return el && getComputedStyle(el).display !== 'none'; }) }));
 ok(hit && pg.path === '/exceptions' && pg.title === 'استثناءات الشحن · سهل' && pg.vis.join() === 'exceptions', '3) الزرار (hit-test) بيفتح /exceptions بعنوانها والصفحة لوحدها — ' + JSON.stringify(pg));
+const st0 = await p.evaluate(() => ({ stage: document.getElementById('page-exceptions').getAttribute('data-stage'),
+  on: (document.querySelector('#jx-chips .jx-chip.on') || {}).dataset.jxChip, ids: [...document.querySelectorAll('#jx-list .jx-card')].map(c => Number(c.dataset.id)),
+  hint: document.getElementById('jx-hint').textContent }));
+ok(st0.stage === 'review' && st0.on === 'review' && JSON.stringify(st0.ids) === '[10]' && /النهارده: shekoz 2/.test(st0.hint),
+  '32) الأدمن بيفتح على «مستنية مراجعتك» (فيها 10) · ومين سجّل النهارده في السطر اللي فوق — ' + JSON.stringify(st0));
+const c10 = await p.evaluate(() => { const c = document.querySelector('.jx-card[data-id="10"]'); return c ? { meta: (c.querySelector('.jx-meta') || {}).textContent.replace(/\s+/g, ' '),
+  ok: !!c.querySelector('[data-jx="rv-ok"]'), back: !!c.querySelector('[data-jx="rv-back"]'), sel: !!c.querySelector('select.jx-verdict'), rev: c.classList.contains('is-review') } : null; });
+ok(c10 && /ebrahim/.test(c10.meta) && /تأجيل حقيقي/.test(c10.meta) && /إمبارح 7:00 ص/.test(c10.meta) && /مستنية مراجعتك/.test(c10.meta) && /قال بكرة/.test(c10.meta)
+  && c10.ok && c10.back && !c10.sel && c10.rev,
+  '33) سطر «مين اتعامل» ظاهر تحت العنوان: ebrahim · اختار تأجيل حقيقي · إمبارح 7:00 ص (بالساعة) · مستنية مراجعتك · كتب «قال بكرة» + زرارين ✓ تمام / ↩️ رجّعها — ' + JSON.stringify(c10));
+await chip(p, 'open');
 const ids0 = await cardIds(p);
-ok(JSON.stringify(ids0) === JSON.stringify([11, 4, 6, 12, 1, 2]), '4) «محتاجة متابعة»: 6 بالترتيب (الأقدم فوق · العالق من 20 يوم موجود رغم الفترة 7) — ' + JSON.stringify(ids0));
-// (علامات العزل حوالين النسبة بتتشال قبل المقارنة — وجودها نفسه متفحوص تحت)
-const st = await p.evaluate(() => { const t = id => document.getElementById(id).textContent.replace(/[\u2066-\u2069]/g, '').trim(); return [t('jx-s-open'), t('jx-s-open-sub'), t('jx-s-total'), t('jx-s-total-sub'), t('jx-s-fake'), t('jx-s-fake-sub'), t('jx-s-saved'), t('jx-s-saved-sub'), t('jx-s-today'), t('jx-s-today-sub')]; });
-ok(st[0] === '6' && /2 راجعة/.test(st[1]) && st[2] === '10' && /8 شحنة/.test(st[3]) && st[4] === '1' && /من 3/.test(st[5]) && st[6] === '2' && /من 8 شحنة · 25%/.test(st[7]) && st[8] === '2' && /shekoz 2/.test(st[9]),
-  '5) الكروت: متابعة 6 (2 راجعة) · 10 استثناء على 8 شحنة · FAKE 1 من 3 · اتسلمت 2 من 8 (25%) · النهارده 2 (shekoz) — ' + JSON.stringify(st));
-ok(await p.evaluate(() => /\u2066\d+%\u2069/.test(document.getElementById('jx-s-saved-sub').textContent)), '5ب) النسبة معزولة اتجاهياً (مابتتقلبش «%25» جوّه الجملة العربي)');
+ok(JSON.stringify(ids0) === JSON.stringify([16, 11, 4, 6, 12, 1, 2]), '4) «محتاجة تعامل»: المترجّعة (16) فوق الكل · بعدها الأقدم (العالق من 20 يوم موجود رغم الفترة 7) — ' + JSON.stringify(ids0));
+const c16 = await p.evaluate(() => { const c = document.querySelector('.jx-card[data-id="16"]'); return c ? { back: c.classList.contains('is-back'), meta: c.querySelector('.jx-meta').textContent.replace(/\s+/g, ' '),
+  xss: !!document.getElementById('xss5'), sel: !!c.querySelector('select.jx-verdict') } : null; });
+ok(c16 && c16.back && /shekoz/.test(c16.meta) && /رجّعها/.test(c16.meta) && /كلّمه تاني بكرة/.test(c16.meta) && !c16.xss && c16.sel,
+  '34) المترجّعة: سطر أحمر «shekoz رجّعها: …» بتعليقه (متهرّب) والخانات قدام الأدمن عشان يعدّل — ' + JSON.stringify(c16));
+const st = await p.evaluate(() => ({ stats: !!document.querySelector('#page-exceptions .jx-stats'), visF: ['jx-fdays', 'jx-freason', 'jx-fverdict', 'jx-fwho', 'jx-fout', 'jx-export', 'jx-search', 'jx-refresh']
+  .filter(i => { const el = document.getElementById(i); return el && getComputedStyle(el).display !== 'none'; }), rep: getComputedStyle(document.getElementById('jx-report-box')).display }));
+ok(!st.stats && st.visF.join() === 'jx-search,jx-refresh' && st.rep === 'none', '5) الكروت الخمسة اتشالت · في «محتاجة تعامل» البحث و↻ بس · التقرير مستخبي — ' + JSON.stringify(st));
 const chips = await p.evaluate(() => Object.fromEntries([...document.querySelectorAll('#jx-chips .jx-chip')].map(c => [c.dataset.jxChip, c.querySelector('.n').textContent])));
-ok(chips.open === '6' && chips.with_jt === '6' && chips.delivered === '2' && chips.returned === '2' && chips.all === '11', '6) أعداد الشرايح: 6 · 6 · 2 · 2 · 11 — ' + JSON.stringify(chips));
+ok(chips.open === '7' && chips.review === '1' && chips.done === '3' && chips.all === '13', '6) أعداد المراحل: محتاجة تعامل 7 · مستنية مراجعة 1 · اتراجعت 3 · الكل (7 أيام) 13 — ' + JSON.stringify(chips));
 
 console.log('— محتوى الكارت');
 const c1 = await p.evaluate(() => {
@@ -182,20 +249,36 @@ ok(!c12.photo, '8ب) لينك صورة javascript: = مفيش لينك خالص'
 const c6 = await p.evaluate(() => (document.querySelector('.jx-card[data-id="6"] .jx-head') || {}).textContent || '');
 ok(/رجوع من غير سبب/.test(c6) && !/المحاولة/.test(c6) && /راجعة/.test(c6), '10) «رجوع من غير سبب» بشارته (مش «المحاولة») + راجعة');
 
-console.log('— الفلاتر');
+console.log('— المراحل والفلاتر');
+await chip(p, 'done');
+const dn = await p.evaluate(() => ({ ids: [...document.querySelectorAll('#jx-list .jx-card')].map(c => Number(c.dataset.id)),
+  m17: (document.querySelector('.jx-card[data-id="17"] .jx-meta') || {}).textContent || '', m3: (document.querySelector('.jx-card[data-id="3"] .jx-meta') || {}).textContent || '',
+  fout: getComputedStyle(document.getElementById('jx-fout')).display !== 'none', fdays: getComputedStyle(document.getElementById('jx-fdays')).display }));
+ok(JSON.stringify(dn.ids) === '[17,13,3]' && /shekoz راجعها/.test(dn.m17) && /الأدمن اتعامل بنفسه/.test(dn.m3) && dn.fout && dn.fdays === 'none',
+  '35) «اتراجعت — تابع النتيجة»: اللي لسه مع J&T فوق (17 · 13) وبعدها المتسلّمة (3) · «shekoz راجعها» / «الأدمن اتعامل بنفسه» · فلتر النتيجة بس — ' + JSON.stringify(dn));
+await p.selectOption('#jx-fout', 'delivered'); await p.waitForTimeout(150);
+const dnDel = await cardIds(p);
+await p.selectOption('#jx-fout', ''); await p.waitForTimeout(150);
+ok(JSON.stringify(dnDel) === '[3]', '35ب) فلتر النتيجة جوّه «اتراجعت»: اتسلمت = {3} — ' + JSON.stringify(dnDel));
 await chip(p, 'all');
 const c13 = await p.evaluate(() => { const c = document.querySelector('.jx-card[data-id="13"]'); return c ? { photo: !!c.querySelector('a.jx-photo'), t: c.textContent } : null; });
 ok(c13 && !c13.photo && /انتهت صلاحيتها/.test(c13.t), '8ج) صورة J&T اللي `se=` بتاعها فات = «انتهت صلاحيتها» من غير لينك ميت');
-await chip(p, 'delivered');
+await p.selectOption('#jx-fout', 'delivered'); await p.waitForTimeout(150);
 const dl = (await cardIds(p)).sort((x, y) => x - y);
-await chip(p, 'returned');
+await p.selectOption('#jx-fout', 'returned'); await p.waitForTimeout(150);
 const rt7 = (await cardIds(p)).sort((x, y) => x - y);
 await days(p, 30);
 const rt30 = (await cardIds(p)).sort((x, y) => x - y);
-await chip(p, 'all');
+await p.selectOption('#jx-fout', ''); await p.waitForTimeout(150);
 const all30 = await cardIds(p);
-ok(JSON.stringify(dl) === '[3,8]' && JSON.stringify(rt7) === '[4,6]' && JSON.stringify(rt30) === '[4,5,6]' && all30.indexOf(15) < 0 && all30.length === 13 && all30[0] === 2,
-  '11) اتسلمت {3،8 — متعلّم متسلّم عندنا} · رجعت 7 أيام {4،6} · 30 يوم {4،5،6} · الكل 30 يوم 13 (من غير بره النافذة) والأحدث فوق — ' + JSON.stringify({ dl, rt7, rt30, n: all30.length }));
+ok(JSON.stringify(dl) === '[3,8]' && JSON.stringify(rt7) === '[4,6]' && JSON.stringify(rt30) === '[4,5,6]' && all30.indexOf(15) < 0 && all30.length === 15 && all30[0] === 2,
+  '11) «الكل» + النتيجة: اتسلمت {3،8 — متعلّم متسلّم عندنا} · رجعت 7 أيام {4،6} · 30 يوم {4،5،6} · الكل 30 يوم 15 (من غير بره النافذة) والأحدث فوق — ' + JSON.stringify({ dl, rt7, rt30, n: all30.length }));
+await p.selectOption('#jx-fwho', 'ebrahim'); await p.waitForTimeout(150);
+const wE = (await cardIds(p)).sort((x, y) => x - y);
+await p.selectOption('#jx-fwho', '__none'); await p.waitForTimeout(150);
+const wN = await p.evaluate(() => [...document.querySelectorAll('#jx-list .jx-card')].every(c => !/✍️/.test((c.querySelector('.jx-meta') || {}).textContent || '')) && document.querySelectorAll('#jx-list .jx-card').length);
+await p.selectOption('#jx-fwho', ''); await p.waitForTimeout(150);
+ok(JSON.stringify(wE) === '[10,16,17]' && wN === 10, '36) فلتر «مين اتعامل»: ebrahim {10،16،17} · «محدش اتعامل» 10 كلهم من غير «✍️» — ' + JSON.stringify([wE, wN]));
 await p.fill('#jx-search', 'JEG010'); await p.waitForTimeout(350);
 const s1 = await cardIds(p);
 await p.fill('#jx-search', '1000000004'); await p.waitForTimeout(350);
@@ -210,8 +293,13 @@ await p.selectOption('#jx-freason', ''); await p.selectOption('#jx-fverdict', 'n
 const v1 = await p.evaluate(() => [...document.querySelectorAll('#jx-list .jx-card')].every(c => !c.classList.contains('has-verdict')) && document.querySelectorAll('#jx-list .jx-card').length);
 await p.selectOption('#jx-fverdict', 'fake_update'); await p.waitForTimeout(150);
 const v2 = await cardIds(p);
-await p.selectOption('#jx-fverdict', ''); await days(p, 7); await chip(p, 'open');
 ok(JSON.stringify(r1) === '[2]' && v1 === 10 && JSON.stringify(v2) === '[3]', '13–14) فلتر السبب {2} · «لسه متصنفتش» 10 كلهم من غير تصنيف · FAKE UPDATE {3} — ' + JSON.stringify([r1, v1, v2]));
+// 🔴 فلاتر «الكل» متعلّقة (FAKE UPDATE + سبب) والطابور مايتقصّش بيها
+await p.selectOption('#jx-freason', 'العميل طلب تأجيل'); await p.waitForTimeout(100);
+await chip(p, 'open');
+const hid = await cardIds(p);
+await chip(p, 'all'); await p.selectOption('#jx-freason', ''); await p.selectOption('#jx-fverdict', ''); await days(p, 7); await chip(p, 'open');
+ok(hid.length === 7, '37) فلتر سبب وتصنيف متعلّقين من «الكل» مابيقصّوش «محتاجة تعامل» (الفلتر المستخبي مابيتطبّقش) — ' + JSON.stringify(hid));
 
 console.log('— الحفظ');
 // الموظف الحقيقي بيدوس على الخانة الأول (focus) وبعدين بيختار — selectOption لوحدها مابتعملش focus
@@ -220,14 +308,14 @@ await p.selectOption('.jx-card[data-id="2"] select.jx-verdict', 'fake_update');
 await p.waitForTimeout(250);
 const sv1 = await p.evaluate(() => ({ saves: window.__SAVES.slice(), still: !!document.querySelector('.jx-card[data-id="2"]'),
   meta: (document.querySelector('.jx-card[data-id="2"] .jx-meta') || {}).textContent || '', badge: document.getElementById('jx-nav-badge').textContent,
-  open: document.getElementById('jx-s-open').textContent, dv: (document.querySelector('.jx-card[data-id="2"] select.jx-verdict') || {}).dataset }));
+  open: document.querySelector('#jx-chips [data-jx-chip="open"] .n').textContent, dv: (document.querySelector('.jx-card[data-id="2"] select.jx-verdict') || {}).dataset }));
 ok(sv1.saves.length === 1 && sv1.saves[0].p_id === 2 && sv1.saves[0].p_verdict === 'fake_update' && sv1.saves[0].p_note === null,
   '15) الاختيار بيتحفظ فوراً: jt_issue_save(2, fake_update, null) — ' + JSON.stringify(sv1.saves));
-ok(sv1.still && /أدمن الاختبار/.test(sv1.meta) && sv1.badge === '4' && sv1.open === '4' && sv1.dv && sv1.dv.v === 'fake_update',
-  '15ب) الكارت مايتسحبش من تحت إيد الموظف (الاختيار لسه في إيده) · «مين سجّل» اتكتب · الشارة 6→4 (المحاولة 1 اتغطّت) — ' + JSON.stringify({ still: sv1.still, badge: sv1.badge, meta: sv1.meta }));
+ok(sv1.still && /أدمن الاختبار/.test(sv1.meta) && /اتعامل بنفسه/.test(sv1.meta) && sv1.badge === '5' && sv1.open === '5' && sv1.dv && sv1.dv.v === 'fake_update',
+  '15ب) الكارت مايتسحبش من تحت إيد الموظف (الاختيار لسه في إيده) · «مين سجّل» اتكتب (الأدمن = اتعامل بنفسه) · الشارة 7→5 (المحاولة 1 اتغطّت) — ' + JSON.stringify({ still: sv1.still, badge: sv1.badge, meta: sv1.meta }));
 await p.click('#page-exceptions .sp-head h2'); await p.waitForTimeout(450);
 const ids1 = await cardIds(p);
-ok(JSON.stringify(ids1) === '[11,4,6,12]', '15ج) أول ما ساب الخانة: 1 و2 خرجوا من الطابور — ' + JSON.stringify(ids1));
+ok(JSON.stringify(ids1) === '[16,11,4,6,12]', '15ج) أول ما ساب الخانة: 1 و2 خرجوا من الطابور — ' + JSON.stringify(ids1));
 await p.click('.jx-card[data-id="4"] textarea.jx-note');
 await p.keyboard.type('كلمته وقال هيستلم من الفرع');
 const dirty = await p.evaluate(() => getComputedStyle(document.querySelector('.jx-card[data-id="4"] .jx-save')).display !== 'none');
@@ -268,30 +356,32 @@ await p.waitForTimeout(1000);
 const rt1 = await p.evaluate(() => ({ focus: document.activeElement && document.activeElement.closest && !!document.activeElement.closest('.jx-card[data-id="12"]'),
   val: document.querySelector('.jx-card[data-id="12"] textarea.jx-note').value, has20: !!document.querySelector('.jx-card[data-id="20"]'),
   bar: getComputedStyle(document.getElementById('jx-newbar')).display !== 'none', badge: document.getElementById('jx-nav-badge').textContent }));
-ok(rt1.focus && rt1.val === 'بكتب دلوقتي' && !rt1.has20 && rt1.bar && rt1.badge === '5', '19) وصل جديد وهو بيكتب: الخانة في إيده بنفس الكلام · الكارت الجديد مستني · شريط «وصل تحديث» · الشارة 5 — ' + JSON.stringify(rt1));
+ok(rt1.focus && rt1.val === 'بكتب دلوقتي' && !rt1.has20 && rt1.bar && rt1.badge === '6', '19) وصل جديد وهو بيكتب: الخانة في إيده بنفس الكلام · الكارت الجديد مستني · شريط «وصل تحديث» · الشارة 6 — ' + JSON.stringify(rt1));
 await p.click('#page-exceptions .sp-head h2'); await p.waitForTimeout(500);
 const rt2 = await p.evaluate(() => { const c = document.querySelector('.jx-card[data-id="20"]'); return { has: !!c, isNew: !!(c && c.classList.contains('is-new') && /جديد/.test(c.textContent)), note12: (window.__SAVES.slice(-1)[0] || {}).p_note }; });
 ok(rt2.has && rt2.isNew && rt2.note12 === 'بكتب دلوقتي', '19ب) أول ما ساب الخانة: كلامه اتحفظ والكارت الجديد ظهر بعلامة «جديد»');
 
 console.log('— التقرير والتصدير');
-const rep = await p.evaluate(() => ({ sum: document.querySelector('.jx-rsum') ? document.querySelector('.jx-rsum').textContent.replace(/\s+/g, ' ') : '',
+await chip(p, 'all');
+await p.click('#jx-report-box > summary'); await p.waitForTimeout(200);
+const rep = await p.evaluate(() => ({ pct: /\u2066\d+%\u2069/.test((document.querySelector('.jx-rsum') || {}).textContent || ''), sum: document.querySelector('.jx-rsum') ? document.querySelector('.jx-rsum').textContent.replace(/\s+/g, ' ') : '',
   hot: document.querySelectorAll('#jx-report tr.hot').length, tables: document.querySelectorAll('#jx-report .jx-rtable').length }));
-ok(/FAKE UPDATE 2/.test(rep.sum) && /غلطة J&T 1/.test(rep.sum) && rep.tables === 3 && rep.hot >= 2, '23) تقرير J&T: الملخص (FAKE بعد الحفظ 2 · غلطة J&T 1) + 3 جداول والفروع/المناديب «السخنة» متعلّمة — ' + rep.sum.slice(0, 160));
+ok(/FAKE UPDATE 2/.test(rep.sum) && /غلطة J&T 1/.test(rep.sum) && rep.tables === 3 && rep.hot >= 2 && rep.pct, '23) تقرير J&T (مطوي جوّه «الكل» ويترسم لما يتفتح): الملخص (FAKE بعد الحفظ 2 · غلطة J&T 1) + 3 جداول + النسبة معزولة اتجاهياً — ' + rep.sum.slice(0, 160));
 const rtext = await p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); return m.jxReportText(m.jxRows.filter(r => r._ymd >= m.jxPeriodFrom(7, Date.now())), 7, Date.now()); });
 ok(/FAKE UPDATE: 2/.test(rtext) && /Nasr City/.test(rtext), '23ب) الملخص النصي لـJ&T فيه الأرقام والفرع');
-await chip(p, 'all'); await days(p, 30);
+await days(p, 30);
 const [dlf] = await Promise.all([p.waitForEvent('download'), p.click('#jx-export')]);
 const csv = fs.readFileSync(await dlf.path(), 'utf8');
 const lines = csv.split('\r\n');
-ok(csv.charCodeAt(0) === 0xFEFF && /البوليصة/.test(lines[0]) && lines.length === 15 && /"=""01000000001"""/.test(csv) && /'=1\+1/.test(csv) && /<img src=x/.test(csv) && /بره النافذة/.test(csv) === false,
-  '24) التصدير: BOM + العناوين بالعربي + 14 صف · التليفون نص (="010…") · خلية بتبدأ بـ= متحيّدة (\'=1+1) — ' + dlf.suggestedFilename());
+ok(csv.charCodeAt(0) === 0xFEFF && /البوليصة/.test(lines[0]) && /المراجعة/.test(lines[0]) && lines.length === 17 && /"=""01000000001"""/.test(csv) && /'=1\+1/.test(csv) && /<img src=x/.test(csv) && /بره النافذة/.test(csv) === false,
+  '24) التصدير: BOM + العناوين بالعربي (+ المراجعة) + 16 صف · التليفون نص (="010…") · خلية بتبدأ بـ= متحيّدة (\'=1+1) — ' + dlf.suggestedFilename());
 await days(p, 7); await chip(p, 'open');
 ok(p.__errs.length === 0, 'صفر أخطاء جافاسكربت في التشغيل الأساسي — ' + (p.__errs[0] || 'نضيف'));
 await M.ctx.close();
 
 console.log('— الشات');
 {
-  const T = await open('/exceptions');
+  const T = await open('/exceptions', { stage: 'open' });
   const pp = T.p;
   await pp.waitForSelector('.jx-card[data-id="1"]');
   const [tab] = await Promise.all([T.ctx.waitForEvent('page'), pp.click('.jx-card[data-id="1"] [data-jx="chat"]')]);
@@ -303,7 +393,7 @@ console.log('— الشات');
   await T.ctx.close();
 }
 {
-  const T = await open('/exceptions', { viewport: { width: 390, height: 844 } });
+  const T = await open('/exceptions', { viewport: { width: 390, height: 844 }, stage: 'open' });
   const pp = T.p;
   await pp.waitForSelector('.jx-card[data-id="1"]');
   await pp.evaluate(() => document.querySelector('.jx-card[data-id="1"] [data-jx="chat"]').scrollIntoView({ block: 'center' }));
@@ -314,7 +404,7 @@ console.log('— الشات');
   await T.ctx.close();
 }
 {
-  const T = await open('/exceptions', { viewport: { width: 390, height: 844 }, post: `window.__START_TPLS = [{ id:'tp1', tenant_id:'t-test-1', template_name:'chat_start_ar', lang:'ar_EG', label:'بدء محادثة', body:'أهلاً {{1}}', params:['عتبة'], enabled:true }];` });
+  const T = await open('/exceptions', { viewport: { width: 390, height: 844 }, stage: 'open', post: `window.__START_TPLS = [{ id:'tp1', tenant_id:'t-test-1', template_name:'chat_start_ar', lang:'ar_EG', label:'بدء محادثة', body:'أهلاً {{1}}', params:['عتبة'], enabled:true }];` });
   const pp = T.p;
   await pp.waitForSelector('.jx-card[data-id="4"]');
   await pp.evaluate(() => document.querySelector('.jx-card[data-id="4"] [data-jx="chat"]').scrollIntoView({ block: 'center' }));
@@ -334,12 +424,12 @@ console.log('— الداتابيز لسه ماتطبّقتش · الموباي�
     orders: (window.__RT_CHANNELS || []).filter(n => /^orders-realtime-/.test(n)).length }));
   await gotoExceptions(T.p);
   const msg = await txt(T.p, 'jx-list');
-  ok(b1.badge === 'none' && b1.ch === 0 && b1.orders >= 1 && /لسه مااتطبّقش/.test(msg || '') && T.p.__errs.length === 0,
-    '25) الجدول مش موجود: مفيش شارة · مفيش قناة jt-issues (قناة الأوردرات شغالة عادي) · الصفحة بتقول شغّل ملف الـSQL — ' + JSON.stringify(b1));
+  ok(b1.badge === 'none' && b1.ch === 0 && b1.orders >= 1 && /لسه مااتطبّقش/.test(msg || '') && !/jt-issues-tab/.test(msg || '') && T.p.__errs.length === 0,
+    '25) الجدول مش موجود: مفيش شارة · مفيش قناة jt-issues (قناة الأوردرات شغالة عادي) · الصفحة بتقول التحديث لسه مااتطبّقش (من غير ما تقول شغّل jt-issues-tab.sql — ممنوع) — ' + JSON.stringify(b1));
   await T.ctx.close();
 }
 {
-  const T = await open('/exceptions', { viewport: { width: 390, height: 844 } });
+  const T = await open('/exceptions', { viewport: { width: 390, height: 844 }, stage: 'open' });
   await T.p.waitForSelector('.jx-card');
   const mob = await T.p.evaluate(() => {
     // ⚠️ behavior:'instant' — 02-base فيها scroll-behavior:smooth فالقياس بعد scrollIntoView العادية بيبقى قبل ما يتحرك
@@ -351,7 +441,7 @@ console.log('— الداتابيز لسه ماتطبّقتش · الموباي�
   await T.ctx.close();
 }
 {
-  const T = await open('/exceptions', { pre: "try{ localStorage.setItem('sahl_dark','1'); }catch(e){}" });
+  const T = await open('/exceptions', { stage: 'open', pre: "try{ localStorage.setItem('sahl_dark','1'); }catch(e){}" });
   await T.p.waitForSelector('.jx-card');
   const dk = await T.p.evaluate(() => { const c = s => getComputedStyle(document.querySelector(s)).backgroundColor;
     return { dark: document.documentElement.classList.contains('dark'), act: c('.jx-card .jx-act'), sel: c('.jx-card select.jx-verdict'), chip: c('.jx-chip:not(.on)') }; });
@@ -370,19 +460,19 @@ console.log('— الداتابيز لسه ماتطبّقتش · الموباي�
   await T.ctx.close();
 }
 {
-  const T = await open('/exceptions', { pre: 'window.__JX_POLL_MS = 400;' });
+  const T = await open('/exceptions', { stage: 'open', pre: 'window.__JX_POLL_MS = 400;' });
   await T.p.waitForSelector('.jx-card[data-id="1"]');
   await T.p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 1); r.outcome = 'delivered'; r.outcome_at = new Date().toISOString(); r.updated_at = new Date(Date.now() + 1000).toISOString(); });
   await T.p.waitForTimeout(1500);
   const inc = await T.p.evaluate(() => ({ has1: !!document.querySelector('.jx-card[data-id="1"]'), q: (window.__calls || []).some(c => c.table === 'jt_issues' && (c.f || []).some(f => f.op === 'gte' && f.col === 'updated_at')),
     badge: document.getElementById('jx-nav-badge').textContent }));
-  ok(!inc.has1 && inc.q && inc.badge === '5', '29) المزامنة التدريجية (من غير ريل-تايم): اتسلمت عند J&T → خرجت من الطابور والشارة 6→5 — ' + JSON.stringify(inc));
+  ok(!inc.has1 && inc.q && inc.badge === '6', '29) المزامنة التدريجية (من غير ريل-تايم): اتسلمت عند J&T → خرجت من الطابور والشارة 7→6 — ' + JSON.stringify(inc));
   await T.ctx.close();
 }
 
 {
   // 30) مهلة «راجعة» من بداية المرتجع (outcome_at) مش من الاستثناء — الفرق وصل 3.9 يوم على الحي
-  const T = await open('/exceptions');
+  const T = await open('/exceptions', { stage: 'open' });
   await T.p.waitForSelector('.jx-card');
   const nf = await T.p.evaluate(async () => {
     const m = await import('/js/exceptions/exceptions.js');
@@ -409,10 +499,87 @@ console.log('— الداتابيز لسه ماتطبّقتش · الموباي�
   await T.ctx.close();
 }
 
+console.log('— المراجعة والسجل (v70)');
+{
+  // 38) ✓ تمام: الـrev اللي الأدمن شافه بيتبعت · الكارت بيخرج من الطابور ويبان في «اتراجعت»
+  const T = await open('/exceptions');
+  const pp = T.p;
+  await pp.waitForSelector('.jx-card[data-id="10"]');
+  await pp.click('.jx-card[data-id="10"] [data-jx="rv-ok"]');
+  await pp.waitForTimeout(300);
+  const r1 = await pp.evaluate(() => ({ rv: window.__REVIEWS.slice(), has10: !!document.querySelector('.jx-card[data-id="10"]'),
+    n: document.querySelector('#jx-chips [data-jx-chip="review"] .n').textContent, b2: getComputedStyle(document.getElementById('jx-nav-badge2')).display,
+    toast: document.getElementById('toast').textContent }));
+  ok(r1.rv.length === 1 && r1.rv[0].p_id === 10 && r1.rv[0].p_action === 'ok' && r1.rv[0].p_seen_rev === 1 && r1.rv[0].p_note === null && !r1.has10 && r1.n === '0' && r1.b2 === 'none' && /اتراجعت/.test(r1.toast),
+    '38) «✓ تمام»: jt_issue_review(10, ok, seen_rev=1) · الكارت خرج · العدّاد والشارة الزرقا صفر — ' + JSON.stringify(r1));
+  await chip(pp, 'done');
+  const d10 = await pp.evaluate(() => ({ ids: [...document.querySelectorAll('#jx-list .jx-card')].map(c => Number(c.dataset.id)),
+    m: (document.querySelector('.jx-card[data-id="10"] .jx-meta') || {}).textContent || '', undo: !!document.querySelector('.jx-card[data-id="10"] [data-jx="rv-undo"]') }));
+  ok(d10.ids.indexOf(10) >= 0 && /أدمن الاختبار راجعها/.test(d10.m) && d10.undo, '38ب) بقت في «اتراجعت — تابع النتيجة» بـ«راجعها» + «↶ رجّعها لمراجعتي» — ' + JSON.stringify(d10));
+  // 39) ↩️ رجّعها: مودال برّه القايمة · التعليق إجباري · بترجع فوق «محتاجة تعامل»
+  await pp.click('.jx-card[data-id="17"] [data-jx="rv-back"]');
+  await pp.waitForTimeout(200);
+  const mo = await pp.evaluate(() => ({ shown: getComputedStyle(document.getElementById('cmodal-backdrop')).display !== 'none', t: document.getElementById('cmodal-title').textContent }));
+  await pp.click('#cmodal-ok'); await pp.waitForTimeout(150);
+  const empty = await pp.evaluate(() => ({ still: getComputedStyle(document.getElementById('cmodal-backdrop')).display !== 'none', n: window.__REVIEWS.length }));
+  await pp.fill('#cmodal-input', 'كلّمه تاني الساعة 6');
+  await pp.click('#cmodal-ok'); await pp.waitForTimeout(300);
+  await chip(pp, 'open');
+  const sb17 = await pp.evaluate(() => ({ rv: window.__REVIEWS.slice(-1)[0], ids: [...document.querySelectorAll('#jx-list .jx-card')].map(c => Number(c.dataset.id)),
+    back: (document.querySelector('.jx-card[data-id="17"]') || { classList: { contains: () => false } }).classList.contains('is-back'),
+    m: (document.querySelector('.jx-card[data-id="17"] .jx-meta') || {}).textContent || '', badge: document.getElementById('jx-nav-badge').textContent }));
+  ok(mo.shown && /ebrahim/.test(mo.t) && empty.still && empty.n === 1 && sb17.rv && sb17.rv.p_action === 'sent_back' && sb17.rv.p_note === 'كلّمه تاني الساعة 6' && sb17.rv.p_seen_rev === 1
+    && sb17.ids.slice(0, 2).indexOf(17) >= 0 && sb17.back && /كلّمه تاني الساعة 6/.test(sb17.m) && sb17.badge === '8',
+    '39) «↩️ رجّعها»: مودال باسم الموظف · فاضي = مايتبعتش · بالتعليق = sent_back(seen_rev=1) · بقت فوق «محتاجة تعامل» بسطر أحمر · الشارة 7→8 — ' + JSON.stringify({ mo, empty, ids: sb17.ids, badge: sb17.badge }));
+  // 40) السجل: J&T في الأول + مين عمل إيه
+  await chip(pp, 'done');
+  await pp.click('.jx-card[data-id="10"] [data-jx="log"]');
+  await pp.waitForTimeout(300);
+  const lg = await pp.evaluate(() => { const c = document.querySelector('.jx-card[data-id="10"] .jx-log'); return { t: c ? c.textContent.replace(/\s+/g, ' ') : '',
+    q: (window.__calls || []).filter(x => x.table === 'jt_issue_log').map(x => x.f) }; });
+  ok(/J&T سجّلت/.test(lg.t) && /ebrahim كتب: «قال بكرة»/.test(lg.t) && /ebrahim اختار تأجيل حقيقي/.test(lg.t) && lg.q.length >= 1
+    && lg.q[0].some(f => f.op === 'eq' && f.col === 'issue_id' && String(f.val) === '10') && lg.q[0].some(f => f.op === 'eq' && f.col === 'tenant_id'),
+    '40) «🕘 السجل»: J&T سجّلت … · ebrahim كتب «قال بكرة» · ebrahim اختار تأجيل حقيقي — من jt_issue_log بالـissue والمتجر — ' + lg.t.slice(0, 200));
+  ok(pp.__errs.length === 0, 'صفر أخطاء جافاسكربت في المراجعة والسجل — ' + (pp.__errs[0] || 'نضيف'));
+  await T.ctx.close();
+}
+{
+  // 41) stale: الموظف عدّل وانت بتراجع → السيرفر رفض والكارت فاضل في الطابور بالجديد
+  const T = await open('/exceptions', { post: 'window.__REVIEW_STALE = true;' });
+  await T.p.waitForSelector('.jx-card[data-id="10"]');
+  await T.p.click('.jx-card[data-id="10"] [data-jx="rv-ok"]');
+  await T.p.waitForTimeout(300);
+  const st = await T.p.evaluate(() => ({ has: !!document.querySelector('.jx-card[data-id="10"]'), toast: document.getElementById('toast').textContent,
+    m: (document.querySelector('.jx-card[data-id="10"] .jx-meta') || {}).textContent || '' }));
+  ok(st.has && /عدّل عليها وانت بتراجع/.test(st.toast) && /عدّلها الموظف/.test(st.m), '41) stale: «ebrahim عدّل عليها وانت بتراجع» · الكارت فاضل في «مستنية مراجعتك» بالملاحظة الجديدة — ' + JSON.stringify(st));
+  await T.ctx.close();
+}
+{
+  // 42) الموظف: نفس المراحل · مالوش أزرار مراجعة · تعديله على اللي اتراجعت = رجعت للطابور «اتعدّلت بعد ما … راجعها»
+  const T = await open('/exceptions', { role: 'employee' });
+  await T.p.waitForSelector('.jx-card');
+  await chip(T.p, 'review');
+  const e1 = await T.p.evaluate(() => ({ lbl: document.querySelector('#jx-chips [data-jx-chip="review"] .jx-rv-lbl').textContent,
+    btns: document.querySelectorAll('#jx-list [data-jx^="rv-"]').length, sel: !!document.querySelector('.jx-card[data-id="10"] select.jx-verdict'),
+    m: (document.querySelector('.jx-card[data-id="10"] .jx-meta') || {}).textContent || '', b2: getComputedStyle(document.getElementById('jx-nav-badge2')).display }));
+  await chip(T.p, 'done');
+  const e2 = await T.p.evaluate(() => document.querySelectorAll('#jx-list [data-jx^="rv-"]').length);
+  await T.p.focus('.jx-card[data-id="17"] select.jx-verdict');
+  await T.p.selectOption('.jx-card[data-id="17"] select.jx-verdict', 'real_refusal');
+  await T.p.click('#page-exceptions .sp-head h2'); await T.p.waitForTimeout(450);
+  await chip(T.p, 'review');
+  const e3 = await T.p.evaluate(() => ({ ids: [...document.querySelectorAll('#jx-list .jx-card')].map(c => Number(c.dataset.id)),
+    m: (document.querySelector('.jx-card[data-id="17"] .jx-meta') || {}).textContent || '' }));
+  ok(/مستنية مراجعة الأدمن/.test(e1.lbl) && e1.btns === 0 && e1.sel && /لسه الأدمن ماراجعهاش/.test(e1.m) && e1.b2 === 'none' && e2 === 0
+    && e3.ids.indexOf(17) >= 0 && /اتعدّلت بعد ما shekoz راجعها/.test(e3.m),
+    '42) الموظف: «مستنية مراجعة الأدمن» من غير أي زرار مراجعة (ولا شارة زرقا) · تعديله على اللي اتراجعت رجّعها للطابور «اتعدّلت بعد ما shekoz راجعها» — ' + JSON.stringify({ e1, e2, e3 }));
+  await T.ctx.close();
+}
+
 // ═══ المعايرات ═══
 console.log('— المعايرات');
-async function calib(label, patches, probe, expectFail){
-  const T = await open('/exceptions', { patches });
+async function calib(label, patches, probe, expectFail, o){
+  const T = await open('/exceptions', Object.assign({ patches, stage: 'open' }, o || {}));
   await T.p.waitForSelector('#jx-list .jx-card', { timeout: 8000 }).catch(() => {});
   const r = await probe(T);
   await T.ctx.close();
@@ -482,6 +649,31 @@ await calib('(ل) فحص «مفيش تغيير» قبل «الحفظ في الس
     await T.p.waitForTimeout(1300);
     return T.p.evaluate(() => window.__JT_ISSUES.find(x => x.id === 11).verdict);
   }, v => v === 'fake_update');
+
+await calib('(م) من غير قاعدة «المترجّعة» في jxNeedsFollow → 16 مش في «محتاجة تعامل» (الفحص 4 كان هيقع)',
+  { exc: s => s.replace('  if(jxSentBack(r)) return true;\n', '') },
+  T => cardIds(T.p), ids => ids.indexOf(16) < 0);
+await calib('(ن) «✓ تمام» من غير الـrev اللي اتشاف → stale مستحيل يتكشف (الفحص 38 كان هيقع)',
+  { exc: s => s.replace("p_seen_rev: action === 'undo' ? null : seenRev", 'p_seen_rev: null') },
+  async T => { await chip(T.p, 'review'); await T.p.click('.jx-card[data-id="10"] [data-jx="rv-ok"]'); await T.p.waitForTimeout(300); return T.p.evaluate(() => window.__REVIEWS[0] && window.__REVIEWS[0].p_seen_rev); },
+  v => v !== 1);
+await calib('(س) أزرار المراجعة للموظف → الفحص 42 كان هيقع',
+  { exc: s => s.replace("  if(!jxIsAdmin() || jxEditOpen[r.id]", "  if(jxEditOpen[r.id]") },
+  async T => { await chip(T.p, 'review'); return T.p.evaluate(() => document.querySelectorAll('#jx-list [data-jx^="rv-"]').length); },
+  n => n > 0, { role: 'employee' });
+await calib('(ع) فلتر السبب بيتطبّق برّه «الكل» → متعلّق من «الكل» بيقصّ «محتاجة تعامل» (الفحص 37 كان هيقع)',
+  { exc: s => s.replace("    if(q && !jxMatches(r, q, qd)) continue;\n    out.push(r);", "    if(f.reason && (r.reason_ar || '') !== f.reason) continue;\n    if(q && !jxMatches(r, q, qd)) continue;\n    out.push(r);") },
+  async T => { await chip(T.p, 'all'); await T.p.selectOption('#jx-freason', 'العميل طلب تأجيل'); await T.p.waitForTimeout(100); await chip(T.p, 'open'); return cardIds(T.p); },
+  ids => ids.length !== 7);
+await calib('(ف) الحفظ مابيطبّقش رد السيرفر → الأدمن صنّف والكارت فاضل في الطابور (الفحص 15ج كان هيقع)',
+  { exc: s => s.replace("    var d = res.data;\n    jxApplyServer(r, d);\n    delete jxLogCache[id];", "    var d = res.data;\n    delete jxLogCache[id];") },
+  async T => {
+    await T.p.focus('.jx-card[data-id="2"] select.jx-verdict');
+    await T.p.selectOption('.jx-card[data-id="2"] select.jx-verdict', 'fake_update');
+    await T.p.waitForTimeout(250);
+    await T.p.click('#page-exceptions .sp-head h2'); await T.p.waitForTimeout(450);
+    return cardIds(T.p);
+  }, ids => ids.indexOf(2) >= 0);
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

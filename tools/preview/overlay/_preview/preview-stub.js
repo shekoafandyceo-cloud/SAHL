@@ -347,16 +347,21 @@
         outcome: null, outcome_at: null,
         order_uid: od.order_uid, customer_name: od.customer_name, phone: od.phone, alt_phone: od.alt_phone, city: od.city,
         address: od.address, ship_prov: null, ship_city: null, ship_area: null, product_name: od.product_name,
-        total_cost: od.total_cost, jt_cod_amount: od.total_cost, order_status: 'Exception'
+        total_cost: od.total_cost, jt_cod_amount: od.total_cost, order_status: 'Exception',
+        verdict_by: null, staff_rev: o && o.verdict ? 1 : 0, reviewed_rev: null, review_state: null, review_note: null,
+        reviewed_at: null, reviewed_by_name: null
       }, o);
-      r.updated_at = r.staff_updated_at || r.event_at;
+      r.updated_at = r.reviewed_at || r.staff_updated_at || r.event_at;
       J.push(r);
     }
     add(16, { tracking_no: 'JEG000553100116', event_at: ago(3 * H), courier_note: 'اتصلت 3 مرات والتليفون مقفول',
               ship_prov: 'القاهرة', ship_city: 'مدينة نصر', ship_area: 'الحي العاشر' });
+    // اتعامل معاها عمر واترجّعتله من الأدمن بتعليق — بتطلع فوق «محتاجة تعامل»
     add(34, { tracking_no: 'JEG000553100134', event_at: ago(1 * D + 2 * H), reason_code: '205', reason_en: 'Change The Delivery Time',
               reason_ar: 'العميل طلب تأجيل', courier_note: 'قال كلمني بكرة', branch: 'Nasr City DP', branch_phone: '0224040404',
-              courier_name: 'محمود سعيد', courier_phone: '01122334455' });
+              courier_name: 'محمود سعيد', courier_phone: '01122334455', verdict: 'no_answer_us', staff_note: 'اتصلت مرتين ومردش',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(1 * D), staff_rev: 1, reviewed_rev: 1, review_state: 'sent_back',
+              review_note: 'كلّمه تاني الساعة 6 بالليل وابعتله رسالة واتساب', reviewed_by_name: 'شيكو', reviewed_at: ago(20 * H) });
     add(34, { tracking_no: 'JEG000553100134', attempt: 2, event_at: ago(40 * 60000), courier_note: 'مش بيرد',
               branch: 'Nasr City DP', branch_phone: '0224040404', courier_name: 'محمود سعيد', courier_phone: '01122334455' });
     add(8,  { tracking_no: 'JEG000553100108', event_at: ago(5 * H), reason_code: '1002', reason_en: 'Customer refuse by call',
@@ -365,7 +370,8 @@
               verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(2 * H), order_status: 'Out for delivery' });
     add(10, { tracking_no: 'JEG000553100110', event_at: ago(2 * D), reason_code: '205', reason_en: 'Change The Delivery Time',
               reason_ar: 'العميل طلب تأجيل', verdict: 'real_delay', staff_note: 'طلبت السبت واستلمت', verdict_by_name: 'عمر حسن',
-              staff_updated_at: ago(2 * D - 3 * H), outcome: 'delivered', outcome_at: ago(1 * D), order_status: 'delivered' });
+              staff_updated_at: ago(2 * D - 3 * H), outcome: 'delivered', outcome_at: ago(1 * D), order_status: 'delivered',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(2 * D - 1 * H) });
     add(14, { tracking_no: 'JEG000553100114', event_at: ago(3 * D), reason_code: '1001', reason_en: 'Directly refuse without opening the package',
               reason_ar: 'العميل رفض من غير ما يفتح', outcome: 'returning', outcome_at: ago(2 * D), order_status: 'returned',
               photo_url: 'https://jtjms-eg.blob.core.windows.net/abnormal/preview.jpg?se=' + encodeURIComponent(past) + '&sig=preview' });
@@ -375,9 +381,21 @@
     add(12, { tracking_no: 'JEG000553100112', event_at: ago(4 * D), reason_code: '306', reason_en: 'miss-sorting from DC',
               reason_ar: 'غلطة فرز من J&T', verdict: 'jt_error', staff_note: 'الشحنة راحت فرع غلط — اتصلحت بعد يومين',
               verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(4 * D - 5 * H), outcome: 'delivered', outcome_at: ago(2 * D),
-              order_status: 'Delivered' });
+              order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(4 * D - 2 * H) });
     TABLES.v_jt_issues = J;
     TABLES.jt_issues = J;
+    // سجل التعامل (jt_issue_log) — سطر لكل حفظة ومراجعة
+    var L = [];
+    J.forEach(function(r){
+      if(!r.staff_updated_at) return;
+      L.push({ id: L.length + 1, tenant_id: TENANT, issue_id: r.id, at: r.staff_updated_at, by_name: r.verdict_by_name, actor_role: 'employee',
+        action: 'save', verdict: r.verdict, note: r.staff_note, prev_verdict: null, prev_note: null, verdict_changed: !!r.verdict, note_changed: !!r.staff_note,
+        review_state: null, review_note: null });
+      if(r.reviewed_at) L.push({ id: L.length + 1, tenant_id: TENANT, issue_id: r.id, at: r.reviewed_at, by_name: r.reviewed_by_name, actor_role: 'admin',
+        action: 'review', verdict: r.verdict, note: r.staff_note, prev_verdict: null, prev_note: null, verdict_changed: false, note_changed: false,
+        review_state: r.review_state, review_note: r.review_note });
+    });
+    TABLES.jt_issue_log = L;
   })();
 
   // قطع الأعمدة زي PostgREST — عشان المعاينة تتصرّف زي السيرفر بالظبط
@@ -429,7 +447,7 @@
     }
     if(t === 'stock_movements') rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     // استثناءات الشحن: الفترة والمزامنة التدريجية (updated_at) والبوالص (in) بتتطبّق زي السيرفر
-    if(t === 'v_jt_issues' || t === 'jt_issues'){
+    if(t === 'v_jt_issues' || t === 'jt_issues' || t === 'jt_issue_log'){
       (st.f || []).forEach(function(f){
         rows = rows.filter(function(r){
           var v = r[f.col];
@@ -439,7 +457,8 @@
           return true;
         });
       });
-      rows.sort(function(a,b){ return String(a.event_at) < String(b.event_at) ? 1 : -1; });
+      if(t === 'jt_issue_log') rows.sort(function(a,b){ return String(a.at) < String(b.at) ? -1 : 1; });
+      else rows.sort(function(a,b){ return String(a.event_at) < String(b.event_at) ? 1 : -1; });
       rows = rows.map(function(r){ return Object.assign({}, r); });
     }
     return rows;
@@ -637,13 +656,40 @@
       return Promise.resolve({ data:{ ok:true, order_id:row2.id, order_uid:uid2, status:'confirmed', total_cost:total2 }, error:null });
     }
     // تاب استثناءات الشحن: التصنيف والملاحظة بيتكتبوا في صف المعاينة فعلاً (والاسم من البروفايل زي السيرفر)
+    // نفس قواعد السيرفر: تغيير فعلي = staff_rev+1 + سطر سجل · الأدمن بتصنيف = «اتعامل بنفسه» (المعاينة دايماً أدمن)
     if(name === 'jt_issue_save'){
       var ji = (TABLES.jt_issues || []).filter(function(r){ return r.id === (args && args.p_id); })[0];
       if(!ji) return Promise.resolve({ data:null, error:{ code:'P0002', message:'not_found' } });
-      ji.verdict = args.p_verdict || null; ji.staff_note = args.p_note || null;
-      ji.staff_updated_at = new Date().toISOString(); ji.updated_at = ji.staff_updated_at; ji.verdict_by_name = 'أدمن المعاينة';
+      var nv = args.p_verdict || null, nn = args.p_note || null;
+      if(nv !== ji.verdict || nn !== ji.staff_note){
+        var pv = ji.verdict, pn = ji.staff_note, tnow = new Date().toISOString();
+        ji.verdict = nv; ji.staff_note = nn; ji.staff_updated_at = tnow; ji.updated_at = tnow; ji.verdict_by_name = 'أدمن المعاينة';
+        ji.staff_rev = (ji.staff_rev || 0) + 1;
+        if(nv){ ji.reviewed_rev = ji.staff_rev; ji.review_state = 'self'; ji.review_note = null; ji.reviewed_at = tnow; ji.reviewed_by_name = 'أدمن المعاينة'; }
+        (TABLES.jt_issue_log = TABLES.jt_issue_log || []).push({ id: TABLES.jt_issue_log.length + 1, tenant_id: ji.tenant_id, issue_id: ji.id, at: tnow,
+          by_name: 'أدمن المعاينة', actor_role: 'admin', action: 'save', verdict: nv, note: nn, prev_verdict: pv, prev_note: pn,
+          verdict_changed: pv !== nv, note_changed: pn !== nn, review_state: null, review_note: null });
+      }
       return Promise.resolve({ data:{ id:ji.id, verdict:ji.verdict, staff_note:ji.staff_note, staff_updated_at:ji.staff_updated_at,
-        verdict_by_name:ji.verdict_by_name }, error:null });
+        verdict_by_name:ji.verdict_by_name, staff_rev:ji.staff_rev, reviewed_rev:ji.reviewed_rev, review_state:ji.review_state,
+        review_note:ji.review_note, reviewed_at:ji.reviewed_at, reviewed_by_name:ji.reviewed_by_name }, error:null });
+    }
+    if(name === 'jt_issue_review'){
+      var jr = (TABLES.jt_issues || []).filter(function(r){ return r.id === (args && args.p_id); })[0];
+      if(!jr) return Promise.resolve({ data:null, error:{ code:'P0002', message:'not_found' } });
+      var act = args.p_action, rnow = new Date().toISOString();
+      if(act !== 'undo' && !jr.verdict) return Promise.resolve({ data:null, error:{ code:'22023', message:'not_handled' } });
+      if(act === 'sent_back' && !String(args.p_note || '').trim()) return Promise.resolve({ data:null, error:{ code:'22023', message:'note_required' } });
+      if(act === 'undo'){ jr.reviewed_rev = null; jr.review_state = null; jr.review_note = null; jr.reviewed_at = null; jr.reviewed_by_name = null; }
+      else { jr.reviewed_rev = jr.staff_rev; jr.review_state = act; jr.review_note = act === 'sent_back' ? args.p_note : null; jr.reviewed_at = rnow; jr.reviewed_by_name = 'أدمن المعاينة'; }
+      jr.updated_at = rnow;
+      (TABLES.jt_issue_log = TABLES.jt_issue_log || []).push({ id: TABLES.jt_issue_log.length + 1, tenant_id: jr.tenant_id, issue_id: jr.id, at: rnow,
+        by_name: 'أدمن المعاينة', actor_role: 'admin', action: act === 'undo' ? 'unreview' : 'review', verdict: jr.verdict, note: jr.staff_note,
+        prev_verdict: null, prev_note: null, verdict_changed: false, note_changed: false, review_state: act === 'undo' ? null : act,
+        review_note: act === 'sent_back' ? args.p_note : null });
+      return Promise.resolve({ data:{ id:jr.id, stale:false, verdict:jr.verdict, staff_note:jr.staff_note, staff_updated_at:jr.staff_updated_at,
+        verdict_by_name:jr.verdict_by_name, staff_rev:jr.staff_rev, reviewed_rev:jr.reviewed_rev, review_state:jr.review_state,
+        review_note:jr.review_note, reviewed_at:jr.reviewed_at, reviewed_by_name:jr.reviewed_by_name, updated_at:jr.updated_at }, error:null });
     }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false

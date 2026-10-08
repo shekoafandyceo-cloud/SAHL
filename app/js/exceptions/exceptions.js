@@ -21,6 +21,16 @@
 //    (البوالص اللي اتغيّرت بس)، ورجوع الاتصال بعد قطع بيعمل نفس الحاجة.
 // 🔴 الموظف وهو بيكتب ملاحظة مايتسحبش الكارت من تحت إيده: أي تحديث وقتها بيترقّع جوّه الكارت،
 //    والرسم الكامل بيستنى لحد ما يسيب الخانة (الكتابة نفسها في `jxDrafts` — مابتضيعش مع أي رسم).
+//
+// المراحل (8 أكتوبر — «مش عارف مين اتعامل وامتى · والي اتعامل معاها اجيبها منين عشان اتابعها»):
+//   📥 محتاجة تعامل (`jxNeedsFollow`) → 👀 مستنية مراجعتك (`jxNeedsReview`) → ✅ اتراجعت — تابع النتيجة → 🗂️ الكل.
+//   كل كارت اتعامل معاه عليه سطر واضح تحت العنوان: مين · إمتى (بالساعة) · اختار إيه · كتب إيه · المراجعة.
+// 🔴 المراجعة بالـrev مش بالوقت: `staff_rev` بيزيد مع كل حفظة فيها تغيير، و`reviewed_rev` = النسخة اللي الأدمن
+//    راجعها. الـJS بيقص الميكروثانية من أي timestamp فمقارنة الأوقات كانت هتغلط في الاتجاهين. والـrev نفسه
+//    بيتبعت مع «✓ تمام» (`p_seen_rev`) — الموظف عدّل وانت بتراجع = السيرفر بيرفض (stale) مش بيعلّم القديم.
+// 🔴 «↩️ رجّعها للموظف» بترجّع الكارت لـ«محتاجة تعامل» فوق الكل لحد ما الموظف يعدّل — حتى لو الشحنة اتقفلت
+//    (الأدمن طلب صراحةً). والفلاتر المخفية (الفترة · السبب · التصنيف · مين) بتتطبّق في «الكل» بس — فلتر
+//    مستخبي مايقصّش طابور أبداً.
 
 import { $id, esc } from '../core/dom.js';
 import { emptyState } from '../core/empty.js';
@@ -28,13 +38,14 @@ import { fmtDT, money, normalizePhone, toLatinDigits, ymdAddDays } from '../core
 import { CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn, statusLabel } from '../core/constants.js';
 import { renderLoadError } from '../core/loaderr.js';
 import { swallow } from '../core/log.js';
+import { showModal } from '../core/modal.js';
 import { openOwnTab } from '../core/router.js';
 import { skelList } from '../core/skeleton.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { veilDone } from '../core/veil.js';
 import { copyTextToClipboard } from '../ui/clipboard.js';
-import { currentTenantId } from '../auth/auth.js';
+import { currentTenantId, currentRole } from '../auth/auth.js';
 import { walletStateCache } from '../billing/billing.js';
 import { tourActive } from '../tour/tour.js';
 import { openDetail } from '../orders/detail.js';
@@ -73,8 +84,11 @@ var JX_OUT = {
 var JX_COLS = 'id,tenant_id,order_id,tracking_no,kind,event_at,reason_code,reason_en,reason_ar,courier_note,'
   + 'branch,branch_phone,courier_name,courier_phone,photo_url,verdict,staff_note,staff_updated_at,verdict_by_name,'
   + 'outcome,outcome_at,updated_at,attempt,order_uid,customer_name,phone,alt_phone,city,address,'
-  + 'ship_prov,ship_city,ship_area,product_name,total_cost,jt_cod_amount,order_status';
-var JX_BADGE_COLS = 'id,tracking_no,kind,event_at,verdict,outcome,outcome_at,order_status';
+  + 'ship_prov,ship_city,ship_area,product_name,total_cost,jt_cod_amount,order_status,'
+  + 'reviewed_at,reviewed_by_name,verdict_by,staff_rev,reviewed_rev,review_state,review_note';
+// الشارة: «محتاجة تعامل» محتاجة أعمدة المراجعة كمان (المترجّعة للموظف بتتعدّ فيها) — من غير ملاحظات/عناوين
+var JX_BADGE_COLS = 'id,tracking_no,kind,event_at,verdict,outcome,outcome_at,order_status,staff_rev,reviewed_rev,review_state';
+var JX_LOG_COLS = 'id,at,by_name,actor_role,action,verdict,note,prev_verdict,prev_note,verdict_changed,note_changed,review_state,review_note';
 
 // ── الحالة ───────────────────────────────────────────────────────────
 export var jxRows = [];
@@ -87,7 +101,12 @@ var jxPendingVerdict = {};     // id → التصنيف اللي الموظف ا
 var jxSaving = {}, jxResave = {};
 var jxNew = {};                // id → وقت وصوله لحظي
 var jxPendingRender = false, jxPendingFromOthers = false;
-export var jxFilter = { chip: 'open', days: 7, reason: '', verdict: '', q: '' };
+// chip = المرحلة: open · review · done · all. days/reason/verdict/who بيتطبّقوا في «الكل» بس · out في «اتراجعت» و«الكل»
+export var jxFilter = { chip: 'open', days: 7, reason: '', verdict: '', who: '', out: '', q: '' };
+var jxReviewing = {};          // id → مراجعة في السكة (قفل في الكود — مش disabled)
+var jxEditOpen = {};           // id → الأدمن داس «✏️ عدّل» على كارت متصنّف
+var jxLogOpen = {}, jxLogCache = {};  // id → السجل مفتوح / { key: updated_at, rows }
+var jxStageChosen = false;     // الأدمن بيفتح على «مستنية مراجعتك» لو فيها حاجة — مرة واحدة أول تحميل
 var jxPollTimer = null, jxSearchTimer = null;
 var jxChannel = null, jxRtOff = false, jxRtQueue = {}, jxRtTimer = null;
 var jxDbMissing = false;
@@ -141,8 +160,22 @@ export function jxSuperseded(r, lv){
   return lv[r.tracking_no] > t;
 }
 
+// الأدمن رجّعها للموظف ولسه محدش عدّل بعدها (الـrev اللي اترجّع = آخر rev)
+export function jxSentBack(r){
+  return !!(r && r.verdict && r.review_state === 'sent_back' && r.reviewed_rev != null
+    && Number(r.reviewed_rev) >= Number(r.staff_rev || 0));
+}
+
+// اتصنّفت ولسه الأدمن ماراجعهاش — أو اتعدّلت بعد ما راجعها (الـrev زاد)
+export function jxNeedsReview(r){
+  return !!(r && r.verdict && (r.reviewed_rev == null || Number(r.reviewed_rev) < Number(r.staff_rev || 0)));
+}
+
 export function jxNeedsFollow(r, lv, now){
-  if(!r || r.verdict) return false;
+  if(!r) return false;
+  // المترجّعة للموظف: فوق الطابور لحد ما يعدّل — حتى لو الشحنة اتقفلت (الأدمن طلب ده صراحةً)
+  if(jxSentBack(r)) return true;
+  if(r.verdict) return false;
   if(jxSuperseded(r, lv)) return false;
   var t = isFinite(r._t) ? r._t : Date.parse(r.event_at);
   var out = jxOutcome(r);
@@ -162,6 +195,55 @@ export function jxCountOpen(rows, now){
   return n;
 }
 
+// المرحلة — مصدر واحد للشرايح والعدّادات والشارة والكارت: open · review · done · null (مالهاش طابور — في «الكل» بس)
+export function jxStage(r, lv, now){
+  if(jxNeedsFollow(r, lv, now)) return 'open';
+  if(jxNeedsReview(r)) return 'review';
+  if(r && r.verdict) return 'done';
+  return null;
+}
+
+export function jxCountReview(rows){
+  var n = 0;
+  for(var i = 0; i < rows.length; i++) if(jxNeedsReview(rows[i]) && !jxSentBack(rows[i])) n++;
+  return n;
+}
+
+// «اتراجعت — تابع النتيجة»: آخر محاولة متصنّفة لكل شحنة (المتابعة على الشحنة) — والشحنة اللي رجعت للطابور مش هنا
+function jxDoneBills(rows, lv, now){
+  var open = {};
+  for(var i = 0; i < rows.length; i++) if(jxNeedsFollow(rows[i], lv, now)) open[rows[i].tracking_no] = 1;
+  return open;
+}
+function jxInDone(r, lv, openBills, now){
+  if(jxStage(r, lv, now) !== 'done') return false;
+  var t = isFinite(r._t) ? r._t : Date.parse(r.event_at);
+  if(lv[r.tracking_no] > t) return false;          // محاولة أحدث على نفس الشحنة اتصنّفت
+  return !openBills[r.tracking_no];                 // استثناء جديد على نفس الشحنة = رجعت للطابور
+}
+
+function jxOutMatch(o, k){
+  if(!k) return true;
+  if(k === 'with_jt') return o === null;
+  if(k === 'returned') return o === 'returning' || o === 'returned';
+  return o === k;
+}
+
+var JX_TIME_FMT = null;
+// «النهارده 12:33 م» · «إمبارح 6:05 م» · «6/10 6:05 م» — توقيت القاهرة (المالك سأل «اتعامل امتى؟»)
+export function jxWhen(iso, now){
+  var t = Date.parse(iso || '');
+  if(!isFinite(t)) return '';
+  var tm = '';
+  try{
+    if(!JX_TIME_FMT) JX_TIME_FMT = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Cairo', hour: 'numeric', minute: '2-digit', hour12: true });
+    tm = JX_TIME_FMT.format(new Date(t)).replace(/\s*AM$/i, ' ص').replace(/\s*PM$/i, ' م');
+  }catch(e){ tm = ''; }
+  var d = jxYmd(t), today = jxYmd(now);
+  var day = d === today ? 'النهارده' : (d === ymdAddDays(today, -1) ? 'إمبارح' : (Number(d.slice(8, 10)) + '/' + Number(d.slice(5, 7))));
+  return day + (tm ? ' ' + tm : '');
+}
+
 // تطبيع البحث بالاسم — نفس فكرة waNormName (الهمزات/التاء/الياء)
 function jxNorm(s){
   return String(s || '').toLowerCase()
@@ -177,8 +259,11 @@ function jxMatches(r, q, qd){
   return false;
 }
 
+function jxTs(iso){ var t = Date.parse(iso || ''); return isFinite(t) ? t : 0; }
+
 export function jxFilterRows(rows, f, now){
   var lv = jxLatestVerdictAt(rows);
+  var openBills = f.chip === 'done' ? jxDoneBills(rows, lv, now) : null;
   var from = jxPeriodFrom(f.days, now);
   var q = jxNorm(toLatinDigits(f.q));
   var qd = normalizePhone(f.q);
@@ -186,24 +271,56 @@ export function jxFilterRows(rows, f, now){
   for(var i = 0; i < rows.length; i++){
     var r = rows[i], o = jxOutcome(r);
     if(f.chip === 'open'){
-      // الطابور مابيتقيّدش بالفترة: اللي محتاج متابعة لازم يبان مهما كان تاريخه
+      // الطابور مابيتقيّدش بالفترة: اللي محتاج تعامل لازم يبان مهما كان تاريخه
       if(!jxNeedsFollow(r, lv, now)) continue;
+    } else if(f.chip === 'review'){
+      if(jxStage(r, lv, now) !== 'review') continue;
+    } else if(f.chip === 'done'){
+      if(!jxInDone(r, lv, openBills, now)) continue;
+      if(!jxOutMatch(o, f.out)) continue;
     } else {
+      // «الكل» — الفلاتر دي بتتطبّق هنا بس (مستخبية في الطوابير ومابتقصّهاش)
       if(!(r._ymd >= from)) continue;
-      if(f.chip === 'with_jt' && o !== null) continue;
-      if(f.chip === 'delivered' && o !== 'delivered') continue;
-      if(f.chip === 'returned' && o !== 'returning' && o !== 'returned') continue;
+      if(!jxOutMatch(o, f.out)) continue;
+      if(f.reason && (r.reason_ar || '') !== f.reason) continue;
+      if(f.verdict === 'none'){ if(r.verdict) continue; }
+      else if(f.verdict === 'any'){ if(!r.verdict) continue; }
+      else if(f.verdict && r.verdict !== f.verdict) continue;
+      if(f.who === '__none'){ if(r.staff_updated_at && (r.verdict || r.staff_note)) continue; }
+      else if(f.who && (r.verdict_by_name || '') !== f.who) continue;
     }
-    if(f.reason && (r.reason_ar || '') !== f.reason) continue;
-    if(f.verdict === 'none'){ if(r.verdict) continue; }
-    else if(f.verdict && r.verdict !== f.verdict) continue;
     if(q && !jxMatches(r, q, qd)) continue;
     out.push(r);
   }
-  // الطابور: الأقدم فوق (الأقرب إنها ترجع) · الباقي: الأحدث فوق
-  var asc = f.chip === 'open';
-  out.sort(function(a, b){ return asc ? (a._t - b._t) : (b._t - a._t); });
+  if(f.chip === 'open'){
+    // المترجّعة من الأدمن فوق · بعدها الأقدم (الأقرب إنها ترجع)
+    out.sort(function(a, b){ return (jxSentBack(b) ? 1 : 0) - (jxSentBack(a) ? 1 : 0) || a._t - b._t; });
+  } else if(f.chip === 'review'){
+    // الأقدم تعامل فوق — مفيش حاجة تتدفن
+    out.sort(function(a, b){ return jxTs(a.staff_updated_at) - jxTs(b.staff_updated_at) || a._t - b._t; });
+  } else if(f.chip === 'done'){
+    // اللي لسه مع J&T فوق (الأقدم من ساعة التعامل = الأولى بالمتابعة) · بعدها الأحدث نتيجة
+    out.sort(function(a, b){
+      var oa = jxOutcome(a) === null, ob = jxOutcome(b) === null;
+      if(oa !== ob) return oa ? -1 : 1;
+      if(oa) return jxTs(a.staff_updated_at) - jxTs(b.staff_updated_at);
+      return jxTs(b.outcome_at || b.staff_updated_at) - jxTs(a.outcome_at || a.staff_updated_at);
+    });
+  } else {
+    out.sort(function(a, b){ return b._t - a._t; });
+  }
   return out;
+}
+
+// اتعامل قبل كده على محاولة أقدم لنفس الشحنة (للكارت الجديد: «اتقال إيه للعميل المرة اللي فاتت»)
+function jxPrevHandled(r){
+  var best = null;
+  for(var i = 0; i < jxRows.length; i++){
+    var x = jxRows[i];
+    if(x === r || x.tracking_no !== r.tracking_no || !x.verdict || !(x._t < r._t)) continue;
+    if(!best || x._t > best._t) best = x;
+  }
+  return best;
 }
 
 // رابط صورة J&T (SAS) بيعيش ~6 أيام — بعدها بيرجع 403، فمانعرضش لينك ميت
@@ -302,11 +419,19 @@ function jxCsvDigits(v){
   return jxCsvCell(s);
 }
 
+function jxReviewWord(r){
+  if(!r || !r.verdict) return '';
+  if(jxSentBack(r)) return 'اترجّعت للموظف';
+  if(jxNeedsReview(r)) return r.reviewed_rev != null ? 'اتعدّلت بعد المراجعة' : 'مستنية مراجعة';
+  return r.review_state === 'self' ? 'الأدمن اتعامل بنفسه' : 'اتراجعت';
+}
+
 export function jxCsv(rows){
   var H = ['التاريخ', 'البوليصة', 'رقم الأوردر', 'العميل', 'التليفون', 'تليفون إضافي', 'المحافظة', 'المدينة',
     'المنطقة', 'العنوان', 'المنتج', 'مبلغ التحصيل', 'النوع', 'المحاولة', 'سبب J&T', 'السبب (إنجليزي)',
     'كود السبب', 'ملاحظة المندوب', 'المندوب', 'تليفون المندوب', 'الفرع', 'تليفون الفرع', 'التصنيف',
-    'عملت إيه', 'سجّل', 'وقت التسجيل', 'النتيجة', 'حالة الأوردر', 'صورة J&T'];
+    'عملت إيه', 'سجّل', 'وقت التسجيل', 'النتيجة', 'حالة الأوردر', 'صورة J&T',
+    'المراجعة', 'راجعها', 'وقت المراجعة', 'ملاحظة المراجعة'];
   var out = [H.map(jxCsvCell).join(',')];
   for(var i = 0; i < rows.length; i++){
     var r = rows[i], o = jxOutcome(r);
@@ -320,7 +445,9 @@ export function jxCsv(rows){
       jxCsvCell(r.courier_name), jxCsvDigits(r.courier_phone), jxCsvCell(r.branch), jxCsvDigits(r.branch_phone),
       jxCsvCell(jxVerdictLabel(r.verdict)), jxCsvCell(r.staff_note), jxCsvCell(r.staff_updated_at ? r.verdict_by_name : ''),
       jxCsvCell(r.staff_updated_at ? fmtDT(r.staff_updated_at) : ''), jxCsvCell(JX_OUT[o || 'none'].t),
-      jxCsvCell(r.order_status ? statusLabel(r.order_status) : ''), jxCsvCell(r.photo_url)
+      jxCsvCell(r.order_status ? statusLabel(r.order_status) : ''), jxCsvCell(r.photo_url),
+      jxCsvCell(jxReviewWord(r)), jxCsvCell(r.reviewed_at ? r.reviewed_by_name : ''),
+      jxCsvCell(r.reviewed_at ? fmtDT(r.reviewed_at) : ''), jxCsvCell(r.review_state === 'sent_back' ? r.review_note : '')
     ].join(','));
   }
   // BOM عشان Excel يقرا العربي صح · CRLF زي ما Excel متوقع
@@ -352,9 +479,10 @@ function jxSetRows(rows){
   if(!jxSyncMs) jxSyncMs = Date.now() - 10 * 60000;
 }
 
+// الجدول مش موجود (PGRST205/42P01) — أو الفيو أقدم من الواجهة وعمود جديد ناقص (42703: الواجهة اترفعت قبل الـSQL)
 function jxIsDbMissing(err){
   var s = String((err && (err.code || '')) + ' ' + (err && err.message || ''));
-  return /PGRST205|42P01|v_jt_issues|jt_issues/.test(s) && /PGRST205|42P01|does not exist|Could not find/i.test(s);
+  return /PGRST205|42P01|42703|v_jt_issues|jt_issues/.test(s) && /PGRST205|42P01|42703|does not exist|Could not find/i.test(s);
 }
 
 export function loadJtIssues(force){
@@ -396,8 +524,10 @@ function jxFullLoad(){
       jxDbMissing = false;
       jxSetRows(r.data || []);
       jxLoadedAt = Date.now();
+      jxLogCache = {};
       jxRenderAll();
       jxEnsureRealtime();
+      jxLoadKept(my, since);
     }, function(e){
       if(my !== jxGen) return;
       veilDone('exceptions');
@@ -405,13 +535,28 @@ function jxFullLoad(){
     });
 }
 
+// اللي محتاج مراجعة أو مترجّع للموظف ومن قبل نافذة الـ30 يوم — طابور مايختفيش لمجرد إن الاستثناء قدم
+function jxLoadKept(my, since){
+  sb.from('v_jt_issues').select(JX_COLS)
+    .eq('tenant_id', currentTenantId)
+    .lt('event_at', since)
+    .eq('keep_loaded', true)
+    .limit(500)
+    .then(function(r){
+      if(my !== jxGen || r.error || !r.data || !r.data.length) return;
+      var changed = jxMerge(r.data, true);
+      if(changed.length) jxAfterChange(changed, false);
+    }, function(e){ swallow('exceptions/kept', e); });
+}
+
 function jxShowLoadError(err){
   swallow('exceptions/load', err);
   var list = $id('jx-list');
   if(jxIsDbMissing(err)){
     jxDbMissing = true;
+    // 🔴 مش «شغّل jt-issues-tab.sql» — الملف ده ممنوع يتشغّل تاني (بيرجّع الدوال القديمة ويدخّل التاريخ كله)
     if(list) list.innerHTML = emptyState({ icon: '🛠️', title: 'تحديث الداتابيز بتاع التاب ده لسه مااتطبّقش',
-      sub: 'شغّل ملف jt-issues-tab.sql مرة واحدة في Supabase ← SQL Editor، وبعدين اضغط ↻ هنا.' });
+      sub: 'الواجهة الجديدة اترفعت قبل تحديث الداتابيز — كلّم المطوّر، وبعدين اضغط ↻ هنا.' });
     return;
   }
   if(jxRows.length){ toast('مقدرناش نحدّث الاستثناءات — المعروض آخر نسخة اتحمّلت', 'er'); return; }
@@ -453,7 +598,7 @@ function jxFetchTrackings(list){
   }
 }
 
-function jxMerge(rows){
+function jxMerge(rows, noNew){
   var changed = [], now = Date.now();
   for(var i = 0; i < rows.length; i++){
     var n = rows[i], old = jxById[n.id];
@@ -462,7 +607,7 @@ function jxMerge(rows){
       jxRows.push(n);
       jxById[n.id] = n;
       changed.push(n.id);
-      if(jxLoadedAt) jxNew[n.id] = now;
+      if(jxLoadedAt && !noNew) jxNew[n.id] = now;
     } else if(JSON.stringify(jxPlain(old)) !== JSON.stringify(jxPlain(n))){
       Object.assign(old, n);
       jxPrep(old);
@@ -480,21 +625,36 @@ function jxPlain(r){
 }
 
 // ── الشارة على زرار التبويب ──────────────────────────────────────────
-export function jxSetNavBadge(n){
-  var b = $id('jx-nav-badge'); if(!b) return;
-  if(n > 0){
-    b.textContent = n > 99 ? '99+' : String(n);
-    b.title = n + ' استثناء محتاج متابعة';
-    b.style.display = 'inline-flex';
-  } else {
-    b.style.display = 'none';
+// البرتقاني = محتاجة تعامل (للكل) · الأزرق = مستنية مراجعتك (للأدمن بس — admin-only في الـmarkup)
+export function jxSetNavBadge(n, rv){
+  var b = $id('jx-nav-badge');
+  if(b){
+    if(n > 0){
+      b.textContent = n > 99 ? '99+' : String(n);
+      b.title = n + ' استثناء محتاج تعامل';
+      b.style.display = 'inline-flex';
+    } else {
+      b.style.display = 'none';
+    }
+  }
+  var b2 = $id('jx-nav-badge2');
+  if(b2){
+    if(rv > 0 && currentRole === 'admin'){
+      b2.textContent = rv > 99 ? '99+' : String(rv);
+      b2.title = rv + ' اتعامل معاها الموظفين ومستنية مراجعتك';
+      b2.style.display = 'inline-flex';
+    } else {
+      b2.style.display = 'none';
+    }
   }
 }
+
+function jxBadgeAll(rows, now){ jxSetNavBadge(jxCountOpen(rows, now), jxCountReview(rows)); }
 
 // بتتنادى من loadAll (بعد الدخول ومع كل ↻) ومن الريل-تايم لما الصفحة لسه ماتحمّلتش
 export function jtRefreshNavBadge(){
   if(!sb || !currentTenantId || tourActive) return;
-  if(jxLoadedAt){ jxSetNavBadge(jxCountOpen(jxRows, Date.now())); jxEnsureRealtime(); return; }
+  if(jxLoadedAt){ jxBadgeAll(jxRows, Date.now()); jxEnsureRealtime(); return; }
   var since = new Date(Date.now() - JX_WINDOW_DAYS * DAY_MS).toISOString();
   sb.from('v_jt_issues').select(JX_BADGE_COLS)
     .eq('tenant_id', currentTenantId)
@@ -504,10 +664,10 @@ export function jtRefreshNavBadge(){
     .then(function(r){
       if(jxLoadedAt) return;   // التحميل الكامل سبق — هو اللي بيحسب
       // الجدول مش موجود (الـSQL لسه ماتطبّقش) = مفيش شارة ومفيش ريل-تايم
-      if(r.error){ jxSetNavBadge(0); return; }
+      if(r.error){ jxSetNavBadge(0, 0); return; }
       var rows = r.data || [];
       for(var i = 0; i < rows.length; i++) jxPrep(rows[i]);
-      jxSetNavBadge(jxCountOpen(rows, Date.now()));
+      jxBadgeAll(rows, Date.now());
       jxEnsureRealtime();
     });
 }
@@ -573,11 +733,10 @@ function jxEditing(){
 
 function jxAfterChange(ids, own){
   var now = Date.now();
-  jxSetNavBadge(jxCountOpen(jxRows, now));
+  jxBadgeAll(jxRows, now);
   if(!jxPageVisible()) return;
-  jxRenderStats(now);
   jxRenderChips(now);
-  jxRenderReasonOptions(now);
+  jxRenderFilterOptions(now);
   jxRenderReport(now);
   if(jxEditing()){
     // الموظف في إيده خانة — نرقّع الكروت من غير ما نشيلها من تحت إيده
@@ -591,86 +750,89 @@ function jxAfterChange(ids, own){
 
 export function jxRenderAll(){
   var now = Date.now();
-  jxSetNavBadge(jxCountOpen(jxRows, now));
-  jxRenderStats(now);
+  jxBadgeAll(jxRows, now);
+  // أول تحميل: الأدمن بيفتح على «مستنية مراجعتك» لو فيها حاجة (ده اللي داخل عشانه) — مرة واحدة بس، وبعدها اختياره
+  if(jxLoadedAt && !jxStageChosen){
+    jxStageChosen = true;
+    if(jxIsAdmin() && jxFilter.chip === 'open' && jxCountReview(jxRows) > 0) jxFilter.chip = 'review';
+  }
+  jxApplyStage();
   jxRenderChips(now);
-  jxRenderReasonOptions(now);
+  jxRenderFilterOptions(now);
   jxRenderList();
   jxRenderReport(now);
 }
 
-function jxSetText(id, v){ var el = $id(id); if(el) el.textContent = v; }
-
 // «25%» جوّه جملة عربي بيتقلب «%25» — العزل (LRI…PDI) بيثبّت الرقم والعلامة مع بعض
-export function jxPct(n, d){ return d ? '\u2066' + Math.round(n * 100 / d) + '%\u2069' : '—'; }
+export function jxPct(n, d){ return d ? '⁦' + Math.round(n * 100 / d) + '%⁩' : '—'; }
 
-function jxRenderStats(now){
-  var lv = jxLatestVerdictAt(jxRows);
-  var from = jxPeriodFrom(jxFilter.days, now), today = jxYmd(now);
-  var open = 0, openRet = 0, exc = 0, excBills = {}, fake = 0, cls = 0, savedBills = {}, todayN = 0, todayBy = {};
-  for(var i = 0; i < jxRows.length; i++){
-    var r = jxRows[i];
-    if(jxNeedsFollow(r, lv, now)){ open++; if(jxOutcome(r) === 'returning') openRet++; }
+function jxIsAdmin(){ return currentRole === 'admin'; }
+
+// المرحلة على الصفحة نفسها — الـCSS بيخبّي الفلاتر اللي مالهاش لازمة فيها (data-stage)
+function jxApplyStage(){
+  var page = $id('page-exceptions');
+  if(page) page.setAttribute('data-stage', jxFilter.chip);
+}
+
+// عدّادات المراحل — نفس الدوال اللي بتفلتر الطوابير (مصدر واحد: رقم الشريحة = الكروت اللي تحتها)
+export function jxStageCounts(rows, now, f){
+  f = f || jxFilter;
+  var lv = jxLatestVerdictAt(rows), openBills = jxDoneBills(rows, lv, now), from = jxPeriodFrom(f.days, now);
+  var c = { open: 0, review: 0, done: 0, done_jt: 0, all: 0 };
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i], st = jxStage(r, lv, now);
+    if(st === 'open') c.open++;
+    else if(st === 'review') c.review++;
+    if(jxInDone(r, lv, openBills, now)){ c.done++; if(jxOutcome(r) === null) c.done_jt++; }
+    if(r._ymd >= from) c.all++;
+  }
+  return c;
+}
+
+// مين سجّل النهارده (توقيت القاهرة) — «النهارده: shekoz 2 · ebrahim 1»
+export function jxTodayBy(rows, now){
+  var today = jxYmd(now), by = {};
+  for(var i = 0; i < rows.length; i++){
+    var r = rows[i];
     if(r.staff_updated_at && (r.verdict || r.staff_note) && jxYmd(r.staff_updated_at) === today){
-      todayN++;
       var nm = r.verdict_by_name || 'موظف';
-      todayBy[nm] = (todayBy[nm] || 0) + 1;
-    }
-    if(!(r._ymd >= from)) continue;
-    if(r.verdict) cls++;
-    if(r.verdict === 'fake_update') fake++;
-    if(r.kind === 'exception'){
-      exc++;
-      excBills[r.tracking_no] = 1;
-      if(jxOutcome(r) === 'delivered') savedBills[r.tracking_no] = 1;
+      by[nm] = (by[nm] || 0) + 1;
     }
   }
-  var nb = Object.keys(excBills).length, ns = Object.keys(savedBills).length;
-  jxSetText('jx-s-open', String(open));
-  jxSetText('jx-s-open-sub', open ? (openRet ? ('منهم ' + openRet + ' راجعة') : 'كلها لسه مع J&T') : 'مفيش حاجة مستنية 🎉');
-  jxSetText('jx-s-total', String(exc));
-  jxSetText('jx-s-total-sub', exc ? ('على ' + nb + ' شحنة') : 'مفيش في الفترة دي');
-  jxSetText('jx-s-fake', String(fake));
-  jxSetText('jx-s-fake-sub', cls ? ('من ' + cls + ' اتصنّفت') : 'لسه محدش صنّف');
-  jxSetText('jx-s-saved', String(ns));
-  jxSetText('jx-s-saved-sub', nb ? ('من ' + nb + ' شحنة · ' + jxPct(ns, nb)) : '—');
-  jxSetText('jx-s-today', String(todayN));
-  var names = Object.keys(todayBy).sort(function(a, b){ return todayBy[b] - todayBy[a]; }).slice(0, 2)
-    .map(function(k){ return k + ' ' + todayBy[k]; });
-  jxSetText('jx-s-today-sub', names.length ? names.join(' · ') : 'لسه محدش سجّل النهارده');
+  return Object.keys(by).sort(function(a, b){ return by[b] - by[a] || a.localeCompare(b); })
+    .map(function(k){ return k + ' ' + by[k]; }).join(' · ');
 }
 
 function jxRenderChips(now){
-  var lv = jxLatestVerdictAt(jxRows), from = jxPeriodFrom(jxFilter.days, now);
-  var c = { open: 0, with_jt: 0, delivered: 0, returned: 0, all: 0 };
-  for(var i = 0; i < jxRows.length; i++){
-    var r = jxRows[i];
-    if(jxNeedsFollow(r, lv, now)) c.open++;
-    if(!(r._ymd >= from)) continue;
-    var o = jxOutcome(r);
-    c.all++;
-    if(o === null) c.with_jt++;
-    if(o === 'delivered') c.delivered++;
-    if(o === 'returning' || o === 'returned') c.returned++;
-  }
+  var c = jxStageCounts(jxRows, now);
   var chips = document.querySelectorAll('#jx-chips .jx-chip');
   for(var j = 0; j < chips.length; j++){
     var k = chips[j].getAttribute('data-jx-chip');
     chips[j].classList.toggle('on', k === jxFilter.chip);
     var n = chips[j].querySelector('.n');
     if(n) n.textContent = String(c[k] || 0);
+    if(k === 'done') chips[j].title = c.done_jt + ' لسه مع J&T من ' + c.done + ' اتعاملنا معاها واتراجعت';
   }
+  // الموظف مش هو اللي بيراجع — نفس الشريحة بكلام تاني
+  var lbl = document.querySelector('#jx-chips [data-jx-chip="review"] .jx-rv-lbl');
+  if(lbl) lbl.textContent = jxIsAdmin() ? '👀 مستنية مراجعتك' : '⏳ مستنية مراجعة الأدمن';
 }
 
-function jxRenderReasonOptions(now){
-  var sel = $id('jx-freason'); if(!sel) return;
-  if(document.activeElement === sel) return;   // القايمة مفتوحة في إيد الموظف — إعادة بنائها بتقفلها
-  var from = jxPeriodFrom(jxFilter.days, now), cnt = {};
+function jxSelOptions(sel, html){
+  if(!sel || document.activeElement === sel) return;   // القايمة مفتوحة في إيد الموظف — إعادة بنائها بتقفلها
+  sel.innerHTML = html;
+}
+
+// قوايم «الكل» (السبب · مين اتعامل) — بتتعدّ على الفترة
+function jxRenderFilterOptions(now){
+  var from = jxPeriodFrom(jxFilter.days, now), cnt = {}, who = {}, none = 0;
   for(var i = 0; i < jxRows.length; i++){
     var r = jxRows[i];
-    if(!(r._ymd >= from) && !(jxFilter.chip === 'open')) continue;
+    if(!(r._ymd >= from)) continue;
     var k = r.reason_ar || '';
     if(k) cnt[k] = (cnt[k] || 0) + 1;
+    if(r.staff_updated_at && (r.verdict || r.staff_note)){ var w = r.verdict_by_name || 'موظف'; who[w] = (who[w] || 0) + 1; }
+    else none++;
   }
   var keys = Object.keys(cnt).sort(function(a, b){ return cnt[b] - cnt[a] || a.localeCompare(b); });
   if(jxFilter.reason && !cnt[jxFilter.reason]){ keys.push(jxFilter.reason); cnt[jxFilter.reason] = 0; }
@@ -679,8 +841,21 @@ function jxRenderReasonOptions(now){
     html += '<option value="' + esc(keys[j]) + '"' + (keys[j] === jxFilter.reason ? ' selected' : '') + '>'
       + esc(keys[j]) + ' (' + cnt[keys[j]] + ')</option>';
   }
-  sel.innerHTML = html;
+  jxSelOptions($id('jx-freason'), html);
+  var wk = Object.keys(who).sort(function(a, b){ return who[b] - who[a] || a.localeCompare(b); });
+  if(jxFilter.who && jxFilter.who !== '__none' && !who[jxFilter.who]){ wk.push(jxFilter.who); who[jxFilter.who] = 0; }
+  var wh = '<option value="">أي حد اتعامل</option><option value="__none"' + (jxFilter.who === '__none' ? ' selected' : '') + '>محدش اتعامل معاها (' + none + ')</option>';
+  for(var m = 0; m < wk.length; m++){
+    wh += '<option value="' + esc(wk[m]) + '"' + (wk[m] === jxFilter.who ? ' selected' : '') + '>✍️ ' + esc(wk[m]) + ' (' + who[wk[m]] + ')</option>';
+  }
+  jxSelOptions($id('jx-fwho'), wh);
 }
+
+var JX_EMPTY = {
+  open:   { icon: '🎉', title: 'مفيش حاجة محتاجة تعامل', sub: 'أي استثناء جديد من J&amp;T هينزل هنا لوحده — والشارة على زرار التبويب هتنوّر.' },
+  review: { icon: '✓', title: 'مفيش حاجة مستنية مراجعة', sub: 'أول ما موظف يختار «الحقيقة إيه؟» على استثناء، هيظهر هنا عشان تراجعه.' },
+  done:   { icon: '📭', title: 'لسه مفيش استثناءات اتعاملنا معاها واتراجعت', sub: 'بعد ما تراجع شغل الموظفين بـ«✓ تمام»، الشحنة بتنزل هنا عشان تتابع اتسلمت ولا رجعت.' }
+};
 
 function jxRenderList(force){
   var list = $id('jx-list'); if(!list) return;
@@ -692,30 +867,43 @@ function jxRenderList(force){
   var lv = jxLatestVerdictAt(jxRows);
   if(!jxRows.length){
     list.innerHTML = emptyState({ icon: '✅', title: 'مفيش استثناءات J&amp;T في آخر ' + JX_WINDOW_DAYS + ' يوم',
-      sub: 'أول ما J&amp;T تسجّل مشكلة على أي شحنة هتنزل هنا لوحدها.' });
+      sub: 'التاب بيتابع من 8 أكتوبر — أول ما J&amp;T تسجّل مشكلة على أي شحنة هتنزل هنا لوحدها.' });
   } else if(!rows.length){
-    list.innerHTML = jxFilter.chip === 'open' && !jxFilter.q && !jxFilter.reason && !jxFilter.verdict
-      ? emptyState({ icon: '🎉', title: 'مفيش استثناءات محتاجة متابعة', sub: 'أي استثناء جديد من J&amp;T هينزل هنا لوحده — والشارة على زرار التبويب هتنوّر.' })
+    var e = JX_EMPTY[jxFilter.chip];
+    list.innerHTML = e && !jxFilter.q && !(jxFilter.chip === 'done' && jxFilter.out)
+      ? emptyState(e)
       : emptyState({ icon: '📭', title: 'مفيش استثناءات بالفلتر ده' });
   } else {
     var shown = rows.slice(0, JX_RENDER_MAX), html = '';
     for(var i = 0; i < shown.length; i++) html += jxCardHtml(shown[i], lv, now);
     if(rows.length > shown.length){
-      html += '<div class="jx-more">بيعرض أول ' + shown.length + ' من ' + rows.length + ' — ضيّق الفلتر، أو صدّرهم كلهم بزرار «تصدير».</div>';
+      html += '<div class="jx-more">بيعرض أول ' + shown.length + ' من ' + rows.length + ' — ضيّق الفلتر، أو صدّرهم كلهم بزرار «تصدير» في «الكل».</div>';
     }
     list.innerHTML = html;
+    // السجل اللي كان مفتوح يفضل مفتوح بعد الرسم
+    for(var j = 0; j < shown.length; j++) if(jxLogOpen[shown[j].id]) jxRenderLog(shown[j].id);
   }
   jxRenderHint(rows.length, now);
 }
 
 function jxRenderHint(n, now){
   var h = $id('jx-hint'); if(!h) return;
-  if(jxFilter.chip === 'open'){
-    h.textContent = 'بيعرض كل اللي محتاج متابعة مهما كان تاريخه — الأقدم فوق (الأقرب إنها ترجع). اختار «الحقيقة إيه؟» واكتب عملت إيه، والكارت بيخرج من هنا.';
+  var admin = jxIsAdmin(), k = jxFilter.chip, t;
+  if(k === 'open'){
+    t = 'الأقدم فوق (الأقرب إنها ترجع) — واللي الأدمن رجّعها بتطلع فوق الكل. كلّم العميل، اختار «الحقيقة إيه؟» واكتب عملت إيه، والكارت بيروح «'
+      + (admin ? 'مستنية مراجعتك' : 'مستنية مراجعة الأدمن') + '»' + (admin ? ' (ولو انت اللي اتعاملت، بيروح «اتراجعت» على طول).' : '.');
+  } else if(k === 'review'){
+    var tb = jxTodayBy(jxRows, now);
+    t = (admin ? 'اللي الموظفين اتعاملوا معاه ولسه ماراجعتهوش — الأقدم فوق. «✓ تمام» لو مظبوط، «↩️ رجّعها للموظف» لو عايزه يكمّل.'
+               : 'اللي اتعاملتوا معاه ومستني الأدمن يراجعه — لو عدّلت فيه بيفضل هنا بالجديد.')
+      + ' · ' + (tb ? 'النهارده: ' + tb : 'لسه محدش سجّل حاجة النهارده');
+  } else if(k === 'done'){
+    t = 'اتعاملنا معاها واتراجعت — آخر محاولة لكل شحنة. اللي لسه مع J&T فوق (الأقدم من ساعة التعامل)، وبعدها اللي اتسلمت أو رجعت.';
   } else {
     var from = jxPeriodFrom(jxFilter.days, now);
-    h.textContent = n + ' — من ' + Number(from.slice(8, 10)) + '/' + Number(from.slice(5, 7)) + ' لحد النهارده (توقيت القاهرة) · الأحدث فوق';
+    t = n + ' — من ' + Number(from.slice(8, 10)) + '/' + Number(from.slice(5, 7)) + ' لحد النهارده (توقيت القاهرة) · الأحدث فوق';
   }
+  h.textContent = t;
 }
 
 function jxShowNewBar(on){
@@ -794,20 +982,104 @@ function jxInfoHtml(r, now){
     + '</div>';
 }
 
-function jxMetaHtml(r, superseded, now){
-  if(r.staff_updated_at && (r.verdict || r.staff_note)){
-    return '✍️ ' + esc(r.verdict_by_name || 'موظف') + ' · <span title="' + esc(fmtDT(r.staff_updated_at)) + '">'
-      + esc(jxAgo(r.staff_updated_at, now)) + '</span>';
+// «إمتى» بالساعة + «من قد إيه» (بيتحدّث كل دقيقة من jxTickTimes)
+function jxAtHtml(iso, now){
+  return '<span class="jx-at" title="' + esc(fmtDT(iso)) + '">' + esc(jxWhen(iso, now)) + '</span>'
+    + ' <span class="jx-ago" data-jx-at="' + esc(iso) + '">(' + esc(jxAgo(iso, now)) + ')</span>';
+}
+
+function jxVerdictPill(v){
+  return '<span class="jx-vpill" data-v="' + esc(v) + '">' + esc(jxVerdictLabel(v)) + '</span>';
+}
+
+// حالة المراجعة جنب «مين اتعامل»
+function jxReviewPillHtml(r, now){
+  if(!r.verdict || jxSentBack(r)) return '';
+  var who = esc(r.reviewed_by_name || 'الأدمن');
+  if(jxNeedsReview(r)){
+    if(r.reviewed_rev != null){
+      return '<span class="jx-rpill rp-edit" title="' + esc(r.reviewed_at ? fmtDT(r.reviewed_at) : '') + '">✏️ اتعدّلت بعد ما ' + who
+        + (r.review_state === 'sent_back' ? ' رجّعها' : ' راجعها') + '</span>';
+    }
+    return '<span class="jx-rpill rp-wait">' + (jxIsAdmin() ? '⏳ مستنية مراجعتك' : '⏳ لسه الأدمن ماراجعهاش') + '</span>';
   }
-  if(superseded) return '<span class="jx-muted">اتصنّفت محاولة أحدث على نفس الشحنة</span>';
-  return '<span class="jx-muted">لسه محدش سجّل حاجة</span>';
+  if(r.review_state === 'self') return '<span class="jx-rpill rp-ok">✓ الأدمن اتعامل بنفسه</span>';
+  return '<span class="jx-rpill rp-ok">✓ ' + who + ' راجعها · ' + jxAtHtml(r.reviewed_at, now) + '</span>'
+    + (jxIsAdmin() && r.review_state === 'ok' ? ' <button type="button" class="jx-link jx-undo" data-jx="rv-undo" title="ترجع «مستنية مراجعتك»">↶ رجّعها لمراجعتي</button>' : '');
+}
+
+// السطر اللي تحت العنوان — جواب «مين اتعامل · إمتى · اختار إيه · كتب إيه · اتراجعت؟» في مكان واحد ظاهر
+export function jxMetaHtml(r, superseded, now){
+  var h = '', acted = !!(r.staff_updated_at && (r.verdict || r.staff_note));
+  if(jxSentBack(r)){
+    h += '<div class="jx-m-back">↩️ <b>' + esc(r.reviewed_by_name || 'الأدمن') + '</b> رجّعها · ' + jxAtHtml(r.reviewed_at, now)
+      + (r.review_note ? ': «' + esc(r.review_note) + '»' : '')
+      + ' <span class="jx-m-hint">— عدّل التصنيف أو اكتب عملت إيه، وهترجع للمراجعة.</span></div>';
+  }
+  if(acted && r.verdict){
+    h += '<div class="jx-m-row">✍️ <b class="jx-by">' + esc(r.verdict_by_name || 'موظف') + '</b> اختار ' + jxVerdictPill(r.verdict)
+      + ' <span class="jx-sep">·</span> ' + jxAtHtml(r.staff_updated_at, now) + ' ' + jxReviewPillHtml(r, now) + '</div>';
+  } else if(acted){
+    h += '<div class="jx-m-row">✍️ <b class="jx-by">' + esc(r.verdict_by_name || 'موظف') + '</b> كتب ملاحظة <span class="jx-sep">·</span> '
+      + jxAtHtml(r.staff_updated_at, now) + ' <span class="jx-muted">— لسه محدش اختار «الحقيقة إيه؟»</span></div>';
+  }
+  // الملاحظة هنا لما الخانة مش ظاهرة (المراجعة) — غير كده الخانة تحت بتعرضها ومانكررش
+  if(acted && r.staff_note && jxActMode(r) !== 'edit') h += '<div class="jx-m-note" title="' + esc(r.staff_note) + '">💬 «' + esc(r.staff_note) + '»</div>';
+  if(!acted){
+    if(superseded){
+      h += '<div class="jx-m-row jx-muted">اتصنّفت محاولة أحدث على نفس الشحنة — مش محتاجة تعامل</div>';
+    } else {
+      var prev = jxPrevHandled(r);
+      if(prev){
+        h += '<div class="jx-m-row jx-m-prev">↪ المرة اللي فاتت (المحاولة ' + (Number(prev.attempt) || 1) + '): <b>' + esc(prev.verdict_by_name || 'موظف')
+          + '</b> اختار ' + jxVerdictPill(prev.verdict) + ' · ' + jxAtHtml(prev.staff_updated_at, now)
+          + (prev.staff_note ? ' — «' + esc(prev.staff_note) + '»' : '') + '</div>';
+      }
+      var o = jxOutcome(r);
+      if(!jxNeedsFollow(r, jxLatestVerdictAt(jxRows), now)){
+        if(o === 'returning' || o === 'returned') h += '<div class="jx-m-row jx-m-miss">⚠️ رجعت من غير ما حد يتعامل معاها</div>';
+        else if(o === 'delivered') h += '<div class="jx-m-row jx-muted">اتسلمت من غير ما حد يسجّل حاجة</div>';
+      }
+    }
+  }
+  if(r.staff_updated_at || r.reviewed_at){
+    h += '<div class="jx-m-tools"><button type="button" class="jx-link jx-logbtn" data-jx="log">'
+      + (jxLogOpen[r.id] ? '🕘 اقفل السجل' : '🕘 السجل — مين عمل إيه') + '</button></div>';
+  }
+  return h;
 }
 
 function jxWantVerdict(r){
   return jxPendingVerdict[r.id] !== undefined ? jxPendingVerdict[r.id] : (r.verdict || '');
 }
 
+// شكل عمود الإجراء: review (الأدمن · مستنية مراجعة) · done (الأدمن · اتراجعت) · edit (الخانات)
+function jxActMode(r){
+  if(!jxIsAdmin() || jxEditOpen[r.id] || jxPendingVerdict[r.id] !== undefined || jxDrafts[r.id] !== undefined) return 'edit';
+  if(jxNeedsReview(r)) return 'review';
+  if(r.verdict && !jxSentBack(r)) return 'done';
+  return 'edit';
+}
+
+function jxCommonBtns(r){
+  return '<button type="button" class="jx-btn jx-chat" data-jx="chat" title="افتح شات العميل في المحادثات">💬 شات</button>'
+    + (r.order_id ? '<button type="button" class="jx-btn" data-jx="detail">📄 الأوردر</button>' : '');
+}
+
 function jxActHtml(r, superseded, now){
+  var mode = jxActMode(r);
+  if(mode === 'review'){
+    return '<div class="jx-act-in" data-mode="review"><div class="jx-lbl">راجعت شغل <b>' + esc(r.verdict_by_name || 'الموظف') + '</b>؟</div>'
+      + '<div class="jx-btns jx-rvbtns"><button type="button" class="jx-btn jx-rvok" data-jx="rv-ok">✓ تمام</button>'
+      + '<button type="button" class="jx-btn jx-rvback" data-jx="rv-back">↩️ رجّعها للموظف</button></div>'
+      + '<div class="jx-btns"><button type="button" class="jx-btn" data-jx="edit" title="تعدّل التصنيف أو الملاحظة بنفسك">✏️ عدّل بنفسك</button>' + jxCommonBtns(r) + '</div></div>';
+  }
+  if(mode === 'done'){
+    return '<div class="jx-act-in" data-mode="done">'
+      + '<div class="jx-btns"><button type="button" class="jx-btn jx-rvback" data-jx="rv-back">↩️ رجّعها للموظف</button>'
+      + '<button type="button" class="jx-btn" data-jx="edit">✏️ عدّل بنفسك</button></div>'
+      + '<div class="jx-btns">' + jxCommonBtns(r) + '</div></div>';
+  }
   var v = jxWantVerdict(r);
   var draft = jxDrafts[r.id];
   var note = draft !== undefined ? draft : (r.staff_note || '');
@@ -817,27 +1089,35 @@ function jxActHtml(r, superseded, now){
     var x = JX_VERDICTS[i];
     opts += '<option value="' + x.k + '"' + (x.k === v ? ' selected' : '') + ' title="' + esc(x.d) + '">' + esc(x.t) + '</option>';
   }
-  return '<div class="jx-field"><label class="jx-lbl">الحقيقة إيه؟</label>'
+  return '<div class="jx-act-in" data-mode="edit"><div class="jx-field"><label class="jx-lbl">الحقيقة إيه؟</label>'
     + '<select class="jx-verdict" data-v="' + esc(v) + '">' + opts + '</select></div>'
     + '<div class="jx-field"><label class="jx-lbl">عملت إيه؟</label>'
     + '<textarea class="jx-note" rows="2" maxlength="2000" placeholder="كلّمت العميل وقال… · بلّغت J&amp;T… · اتفقنا على معاد…">' + esc(note) + '</textarea></div>'
     + '<div class="jx-btns">'
     + '<button type="button" class="jx-btn jx-save' + (dirty ? ' show' : '') + '" data-jx="save">💾 حفظ</button>'
-    + '<button type="button" class="jx-btn jx-chat" data-jx="chat" title="افتح شات العميل في المحادثات">💬 شات</button>'
-    + (r.order_id ? '<button type="button" class="jx-btn" data-jx="detail">📄 الأوردر</button>' : '')
-    + '</div>'
-    + '<div class="jx-meta">' + jxMetaHtml(r, superseded, now) + '</div>';
+    + jxCommonBtns(r)
+    + (jxEditOpen[r.id] ? '<button type="button" class="jx-btn" data-jx="edit-close">خلّصت</button>' : '')
+    + '</div></div>';
+}
+
+function jxCardCls(r, lv, now){
+  var st = jxStage(r, lv, now);
+  return 'jx-card' + (st === 'open' ? ' is-open' : '') + (r.verdict ? ' has-verdict' : '')
+    + (st === 'review' ? ' is-review' : '') + (jxSentBack(r) ? ' is-back' : '')
+    + (jxIsNew(r.id, Date.now()) ? ' is-new' : '') + (jxSaving[r.id] || jxReviewing[r.id] ? ' is-saving' : '');
 }
 
 function jxCardHtml(r, lv, now){
-  var open = jxNeedsFollow(r, lv, now), sup = jxSuperseded(r, lv);
-  return '<article class="jx-card' + (open ? ' is-open' : '') + (r.verdict ? ' has-verdict' : '')
-    + (jxIsNew(r.id, now) ? ' is-new' : '') + (jxSaving[r.id] ? ' is-saving' : '') + '" data-id="' + esc(String(r.id)) + '">'
+  var sup = jxSuperseded(r, lv);
+  var meta = jxMetaHtml(r, sup, now);
+  return '<article class="' + jxCardCls(r, lv, now) + '" data-id="' + esc(String(r.id)) + '">'
     + '<div class="jx-head">' + jxHeadHtml(r, now) + '</div>'
+    + '<div class="jx-meta"' + (meta ? '' : ' hidden') + '>' + meta + '</div>'
     + '<div class="jx-body">'
     + '<div class="jx-info">' + jxInfoHtml(r, now) + '</div>'
     + '<div class="jx-act">' + jxActHtml(r, sup, now) + '</div>'
     + '</div>'
+    + (jxLogOpen[r.id] ? '<div class="jx-log"></div>' : '')
     + '</article>';
 }
 
@@ -852,10 +1132,15 @@ function jxPatchCard(id){
   var now = Date.now(), lv = jxLatestVerdictAt(jxRows), sup = jxSuperseded(r, lv);
   var head = el.querySelector('.jx-head'); if(head) head.innerHTML = jxHeadHtml(r, now);
   var info = el.querySelector('.jx-info'); if(info) info.innerHTML = jxInfoHtml(r, now);
+  // شكل عمود الإجراء اتغيّر (اتراجعت · اترجّعت · اتصنّفت) ومفيش خانة في الإيد جوّاه = نبنيه تاني
+  var act = el.querySelector('.jx-act'), inner = act && act.querySelector('.jx-act-in');
+  var a = document.activeElement;
+  if(act && inner && inner.getAttribute('data-mode') !== jxActMode(r) && !(a && act.contains(a))){
+    act.innerHTML = jxActHtml(r, sup, now);
+  }
   jxSyncActionUi(el, r, sup, now);
-  el.classList.toggle('is-open', jxNeedsFollow(r, lv, now));
-  el.classList.toggle('has-verdict', !!r.verdict);
-  el.classList.toggle('is-saving', !!jxSaving[r.id]);
+  el.className = jxCardCls(r, lv, now);
+  if(jxLogOpen[id]) jxRenderLog(id);
 }
 
 function jxSyncActionUi(el, r, sup, now){
@@ -869,7 +1154,12 @@ function jxSyncActionUi(el, r, sup, now){
     var d = jxDrafts[r.id];
     save.classList.toggle('show', d !== undefined && String(d).trim() !== String(r.staff_note || '').trim());
   }
-  var meta = el.querySelector('.jx-meta'); if(meta) meta.innerHTML = jxMetaHtml(r, sup, now || Date.now());
+  var meta = el.querySelector('.jx-meta');
+  if(meta){
+    var mh = jxMetaHtml(r, sup, now || Date.now());
+    meta.innerHTML = mh;
+    if(mh) meta.removeAttribute('hidden'); else meta.setAttribute('hidden', '');
+  }
 }
 
 function jxTickTimes(){
@@ -880,6 +1170,104 @@ function jxTickTimes(){
     var w = cards[i].querySelector('.jx-when');
     if(r && w) w.textContent = jxAgo(r.event_at, now);
   }
+  var ag = document.querySelectorAll('#jx-list [data-jx-at]');
+  for(var j = 0; j < ag.length; j++) ag[j].textContent = '(' + jxAgo(ag[j].getAttribute('data-jx-at'), now) + ')';
+}
+
+// ── السجل: «مين عمل إيه» على الاستثناء (jt_issue_log) + مسحات J&T في أوله وآخره ─────────
+export function jxLogLines(r, rows, now){
+  var L = [];
+  L.push({ at: r.event_at, h: r.kind === 'return'
+    ? '↩️ J&amp;T بدأت ترجّع الشحنة من غير ما تسجّل سبب'
+    : '⚠️ J&amp;T سجّلت «' + esc(r.reason_ar || r.reason_en || 'استثناء') + '»' + (r.courier_name ? ' — المندوب ' + esc(r.courier_name) : '') });
+  for(var i = 0; i < rows.length; i++){
+    var x = rows[i], by = '<b>' + esc(x.by_name || 'موظف') + '</b>' + (x.actor_role === 'admin' ? ' <span class="jx-muted">(أدمن)</span>' : '');
+    var h = '';
+    if(x.action === 'save'){
+      var parts = [];
+      if(x.verdict_changed || (x.prev_verdict == null && x.verdict && !x.note_changed)){
+        if(!x.verdict) parts.push('شال التصنيف');
+        else if(x.prev_verdict) parts.push('غيّر التصنيف من ' + jxVerdictPill(x.prev_verdict) + ' لـ' + jxVerdictPill(x.verdict));
+        else parts.push('اختار ' + jxVerdictPill(x.verdict));
+      }
+      if(x.note_changed){
+        if(!x.note) parts.push('مسح الملاحظة');
+        else parts.push((x.prev_note ? 'عدّل الملاحظة: ' : 'كتب: ') + '«' + esc(x.note) + '»');
+      }
+      if(!parts.length) parts.push(x.verdict ? 'اختار ' + jxVerdictPill(x.verdict) : 'سجّل');
+      h = '✍️ ' + by + ' ' + parts.join(' · ');
+    } else if(x.action === 'review'){
+      h = x.review_state === 'sent_back'
+        ? '↩️ ' + by + ' رجّعها للموظف' + (x.review_note ? ': «' + esc(x.review_note) + '»' : '')
+        : '✓ ' + by + ' راجعها وقال تمام';
+    } else if(x.action === 'unreview'){
+      h = '↶ ' + by + ' رجّعها لمراجعته';
+    } else continue;
+    L.push({ at: x.at, h: h });
+  }
+  var o = jxOutcome(r);
+  if(r.outcome && r.outcome_at){
+    L.push({ at: r.outcome_at, h: o === 'delivered' ? '✅ J&amp;T سلّمتها للعميل' : (o === 'returned' ? '📦 رجعت لينا' : '↩️ J&amp;T بدأت ترجّعها') });
+  } else if(o === 'cancelled'){
+    L.push({ at: null, h: 'الأوردر اتلغى عندنا' });
+  }
+  return L;
+}
+
+function jxRenderLog(id){
+  var el = jxCardEl(id), r = jxById[id];
+  if(!el || !r) return;
+  var box = el.querySelector('.jx-log');
+  if(!box){ box = document.createElement('div'); box.className = 'jx-log'; el.appendChild(box); }
+  var c = jxLogCache[id];
+  if(!c || c.key !== String(r.updated_at || '')){
+    if(!c || !c.loading){
+      box.innerHTML = '<div class="jx-muted">بيحمّل السجل…</div>';
+      jxFetchLog(id);
+    }
+    if(!c || !c.rows) return;
+  }
+  if(c.err){ box.innerHTML = '<div class="jx-muted">' + esc(c.err) + '</div>'; return; }
+  var now = Date.now(), L = jxLogLines(r, c.rows || [], now), h = '<div class="jx-log-t">🕘 اللي حصل على الاستثناء ده</div><ol class="jx-tl">';
+  for(var i = 0; i < L.length; i++){
+    h += '<li><span class="jx-tl-at">' + (L[i].at ? esc(jxWhen(L[i].at, now)) : '') + '</span><span class="jx-tl-h">' + L[i].h + '</span></li>';
+  }
+  box.innerHTML = h + '</ol>';
+}
+
+function jxFetchLog(id){
+  var r = jxById[id];
+  if(!r || !sb || !currentTenantId) return;
+  var key = String(r.updated_at || '');
+  var prev = jxLogCache[id];
+  jxLogCache[id] = { key: prev ? prev.key : '', rows: prev ? prev.rows : null, loading: true };
+  sb.from('jt_issue_log').select(JX_LOG_COLS)
+    .eq('tenant_id', currentTenantId)
+    .eq('issue_id', Number(id))
+    .order('at', { ascending: true })
+    .limit(100)
+    .then(function(res){
+      if(res.error){
+        jxLogCache[id] = { key: key, rows: [], err: jxIsDbMissing(res.error) ? 'السجل محتاج تحديث الداتابيز' : 'مقدرناش نجيب السجل — جرّب تاني' };
+      } else {
+        jxLogCache[id] = { key: key, rows: res.data || [] };
+      }
+      if(jxLogOpen[id]) jxRenderLog(id);
+    }, function(e){
+      swallow('exceptions/log', e);
+      jxLogCache[id] = { key: key, rows: [], err: 'مقدرناش نجيب السجل — جرّب تاني' };
+      if(jxLogOpen[id]) jxRenderLog(id);
+    });
+}
+
+function jxToggleLog(id){
+  jxLogOpen[id] = !jxLogOpen[id];
+  var el = jxCardEl(id);
+  if(!el) return;
+  var btn = el.querySelector('.jx-logbtn');
+  if(btn) btn.textContent = jxLogOpen[id] ? '🕘 اقفل السجل' : '🕘 السجل — مين عمل إيه';
+  if(jxLogOpen[id]) jxRenderLog(id);
+  else { var box = el.querySelector('.jx-log'); if(box) box.remove(); }
 }
 
 // ── تقرير J&T ────────────────────────────────────────────────────────
@@ -909,6 +1297,9 @@ function jxPeriodRows(now){
 
 function jxRenderReport(now){
   var box = $id('jx-report'); if(!box) return;
+  // مقفول (أو مش في «الكل») = مانرسمش — بيترسم أول ما يتفتح (حدث toggle في initExceptions)
+  var det = $id('jx-report-box');
+  if(det && !det.open) return;
   var rows = jxPeriodRows(now);
   if(!rows.length){ box.innerHTML = '<div class="jx-empty-sm">مفيش استثناءات في الفترة دي.</div>'; return; }
   var R = jxReport(rows), t = R.tot;
@@ -959,7 +1350,7 @@ function jxExport(){
   var now = Date.now();
   var rows = jxFilterRows(jxRows, jxFilter, now);
   if(!rows.length){ toast('مفيش صفوف بالفلتر ده تتصدّر', 'er'); return; }
-  var name = 'jt-exceptions-' + (jxFilter.chip === 'open' ? 'open' : (jxPeriodFrom(jxFilter.days, now) + '_' + jxYmd(now))) + '.csv';
+  var name = 'jt-exceptions-' + (jxFilter.chip === 'all' ? (jxPeriodFrom(jxFilter.days, now) + '_' + jxYmd(now)) : jxFilter.chip) + '.csv';
   try{
     var blob = new Blob([jxCsv(rows)], { type: 'text/csv;charset=utf-8' });
     var url = URL.createObjectURL(blob);
@@ -973,6 +1364,16 @@ function jxExport(){
 }
 
 // ── الحفظ ────────────────────────────────────────────────────────────
+// رد السيرفر (jt_issue_save / jt_issue_review) على الصف — المفاتيح الموجودة بس، والـnull مقصود (مراجعة اتشالت)
+var JX_SERVER_KEYS = ['verdict', 'staff_note', 'staff_updated_at', 'verdict_by', 'verdict_by_name', 'staff_rev',
+  'reviewed_rev', 'review_state', 'review_note', 'reviewed_at', 'reviewed_by_name', 'updated_at'];
+function jxApplyServer(r, d){
+  for(var i = 0; i < JX_SERVER_KEYS.length; i++){
+    var k = JX_SERVER_KEYS[i];
+    if(Object.prototype.hasOwnProperty.call(d, k)) r[k] = d[k] === undefined ? null : d[k];
+  }
+}
+
 function jxSaveErr(e){
   var m = String((e && (e.message || e.code)) || '');
   if(/not_allowed|42501/.test(m)) return 'مش مسموحلك تسجّل هنا — اتأكد إنك داخل بحساب شغّال';
@@ -1022,10 +1423,8 @@ export function jxSave(id){
     var c2 = jxCardEl(id);
     if(c2) c2.classList.remove('is-saving');
     var d = res.data;
-    r.verdict = d.verdict || null;
-    r.staff_note = d.staff_note || null;
-    r.staff_updated_at = d.staff_updated_at || r.staff_updated_at;
-    r.verdict_by_name = d.verdict_by_name || r.verdict_by_name;
+    jxApplyServer(r, d);
+    delete jxLogCache[id];
     if(jxDrafts[id] !== undefined && String(jxDrafts[id]).trim() === String(r.staff_note || '').trim()) delete jxDrafts[id];
     if(jxPendingVerdict[id] !== undefined && jxPendingVerdict[id] === (r.verdict || '')) delete jxPendingVerdict[id];
     // الموظف غيّر تاني والحفظ في السكة → حفظة كمان بآخر قيم (لو مفيش فرق بترجع من غير نداء).
@@ -1054,14 +1453,73 @@ function jxOpenChat(id){
   showPage('inbox');
 }
 
+// ── المراجعة (الأدمن بس — والسيرفر بيرفض غيره) ─────────────────────────────
+function jxReviewErr(e){
+  var m = String((e && (e.message || e.code)) || '');
+  if(/not_allowed|42501/.test(m)) return 'المراجعة للأدمن بس';
+  if(/note_required/.test(m)) return 'اكتب للموظف المطلوب إيه قبل ما ترجّعها';
+  if(/not_handled/.test(m)) return 'لسه محدش اختار «الحقيقة إيه؟» على الاستثناء ده';
+  if(/not_found|P0002/.test(m)) return 'الاستثناء ده مش موجود — اعمل ↻';
+  if(/PGRST202|Could not find the function|jt_issue_review/.test(m)) return 'تحديث الداتابيز بتاع المراجعة لسه مااتطبّقش';
+  return 'ماتسجّلتش — جرّب تاني';
+}
+
+// seenRev = staff_rev اللي الأدمن كان شايفه لحظة الضغط (قبل ما المودال يفتح) — الموظف عدّل في النص = stale
+export function jxReview(id, action, note, seenRev){
+  var r = jxById[id];
+  if(!r || !sb || jxReviewing[id] || !jxIsAdmin()) return;
+  if(seenRev === undefined) seenRev = r.staff_rev == null ? null : Number(r.staff_rev);
+  jxReviewing[id] = true;
+  var card = jxCardEl(id);
+  if(card) card.classList.add('is-saving');
+  var done = function(){ jxReviewing[id] = false; var c = jxCardEl(id); if(c) c.classList.remove('is-saving'); };
+  sb.rpc('jt_issue_review', { p_id: Number(id), p_action: action, p_note: note || null,
+    p_seen_rev: action === 'undo' ? null : seenRev }).then(function(res){
+    done();
+    if(res.error || !res.data){ toast(jxReviewErr(res.error), 'er'); return; }
+    var d = res.data;
+    jxApplyServer(r, d);
+    jxNoteSync(d.updated_at);
+    delete jxLogCache[id];
+    if(d.stale){
+      toast((r.verdict_by_name || 'حد من الفريق') + ' عدّل عليها وانت بتراجع — بص على الجديد وراجع تاني', 'er');
+      jxAfterChange([id], true);
+      return;
+    }
+    toast(action === 'ok' ? 'اتراجعت ✓' : (action === 'sent_back' ? 'اترجّعت للموظف ↩️ — بقت فوق «محتاجة تعامل»' : 'رجعت «مستنية مراجعتك»'), 'ok');
+    jxAfterChange([id], true);
+  }, function(e){ done(); toast(jxReviewErr(e), 'er'); });
+}
+
+// التعليق في مودال برّه القايمة — أي رسم للكروت وهو بيكتب مايقدرش ياكله
+function jxAskSendBack(id){
+  var r = jxById[id];
+  if(!r) return;
+  var seen = r.staff_rev == null ? null : Number(r.staff_rev);
+  showModal({ icon: '↩️', title: 'رجّعها لـ' + (r.verdict_by_name || 'الموظف'),
+    sub: 'هترجع فوق «محتاجة تعامل» عند الكل بتعليقك، لحد ما حد يعدّل التصنيف أو يكتب عمل إيه — وبعدها ترجعلك تراجعها تاني.',
+    input: true, placeholder: 'عايزه يعمل إيه؟ (مثلاً: كلّمه تاني بكرة الصبح وأكّد العنوان)', okLabel: '↩️ ابعتها',
+    onOk: function(v){ jxReview(id, 'sent_back', v, seen); } });
+}
+
+function jxRebuildAct(id){
+  var el = jxCardEl(id), r = jxById[id];
+  if(!el || !r) return;
+  var act = el.querySelector('.jx-act');
+  if(act) act.innerHTML = jxActHtml(r, jxSuperseded(r, jxLatestVerdictAt(jxRows)), Date.now());
+}
+
 // ── الأحداث ──────────────────────────────────────────────────────────
 function jxSetChip(k){
   if(!k) return;
   jxFilter.chip = k;
+  jxEditOpen = {};
   var now = Date.now();
+  jxApplyStage();
   jxRenderChips(now);
-  jxRenderReasonOptions(now);
+  jxRenderFilterOptions(now);
   jxRenderList(true);
+  jxRenderReport(now);
 }
 
 function jxCardId(el){
@@ -1088,6 +1546,17 @@ function jxOnClick(e){
   if(act === 'detail'){ var r = jxById[id]; if(r && r.order_id) openDetail(r.order_id); return; }
   if(act === 'chat'){ jxOpenChat(id); return; }
   if(act === 'save'){ jxSave(id); return; }
+  if(act === 'log'){ jxToggleLog(id); return; }
+  if(act === 'rv-ok'){ jxReview(id, 'ok'); return; }
+  if(act === 'rv-undo'){ jxReview(id, 'undo'); return; }
+  if(act === 'rv-back'){ jxAskSendBack(id); return; }
+  if(act === 'edit'){
+    jxEditOpen[id] = true; jxRebuildAct(id);
+    var c2 = jxCardEl(id), sel = c2 && c2.querySelector('select.jx-verdict');
+    if(sel) sel.focus();
+    return;
+  }
+  if(act === 'edit-close'){ delete jxEditOpen[id]; jxRebuildAct(id); if(jxPendingRender) jxRenderList(); return; }
 }
 
 function jxOnChange(e){
@@ -1096,6 +1565,8 @@ function jxOnChange(e){
   if(t.id === 'jx-fdays'){ jxFilter.days = Number(t.value) || 7; jxRenderAll(); return; }
   if(t.id === 'jx-freason'){ jxFilter.reason = t.value; jxRenderList(true); return; }
   if(t.id === 'jx-fverdict'){ jxFilter.verdict = t.value; jxRenderList(true); return; }
+  if(t.id === 'jx-fwho'){ jxFilter.who = t.value; jxRenderList(true); return; }
+  if(t.id === 'jx-fout'){ jxFilter.out = t.value; jxRenderChips(Date.now()); jxRenderList(true); return; }
   if(t.classList && t.classList.contains('jx-verdict')){
     t.setAttribute('data-v', t.value);
     var id = jxCardId(t);
@@ -1146,14 +1617,18 @@ export function initExceptions(){
   if(!page) return;
   var fv = $id('jx-fverdict');
   if(fv){
-    var html = '<option value="">أي تصنيف</option><option value="none">لسه متصنفتش</option>';
+    var html = '<option value="">أي تصنيف</option><option value="none">لسه متصنفتش</option><option value="any">اتصنّفت (أي تصنيف)</option>';
     for(var i = 0; i < JX_VERDICTS.length; i++) html += '<option value="' + JX_VERDICTS[i].k + '">' + esc(JX_VERDICTS[i].t) + '</option>';
     fv.innerHTML = html;
   }
   var fd = $id('jx-fdays'); if(fd) fd.value = String(jxFilter.days);
+  jxApplyStage();
   page.addEventListener('click', jxOnClick);
   page.addEventListener('change', jxOnChange);
   page.addEventListener('input', jxOnInput);
   page.addEventListener('focusout', jxOnFocusOut);
   page.addEventListener('keydown', jxOnKeyDown);
+  // التقرير بيترسم لما يتفتح بس — `toggle` مابيطلعش للأب، فلازم على الـdetails نفسه
+  var rb = $id('jx-report-box');
+  if(rb) rb.addEventListener('toggle', function(){ if(rb.open) jxRenderReport(Date.now()); });
 }

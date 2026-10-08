@@ -113,7 +113,7 @@
       <button class="tnav-btn active" data-page="orders" id="nav-orders" title="الطلبات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg></span><span class="nv-txt">الطلبات</span></button>
       <button class="tnav-btn" data-page="stock" id="nav-stock" title="المخزون"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg></span><span class="nv-txt">المخزون</span></button>
       <button class="tnav-btn" data-page="inbox" id="nav-inbox" title="المحادثات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span><span class="nv-txt">المحادثات</span><span class="wa-nav-badge" id="wa-nav-badge" style="display:none"></span></button>
-      <button class="tnav-btn" data-page="exceptions" id="nav-exceptions" title="استثناءات الشحن"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nv-txt">استثناءات الشحن</span><span class="wa-nav-badge jx-nav-badge" id="jx-nav-badge" style="display:none"></span></button>
+      <button class="tnav-btn" data-page="exceptions" id="nav-exceptions" title="استثناءات الشحن"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nv-txt">استثناءات الشحن</span><span class="wa-nav-badge jx-nav-badge" id="jx-nav-badge" style="display:none"></span><span class="wa-nav-badge jx-nav-badge2 admin-only" id="jx-nav-badge2" style="display:none"></span></button>
       <div class="sn-label admin-only">الأعمال</div>
       <button class="tnav-btn" data-page="mycommission" id="nav-mycommission" title="عمولتي" style="display:none"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6"/><circle cx="9.5" cy="9.5" r=".5" fill="currentColor"/><circle cx="14.5" cy="14.5" r=".5" fill="currentColor"/></svg></span><span class="nv-txt">عمولتي</span></button>
       <button class="tnav-btn admin-only" data-page="finance" id="nav-finance" title="الماليات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01"/><path d="M18 12h.01"/></svg></span><span class="nv-txt">الماليات</span></button>
@@ -415,48 +415,52 @@
   <!-- ════════════════ EXCEPTIONS PAGE — استثناءات الشحن (8 أكتوبر) ════════════════
        كل مسح «استثناء» من J&T (أو رجوع من غير سبب) بينزل هنا لوحده من تريجر على
        jt_events. الموظف بيكلّم العميل ويختار الحقيقة ويكتب عمل إيه — js/exceptions/. -->
-  <div class="main" id="page-exceptions" style="display:none">
+  <div class="main" id="page-exceptions" style="display:none" data-stage="open">
     <div class="sp-head">
       <div class="sp-head-ico">⚠️</div>
       <div>
         <h2>استثناءات الشحن</h2>
-        <p>أي مشكلة J&amp;T بتسجّلها على شحنة بتنزل هنا لوحدها — كلّم العميل، اختار الحقيقة، واكتب عملت إيه.</p>
+        <p>أي مشكلة J&amp;T على شحنة بتنزل هنا لوحدها — الموظف يتعامل، الأدمن يراجع، وبعدين نتابع اتسلمت ولا رجعت.</p>
       </div>
-    </div>
-    <div class="sgrid jx-stats">
-      <div class="sc x jx-sc-open" data-jx-chip="open"><span class="sc-info" data-tip="استثناءات لسه محدش صنّفها والشحنة لسه فيها أمل: مع J&amp;T (ماتسلمتش ومارجعتش)، أو بدأت ترجع من أقل من أسبوع. بتتحسب على كل آخر 30 يوم مش الفترة بس — ودي نفس الشارة اللي على زرار التبويب.">i</span><div class="slb">محتاجة متابعة</div><div class="sval" id="jx-s-open">—</div><div class="jx-ssub" id="jx-s-open-sub"></div></div>
-      <div class="sc r"><span class="sc-info" data-tip="عدد مسحات «استثناء» اللي J&amp;T سجّلتها في الفترة — والسطر الصغير: على كام شحنة (الشحنة الواحدة ممكن يتسجّل عليها أكتر من استثناء).">i</span><div class="slb">استثناءات J&amp;T</div><div class="sval" id="jx-s-total">—</div><div class="jx-ssub" id="jx-s-total-sub"></div></div>
-      <div class="sc cr"><span class="sc-info" data-tip="اللي الفريق صنّفها FAKE UPDATE في الفترة — يعني J&amp;T كتبت حاجة العميل نفاها. ده دليل الشكوى.">i</span><div class="slb">FAKE UPDATE</div><div class="sval" id="jx-s-fake">—</div><div class="jx-ssub" id="jx-s-fake-sub"></div></div>
-      <div class="sc c"><span class="sc-info" data-tip="شحنات حصلها استثناء في الفترة وفي الآخر اتسلمت — جزء منها بمجهود الفريق.">i</span><div class="slb">اتسلمت بعد الاستثناء</div><div class="sval" id="jx-s-saved">—</div><div class="jx-ssub" id="jx-s-saved-sub"></div></div>
-      <div class="sc a"><span class="sc-info" data-tip="استثناءات اتصنّفت أو اتكتب عليها ملاحظة النهارده (توقيت القاهرة) — ومين سجّل.">i</span><div class="slb">اتسجّل عليها النهارده</div><div class="sval" id="jx-s-today">—</div><div class="jx-ssub" id="jx-s-today-sub"></div></div>
     </div>
     <div class="jx-bar">
       <div class="jx-chips" id="jx-chips">
-        <button type="button" class="jx-chip on" data-jx-chip="open">محتاجة متابعة <span class="n">0</span></button>
-        <button type="button" class="jx-chip" data-jx-chip="with_jt">لسه مع J&amp;T <span class="n">0</span></button>
-        <button type="button" class="jx-chip" data-jx-chip="delivered">اتسلمت <span class="n">0</span></button>
-        <button type="button" class="jx-chip" data-jx-chip="returned">رجعت / راجعة <span class="n">0</span></button>
-        <button type="button" class="jx-chip" data-jx-chip="all">الكل <span class="n">0</span></button>
+        <button type="button" class="jx-chip on" data-jx-chip="open">📥 محتاجة تعامل <span class="n">0</span></button>
+        <span class="jx-flow" aria-hidden="true">←</span>
+        <button type="button" class="jx-chip" data-jx-chip="review"><span class="jx-rv-lbl">👀 مستنية مراجعتك</span> <span class="n">0</span></button>
+        <span class="jx-flow" aria-hidden="true">←</span>
+        <button type="button" class="jx-chip" data-jx-chip="done">✅ اتراجعت — تابع النتيجة <span class="n">0</span></button>
+        <button type="button" class="jx-chip jx-chip-all" data-jx-chip="all">🗂️ الكل <span class="n">0</span></button>
       </div>
       <div class="jx-filters">
-        <select id="jx-fdays" class="jx-sel" title="الفترة (الكروت والتقرير وكل الفلاتر ما عدا «محتاجة متابعة»)">
+        <select id="jx-fout" class="jx-sel jx-f-out" title="J&amp;T عملت إيه في الشحنة">
+          <option value="">أي نتيجة</option>
+          <option value="with_jt">لسه مع J&amp;T</option>
+          <option value="delivered">اتسلمت</option>
+          <option value="returned">رجعت / راجعة</option>
+          <option value="cancelled">اتلغت عندنا</option>
+        </select>
+        <select id="jx-fdays" class="jx-sel jx-f-all" title="الفترة">
           <option value="1">النهارده</option>
           <option value="3">آخر 3 أيام</option>
           <option value="7" selected>آخر 7 أيام</option>
           <option value="30">آخر 30 يوم</option>
         </select>
-        <select id="jx-freason" class="jx-sel" title="سبب J&amp;T"><option value="">كل الأسباب</option></select>
-        <select id="jx-fverdict" class="jx-sel" title="تصنيف الفريق"></select>
+        <select id="jx-freason" class="jx-sel jx-f-all" title="سبب J&amp;T"><option value="">كل الأسباب</option></select>
+        <select id="jx-fverdict" class="jx-sel jx-f-all" title="الحقيقة إيه؟ (تصنيف الفريق)"></select>
+        <select id="jx-fwho" class="jx-sel jx-f-all" title="مين اتعامل"><option value="">أي حد اتعامل</option></select>
         <input id="jx-search" class="jx-search" type="search" placeholder="بوليصة · تليفون · اسم · رقم أوردر" autocomplete="off">
-        <button type="button" class="jx-btn" id="jx-export" title="الصفوف اللي قدامك بالفلتر الحالي — ملف بيتفتح في Excel">⬇️ تصدير</button>
+        <button type="button" class="jx-btn jx-f-all" id="jx-export" title="الصفوف اللي قدامك بالفلتر الحالي — ملف بيتفتح في Excel">⬇️ تصدير</button>
         <button type="button" class="jx-btn" id="jx-refresh" title="تحديث">↻</button>
       </div>
     </div>
     <div class="jx-hint" id="jx-hint"></div>
     <div class="jx-newbar" id="jx-newbar" style="display:none"></div>
     <div class="jx-list" id="jx-list"></div>
-    <div class="sc-divider jx-divider"><span>📊 تقرير J&amp;T — الفترة المختارة</span></div>
-    <div id="jx-report"></div>
+    <details class="jx-report-box" id="jx-report-box">
+      <summary>📊 تقرير J&amp;T للفترة — حسب الفرع والمندوب والسبب</summary>
+      <div id="jx-report"></div>
+    </details>
   </div>
 
   <div class="main" id="page-finance" style="display:none">

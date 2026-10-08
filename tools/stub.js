@@ -83,7 +83,9 @@
                 wa_start_templates:'__START_TPLS',
                 // استثناءات الشحن (8 أكتوبر): الفيو والجدول من نفس الفيكستشر — الفيكستشر
                 // بيحط `attempt` وأعمدة الأوردر بإيده (اللي الفيو بيحسبها على السيرفر)
-                v_jt_issues:'__JT_ISSUES', jt_issues:'__JT_ISSUES' };
+                v_jt_issues:'__JT_ISSUES', jt_issues:'__JT_ISSUES',
+                // سجل التعامل على الاستثناء (8 أكتوبر — v70): صف لكل حفظة/مراجعة
+                jt_issue_log:'__JT_LOG' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -180,7 +182,7 @@
     // 🔴 جداول الاستثناءات: كل الفلاتر بتتطبّق فعلاً زي PostgREST (eq/gte/lt/in/is + order + limit)
     // — ستب بيرجّع كل الصفوف مهما اتطلب = أي فحص على الفترة أو المزامنة التدريجية بيعدّي أعمى (درس 33).
     // ونسخ مش نفس المراجع: الكود بيكتب حقول على الصفوف (`_t` · `_ymd`).
-    if(table === 'v_jt_issues' || table === 'jt_issues'){
+    if(table === 'v_jt_issues' || table === 'jt_issues' || table === 'jt_issue_log'){
       rows = rows.map(function(r){ return Object.assign({}, r); });
       (st.f || []).forEach(function(f){
         rows = rows.filter(function(r){
