@@ -105,6 +105,11 @@
 .jx-m-back{padding:6px 10px;border-radius:10px;background:#fef2f2;border:1px solid #fecaca;color:#7f1d1d;}
 .jx-m-hint{color:#991b1b;font-size:.78rem;}
 .jx-m-prev{color:var(--muted);font-size:.8rem;}
+.jx-m-edit{color:var(--muted);font-size:.8rem;}
+.jx-m-req{color:#92400e;font-size:.78rem;}
+.jx-card.is-held{opacity:.62;border-inline-start-color:#94a3b8;}
+.jx-held{padding:8px 10px;border-radius:10px;background:#f1f5f9;color:var(--txt);font-size:.84rem;}
+html.dark .jx-held{background:#1a2233;}
 .jx-m-miss{color:#b91c1c;}
 .jx-m-tools{display:flex;gap:10px;}
 .jx-at{white-space:nowrap;}
@@ -168,6 +173,8 @@
 .wa-nav-badge.jx-nav-badge{background:var(--ora);}
 /* التانية للأدمن: مستنية مراجعته (أزرق) */
 .wa-nav-badge.jx-nav-badge2{background:#2563eb;margin-inline-start:3px;}
+/* السايدبار مطوي: الشارتين absolute في نفس الركن (05-shell) — الزرقا تحت عشان ماتغطّيش البرتقاني */
+.sidenav.collapsed .wa-nav-badge.jx-nav-badge2{top:auto;bottom:3px;}
 
 @media (max-width:1100px){
   .jx-body{grid-template-columns:1fr;}
@@ -179,6 +186,7 @@
   .jx-tl li{grid-template-columns:1fr;gap:0;}
 }
 @media (max-width:640px){
+  .jx-rpill,.jx-at{white-space:normal;}
   .jx-info{grid-template-columns:1fr;}
   .jx-filters{width:100%;}
   .jx-filters .jx-sel{flex:1 1 140px;min-width:0;max-width:none;}

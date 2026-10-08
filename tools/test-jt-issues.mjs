@@ -46,7 +46,8 @@ const FIX = `(function(){
     customer_name:'أحمد سامي', phone:'01000000001', alt_phone:null, city:'القاهره', address:'15 شارع التحرير',
     ship_prov:'القاهرة', ship_city:'مدينة نصر', ship_area:'الحي السابع', product_name:'منظم المطبخ (عدد 1)',
     total_cost:1450, jt_cod_amount:1450, order_status:'Exception' };
-  var mk = function(o){ var r = Object.assign({}, base, o); r.updated_at = r.updated_at || r.staff_updated_at || r.event_at; return r; };
+  var mk = function(o){ var r = Object.assign({}, base, o); r.updated_at = r.updated_at || r.reviewed_at || r.staff_updated_at || r.event_at;
+    if(r.verdict && r.verdict_set_by_name === undefined){ r.verdict_set_by_name = r.verdict_by_name; r.verdict_set_at = r.staff_updated_at; } return r; };
   window.__JT_ISSUES = [
     mk({ id:1, tracking_no:'JEG001', event_at:ago(2*H), courier_note:'مش بيرد', photo_url:'https://jt.blob.core.windows.net/p/a.jpg?sv=1&se=' + encodeURIComponent(fut) + '&sig=x' }),
     mk({ id:2, tracking_no:'JEG001', attempt:2, event_at:ago(30*60000), reason_code:'205', reason_en:'Change The Delivery Time', reason_ar:'العميل طلب تأجيل' }),
@@ -93,9 +94,9 @@ const FIX = `(function(){
   window.__WA_MSGS = [];
   // سجل التعامل على 10: ebrahim كتب ملاحظة وبعدين صنّف
   window.__JT_LOG = [
-    { id:1, tenant_id:'t-test-1', issue_id:10, at:ago(31*H), by_name:'ebrahim', actor_role:'employee', action:'save', verdict:null, note:'قال بكرة',
+    { id:1, tenant_id:'t-test-1', issue_id:10, at:ago(23*H), by_name:'ebrahim', actor_role:'employee', action:'save', verdict:null, note:'قال بكرة',
       prev_verdict:null, prev_note:null, verdict_changed:false, note_changed:true, review_state:null, review_note:null },
-    { id:2, tenant_id:'t-test-1', issue_id:10, at:ago(30*H), by_name:'ebrahim', actor_role:'employee', action:'save', verdict:'real_delay', note:'قال بكرة',
+    { id:2, tenant_id:'t-test-1', issue_id:10, at:ago(22*H), by_name:'ebrahim', actor_role:'employee', action:'save', verdict:'real_delay', note:'قال بكرة',
       prev_verdict:null, prev_note:'قال بكرة', verdict_changed:true, note_changed:false, review_state:null, review_note:null },
     { id:3, tenant_id:'t-test-1', issue_id:3, at:ago(1*H), by_name:'shekoz', actor_role:'admin', action:'save', verdict:'fake_update', note:'x',
       prev_verdict:null, prev_note:null, verdict_changed:true, note_changed:true, review_state:null, review_note:null }
@@ -106,7 +107,7 @@ const HOOK = `window.__SAVES = []; window.__REVIEWS = [];
 window.__RPC_HOOK = function(name, args){
   if(name === 'wa_inbox_status') return { data:{ verified:true }, error:null };
   var isAdmin = (window.__ROLE || 'admin') === 'admin';
-  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
+  var pick = function(r){ var o = {}; ['id','verdict','staff_note','staff_updated_at','verdict_by_name','verdict_set_by_name','verdict_set_at','staff_rev','reviewed_rev','review_state','review_note','reviewed_at','reviewed_by_name','updated_at'].forEach(function(k){ o[k] = r[k] === undefined ? null : r[k]; }); return o; };
   if(name === 'jt_issue_review'){
     window.__REVIEWS.push(args);
     if(!isAdmin) return { data:null, error:{ code:'42501', message:'not_allowed' } };
@@ -128,11 +129,14 @@ window.__RPC_HOOK = function(name, args){
   // نفس قواعد السيرفر: تغيير فعلي = staff_rev+1 · الأدمن بتصنيف = «اتعامل بنفسه» · الموظف = المراجعة القديمة بتفضل
   var apply = function(){
     if((r.verdict || null) !== (args.p_verdict || null) || (r.staff_note || null) !== (args.p_note || null)){
+      var me = isAdmin ? 'أدمن الاختبار' : 'موظف الاختبار', vchg = (r.verdict || null) !== (args.p_verdict || null);
+      var self = vchg || r.verdict_set_by_name === me;
       r.verdict = args.p_verdict; r.staff_note = args.p_note;
       r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
-      r.verdict_by_name = isAdmin ? 'أدمن الاختبار' : 'موظف الاختبار';
+      r.verdict_by_name = me;
+      if(vchg){ r.verdict_set_by_name = r.verdict ? me : null; r.verdict_set_at = r.verdict ? r.staff_updated_at : null; }
       r.staff_rev = (r.staff_rev || 0) + 1;
-      if(isAdmin && r.verdict){ r.reviewed_rev = r.staff_rev; r.review_state = 'self'; r.review_note = null; r.reviewed_at = r.staff_updated_at; r.reviewed_by_name = 'أدمن الاختبار'; }
+      if(isAdmin && r.verdict){ r.reviewed_rev = r.staff_rev; r.review_state = self ? 'self' : 'ok'; r.review_note = null; r.reviewed_at = r.staff_updated_at; r.reviewed_by_name = me; }
     }
     return { data:pick(r), error:null };
   };
@@ -195,7 +199,9 @@ const badge0 = await p.evaluate(() => { const b = document.getElementById('jx-na
 ok(badge0 && badge0.shown && badge0.t === '7', '1) شارة «استثناءات الشحن» على الزرار = 7 (6 + المترجّعة للموظف) من الاستعلام الخفيف (قبل فتح الصفحة) — ' + JSON.stringify(badge0));
 const badge2 = await p.evaluate(() => { const b = document.getElementById('jx-nav-badge2'); return b ? { shown: getComputedStyle(b).display !== 'none', t: b.textContent } : null; });
 ok(badge2 && badge2.shown && badge2.t === '1', '1ج) الشارة الزرقا للأدمن = 1 مستنية مراجعته (10 — ebrahim) — ' + JSON.stringify(badge2));
-const q1 = await p.evaluate(() => (window.__calls || []).filter(c => c.table === 'v_jt_issues').map(c => ({ cols: c.cols, f: c.f })));
+// (الاستعلام الأساسي = اللي بـgte على event_at — جنبه استعلام «القديم اللي لسه محتاج حد» بـlt + keep_loaded)
+const q1 = await p.evaluate(() => (window.__calls || []).filter(c => c.table === 'v_jt_issues').map(c => ({ cols: c.cols, f: c.f }))
+  .filter(c => (c.f || []).some(f => f.op === 'gte' && f.col === 'event_at')));
 ok(q1.length >= 1 && q1[0].cols.indexOf('staff_note') < 0 && q1[0].f.some(f => f.op === 'eq' && f.col === 'tenant_id') && q1[0].f.some(f => f.op === 'gte' && f.col === 'event_at'),
   '1ب) استعلام الشارة خفيف (من غير الملاحظات/العناوين) ومتقيّد بالمتجر والنافذة');
 const rt = await p.evaluate(() => (window.__RT_ON || []).filter(h => h.opts && h.opts.table === 'jt_issues').map(h => h.channel));
@@ -508,10 +514,11 @@ console.log('— المراجعة والسجل (v70)');
   await pp.click('.jx-card[data-id="10"] [data-jx="rv-ok"]');
   await pp.waitForTimeout(300);
   const r1 = await pp.evaluate(() => ({ rv: window.__REVIEWS.slice(), has10: !!document.querySelector('.jx-card[data-id="10"]'),
+    held: !!document.querySelector('.jx-card[data-id="10"].is-held [data-mode="held"]') && !document.querySelector('.jx-card[data-id="10"] [data-jx="rv-ok"]'),
     n: document.querySelector('#jx-chips [data-jx-chip="review"] .n').textContent, b2: getComputedStyle(document.getElementById('jx-nav-badge2')).display,
     toast: document.getElementById('toast').textContent }));
-  ok(r1.rv.length === 1 && r1.rv[0].p_id === 10 && r1.rv[0].p_action === 'ok' && r1.rv[0].p_seen_rev === 1 && r1.rv[0].p_note === null && !r1.has10 && r1.n === '0' && r1.b2 === 'none' && /اتراجعت/.test(r1.toast),
-    '38) «✓ تمام»: jt_issue_review(10, ok, seen_rev=1) · الكارت خرج · العدّاد والشارة الزرقا صفر — ' + JSON.stringify(r1));
+  ok(r1.rv.length === 1 && r1.rv[0].p_id === 10 && r1.rv[0].p_action === 'ok' && r1.rv[0].p_seen_rev === 1 && r1.rv[0].p_note === null && r1.has10 && r1.held && r1.n === '0' && r1.b2 === 'none' && /اتراجعت/.test(r1.toast),
+    '38) «✓ تمام»: jt_issue_review(10, ok, seen_rev=1) · الكارت فاضل مكانه متعلّم «اتراجعت» من غير أزرار (الطابور مايتحركش تحت إيده) · العدّاد والشارة الزرقا صفر — ' + JSON.stringify(r1));
   await chip(pp, 'done');
   const d10 = await pp.evaluate(() => ({ ids: [...document.querySelectorAll('#jx-list .jx-card')].map(c => Number(c.dataset.id)),
     m: (document.querySelector('.jx-card[data-id="10"] .jx-meta') || {}).textContent || '', undo: !!document.querySelector('.jx-card[data-id="10"] [data-jx="rv-undo"]') }));
@@ -538,6 +545,7 @@ console.log('— المراجعة والسجل (v70)');
   const lg = await pp.evaluate(() => { const c = document.querySelector('.jx-card[data-id="10"] .jx-log'); return { t: c ? c.textContent.replace(/\s+/g, ' ') : '',
     q: (window.__calls || []).filter(x => x.table === 'jt_issue_log').map(x => x.f) }; });
   ok(/J&T سجّلت/.test(lg.t) && /ebrahim كتب: «قال بكرة»/.test(lg.t) && /ebrahim اختار تأجيل حقيقي/.test(lg.t) && lg.q.length >= 1
+    && lg.t.indexOf('J&T سجّلت') < lg.t.indexOf('ebrahim كتب') && lg.t.indexOf('ebrahim كتب') < lg.t.indexOf('ebrahim اختار')
     && lg.q[0].some(f => f.op === 'eq' && f.col === 'issue_id' && String(f.val) === '10') && lg.q[0].some(f => f.op === 'eq' && f.col === 'tenant_id'),
     '40) «🕘 السجل»: J&T سجّلت … · ebrahim كتب «قال بكرة» · ebrahim اختار تأجيل حقيقي — من jt_issue_log بالـissue والمتجر — ' + lg.t.slice(0, 200));
   ok(pp.__errs.length === 0, 'صفر أخطاء جافاسكربت في المراجعة والسجل — ' + (pp.__errs[0] || 'نضيف'));
@@ -576,6 +584,95 @@ console.log('— المراجعة والسجل (v70)');
   await T.ctx.close();
 }
 
+{
+  // 43) جلب قديم وصل متأخر (خرج قبل «✓ تمام» ورجع بعدها) مايرجّعش الكارت لـ«مستنية مراجعتك»
+  const T = await open('/exceptions');
+  await T.p.waitForSelector('.jx-card[data-id="10"]');
+  await T.p.evaluate(() => { window.__OLD10 = JSON.parse(JSON.stringify(window.__JT_ISSUES.find(x => x.id === 10))); });
+  await T.p.click('.jx-card[data-id="10"] [data-jx="rv-ok"]');
+  await T.p.waitForTimeout(300);
+  await T.p.evaluate(() => {
+    const i = window.__JT_ISSUES.findIndex(x => x.id === 10); const cur = window.__JT_ISSUES[i];
+    window.__JT_ISSUES[i] = window.__OLD10;   // السيرفر «رد» بنسخة قبل المراجعة (جلب قديم)
+    (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 10, tracking_no: 'JEG008' } });
+    window.__CUR10 = cur;
+  });
+  await T.p.waitForTimeout(1000);
+  const late = await T.p.evaluate(() => ({ n: document.querySelector('#jx-chips [data-jx-chip="review"] .n').textContent,
+    btn: !!document.querySelector('.jx-card[data-id="10"] [data-jx="rv-ok"]') }));
+  ok(late.n === '0' && !late.btn, '43) جلب قديم وصل بعد «✓ تمام» (نفس الـrev وupdated_at أقدم) اتجاهل — الكارت مارجعش «مستنية مراجعتك» — ' + JSON.stringify(late));
+  // 44) دوال خالصة: مين اختار ≠ مين عدّل بعده · المترجّعة اللي التصنيف اتشال منها تفضل في الطابور حتى لو الشحنة اتقفلت
+  const pure = await T.p.evaluate(async () => {
+    const m = await import('/js/exceptions/exceptions.js');
+    const now = Date.now(), H = 3600000, iso = ms => new Date(now - ms).toISOString();
+    const row = { id: 99, tracking_no: 'JX99', kind: 'exception', event_at: iso(5 * H), verdict: 'fake_update', staff_note: 'زوّدت تفاصيل',
+      verdict_set_by_name: 'ebrahim', verdict_set_at: iso(4 * H), verdict_by_name: 'شيكو', staff_updated_at: iso(1 * H), staff_rev: 2, reviewed_rev: 2, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: iso(1 * H) };
+    const meta = m.jxMetaHtml(row, false, now).replace(/<[^>]+>/g, '');
+    const cleared = { id: 98, tracking_no: 'JX98', kind: 'exception', event_at: iso(30 * H), verdict: null, staff_note: 'شلته', staff_updated_at: iso(1 * H),
+      staff_rev: 2, reviewed_rev: 1, review_state: 'sent_back', review_note: 'كلّمه', outcome: 'delivered', outcome_at: iso(2 * H), order_status: 'Delivered' };
+    const tl = m.jxLogLines({ kind: 'exception', event_at: iso(10 * H), reason_ar: 'x', outcome: 'delivered', outcome_at: iso(6 * H), order_status: 'Delivered' },
+      [{ action: 'save', by_name: 'ebrahim', at: iso(2 * H), verdict: 'real_delay', note: null, prev_verdict: null, verdict_changed: true, note_changed: false }], now).map(x => x.h.replace(/<[^>]+>/g, ''));
+    const noteOnly = { id: 97, tracking_no: 'JX97', kind: 'exception', event_at: iso(30 * H), verdict: null, staff_note: 'كلمته', staff_updated_at: iso(20 * H),
+      outcome: 'delivered', outcome_at: iso(2 * H), order_status: 'Delivered', staff_rev: 1 };
+    return { meta, nf: m.jxNeedsFollow(cleared, {}, now), noteStage: m.jxStage(noteOnly, {}, now), older: m.jxOlderSnapshot({ staff_rev: 1, updated_at: iso(2 * H) }, { staff_rev: 2, updated_at: iso(3 * H) }),
+      older2: m.jxOlderSnapshot({ staff_rev: 2, updated_at: iso(3 * H) }, { staff_rev: 2, updated_at: iso(2 * H) }), newer: m.jxOlderSnapshot({ staff_rev: 3, updated_at: iso(1 * H) }, { staff_rev: 2, updated_at: iso(2 * H) }), tl };
+  });
+  ok(/ebrahim اختار FAKE UPDATE/.test(pure.meta) && /شيكو عدّل الملاحظة بعدها/.test(pure.meta) && pure.nf === true && pure.noteStage === 'done' && pure.older && pure.older2 && !pure.newer
+    && /سلّمتها/.test(pure.tl[1]) && /ebrahim/.test(pure.tl[2]),
+    '44) «ebrahim اختار … · شيكو عدّل الملاحظة بعدها» · المترجّعة من غير تصنيف فاضلة في الطابور رغم التسليم · ملاحظة بس والشحنة اتقفلت = «اتراجعت» · نسخة أقدم بالـrev أو بالوقت = تتجاهل · السجل بالترتيب الزمني (التسليم قبل تعديل بعده) — ' + JSON.stringify(pure));
+  await T.ctx.close();
+}
+
+const EXTRA18 = `window.__JT_ISSUES.push(Object.assign({}, window.__JT_ISSUES.find(x => x.id === 10), { id: 18, tracking_no: 'JEG018', order_id: 'o18', order_uid: '9018',
+  phone: '01000000018', customer_name: 'تانية في المراجعة', staff_note: 'قال الحد', staff_updated_at: new Date(Date.now() - 25 * 3600000).toISOString(),
+  updated_at: new Date(Date.now() - 25 * 3600000).toISOString(), event_at: new Date(Date.now() - 26 * 3600000).toISOString() }));`;
+async function pointerProbe(T){
+  const p = T.p;
+  await p.waitForSelector('.jx-card[data-id="18"]');
+  const before = await cardIds(p);
+  const bx = await p.locator('.jx-card[data-id="18"] [data-jx="rv-ok"]').boundingBox();
+  await p.mouse.move(bx.x + bx.width / 2, bx.y + bx.height / 2);
+  await p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 10); r.staff_note = 'ebrahim زوّد'; r.staff_rev = 2;
+    r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
+    (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 10, tracking_no: 'JEG008' } }); });
+  await p.waitForTimeout(900);
+  const during = await cardIds(p);
+  const bar = await p.evaluate(() => getComputedStyle(document.getElementById('jx-newbar')).display !== 'none');
+  const under = await p.evaluate(({ x, y }) => { const el = document.elementFromPoint(x, y); const c = el && el.closest('.jx-card'); return c ? Number(c.dataset.id) : null; }, { x: bx.x + bx.width / 2, y: bx.y + bx.height / 2 });
+  return { before, during, bar, under, p };
+}
+{
+  // 45) الأدمن ماسك الماوس على «✓ تمام» في طابور المراجعة وزميل عدّل كارت فوقه → الطابور مايتحركش تحت إيده
+  const T = await open('/exceptions', { post: EXTRA18 });
+  const r = await pointerProbe(T);
+  await r.p.mouse.move(5, 5); await r.p.waitForTimeout(1800);
+  const after = await cardIds(r.p);
+  ok(JSON.stringify(r.before) === '[10,18]' && JSON.stringify(r.during) === '[10,18]' && r.bar && r.under === 18 && JSON.stringify(after) === '[18,10]',
+    '45) زميل عدّل كارت والماوس على «✓ تمام»: الترتيب ثابت (تحت الماوس نفس الكارت 18) + شريط «وصل تحديث» · أول ما الماوس يسيب القايمة بيترتّب [18،10] — ' + JSON.stringify({ before: r.before, during: r.during, under: r.under, after }));
+  await T.ctx.close();
+}
+{
+  // 46) تصنيف محفوظ = مفيش «— اختار —» (المسح كان بيلغي مراجعة الأدمن في صمت) · 47) حفظة فشلت مابتسيبش «مسودة» نسخة من المحفوظ
+  const T = await open('/exceptions', { role: 'employee' });
+  await T.p.waitForSelector('.jx-card[data-id="1"]');
+  const opt = await T.p.evaluate(() => ({ saved: [...document.querySelectorAll('.jx-card[data-id="16"] select.jx-verdict option')].map(o => o.value),
+    fresh: [...document.querySelectorAll('.jx-card[data-id="1"] select.jx-verdict option')].map(o => o.value) }));
+  await T.p.evaluate(() => { window.__SAVE_FAIL = true; });
+  await T.p.focus('.jx-card[data-id="1"] select.jx-verdict');
+  await T.p.selectOption('.jx-card[data-id="1"] select.jx-verdict', 'real_delay');
+  await T.p.waitForTimeout(300);
+  await T.p.click('#page-exceptions .sp-head h2'); await T.p.waitForTimeout(300);
+  await T.p.evaluate(() => { window.__SAVE_FAIL = false; const r = window.__JT_ISSUES.find(x => x.id === 1); r.staff_note = 'زميل كتب الجديد'; r.staff_rev = 1;
+    r.verdict_by_name = 'ebrahim'; r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
+    (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 1, tracking_no: 'JEG001' } }); });
+  await T.p.waitForTimeout(1200);
+  const st = await T.p.evaluate(() => ({ val: (document.querySelector('.jx-card[data-id="1"] textarea.jx-note') || {}).value,
+    dirty: (() => { const b = document.querySelector('.jx-card[data-id="1"] .jx-save'); return !!b && getComputedStyle(b).display !== 'none'; })() }));
+  ok(opt.saved.indexOf('') < 0 && opt.fresh.indexOf('') === 0, '46) الكارت المتصنّف مافيهوش «— اختار —» (التغيير لتصنيف تاني بس) · اللي لسه ماتصنّفش فيه — ' + JSON.stringify(opt));
+  ok(st.val === 'زميل كتب الجديد' && !st.dirty, '47) حفظة فشلت وبعدها زميل كتب ملاحظة: الخانة بتعرض الجديد ومفيش «حفظ» معلّق بالقديم (مش هيكتب فوقه) — ' + JSON.stringify(st));
+  await T.ctx.close();
+}
+
 // ═══ المعايرات ═══
 console.log('— المعايرات');
 async function calib(label, patches, probe, expectFail, o){
@@ -598,7 +695,7 @@ await calib('(د) jt_issues على قناة الأوردرات → الفحص 2 
   { exc: s => s.replace("sb.channel('jt-issues-' + currentTenantId)", "sb.channel('orders-realtime-' + currentTenantId)") },
   T => T.p.evaluate(() => (window.__RT_ON || []).filter(h => h.opts && h.opts.table === 'jt_issues').map(h => h.channel)), ch => !/^jt-issues-/.test(ch[0] || ''));
 await calib('(هـ) الرسم بيدوس على الخانة اللي في إيد الموظف → الفحص 19 كان هيقع',
-  { exc: s => s.replace('  if(jxEditing()){\n    // الموظف في إيده خانة', '  if(false){\n    // الموظف في إيده خانة').replace("  if(!force && jxEditing()){ jxPendingRender = true; return; }", '') },
+  { exc: s => s.replace('  if(jxEditing() || (!own && jxPointerBusy())){\n', '  if(false){\n').replace("  if(!force && jxEditing()){ jxPendingRender = true; return; }", '') },
   async T => {
     await T.p.click('.jx-card[data-id="12"] textarea.jx-note');
     await T.p.keyboard.type('x');
@@ -674,6 +771,50 @@ await calib('(ف) الحفظ مابيطبّقش رد السيرفر → الأد
     await T.p.click('#page-exceptions .sp-head h2'); await T.p.waitForTimeout(450);
     return cardIds(T.p);
   }, ids => ids.indexOf(2) >= 0);
+
+await calib('(ص) من غير حارس «نسخة أقدم» في jxMerge → الجلب القديم رجّع الكارت لـ«مستنية مراجعتك» (الفحص 43 كان هيقع)',
+  { exc: s => s.replace("    } else if(jxOlderSnapshot(n, old)){\n", "    } else if(false){\n") },
+  async T => {
+    await chip(T.p, 'review');
+    await T.p.evaluate(() => { window.__OLD10 = JSON.parse(JSON.stringify(window.__JT_ISSUES.find(x => x.id === 10))); });
+    await T.p.click('.jx-card[data-id="10"] [data-jx="rv-ok"]'); await T.p.waitForTimeout(300);
+    await T.p.evaluate(() => { const i = window.__JT_ISSUES.findIndex(x => x.id === 10); window.__JT_ISSUES[i] = window.__OLD10;
+      (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 10, tracking_no: 'JEG008' } }); });
+    await T.p.waitForTimeout(1000);
+    return T.p.evaluate(() => document.querySelector('#jx-chips [data-jx-chip="review"] .n').textContent);
+  }, n => n !== '0');
+await calib('(ق) «مين اختار» من آخر واحد حفظ (verdict_by_name) → «ebrahim اختار» بقت «شيكو اختار» (الفحص 44 كان هيقع)',
+  { exc: s => s.replace("var setBy = r.verdict_set_by_name || r.verdict_by_name || 'موظف'", "var setBy = r.verdict_by_name || 'موظف'") },
+  T => T.p.evaluate(async () => { const m = await import('/js/exceptions/exceptions.js'); const now = Date.now();
+    return m.jxMetaHtml({ id: 99, tracking_no: 'JX99', verdict: 'fake_update', staff_note: 'x', verdict_set_by_name: 'ebrahim', verdict_set_at: new Date(now - 4 * 3600000).toISOString(),
+      verdict_by_name: 'شيكو', staff_updated_at: new Date(now - 3600000).toISOString(), staff_rev: 2, reviewed_rev: 2, review_state: 'ok' }, false, now).replace(/<[^>]+>/g, ''); }),
+  t => !/ebrahim اختار/.test(t));
+
+await calib('(ر) من غير «الكارت يفضل مكانه» بعد المراجعة → الطابور اتحرك تحت إيد الأدمن (الفحص 38 كان هيقع)',
+  { exc: s => s.replace("    if(jxFilter.chip === 'review' || jxFilter.chip === 'done') jxHold[id] = jxFilter.chip;\n", '') },
+  async T => { await chip(T.p, 'review'); await T.p.click('.jx-card[data-id="10"] [data-jx="rv-ok"]'); await T.p.waitForTimeout(300);
+    return T.p.evaluate(() => !!document.querySelector('.jx-card[data-id="10"]')); }, has => has === false);
+
+await calib('(ش) من غير حارس الماوس في طابور المراجعة → الكارت اتحرك من تحت «✓ تمام» (الفحص 45 كان هيقع)',
+  { exc: s => s.replace("  return jxFilter.chip === 'review' && (jxPointerIn || jxPointerMoving);", '  return false;') },
+  async T => { const r = await pointerProbe(T); return r.during; }, d => JSON.stringify(d) !== '[10,18]', { stage: null, post: EXTRA18 });
+await calib('(ت) «— اختار —» على التصنيف المحفوظ → الموظف يقدر يمسح مراجعة الأدمن (الفحص 46 كان هيقع)',
+  { exc: s => s.replace("  var opts = (r.verdict && v) ? '' : '<option value=\"\">— اختار —</option>';", "  var opts = '<option value=\"\">— اختار —</option>';") },
+  T => T.p.evaluate(() => [...document.querySelectorAll('.jx-card[data-id="16"] select.jx-verdict option')].map(o => o.value).indexOf('')), i => i >= 0, { role: 'employee' });
+await calib('(ث) المسودة بتتسجّل حتى لو نفس المحفوظ → بعد حفظة فشلت الخانة فضلت بالقديم وزرار «حفظ» معلّق (الفحص 47 كان هيقع)',
+  { exc: s => s.replace("    if(String(ta.value).trim() !== String(r.staff_note || '').trim()) jxDrafts[id] = ta.value;\n    else delete jxDrafts[id];", '    jxDrafts[id] = ta.value;')
+                .replace("    if(jxDrafts[id] !== undefined && String(jxDrafts[id]).trim() === String(r.staff_note || '').trim()) delete jxDrafts[id];\n    // شكل عمود الإجراء", '    // شكل عمود الإجراء') },
+  async T => {
+    await T.p.evaluate(() => { window.__SAVE_FAIL = true; });
+    await T.p.focus('.jx-card[data-id="1"] select.jx-verdict');
+    await T.p.selectOption('.jx-card[data-id="1"] select.jx-verdict', 'real_delay');
+    await T.p.waitForTimeout(300); await T.p.click('#page-exceptions .sp-head h2'); await T.p.waitForTimeout(300);
+    await T.p.evaluate(() => { window.__SAVE_FAIL = false; const r = window.__JT_ISSUES.find(x => x.id === 1); r.staff_note = 'زميل كتب الجديد'; r.staff_rev = 1;
+      r.verdict_by_name = 'ebrahim'; r.staff_updated_at = new Date().toISOString(); r.updated_at = r.staff_updated_at;
+      (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 1, tracking_no: 'JEG001' } }); });
+    await T.p.waitForTimeout(1200);
+    return T.p.evaluate(() => (document.querySelector('.jx-card[data-id="1"] textarea.jx-note') || {}).value);
+  }, v => v !== 'زميل كتب الجديد', { role: 'employee' });
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

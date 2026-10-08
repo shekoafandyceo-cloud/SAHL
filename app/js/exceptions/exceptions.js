@@ -85,7 +85,7 @@ var JX_COLS = 'id,tenant_id,order_id,tracking_no,kind,event_at,reason_code,reaso
   + 'branch,branch_phone,courier_name,courier_phone,photo_url,verdict,staff_note,staff_updated_at,verdict_by_name,'
   + 'outcome,outcome_at,updated_at,attempt,order_uid,customer_name,phone,alt_phone,city,address,'
   + 'ship_prov,ship_city,ship_area,product_name,total_cost,jt_cod_amount,order_status,'
-  + 'reviewed_at,reviewed_by_name,verdict_by,staff_rev,reviewed_rev,review_state,review_note';
+  + 'reviewed_at,reviewed_by_name,verdict_by,staff_rev,reviewed_rev,review_state,review_note,verdict_set_by_name,verdict_set_at';
 // الشارة: «محتاجة تعامل» محتاجة أعمدة المراجعة كمان (المترجّعة للموظف بتتعدّ فيها) — من غير ملاحظات/عناوين
 var JX_BADGE_COLS = 'id,tracking_no,kind,event_at,verdict,outcome,outcome_at,order_status,staff_rev,reviewed_rev,review_state';
 var JX_LOG_COLS = 'id,at,by_name,actor_role,action,verdict,note,prev_verdict,prev_note,verdict_changed,note_changed,review_state,review_note';
@@ -106,7 +106,12 @@ export var jxFilter = { chip: 'open', days: 7, reason: '', verdict: '', who: '',
 var jxReviewing = {};          // id → مراجعة في السكة (قفل في الكود — مش disabled)
 var jxEditOpen = {};           // id → الأدمن داس «✏️ عدّل» على كارت متصنّف
 var jxLogOpen = {}, jxLogCache = {};  // id → السجل مفتوح / { key: updated_at, rows }
-var jxStageChosen = false;     // الأدمن بيفتح على «مستنية مراجعتك» لو فيها حاجة — مرة واحدة أول تحميل
+var jxStageChosen = false;
+// الكارت اللي الأدمن لسه راجعه بيفضل مكانه (متعلّم) لحد ما يغيّر المرحلة — الطابور مايتحركش تحت إيده فضغطة سريعة
+// تانية ماتقعش على كارت ماقراهوش. العدّادات بتتحدّث فوراً عادي.
+var jxHold = {};               // id → المرحلة اللي اتعمل فيها الفعل (review · done)
+var jxRvLast = {};             // id → تعليق «رجّعها» اللي رجع stale — بيتكتب تاني في المودال
+var jxShownDay = '';     // الأدمن بيفتح على «مستنية مراجعتك» لو فيها حاجة — مرة واحدة أول تحميل
 var jxPollTimer = null, jxSearchTimer = null;
 var jxChannel = null, jxRtOff = false, jxRtQueue = {}, jxRtTimer = null;
 var jxDbMissing = false;
@@ -175,6 +180,10 @@ export function jxNeedsFollow(r, lv, now){
   if(!r) return false;
   // المترجّعة للموظف: فوق الطابور لحد ما يعدّل — حتى لو الشحنة اتقفلت (الأدمن طلب ده صراحةً)
   if(jxSentBack(r)) return true;
+  // اترجّعت والموظف شال التصنيف = لسه محتاجة «الحقيقة إيه؟» — مهما كانت النتيجة (طلب الأدمن مايضيعش)
+  if(!r.verdict && r.review_state === 'sent_back') return true;
+  // اتراجعت (أو اتعامل معاها الأدمن) وبعدين التصنيف اتشال = محتاجة «الحقيقة إيه؟» تاني — مهما كانت النتيجة
+  if(!r.verdict && r.review_state && r.reviewed_rev != null && Number(r.reviewed_rev) < Number(r.staff_rev || 0)) return true;
   if(r.verdict) return false;
   if(jxSuperseded(r, lv)) return false;
   var t = isFinite(r._t) ? r._t : Date.parse(r.event_at);
@@ -196,10 +205,15 @@ export function jxCountOpen(rows, now){
 }
 
 // المرحلة — مصدر واحد للشرايح والعدّادات والشارة والكارت: open · review · done · null (مالهاش طابور — في «الكل» بس)
+// حد اتعامل معاها (تصنيف أو ملاحظة)
+export function jxActed(r){ return !!(r && r.staff_updated_at && (r.verdict || r.staff_note)); }
+
 export function jxStage(r, lv, now){
   if(jxNeedsFollow(r, lv, now)) return 'open';
   if(jxNeedsReview(r)) return 'review';
   if(r && r.verdict) return 'done';
+  // ملاحظة بس والشحنة اتقفلت = اتعامل معاها (من غير تصنيف) — مكانها «اتراجعت» مش «الكل» بس
+  if(jxActed(r) && !jxSuperseded(r, lv)) return 'done';
   return null;
 }
 
@@ -274,10 +288,12 @@ export function jxFilterRows(rows, f, now){
       // الطابور مابيتقيّدش بالفترة: اللي محتاج تعامل لازم يبان مهما كان تاريخه
       if(!jxNeedsFollow(r, lv, now)) continue;
     } else if(f.chip === 'review'){
-      if(jxStage(r, lv, now) !== 'review') continue;
+      if(jxStage(r, lv, now) !== 'review' && jxHold[r.id] !== 'review') continue;
     } else if(f.chip === 'done'){
-      if(!jxInDone(r, lv, openBills, now)) continue;
-      if(!jxOutMatch(o, f.out)) continue;
+      if(jxHold[r.id] !== 'done'){
+        if(!jxInDone(r, lv, openBills, now)) continue;
+        if(!jxOutMatch(o, f.out)) continue;
+      }
     } else {
       // «الكل» — الفلاتر دي بتتطبّق هنا بس (مستخبية في الطوابير ومابتقصّهاش)
       if(!(r._ymd >= from)) continue;
@@ -512,22 +528,24 @@ function jxFullLoad(){
   var list = $id('jx-list');
   if(list && !jxRows.length) list.innerHTML = skelList(4);
   var since = new Date(Date.now() - JX_WINDOW_DAYS * DAY_MS).toISOString();
-  sb.from('v_jt_issues').select(JX_COLS)
-    .eq('tenant_id', currentTenantId)
-    .gte('event_at', since)
-    .order('event_at', { ascending: false })
-    .limit(JX_LIMIT)
-    .then(function(r){
+  Promise.all([
+    sb.from('v_jt_issues').select(JX_COLS)
+      .eq('tenant_id', currentTenantId)
+      .gte('event_at', since)
+      .order('event_at', { ascending: false })
+      .limit(JX_LIMIT),
+    jxKeptQuery(JX_COLS, since)
+  ]).then(function(res){
+      var r = res[0], k = res[1];
       if(my !== jxGen) return;   // طلب أحدث خرج بعدنا
       veilDone('exceptions');
       if(r.error){ jxShowLoadError(r.error); return; }
       jxDbMissing = false;
-      jxSetRows(r.data || []);
+      jxSetRows(jxWithKept(r.data || [], k));
       jxLoadedAt = Date.now();
       jxLogCache = {};
       jxRenderAll();
       jxEnsureRealtime();
-      jxLoadKept(my, since);
     }, function(e){
       if(my !== jxGen) return;
       veilDone('exceptions');
@@ -535,18 +553,22 @@ function jxFullLoad(){
     });
 }
 
-// اللي محتاج مراجعة أو مترجّع للموظف ومن قبل نافذة الـ30 يوم — طابور مايختفيش لمجرد إن الاستثناء قدم
-function jxLoadKept(my, since){
-  sb.from('v_jt_issues').select(JX_COLS)
+// اللي محتاج مراجعة أو مترجّع للموظف ومن قبل نافذة الـ30 يوم — طابور مايختفيش لمجرد إن الاستثناء قدم.
+// بيرجع دايماً (فشله = مفيش زيادة، مش فشل التحميل كله)
+function jxKeptQuery(cols, since){
+  return sb.from('v_jt_issues').select(cols)
     .eq('tenant_id', currentTenantId)
     .lt('event_at', since)
     .eq('keep_loaded', true)
     .limit(500)
-    .then(function(r){
-      if(my !== jxGen || r.error || !r.data || !r.data.length) return;
-      var changed = jxMerge(r.data, true);
-      if(changed.length) jxAfterChange(changed, false);
-    }, function(e){ swallow('exceptions/kept', e); });
+    .then(function(r){ return r; }, function(e){ swallow('exceptions/kept', e); return { data: null, error: e }; });
+}
+function jxWithKept(rows, k){
+  if(!k || k.error || !k.data || !k.data.length) return rows;
+  var seen = {}, out = rows.slice();
+  for(var i = 0; i < rows.length; i++) seen[rows[i].id] = 1;
+  for(var j = 0; j < k.data.length; j++) if(!seen[k.data[j].id]) out.push(k.data[j]);
+  return out;
 }
 
 function jxShowLoadError(err){
@@ -608,6 +630,8 @@ function jxMerge(rows, noNew){
       jxById[n.id] = n;
       changed.push(n.id);
       if(jxLoadedAt && !noNew) jxNew[n.id] = now;
+    } else if(jxOlderSnapshot(n, old)){
+      // نسخة أقدم وصلت متأخرة (جلب خرج قبل الحفظ/المراجعة ورجع بعدها) — مانرجّعش اللي اتأكد
     } else if(JSON.stringify(jxPlain(old)) !== JSON.stringify(jxPlain(n))){
       Object.assign(old, n);
       jxPrep(old);
@@ -616,6 +640,13 @@ function jxMerge(rows, noNew){
     jxNoteSync(n.updated_at);
   }
   return changed;
+}
+
+// الـrev بيزيد مع كل حفظة و`updated_at` مع كل تغيير (حفظ · مراجعة · نتيجة) — الأقل من اللي عندنا = نسخة قديمة
+export function jxOlderSnapshot(n, old){
+  if(n.staff_rev != null && old.staff_rev != null && Number(n.staff_rev) < Number(old.staff_rev)) return true;
+  var tn = jxTs(n.updated_at), to = jxTs(old.updated_at);
+  return !!(tn && to && tn < to);
 }
 
 function jxPlain(r){
@@ -656,16 +687,19 @@ export function jtRefreshNavBadge(){
   if(!sb || !currentTenantId || tourActive) return;
   if(jxLoadedAt){ jxBadgeAll(jxRows, Date.now()); jxEnsureRealtime(); return; }
   var since = new Date(Date.now() - JX_WINDOW_DAYS * DAY_MS).toISOString();
-  sb.from('v_jt_issues').select(JX_BADGE_COLS)
-    .eq('tenant_id', currentTenantId)
-    .gte('event_at', since)
-    .order('event_at', { ascending: false })
-    .limit(JX_LIMIT)
-    .then(function(r){
+  Promise.all([
+    sb.from('v_jt_issues').select(JX_BADGE_COLS)
+      .eq('tenant_id', currentTenantId)
+      .gte('event_at', since)
+      .order('event_at', { ascending: false })
+      .limit(JX_LIMIT),
+    jxKeptQuery(JX_BADGE_COLS, since)
+  ]).then(function(res){
+      var r = res[0];
       if(jxLoadedAt) return;   // التحميل الكامل سبق — هو اللي بيحسب
       // الجدول مش موجود (الـSQL لسه ماتطبّقش) = مفيش شارة ومفيش ريل-تايم
       if(r.error){ jxSetNavBadge(0, 0); return; }
-      var rows = r.data || [];
+      var rows = jxWithKept(r.data || [], res[1]);
       for(var i = 0; i < rows.length; i++) jxPrep(rows[i]);
       jxBadgeAll(rows, Date.now());
       jxEnsureRealtime();
@@ -731,6 +765,18 @@ function jxEditing(){
   return !!(a && a.closest && a.closest('#jx-list') && (a.tagName === 'TEXTAREA' || a.tagName === 'SELECT'));
 }
 
+// الأدمن بيراجع والماوس على القايمة: تحديث من زميل كان بيعيد الترتيب فـ«✓ تمام» تقع على كارت ماقراهوش
+// (تايمر مش مقارنة أوقات: «اتحرك من أقل من ثانية» = لسه ماعدّاش 1.2ث على آخر حركة)
+var jxPointerMoving = false, jxPointerIn = false, jxPointerTimer = null;
+function jxPointerBusy(){
+  return jxFilter.chip === 'review' && (jxPointerIn || jxPointerMoving);
+}
+function jxPointerMoved(){
+  jxPointerMoving = true;
+  clearTimeout(jxPointerTimer);
+  jxPointerTimer = setTimeout(function(){ jxPointerMoving = false; }, 1200);
+}
+
 function jxAfterChange(ids, own){
   var now = Date.now();
   jxBadgeAll(jxRows, now);
@@ -738,8 +784,8 @@ function jxAfterChange(ids, own){
   jxRenderChips(now);
   jxRenderFilterOptions(now);
   jxRenderReport(now);
-  if(jxEditing()){
-    // الموظف في إيده خانة — نرقّع الكروت من غير ما نشيلها من تحت إيده
+  if(jxEditing() || (!own && jxPointerBusy())){
+    // الموظف في إيده خانة (أو الأدمن ماسك الماوس على طابور المراجعة) — نرقّع الكروت من غير ما نحرّكهم من تحت إيده
     for(var i = 0; i < ids.length; i++) jxPatchCard(ids[i]);
     jxPendingRender = true;
     if(!own){ jxPendingFromOthers = true; jxShowNewBar(true); }
@@ -750,6 +796,7 @@ function jxAfterChange(ids, own){
 
 export function jxRenderAll(){
   var now = Date.now();
+  jxShownDay = jxYmd(now);
   jxBadgeAll(jxRows, now);
   // أول تحميل: الأدمن بيفتح على «مستنية مراجعتك» لو فيها حاجة (ده اللي داخل عشانه) — مرة واحدة بس، وبعدها اختياره
   if(jxLoadedAt && !jxStageChosen){
@@ -851,6 +898,10 @@ function jxRenderFilterOptions(now){
   jxSelOptions($id('jx-fwho'), wh);
 }
 
+var JX_EMPTY_EMP = {
+  review: { icon: '✓', title: 'مفيش حاجة مستنية مراجعة الأدمن', sub: 'اللي تتعاملوا معاه بيظهر هنا لحد ما الأدمن يراجعه.' },
+  done:   { icon: '📭', title: 'لسه مفيش استثناءات اتراجعت', sub: 'بعد ما الأدمن يراجع، الشحنة بتنزل هنا عشان تتابع اتسلمت ولا رجعت.' }
+};
 var JX_EMPTY = {
   open:   { icon: '🎉', title: 'مفيش حاجة محتاجة تعامل', sub: 'أي استثناء جديد من J&amp;T هينزل هنا لوحده — والشارة على زرار التبويب هتنوّر.' },
   review: { icon: '✓', title: 'مفيش حاجة مستنية مراجعة', sub: 'أول ما موظف يختار «الحقيقة إيه؟» على استثناء، هيظهر هنا عشان تراجعه.' },
@@ -869,7 +920,7 @@ function jxRenderList(force){
     list.innerHTML = emptyState({ icon: '✅', title: 'مفيش استثناءات J&amp;T في آخر ' + JX_WINDOW_DAYS + ' يوم',
       sub: 'التاب بيتابع من 8 أكتوبر — أول ما J&amp;T تسجّل مشكلة على أي شحنة هتنزل هنا لوحدها.' });
   } else if(!rows.length){
-    var e = JX_EMPTY[jxFilter.chip];
+    var e = jxIsAdmin() ? JX_EMPTY[jxFilter.chip] : (JX_EMPTY_EMP[jxFilter.chip] || JX_EMPTY[jxFilter.chip]);
     list.innerHTML = e && !jxFilter.q && !(jxFilter.chip === 'done' && jxFilter.out)
       ? emptyState(e)
       : emptyState({ icon: '📭', title: 'مفيش استثناءات بالفلتر ده' });
@@ -877,7 +928,8 @@ function jxRenderList(force){
     var shown = rows.slice(0, JX_RENDER_MAX), html = '';
     for(var i = 0; i < shown.length; i++) html += jxCardHtml(shown[i], lv, now);
     if(rows.length > shown.length){
-      html += '<div class="jx-more">بيعرض أول ' + shown.length + ' من ' + rows.length + ' — ضيّق الفلتر، أو صدّرهم كلهم بزرار «تصدير» في «الكل».</div>';
+      html += '<div class="jx-more">بيعرض أول ' + shown.length + ' من ' + rows.length + ' — '
+        + (jxFilter.chip === 'all' || jxFilter.chip === 'done' ? 'ضيّق الفلتر، أو صدّرهم كلهم بزرار «تصدير».' : 'ضيّق بالبحث.') + '</div>';
     }
     list.innerHTML = html;
     // السجل اللي كان مفتوح يفضل مفتوح بعد الرسم
@@ -898,7 +950,8 @@ function jxRenderHint(n, now){
                : 'اللي اتعاملتوا معاه ومستني الأدمن يراجعه — لو عدّلت فيه بيفضل هنا بالجديد.')
       + ' · ' + (tb ? 'النهارده: ' + tb : 'لسه محدش سجّل حاجة النهارده');
   } else if(k === 'done'){
-    t = 'اتعاملنا معاها واتراجعت — آخر محاولة لكل شحنة. اللي لسه مع J&T فوق (الأقدم من ساعة التعامل)، وبعدها اللي اتسلمت أو رجعت.';
+    t = 'اتعاملنا معاها واتراجعت — آخر محاولة لكل شحنة. اللي لسه مع J&T فوق (الأقدم من ساعة التعامل)، وبعدها اللي اتسلمت أو رجعت.'
+      + (jxFilter.out || jxFilter.q ? ' · بيعرض ' + n + ' بالفلتر' : '');
   } else {
     var from = jxPeriodFrom(jxFilter.days, now);
     t = n + ' — من ' + Number(from.slice(8, 10)) + '/' + Number(from.slice(5, 7)) + ' لحد النهارده (توقيت القاهرة) · الأحدث فوق';
@@ -909,7 +962,7 @@ function jxRenderHint(n, now){
 function jxShowNewBar(on){
   var b = $id('jx-newbar'); if(!b) return;
   if(on && jxPendingFromOthers){
-    b.textContent = '🔔 وصل تحديث جديد — هيتعرض أول ما تخلّص الخانة اللي في إيدك (أو اضغط هنا)';
+    b.textContent = '🔔 وصل تحديث جديد — اضغط هنا تعرضه (أو هيتعرض لوحده أول ما تخلّص)';
     b.style.display = '';
   } else {
     b.style.display = 'none';
@@ -999,7 +1052,9 @@ function jxReviewPillHtml(r, now){
   if(jxNeedsReview(r)){
     if(r.reviewed_rev != null){
       return '<span class="jx-rpill rp-edit" title="' + esc(r.reviewed_at ? fmtDT(r.reviewed_at) : '') + '">✏️ اتعدّلت بعد ما ' + who
-        + (r.review_state === 'sent_back' ? ' رجّعها' : ' راجعها') + '</span>';
+        + (r.review_state === 'sent_back' ? ' رجّعها' : ' راجعها') + '</span>'
+        // طلب الأدمن يفضل ظاهر وهو بيراجع الرد عليه
+        + (r.review_state === 'sent_back' && r.review_note ? ' <span class="jx-m-req">كان طالب: «' + esc(r.review_note) + '»</span>' : '');
     }
     return '<span class="jx-rpill rp-wait">' + (jxIsAdmin() ? '⏳ مستنية مراجعتك' : '⏳ لسه الأدمن ماراجعهاش') + '</span>';
   }
@@ -1014,14 +1069,30 @@ export function jxMetaHtml(r, superseded, now){
   if(jxSentBack(r)){
     h += '<div class="jx-m-back">↩️ <b>' + esc(r.reviewed_by_name || 'الأدمن') + '</b> رجّعها · ' + jxAtHtml(r.reviewed_at, now)
       + (r.review_note ? ': «' + esc(r.review_note) + '»' : '')
-      + ' <span class="jx-m-hint">— عدّل التصنيف أو اكتب عملت إيه، وهترجع للمراجعة.</span></div>';
+      + ' <span class="jx-m-hint">— عدّل التصنيف أو اكتب عملت إيه، وهترجع للمراجعة.</span>'
+      // داسها بالغلط؟ الأدمن يلغيها (بترجع «مستنية مراجعتك» زي ما كانت)
+      + (jxIsAdmin() ? ' <button type="button" class="jx-link jx-undo" data-jx="rv-undo">↶ إلغاء الرجوع</button>' : '') + '</div>';
   }
   if(acted && r.verdict){
-    h += '<div class="jx-m-row">✍️ <b class="jx-by">' + esc(r.verdict_by_name || 'موظف') + '</b> اختار ' + jxVerdictPill(r.verdict)
-      + ' <span class="jx-sep">·</span> ' + jxAtHtml(r.staff_updated_at, now) + ' ' + jxReviewPillHtml(r, now) + '</div>';
+    // «مين اختار» من verdict_set_* (بيتغيّر مع التصنيف بس) — والتعديل اللي بعده (ملاحظة بس) سطر لوحده
+    var setBy = r.verdict_set_by_name || r.verdict_by_name || 'موظف', setAt = r.verdict_set_at || r.staff_updated_at;
+    var later = r.verdict_set_at && jxTs(r.staff_updated_at) - jxTs(r.verdict_set_at) > 1000;
+    h += '<div class="jx-m-row">✍️ <b class="jx-by">' + esc(setBy) + '</b> اختار ' + jxVerdictPill(r.verdict)
+      + ' <span class="jx-sep">·</span> ' + jxAtHtml(setAt, now) + ' ' + jxReviewPillHtml(r, now) + '</div>';
+    if(later){
+      h += '<div class="jx-m-row jx-m-edit">✏️ <b>' + esc(r.verdict_by_name || 'موظف') + '</b> عدّل الملاحظة بعدها <span class="jx-sep">·</span> '
+        + jxAtHtml(r.staff_updated_at, now) + '</div>';
+    }
   } else if(acted){
+    var stillOpen = jxNeedsFollow(r, jxLatestVerdictAt(jxRows), now);
     h += '<div class="jx-m-row">✍️ <b class="jx-by">' + esc(r.verdict_by_name || 'موظف') + '</b> كتب ملاحظة <span class="jx-sep">·</span> '
-      + jxAtHtml(r.staff_updated_at, now) + ' <span class="jx-muted">— لسه محدش اختار «الحقيقة إيه؟»</span></div>';
+      + jxAtHtml(r.staff_updated_at, now) + ' <span class="jx-muted">— ' + (stillOpen ? 'لسه محدش اختار «الحقيقة إيه؟»' : 'من غير تصنيف (كتب ملاحظة بس)') + '</span></div>';
+  }
+  // على نفس الشحنة استثناء أحدث محدش اتعامل معاه (والشحنة اتقفلت فمش في الطابور) — مايتعرضش الكارت ده كإنه آخر حاجة
+  if(acted){
+    var newer = jxNewerUnhandled(r);
+    if(newer) h += '<div class="jx-m-row jx-m-miss">⚠️ حصل استثناء أحدث على نفس الشحنة' + (newer.attempt ? ' (المحاولة ' + Number(newer.attempt) + ')' : '')
+      + ' · ' + jxAtHtml(newer.event_at, now) + ' — محدش اتعامل معاه</div>';
   }
   // الملاحظة هنا لما الخانة مش ظاهرة (المراجعة) — غير كده الخانة تحت بتعرضها ومانكررش
   if(acted && r.staff_note && jxActMode(r) !== 'edit') h += '<div class="jx-m-note" title="' + esc(r.staff_note) + '">💬 «' + esc(r.staff_note) + '»</div>';
@@ -1049,12 +1120,23 @@ export function jxMetaHtml(r, superseded, now){
   return h;
 }
 
+function jxNewerUnhandled(r){
+  var best = null;
+  for(var i = 0; i < jxRows.length; i++){
+    var x = jxRows[i];
+    if(x === r || x.tracking_no !== r.tracking_no || !(x._t > r._t) || jxActed(x)) continue;
+    if(!best || x._t > best._t) best = x;
+  }
+  return best;
+}
+
 function jxWantVerdict(r){
   return jxPendingVerdict[r.id] !== undefined ? jxPendingVerdict[r.id] : (r.verdict || '');
 }
 
 // شكل عمود الإجراء: review (الأدمن · مستنية مراجعة) · done (الأدمن · اتراجعت) · edit (الخانات)
 function jxActMode(r){
+  if(jxHold[r.id] && jxHold[r.id] === jxFilter.chip && jxStage(r, jxLatestVerdictAt(jxRows), Date.now()) !== jxHold[r.id]) return 'held';
   if(!jxIsAdmin() || jxEditOpen[r.id] || jxPendingVerdict[r.id] !== undefined || jxDrafts[r.id] !== undefined) return 'edit';
   if(jxNeedsReview(r)) return 'review';
   if(r.verdict && !jxSentBack(r)) return 'done';
@@ -1068,6 +1150,12 @@ function jxCommonBtns(r){
 
 function jxActHtml(r, superseded, now){
   var mode = jxActMode(r);
+  if(mode === 'held'){
+    var what = jxSentBack(r) ? '↩️ اترجّعت لـ' + esc(r.verdict_by_name || 'الموظف') + ' — بقت فوق «محتاجة تعامل»'
+      : (r.review_state === 'ok' ? '✓ اتراجعت — نزلت «اتراجعت — تابع النتيجة»' : '↶ رجعت «مستنية مراجعتك»');
+    return '<div class="jx-act-in" data-mode="held"><div class="jx-held">' + what + '</div>'
+      + '<div class="jx-muted">هتختفي من هنا لما تغيّر المرحلة.</div><div class="jx-btns">' + jxCommonBtns(r) + '</div></div>';
+  }
   if(mode === 'review'){
     return '<div class="jx-act-in" data-mode="review"><div class="jx-lbl">راجعت شغل <b>' + esc(r.verdict_by_name || 'الموظف') + '</b>؟</div>'
       + '<div class="jx-btns jx-rvbtns"><button type="button" class="jx-btn jx-rvok" data-jx="rv-ok">✓ تمام</button>'
@@ -1084,7 +1172,8 @@ function jxActHtml(r, superseded, now){
   var draft = jxDrafts[r.id];
   var note = draft !== undefined ? draft : (r.staff_note || '');
   var dirty = draft !== undefined && String(draft).trim() !== String(r.staff_note || '').trim();
-  var opts = '<option value="">— اختار —</option>';
+  // تصنيف محفوظ = مفيش «— اختار —» (المسح كان الطريق الوحيد اللي بيلغي مراجعة الأدمن في صمت) — التغيير لتصنيف تاني متاح
+  var opts = (r.verdict && v) ? '' : '<option value="">— اختار —</option>';
   for(var i = 0; i < JX_VERDICTS.length; i++){
     var x = JX_VERDICTS[i];
     opts += '<option value="' + x.k + '"' + (x.k === v ? ' selected' : '') + ' title="' + esc(x.d) + '">' + esc(x.t) + '</option>';
@@ -1102,7 +1191,7 @@ function jxActHtml(r, superseded, now){
 
 function jxCardCls(r, lv, now){
   var st = jxStage(r, lv, now);
-  return 'jx-card' + (st === 'open' ? ' is-open' : '') + (r.verdict ? ' has-verdict' : '')
+  return 'jx-card' + (jxActMode(r) === 'held' ? ' is-held' : '') + (st === 'open' ? ' is-open' : '') + (r.verdict ? ' has-verdict' : '')
     + (st === 'review' ? ' is-review' : '') + (jxSentBack(r) ? ' is-back' : '')
     + (jxIsNew(r.id, Date.now()) ? ' is-new' : '') + (jxSaving[r.id] || jxReviewing[r.id] ? ' is-saving' : '');
 }
@@ -1164,6 +1253,10 @@ function jxSyncActionUi(el, r, sup, now){
 
 function jxTickTimes(){
   var now = Date.now();
+  // عدّى نص الليل والصفحة مفتوحة: «النهارده/إمبارح» والفترات اتغيّروا — رسم كامل (بيستنى لو في الإيد خانة)
+  var day = jxYmd(now);
+  if(jxShownDay && day !== jxShownDay){ jxShownDay = day; jxRenderAll(); return; }
+  jxShownDay = day;
   var cards = document.querySelectorAll('#jx-list .jx-card');
   for(var i = 0; i < cards.length; i++){
     var r = jxById[cards[i].getAttribute('data-id')];
@@ -1211,7 +1304,9 @@ export function jxLogLines(r, rows, now){
   } else if(o === 'cancelled'){
     L.push({ at: null, h: 'الأوردر اتلغى عندنا' });
   }
-  return L;
+  // بالترتيب الزمني (التسليم ممكن يبقى قبل آخر تعديل) — اللي مالوش وقت في الآخر · الثابت بيحافظ على ترتيب نفس اللحظة
+  return L.map(function(x, i){ return { x: x, i: i, t: x.at ? jxTs(x.at) : Infinity }; })
+    .sort(function(a, b){ return a.t - b.t || a.i - b.i; }).map(function(y){ return y.x; });
 }
 
 function jxRenderLog(id){
@@ -1220,6 +1315,7 @@ function jxRenderLog(id){
   var box = el.querySelector('.jx-log');
   if(!box){ box = document.createElement('div'); box.className = 'jx-log'; el.appendChild(box); }
   var c = jxLogCache[id];
+  if(c && c.err){ box.innerHTML = '<div class="jx-muted">' + esc(c.err) + '</div>'; return; }
   if(!c || c.key !== String(r.updated_at || '')){
     if(!c || !c.loading){
       box.innerHTML = '<div class="jx-muted">بيحمّل السجل…</div>';
@@ -1227,7 +1323,6 @@ function jxRenderLog(id){
     }
     if(!c || !c.rows) return;
   }
-  if(c.err){ box.innerHTML = '<div class="jx-muted">' + esc(c.err) + '</div>'; return; }
   var now = Date.now(), L = jxLogLines(r, c.rows || [], now), h = '<div class="jx-log-t">🕘 اللي حصل على الاستثناء ده</div><ol class="jx-tl">';
   for(var i = 0; i < L.length; i++){
     h += '<li><span class="jx-tl-at">' + (L[i].at ? esc(jxWhen(L[i].at, now)) : '') + '</span><span class="jx-tl-h">' + L[i].h + '</span></li>';
@@ -1241,27 +1336,30 @@ function jxFetchLog(id){
   var key = String(r.updated_at || '');
   var prev = jxLogCache[id];
   jxLogCache[id] = { key: prev ? prev.key : '', rows: prev ? prev.rows : null, loading: true };
+  // الأحدث 100 (لو السجل طويل اللي يتشال هو الأقدم) — وبعدين بالترتيب الزمني
   sb.from('jt_issue_log').select(JX_LOG_COLS)
     .eq('tenant_id', currentTenantId)
     .eq('issue_id', Number(id))
-    .order('at', { ascending: true })
+    .order('at', { ascending: false })
     .limit(100)
     .then(function(res){
       if(res.error){
-        jxLogCache[id] = { key: key, rows: [], err: jxIsDbMissing(res.error) ? 'السجل محتاج تحديث الداتابيز' : 'مقدرناش نجيب السجل — جرّب تاني' };
+        // الخطأ مابيتحفظش تحت المفتاح — فتح السجل تاني بيجرّب من الأول فعلاً
+        jxLogCache[id] = { key: '', rows: null, err: jxIsDbMissing(res.error) ? 'السجل محتاج تحديث الداتابيز' : 'مقدرناش نجيب السجل — اقفله وافتحه تاني' };
       } else {
-        jxLogCache[id] = { key: key, rows: res.data || [] };
+        jxLogCache[id] = { key: key, rows: (res.data || []).slice().reverse() };
       }
       if(jxLogOpen[id]) jxRenderLog(id);
     }, function(e){
       swallow('exceptions/log', e);
-      jxLogCache[id] = { key: key, rows: [], err: 'مقدرناش نجيب السجل — جرّب تاني' };
+      jxLogCache[id] = { key: '', rows: null, err: 'مقدرناش نجيب السجل — اقفله وافتحه تاني' };
       if(jxLogOpen[id]) jxRenderLog(id);
     });
 }
 
 function jxToggleLog(id){
   jxLogOpen[id] = !jxLogOpen[id];
+  if(jxLogOpen[id] && jxLogCache[id] && jxLogCache[id].err) delete jxLogCache[id];   // «اقفله وافتحه تاني» = محاولة جديدة
   var el = jxCardEl(id);
   if(!el) return;
   var btn = el.querySelector('.jx-logbtn');
@@ -1365,8 +1463,8 @@ function jxExport(){
 
 // ── الحفظ ────────────────────────────────────────────────────────────
 // رد السيرفر (jt_issue_save / jt_issue_review) على الصف — المفاتيح الموجودة بس، والـnull مقصود (مراجعة اتشالت)
-var JX_SERVER_KEYS = ['verdict', 'staff_note', 'staff_updated_at', 'verdict_by', 'verdict_by_name', 'staff_rev',
-  'reviewed_rev', 'review_state', 'review_note', 'reviewed_at', 'reviewed_by_name', 'updated_at'];
+var JX_SERVER_KEYS = ['verdict', 'staff_note', 'staff_updated_at', 'verdict_by', 'verdict_by_name', 'verdict_set_by_name',
+  'verdict_set_at', 'staff_rev', 'reviewed_rev', 'review_state', 'review_note', 'reviewed_at', 'reviewed_by_name', 'updated_at'];
 function jxApplyServer(r, d){
   for(var i = 0; i < JX_SERVER_KEYS.length; i++){
     var k = JX_SERVER_KEYS[i];
@@ -1391,7 +1489,11 @@ export function jxSave(id){
   var ta = card && card.querySelector('textarea.jx-note');
   // اللي في الخانات دلوقتي هو «المطلوب» — بيتحفظ في الذاكرة عشان أي رسم وقت الحفظ مايرجّعش القديم
   if(sel) jxPendingVerdict[id] = sel.value;
-  if(ta) jxDrafts[id] = ta.value;
+  // المسودة = كلام مختلف عن المحفوظ بس — نسخة من المحفوظ كانت بتفضل «مسودة» بعد حفظة فشلت، فتكتب فوق ملاحظة زميل بعدين
+  if(ta){
+    if(String(ta.value).trim() !== String(r.staff_note || '').trim()) jxDrafts[id] = ta.value;
+    else delete jxDrafts[id];
+  }
   // 🔴 حفظ شغّال = نعيد بعده بآخر قيم — **قبل** فحص «مفيش تغيير»: الفحص بيقارن بآخر نسخة **اتأكدت**،
   // فلو الموظف رجع للقيمة القديمة والحفظ في السكة كان هيطلع «مفيش تغيير» والقيمة اللي في السكة تتسجّل باسمه.
   if(jxSaving[id]){ jxResave[id] = true; return; }
@@ -1414,6 +1516,10 @@ export function jxSave(id){
     var c3 = jxCardEl(id);
     if(c3) c3.classList.remove('is-saving');
     toast(jxSaveErr(err), 'er');
+    if(jxDrafts[id] !== undefined && String(jxDrafts[id]).trim() === String(r.staff_note || '').trim()) delete jxDrafts[id];
+    // شكل عمود الإجراء اتحسب على المسودة — يتحسب تاني (لو مفيش خانة في الإيد جوّاه)
+    var act3 = c3 && c3.querySelector('.jx-act'), a3 = document.activeElement;
+    if(act3 && !(a3 && act3.contains(a3))) jxRebuildAct(id);
     // الاختيار يرجع للمحفوظ — والكلام فاضل في الخانة (مسودة) ماضاعش
     jxSyncActionUi(c3, r, jxSuperseded(r, jxLatestVerdictAt(jxRows)), Date.now());
   };
@@ -1482,10 +1588,13 @@ export function jxReview(id, action, note, seenRev){
     jxNoteSync(d.updated_at);
     delete jxLogCache[id];
     if(d.stale){
+      if(action === 'sent_back' && note) jxRvLast[id] = note;   // التعليق مايضيعش — بيرجع في المودال الجاي
       toast((r.verdict_by_name || 'حد من الفريق') + ' عدّل عليها وانت بتراجع — بص على الجديد وراجع تاني', 'er');
       jxAfterChange([id], true);
       return;
     }
+    if(jxFilter.chip === 'review' || jxFilter.chip === 'done') jxHold[id] = jxFilter.chip;
+    delete jxRvLast[id];
     toast(action === 'ok' ? 'اتراجعت ✓' : (action === 'sent_back' ? 'اترجّعت للموظف ↩️ — بقت فوق «محتاجة تعامل»' : 'رجعت «مستنية مراجعتك»'), 'ok');
     jxAfterChange([id], true);
   }, function(e){ done(); toast(jxReviewErr(e), 'er'); });
@@ -1498,7 +1607,7 @@ function jxAskSendBack(id){
   var seen = r.staff_rev == null ? null : Number(r.staff_rev);
   showModal({ icon: '↩️', title: 'رجّعها لـ' + (r.verdict_by_name || 'الموظف'),
     sub: 'هترجع فوق «محتاجة تعامل» عند الكل بتعليقك، لحد ما حد يعدّل التصنيف أو يكتب عمل إيه — وبعدها ترجعلك تراجعها تاني.',
-    input: true, placeholder: 'عايزه يعمل إيه؟ (مثلاً: كلّمه تاني بكرة الصبح وأكّد العنوان)', okLabel: '↩️ ابعتها',
+    input: true, inputValue: jxRvLast[id] || null, placeholder: 'عايزه يعمل إيه؟ (مثلاً: كلّمه تاني بكرة الصبح وأكّد العنوان)', okLabel: '↩️ ابعتها',
     onOk: function(v){ jxReview(id, 'sent_back', v, seen); } });
 }
 
@@ -1513,7 +1622,7 @@ function jxRebuildAct(id){
 function jxSetChip(k){
   if(!k) return;
   jxFilter.chip = k;
-  jxEditOpen = {};
+  jxEditOpen = {}; jxHold = {};
   var now = Date.now();
   jxApplyStage();
   jxRenderChips(now);
@@ -1533,7 +1642,7 @@ function jxOnClick(e){
   if(t.closest('.sc-info')) return;   // أيقونة الشرح على الكارت مش ضغطة فلتر
   var chip = t.closest('[data-jx-chip]');
   if(chip){ jxSetChip(chip.getAttribute('data-jx-chip')); return; }
-  if(t.closest('#jx-refresh')){ loadJtIssues(true); return; }
+  if(t.closest('#jx-refresh')){ jxHold = {}; loadJtIssues(true); return; }
   if(t.closest('#jx-export')){ jxExport(); return; }
   if(t.closest('#jx-copy-report')){ jxCopyReport(); return; }
   if(t.closest('#jx-newbar')){ jxRenderList(true); return; }
@@ -1628,6 +1737,16 @@ export function initExceptions(){
   page.addEventListener('input', jxOnInput);
   page.addEventListener('focusout', jxOnFocusOut);
   page.addEventListener('keydown', jxOnKeyDown);
+  var list = $id('jx-list');
+  if(list){
+    list.addEventListener('pointermove', jxPointerMoved);
+    list.addEventListener('pointerenter', function(){ jxPointerIn = true; jxPointerMoved(); });
+    list.addEventListener('pointerleave', function(){
+      jxPointerIn = false;
+      // الرسم المؤجّل بيستنى الماوس يسيب القايمة (والخانة)
+      if(jxPendingRender) setTimeout(function(){ if(jxPendingRender && !jxEditing() && !jxPointerBusy()) jxRenderList(); }, 1300);
+    });
+  }
   // التقرير بيترسم لما يتفتح بس — `toggle` مابيطلعش للأب، فلازم على الـdetails نفسه
   var rb = $id('jx-report-box');
   if(rb) rb.addEventListener('toggle', function(){ if(rb.open) jxRenderReport(Date.now()); });
