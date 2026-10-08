@@ -51,7 +51,7 @@ async function open(path, opts) {
 }
 
 const visiblePage = (p) => p.evaluate(() =>
-  ['orders', 'stock', 'inbox', 'finance', 'analytics', 'billing', 'settings', 'mycommission']   // billing سايبينها في القايمة عمداً: الفحص لازم يكشف لو ظهرت
+  ['orders', 'stock', 'inbox', 'exceptions', 'finance', 'analytics', 'billing', 'settings', 'mycommission']   // billing سايبينها في القايمة عمداً: الفحص لازم يكشف لو ظهرت
     .filter(n => { const el = document.getElementById('page-' + n); return el && getComputedStyle(el).display !== 'none'; }));
 
 const activeNav = (p) => p.evaluate(() => {
@@ -66,6 +66,7 @@ const urlPath = (p) => p.evaluate(() => location.pathname);
   console.log('──── فتح لينك مباشر ────');
   const CASES = [
     ['/orders', 'orders'], ['/inventory', 'stock'], ['/chats', 'inbox'],
+    ['/exceptions', 'exceptions'],   // استثناءات الشحن (8 أكتوبر)
     ['/finance', 'finance'], ['/analytics', 'analytics'],
     ['/settings', 'settings']
   ];

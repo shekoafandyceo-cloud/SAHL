@@ -13,7 +13,8 @@ import { $id } from './dom.js';
 var HOSTS = {
   finance:   ['fin-cost-section', 'exp-tbody'],
   analytics: ['perf-tbody', 'finplat-tbody', 'dcal'],
-  stock:     ['prod-tbody', 'mov-tbody']
+  stock:     ['prod-tbody', 'mov-tbody'],
+  exceptions:['jx-list']
 };
 
 export function renderLoadError(page){

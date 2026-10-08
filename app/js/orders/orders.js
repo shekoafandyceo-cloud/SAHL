@@ -26,6 +26,7 @@ import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from '
 import { initShipTicker } from './ship.js';
 import { initJtHealth } from './jt-health.js';
 import { initOrderForm } from './order-form.js';
+import { jtRefreshNavBadge } from '../exceptions/exceptions.js';
 
 export function ordersInPeriod(){
   var p=ordersPeriod;
@@ -188,6 +189,7 @@ export function loadAll(){
   doFilter();                // الجدول: صفحة واحدة من السيرفر
   startRealtime();
   waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
+  jtRefreshNavBadge();       // عدّاد «استثناءات الشحن» اللي محتاجة متابعة (وبيفتح الريل-تايم بتاعها)
   loadWalletState();         // للجميع (أدمن + موظف) — للقفل عند نفاد الرصيد
   try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
 }
@@ -652,4 +654,6 @@ export function initNav(){
   // بالـID واحد واحد، وأي زرار جديد في القايمة **لازم** يتضاف هنا
   // وإلا الضغطة بتروح في الفراغ من غير أي خطأ (حصلت فعلاً)
   if($id('nav-mycommission'))$id('nav-mycommission').addEventListener('click',function(){showPage('mycommission');});
+  // «استثناءات الشحن» (8 أكتوبر) — للأدمن والموظف
+  if($id('nav-exceptions'))$id('nav-exceptions').addEventListener('click',function(){showPage('exceptions');});
 }

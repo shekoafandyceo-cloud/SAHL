@@ -80,7 +80,10 @@
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL',
                 wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS',
                 wa_quick_replies:'__QR', ctwa_ads:'__AD_NAMES',
-                wa_start_templates:'__START_TPLS' };
+                wa_start_templates:'__START_TPLS',
+                // استثناءات الشحن (8 أكتوبر): الفيو والجدول من نفس الفيكستشر — الفيكستشر
+                // بيحط `attempt` وأعمدة الأوردر بإيده (اللي الفيو بيحسبها على السيرفر)
+                v_jt_issues:'__JT_ISSUES', jt_issues:'__JT_ISSUES' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -126,6 +129,8 @@
       // بيرجّع **نفس المراجع** فأي خاصية الكود بيكتبها على صف بتظهر في
       // نتيجة أي استعلام تاني — ستب بيخبّي ويكشف حاجات مش حقيقية.
       rows = rows.map(function(c){ return Object.assign({}, c); });
+      // فتح شات برقم العميل (تاب الاستثناءات) — `.eq('wa_id', x)` لازم يتطبّق فعلاً
+      if(st.eqWa !== undefined) rows = rows.filter(function(c){ return c.wa_id === st.eqWa; });
       // 🔴 والستب لازم يقطع **زي السيرفر**: من غير ده فلتر بيقرا من المحمّل
       // وفلتر بيستعلم من السيرفر بيدّوا نفس النتيجة، والاختبار مايثبتش حاجة
       // (درس 33 — ستب بيرجّع كل حاجة مهما طلب الكود = فحص أعمى).
@@ -172,6 +177,31 @@
       }
       if(st.limit) rows = rows.slice(0, st.limit);
     }
+    // 🔴 جداول الاستثناءات: كل الفلاتر بتتطبّق فعلاً زي PostgREST (eq/gte/lt/in/is + order + limit)
+    // — ستب بيرجّع كل الصفوف مهما اتطلب = أي فحص على الفترة أو المزامنة التدريجية بيعدّي أعمى (درس 33).
+    // ونسخ مش نفس المراجع: الكود بيكتب حقول على الصفوف (`_t` · `_ymd`).
+    if(table === 'v_jt_issues' || table === 'jt_issues'){
+      rows = rows.map(function(r){ return Object.assign({}, r); });
+      (st.f || []).forEach(function(f){
+        rows = rows.filter(function(r){
+          var v = r[f.col];
+          if(f.op === 'eq')  return String(v) === String(f.val);
+          if(f.op === 'gte') return v != null && String(v) >= String(f.val);
+          if(f.op === 'gt')  return v != null && String(v) >  String(f.val);
+          if(f.op === 'lt')  return v != null && String(v) <  String(f.val);
+          if(f.op === 'lte') return v != null && String(v) <= String(f.val);
+          if(f.op === 'in')  return (f.val || []).map(String).indexOf(String(v)) >= 0;
+          if(f.op === 'is')  return f.val === null ? (v === null || v === undefined) : v === f.val;
+          return true;
+        });
+      });
+      if(st.order){
+        var oasc = !!(st.orderOpts && st.orderOpts.ascending), ocol = st.order;
+        rows.sort(function(a, b){ var r = String(a[ocol] || '').localeCompare(String(b[ocol] || '')); return oasc ? r : -r; });
+      }
+      if(st.limit) rows = rows.slice(0, st.limit);
+      if(window.__JT_FAIL) return null;
+    }
     return rows;
   }
 
@@ -192,6 +222,11 @@
         // ربط الاستبدال (3 أكتوبر): «اتعمله استبدال» بيستعلم بـexchange_of — من غير التطبيق الستب
         // بيرجّع كل الأوردرات كأنها استبدالات والفحص بيعدّي أعمى (درس 33)
         if(m === 'eq'  && a === 'exchange_of') st.eqExchange = b;
+        if(m === 'eq'  && a === 'wa_id') st.eqWa = b;
+        // سجل عام لكل الفلاتر (بيتطبّق على جداول الاستثناءات بس — الباقي بنفس سلوكه القديم بالحرف)
+        if(m === 'eq' || m === 'gte' || m === 'gt' || m === 'lt' || m === 'lte' || m === 'in' || m === 'is'){
+          (st.f = st.f || []).push({ op: m, col: a, val: b });
+        }
         if(m === 'in'  && a === 'status')     st.inStatus = b;
         if(m === 'range'){ st.from = a; st.to = b; }
         if(m === 'order'){ st.order = a; st.orderOpts = b; }
@@ -226,7 +261,12 @@
         if(st.deleted) window.__QR = window.__QR.filter(function(q){ return q.id !== st.eqId; });
         else if(st.payload && !st.inserted) window.__QR.forEach(function(q){ if(q.id === st.eqId) Object.assign(q, st.payload); });
       }
-      var rows = project(rowsFor(table, st), st.cols);
+      var raw = rowsFor(table, st);
+      if(raw === null){
+        // الجدول مش موجود (الـSQL لسه ماتطبّقش) — نفس شكل خطأ PostgREST الحقيقي
+        return Promise.resolve({data:null, error:{code:'PGRST205', message:"Could not find the table 'public." + table + "' in the schema cache"}}).then(res);
+      }
+      var rows = project(raw, st.cols);
       var out = st.single ? {data: rows[0] || null, error:null} : {data: rows, error:null, count: rows.length};
       return Promise.resolve(out).then(res);
     };
@@ -248,8 +288,15 @@
       sum_expected:0, sum_lost:0, sum_paymob:0};
   }
 
-  var chan = {}; ['on'].forEach(function(m){ chan[m]=function(){ return chan; }; });
-  chan.subscribe = function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); },0); return chan; };
+  // الريل-تايم: قناة لكل اسم، والهاندلرز بتتسجّل في `__RT_ON` باسم قناتها — الاختبار يقدر
+  // يولّع حدث بإيده ويتأكد إن الجدول على القناة الصح (من غير ما يتغيّر أي سلوك قديم —
+  // الـon كان بيرجّع القناة وبس، والـsubscribe بيرد SUBSCRIBED)
+  function mkChan(name){
+    var chan = {};
+    chan.on = function(type, opts, cb){ (window.__RT_ON = window.__RT_ON || []).push({ channel: name, type: type, opts: opts, cb: cb }); return chan; };
+    chan.subscribe = function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); },0); return chan; };
+    return chan;
+  }
 
   var client = {
     auth: {
@@ -271,7 +318,7 @@
       if(name === 'wa_inbox_status')   return Promise.resolve({data:{verified:false}, error:null});
       return Promise.resolve({data:null, error:null});
     },
-    channel: function(){ return chan; },
+    channel: function(name){ (window.__RT_CHANNELS = window.__RT_CHANNELS || []).push(name); return mkChan(name); },
     removeChannel: function(){},
     storage: { from: function(){ return {
       // ⚠️ الافتراضي **روابط فاضية** زي ما كان بالحرف — الاختبارات القديمة
