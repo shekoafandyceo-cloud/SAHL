@@ -403,6 +403,18 @@
               verdict_by_name: 'عمر حسن', staff_updated_at: ago(2 * D - 3 * H), order_status: 'Out for delivery',
               staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(2 * D - 2 * H) });
     add(24, { tracking_no: 'JEG000553100124', attempt: 2, event_at: ago(6 * H), reason_code: '202', order_status: 'Out for delivery' });
+    // اتصنّفت FAKE UPDATE بعد ما J&T كانت سلّمتها فعلاً (مسح التسليم وصل متأخر) = «اتسلمت قبل ما نبلّغ — مابتتحسبش»
+    add(28, { tracking_no: 'JEG000553100128', event_at: ago(14 * H), verdict: 'fake_update', staff_note: 'العميل قال محدش جاله',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(10 * H), outcome: 'delivered', outcome_at: ago(12 * H),
+              order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(9 * H) });
+    // بلّغنا · المحاولة التانية الفريق كلّم العميل وأكّد إنه رفض فعلاً · ورجعت = «رجعت والسبب من العميل — مش على J&T»
+    add(30, { tracking_no: 'JEG000553100130', event_at: ago(3 * D), verdict: 'fake_update', staff_note: 'قال محدش رنّ عليه',
+              verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(3 * D - 1 * H), outcome: 'returning', outcome_at: ago(10 * H),
+              order_status: 'returned', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(3 * D - 30 * 60000) });
+    add(30, { tracking_no: 'JEG000553100130', attempt: 2, event_at: ago(1 * D), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', verdict: 'real_refusal', staff_note: 'كلّمته وأكّد إنه مش عايزه', verdict_by_name: 'سارة إبراهيم',
+              staff_updated_at: ago(1 * D - 1 * H), outcome: 'returning', outcome_at: ago(10 * H), order_status: 'returned',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(1 * D - 30 * 60000) });
     TABLES.v_jt_issues = J;
     TABLES.jt_issues = J;
     // صوت التنبيه: بعد 40 ثانية من فتح المعاينة بينزل استثناء جديد لوحده (زي ما J&T هتبعته) — اضغط مرة في الصفحة قبلها عشان المتصفح يسمح بالصوت
