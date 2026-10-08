@@ -16,6 +16,11 @@
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف.
 // المفتاح من الـVault (`eo_api_key:<tenant_id>` عبر eo_api_keys_v1) — عمره ما بيتطبع ولا بيرجع في رد.
 // الرد مافيهوش أرقام تليفونات (مفاتيح الـmetadata) — رقم الأوردر والتقييم بس.
+//
+// v2 (8 أكتوبر — المراجعة العدائية): عطل مؤقت عند EasyOrders (5xx · timeout · رد مش JSON) مابيستهلكش محاولة
+// (eo_rate_apply_v1 بتفرّق بالـnote)، و3 أعطال ورا بعض = EasyOrders واقعة → التشغيل بيقف (الدورة الجاية تحاول).
+// والتشغيل بيتسجّل ok=false لو مفيش ولا رد واحد من EasyOrders (upstream_unavailable · all_failed) — قبل كده
+// كان ok=true طول ما المفتاح مقبول، فسجل التشغيل كان بيقول «شغّال» وكل الطلبات بتقع.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -110,8 +115,12 @@ Deno.serve(async (req: Request) => {
   const bump = (k: string) => { tally[k] = (tally[k] || 0) + 1; };
   const results: Array<Record<string, unknown>> = [];
   let fatal: string | null = null;
+  let answered = 0;          // ردود فعلية من EasyOrders (2xx أو 404)
+  let transientRow = 0;      // أعطال مؤقتة ورا بعض
+  let upstreamDown = false;
+  const TRANSIENT_STOP = 3;
 
-  // محاولة فشلت = بتتسجّل (بتستهلك واحدة من الـ5) — إلا في dry_run
+  // محاولة فشلت = بتتسجّل (بتستهلك واحدة من الـ5 — إلا العطل المؤقت: fetch_error · bad_json · http_5xx) — إلا في dry_run
   const mark = async (c: Cand, note: string) => {
     bump(note);
     results.push({ order_uid: c.order_uid, note });
@@ -127,7 +136,11 @@ Deno.serve(async (req: Request) => {
         headers: { "Api-Key": key, "Accept": "application/json" },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-    } catch (_e) { await mark(c, "fetch_error"); continue; }
+    } catch (_e) {
+      await mark(c, "fetch_error");
+      if (++transientRow >= TRANSIENT_STOP) { upstreamDown = true; break; }
+      continue;
+    }
 
     if (res.status === 429) { bump("rate_limited"); await res.body?.cancel(); break; }   // ماتستهلكش محاولات — الدورة الجاية
     if (res.status === 400 || res.status === 401 || res.status === 403) {
@@ -137,12 +150,22 @@ Deno.serve(async (req: Request) => {
       bump("auth_error");
       break;
     }
-    if (res.status === 404) { await res.body?.cancel(); await mark(c, "not_found"); continue; }
-    if (!res.ok) { await res.body?.cancel(); await mark(c, "http_" + res.status); continue; }
+    if (res.status >= 500) {
+      await res.body?.cancel(); await mark(c, "http_" + res.status);
+      if (++transientRow >= TRANSIENT_STOP) { upstreamDown = true; break; }
+      continue;
+    }
+    if (res.status === 404) { answered++; transientRow = 0; await res.body?.cancel(); await mark(c, "not_found"); continue; }
+    if (!res.ok) { answered++; transientRow = 0; await res.body?.cancel(); await mark(c, "http_" + res.status); continue; }
 
     // deno-lint-ignore no-explicit-any
     let j: any = null;
-    try { j = await res.json(); } catch { await mark(c, "bad_json"); continue; }
+    try { j = await res.json(); } catch {
+      await mark(c, "bad_json");
+      if (++transientRow >= TRANSIENT_STOP) { upstreamDown = true; break; }
+      continue;
+    }
+    answered++; transientRow = 0;
     if (String(j?.short_id ?? "") !== String(c.order_uid)) { await mark(c, "short_id_mismatch"); continue; }
     const meta = j?.metadata;
     if (!meta || typeof meta !== "object" || Array.isArray(meta)) { await mark(c, "no_meta"); continue; }
@@ -160,6 +183,9 @@ Deno.serve(async (req: Request) => {
     results.push({ order_uid: c.order_uid, note: rr.note, eo_rate: rr.eo_rate ?? null, eo_rate_alt: rr.eo_rate_alt ?? null });
   }
 
-  if (!dry) await logRun(!fatal, cands.length, tally, fatal);
-  return json({ ok: !fatal, dry_run: dry, candidates: cands.length, tally, results, error: fatal }, 200);
+  const runError = fatal
+    || (upstreamDown ? "upstream_unavailable" : null)
+    || (cands.length > 0 && answered === 0 ? (tally.rate_limited ? "rate_limited" : "all_failed") : null);
+  if (!dry) await logRun(!runError, cands.length, tally, runError);
+  return json({ ok: !runError, dry_run: dry, candidates: cands.length, tally, results, error: runError }, 200);
 });

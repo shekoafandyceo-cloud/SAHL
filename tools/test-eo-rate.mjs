@@ -13,6 +13,11 @@
 //  (ج) شيل esc من القيمة الجديدة → فحص XSS يقع
 //  (د) شيل القسم من التفاصيل → فحوص التفاصيل تقع
 //  (هـ) شارتين في خانة الاسم (الشكل اللي اتقص في الصورة) → فحص 5ب يقع
+//  (و) حدث ريل-تايم بنسبة الاستلام بس يعمل رسم كامل للنافذة → فحص 15 يقع (الكلام اللي بيتكتب بيضيع)
+//
+// 15–17) الريل-تايم (8 أكتوبر — مراجعة سحب EasyOrders): سحب التقييم بيعمل UPDATE بعد ~45ث–3د من نزول
+//        الأوردر. الحدث ده لازم يبدّل قسم النسبة بس — مايمسحش اللي الموظف بيكتبه في النافذة. وأي تغيير
+//        تاني (الحالة) = رسم كامل زي الأول.
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -123,6 +128,46 @@ ok(/مفيش تقييم/.test(R.o6.eo || '') && /مفيش بيانات/.test(R.o
 ok(/قيمة جديدة/.test(R.o7.eo || '') && !R.o7.xss, '13) قيمة جديدة بتتعرض نص متهرّب (مفيش HTML) — ' + R.o7.eo);
 ok(['o1','o2','o3','o4','o5','o6','o7'].every(k => R[k].sec && !R[k].oldRow), '14) القسم ظاهر في كل الأوردرات والسطر القديم «سمعة العميل» اتشال');
 
+console.log('— الريل-تايم (سحب التقييم)');
+async function rtScore(patches){
+  const p = await openApp(patches);
+  await p.evaluate(() => { const tr = document.querySelector('#tbody tr[data-id="o1"]'); if(tr) tr.click(); });
+  await p.waitForFunction(() => { const t = document.getElementById('dtit'); return t && t.textContent.indexOf('9001') >= 0 && document.getElementById('int-notes') && document.getElementById('ds-sec'); }, null, { timeout: 8000 });
+  await p.waitForTimeout(120);
+  const TYPED = 'العميل طلب يتصل بعد العصر — لسه بكتب';
+  await p.evaluate(t => { const el = document.getElementById('int-notes'); el.focus(); el.value = t; }, TYPED);   // من غير input = لسه مااتحفظش
+  await p.evaluate(async () => {
+    const m = await import('./js/orders/orders.js');
+    const base = window.__ORDERS.find(x => x.id === 'o1');
+    // نفس الصف + نسبة الاستلام + updated_at — والإجمالي مكتوب بشكل تاني (نص بدل رقم) زي ما ممكن الريل-تايم يبعته
+    const row = Object.assign({}, base, { eo_rate: 'low', eo_metadata: { tracking: {}, '01000000001': { rate_result: 'low', delivery_rate_status: 'completed' } },
+      updated_at: '2026-10-15T10:05:00.123456+00:00', total_cost: base.total_cost == null ? base.total_cost : String(base.total_cost) });
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: row, old: { id: 'o1' } });
+  });
+  await p.waitForTimeout(80);
+  const r1 = await p.evaluate(() => ({
+    open: document.getElementById('ovl').classList.contains('open'),
+    notes: (document.getElementById('int-notes') || {}).value,
+    focused: document.activeElement && document.activeElement.id,
+    eo: (document.getElementById('ds-eo') || {}).textContent || '',
+    on: document.querySelectorAll('#ds-eo .eo-meter i.on').length
+  }));
+  // ضابط: تغيير حالة على نفس الأوردر = رسم كامل (النافذة بتتحدث زي الأول)
+  await p.evaluate(async () => {
+    const m = await import('./js/orders/orders.js');
+    const base = window.__ORDERS.find(x => x.id === 'o1');
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, base, { eo_rate: 'low', status: 'cancelled' }), old: { id: 'o1' } });
+  });
+  await p.waitForTimeout(80);
+  const st = await p.evaluate(() => { const s = document.getElementById('dsel'); return s ? s.value : null; });
+  await p.close();
+  return { r1, st, TYPED };
+}
+const RT = await rtScore();
+ok(RT.r1.open && RT.r1.notes === RT.TYPED && RT.r1.focused === 'int-notes', '15) حدث نسبة الاستلام بس: الكلام اللي بيتكتب فضل زي ما هو والتركيز مااتنقلش — ' + JSON.stringify(RT.r1.notes));
+ok(/منخفضة/.test(RT.r1.eo) && RT.r1.on === 1, '16) والقسم نفسه اتحدّث لـ«منخفضة» (1/5) من الحدث — ' + RT.r1.eo.replace(/\s+/g, ' ').trim());
+ok(RT.st === 'cancelled', '17) ضابط: تغيير الحالة على نفس الأوردر = رسم كامل زي الأول (#dsel = ' + RT.st + ')');
+
 console.log('— المعايرات');
 const cA = await runAll({ orders: s => s.replace('customer_ranking,eo_rate,eo_rate_alt,', 'customer_ranking,') });
 ok(cA.b.o1.eo === null && cA.b.o4.eo === null, '(أ) العمود مش في ORDER_LIST_COLS → الشارات اختفت (الفحص 1 كان هيقع)');
@@ -134,6 +179,8 @@ const cE = await runAll({ score: s => s.replace("  if(n !== null){\n    var t = 
 ok(cE.b.o1.n === 2, '(هـ) شارتين جنب بعض → الفحص 5ب كان هيقع');
 const cD = await runAll({ detail: s => s.replace('    +deliveryScoreSection(o)\n', '') });
 ok(!cD.o1.sec && cD.o1.on === null, '(د) القسم اتشال → فحوص التفاصيل كانت هتقع');
+const cF = await rtScore({ orders: s => s.replace("var ds = scoreOnly ? $id('ds-sec') : null;", 'var ds = null;') });
+ok(cF.r1.notes !== cF.TYPED, '(و) رسم كامل مع حدث النسبة → الكلام ضاع (الفحص 15 كان هيقع)');
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

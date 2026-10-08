@@ -18,6 +18,7 @@ import { tourActive, tourMaybeAutoStart } from '../tour/tour.js';
 import { printSelectedAwb } from './awb.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './cards.js';
 import { detailAbort, renderDetail } from './detail.js';
+import { deliveryScoreSection } from './delivery-score.js';
 import { reflectStatusCards, wireStatusCards } from './filters-ui.js';
 import { ensureTenant } from './guards.js';
 import { doBulkUpdate } from './mutations.js';
@@ -372,10 +373,21 @@ export function handleRealtimeChange(payload){
     if(sel && sel.id === row.id){
       // `sel` جاي من `select('*')` والحدث كمان بيحمل كل الأعمدة — بس الدمج
       // بيحمي من أي عمود الريل-تايم ميبعتهوش (صلاحيات بالعمود).
-      ordersSetSelected(Object.assign({}, sel, row));
+      var scoreOnly = rtOnlyScoreChanged(sel, row);
+      var merged = Object.assign({}, sel, row);
+      ordersSetSelected(merged);
       // النافذة مفتوحة قدام الموظف؟ لازم تتحدث هي كمان — من غير ده الحالة
       // في الجدول بتتغيّر والنافذة فاضلة على القديم.
-      try{ if($id('ovl').classList.contains('open')) renderDetail(); }
+      // 🔴 إلا لو اللي اتغيّر نسبة الاستلام بس: سحب EasyOrders (eo-rate-sync) بيعمل UPDATE بعد
+      // ~45ث–3د من نزول الأوردر، والرسم الكامل كان بيمسح أي حاجة الموظف بيكتبها ومحفظهاش
+      // (المنتجات · التليفون · ملاحظة المكالمة · الملاحظات الداخلية). فالقسم بتاعها بس بيتبدّل.
+      try{
+        if($id('ovl').classList.contains('open')){
+          var ds = scoreOnly ? $id('ds-sec') : null;
+          if(ds) ds.outerHTML = deliveryScoreSection(merged);
+          else renderDetail();
+        }
+      }
       catch(e){ swallow('handleRealtimeChange/renderDetail', e); }
     }
   } else if(ev === 'DELETE'){
@@ -384,6 +396,34 @@ export function handleRealtimeChange(payload){
 
   if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
   scheduleRealtimeRefresh();
+}
+
+// أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE)
+var RT_SCORE_COLS = { eo_metadata: 1, eo_rate: 1, eo_rate_alt: 1, updated_at: 1 };
+// نفس القيمة بشكلين؟ PostgREST والريل-تايم ممكن يختلفوا في كتابة الرقم أو الوقت — والفرق ده
+// مايتحسبش تغيير (ولو اتحسب: رسم كامل زي الأول، يعني الغلط في الاتجاه الآمن).
+function rtSameValue(a, b){
+  if(a === b) return true;
+  if(a == null || b == null) return a == b;
+  if(typeof a === 'object' || typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
+  var na = Number(a), nb = Number(b);
+  if(String(a).trim() !== '' && String(b).trim() !== '' && !isNaN(na) && !isNaN(nb)) return na === nb;
+  if(typeof a === 'string' && typeof b === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d/.test(a) && /^\d{4}-\d{2}-\d{2}[T ]\d/.test(b)){
+    var ta = Date.parse(a.replace(' ', 'T')), tb = Date.parse(b.replace(' ', 'T'));
+    return !isNaN(ta) && ta === tb;
+  }
+  return false;
+}
+// الحدث ده غيّر نسبة الاستلام بس؟ (لازم تكون اتغيّرت فعلاً — حدث مكرر = رسم كامل زي الأول)
+export function rtOnlyScoreChanged(prev, row){
+  if(!prev || !row) return false;
+  var scoreMoved = false;
+  for(var k in row){
+    if(!Object.prototype.hasOwnProperty.call(row, k) || rtSameValue(prev[k], row[k])) continue;
+    if(!RT_SCORE_COLS[k]) return false;
+    if(k !== 'updated_at') scoreMoved = true;
+  }
+  return scoreMoved;
 }
 
 // مين آخر واحد غيّر الحالة — من آخر مدخل في سجل الحالة.

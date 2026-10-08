@@ -166,7 +166,7 @@ await calib('(ب) من غير فلتر `by` الموظف بياخد toast على
                return (await toastsAfterFlush(p)).some(x => x.indexOf('9002') >= 0); });
 // (ج) شيل renderDetail — النافذة تفضل على القديم
 await calib('(ج) من غير `renderDetail` النافذة المفتوحة تفضل على الحالة القديمة',
-  s => s.replace("try{ if($id('ovl').classList.contains('open')) renderDetail(); }", 'try{ }'),
+  s => s.replace('          else renderDetail();', '          else {}'),
   async p => { await p.evaluate(i => document.querySelector('#tbody tr[data-id="' + i + '"]').click(), TARGET);
                await p.waitForSelector('#dcnt .dsec', { timeout: 8000 });
                await fireUpdate(p, TARGET, 'Delivered', 'J&T API');
