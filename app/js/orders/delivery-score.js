@@ -96,7 +96,8 @@ function eoMeter(e){
   return '<span class="eo-meter ' + e.cls + '" aria-hidden="true">' + s + '</span>';
 }
 function muted(t){ return '<span class="dval ar ds-muted">' + t + '</span>'; }
-function mono(t){ return '<span style="font-family:\'JetBrains Mono\',monospace">' + t + '</span>'; }
+// الأرقام LTR معزولة (dir) — جوّه خانة عربي (dval ar) «45.5%» مايتقلبش لـ«%45.5»
+function mono(t){ return '<span dir="ltr" style="font-family:\'JetBrains Mono\',monospace">' + t + '</span>'; }
 
 // قيمة EasyOrders لرقم واحد → HTML الخانة
 export function eoRateCell(v){
@@ -111,7 +112,7 @@ export function eoRateCell(v){
 function shipCellFrom(rate, n, part, isOld){
   if(isOld){
     var to = tierOf(rate);
-    return '<span class="dval ds-ship"><span class="rk-badge ' + to.cls + '" style="margin:0">' + to.tag + '</span> ' + mono(rate.toFixed(1) + '%')
+    return '<span class="dval ar ds-ship"><span class="rk-badge ' + to.cls + '" style="margin:0">' + to.tag + '</span> ' + mono(rate.toFixed(1) + '%')
       + ' <span class="ds-muted">(اتسجّلت وقت الشحن معاهم)</span></span>';
   }
   if(n === null || n <= 0 || rate === null)
@@ -119,7 +120,7 @@ function shipCellFrom(rate, n, part, isOld){
   var t = tierOf(rate);
   var d = part && typeof part.delivered === 'number' ? part.delivered : Math.round(rate * n / 100);
   var r = part && typeof part.returned === 'number' ? part.returned : n - d;
-  return '<span class="dval ds-ship"><span class="rk-badge ' + t.cls + '" style="margin:0">' + t.tag + '</span> ' + mono(rate.toFixed(1) + '%')
+  return '<span class="dval ar ds-ship"><span class="rk-badge ' + t.cls + '" style="margin:0">' + t.tag + '</span> ' + mono(rate.toFixed(1) + '%')
     + ' <span class="ds-cnt">· اتسلّم ' + mono(String(d)) + ' · رجع ' + mono(String(r)) + '</span></span>';
 }
 function rawPart(o, k){
@@ -143,8 +144,8 @@ export function deliveryScoreSection(o){
   var ds = deliveryScore(o);
   if(ds && ds.both){
     var t = tierOf(ds.score);
-    h += row('المتوسط (اللي في الجدول)', '<span class="dval ds-avg"><span class="rk-badge ' + t.cls + '" style="margin:0">' + t.tag + '</span> '
-      + mono(String(Math.round(ds.score))) + ' <span class="ds-muted">من 100 — EasyOrders ' + ds.eo + ' + شركة الشحن ' + Math.round(ds.ship) + '</span></span>', 'ds-avg');
+    h += row('المتوسط (اللي في الجدول)', '<span class="dval ar ds-avg"><span class="rk-badge ' + t.cls + '" style="margin:0">' + t.tag + '</span> '
+      + mono(String(Math.round(ds.score))) + ' من 100 <span class="ds-muted">— متوسط EasyOrders (' + ds.eo + ') وشركة الشحن (' + Math.round(ds.ship) + ')</span></span>', 'ds-avg');
   }
   h += row('EasyOrders', eoRateCell(o.eo_rate), 'ds-eo');
   // الرقم الإضافي: سطر بس لو EasyOrders قيّمته فعلاً (أغلب الأوردرات مالهاش رقم إضافي)

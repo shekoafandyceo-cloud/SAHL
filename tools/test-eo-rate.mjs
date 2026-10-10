@@ -157,7 +157,7 @@ ok(/30\.4%/.test(R.o8.ship || '') && /اتسلّم 7/.test(R.o8.ship || '') && /
 ok(/جديد/.test(R.o9.ship || '') && /مالوش شحنات/.test(R.o9.ship || ''), '24) التفاصيل: جديد عند شركة الشحن بالكلام — ' + R.o9.ship);
 ok(/وقت الشحن/.test(R.o1.ship || '') && /90\.0%/.test(R.o1.ship || '') && /45\.5%/.test(R.o12.ship || '') && !/وقت الشحن/.test(R.o12.ship || ''),
   '25) القديم (customer_ranking) بيتقال «وقت الشحن» · واللي اتسأل بيكسبه');
-ok(R.o11.avg && /60/.test(R.o11.avg) && /EasyOrders 20/.test(R.o11.avg) && /شركة الشحن 100/.test(R.o11.avg) && R.o2.avg === null && R.o8.avg === null,
+ok(R.o11.avg && /60/.test(R.o11.avg) && /EasyOrders \(20\)/.test(R.o11.avg) && /شركة الشحن \(100\)/.test(R.o11.avg) && R.o2.avg === null && R.o8.avg === null,
   '26) سطر «المتوسط» بس لما المصدرين موجودين — ' + R.o11.avg);
 ok(R.o11.shipAlt && /50\.0%/.test(R.o11.shipAlt) && /اتسلّم 5/.test(R.o11.shipAlt) && R.o8.shipAlt === null, '27) الرقم الإضافي عند شركة الشحن سطر لوحده — ' + R.o11.shipAlt);
 
