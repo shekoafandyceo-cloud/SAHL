@@ -399,7 +399,9 @@ export function handleRealtimeChange(payload){
 }
 
 // أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE)
-var RT_SCORE_COLS = { eo_metadata: 1, eo_rate: 1, eo_rate_alt: 1, updated_at: 1 };
+// + شركة الشحن (ship-rank-sync — 10 أكتوبر): بيعمل UPDATE تاني بعد ~0–2 دقيقة من نزول الأوردر بنفس الشكل
+var RT_SCORE_COLS = { eo_metadata: 1, eo_rate: 1, eo_rate_alt: 1, updated_at: 1,
+  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1 };
 // نفس القيمة بشكلين؟ PostgREST والريل-تايم ممكن يختلفوا في كتابة الرقم أو الوقت — والفرق ده
 // مايتحسبش تغيير (ولو اتحسب: رسم كامل زي الأول، يعني الغلط في الاتجاه الآمن).
 function rtSameValue(a, b){
@@ -466,7 +468,7 @@ export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bost
 
 // manufacturer_note = خصائص المنتج كاملة من الويبهوك (لون + مقاس…) — **عرض بس**.
 // عمود نصي قصير فمالوش أثر يُذكر على حجم النقل (درس 32 عن الـJSONB).
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,eo_rate,eo_rate_alt,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,eo_rate,eo_rate_alt,ship_rank,ship_rank_n,ship_rank_at,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){

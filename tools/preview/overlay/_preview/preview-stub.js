@@ -45,6 +45,19 @@
 
   var ORDERS = [];
   var PREVIEW_RT = [];   // هاندلرز الريل-تايم — المعاينة بتولّع حدث jt_issues بإيدها (صوت التنبيه)
+  // نسبة استلام العميل عند شركة الشحن (ship-rank-sync — 10 أكتوبر): أوردرات آخر أسبوع بس اتسألت (زي الحي)،
+  // والأقدم على customer_ranking القديم. [اتسلّم, رجع] — [0,0] = عميل جديد عندهم.
+  var SHIP_FX = [[0,0],[30,1],[10,12],[24,4],[3,20],[2,0]];
+  function shipRankFx(i, days, phone, alt){
+    if(days > 7) return {};
+    var p10 = String(phone).replace(/\D/g, '').slice(-10);
+    var part = function(ph, dr){ var n = dr[0] + dr[1]; return { phone10: ph, found: n > 0, delivered: dr[0], returned: dr[1], rate: n ? Math.round(10000 * dr[0] / n) / 100 : null }; };
+    var pr = part(p10, SHIP_FX[i % SHIP_FX.length]);
+    var al = alt ? part(String(alt).replace(/\D/g, '').slice(-10), SHIP_FX[(i + 1) % SHIP_FX.length]) : null;
+    return { ship_rank: pr.rate, ship_rank_n: pr.delivered + pr.returned,
+             ship_rank_alt: al ? al.rate : null, ship_rank_alt_n: al ? al.delivered + al.returned : null,
+             ship_rank_at: iso(days, 9, 2), ship_rank_raw: { at: iso(days, 9, 2), primary: pr, alt: al } };
+  }
   var PREVIEW_PREFS = {};
   for(var i = 0; i < 46; i++){
     var st   = STATUSES[i % STATUSES.length];
@@ -52,7 +65,7 @@
     var prod = PRODUCTS[i % PRODUCTS.length];
     var qty  = (i % 3) + 1;
     var shipped = ['delivered','Delivered','returned','Returned to business'].indexOf(st) >= 0;
-    ORDERS.push({
+    ORDERS.push(Object.assign({
       id:'ord-'+i, tenant_id:TENANT,
       shipping_requested_at:null, line_prices:null,
       // شارة 🔼 — نفس الأوردرات اللي ليها حركة upsell (ord-0 … ord-8)
@@ -103,7 +116,7 @@
         {from:null, to:'pending',   at: iso(days, 9, 0),  by:'النظام', reason:null},
         {from:'pending', to:'confirmed', at: iso(days, 12, 0), by:'واتساب', reason:null}
       ].concat(shipped ? [{from:'confirmed', to:st, at: iso(Math.max(0,days-2), 16, 0), by:'شركة الشحن', reason:null}] : [])
-    });
+    }, shipRankFx(i, days, '010' + String(20000000 + i*13571).slice(0,8), i % 5 === 0 ? '011' + String(40000000 + i*911).slice(0,8) : null)));
   }
 
   // منتجات المخزون — أول منتج عيلة بخصائص (ألوان) عشان الميزة تبان في المعاينة
