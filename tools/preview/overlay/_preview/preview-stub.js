@@ -358,6 +358,30 @@
     });
   })();
 
+  // ══ رسالة «المندوب في الطريق» (11 أكتوبر — wa-ofd-notify): أوردرين J&T في المعاينة —
+  // ord-8 خرج مرتين بمندوبين مختلفين (الرسالة 2 · اتقرت) · ord-9 الرسالة ماتبعتتش (رقم مش على واتساب — الأدمن بس بيشوفه)
+  var OFD_SENDS = [], OFD_MSGS = [];
+  (function(){
+    var by = function(id){ for(var k = 0; k < ORDERS.length; k++) if(ORDERS[k].id === id) return ORDERS[k]; return null; };
+    var o8 = by('ord-8'), o9 = by('ord-9');
+    if(o8){ o8.shipping_carrier = 'jt'; o8.tracking_no = 'JEG000541470008'; o8.carrier_status_raw = 'Delivery scan'; o8.carrier_status_code = '94'; o8.carrier_status_at = iso(0, 11, 40); }
+    if(o9){ o9.shipping_carrier = 'jt'; o9.tracking_no = 'JEG000541470009'; o9.carrier_status_raw = 'Delivery scan'; o9.carrier_status_code = '94'; o9.carrier_status_at = iso(0, 10, 5); }
+    OFD_SENDS.push(
+      { id: 1, tenant_id: TENANT, order_id: 'ord-8', status: 'sent', courier_name: 'Sherif Ashraf Ismail', courier_phone: '01000000011',
+        scan_at: iso(1, 10, 30), sent_at: iso(1, 10, 32), dispatched_at: iso(1, 10, 32), updated_at: iso(1, 10, 32), created_at: iso(1, 10, 32),
+        wa_message_id: 'wamid.ofd1', error_code: null, error_detail: null, attempts: 1 },
+      { id: 2, tenant_id: TENANT, order_id: 'ord-8', status: 'sent', courier_name: 'Mahmoud Goma Al Sayed', courier_phone: '01200000022',
+        scan_at: iso(0, 11, 40), sent_at: iso(0, 11, 41), dispatched_at: iso(0, 11, 41), updated_at: iso(0, 11, 41), created_at: iso(0, 11, 41),
+        wa_message_id: 'wamid.ofd2', error_code: null, error_detail: null, attempts: 1 },
+      { id: 3, tenant_id: TENANT, order_id: 'ord-9', status: 'failed_permanent', courier_name: 'Ali Hassan', courier_phone: '01100000033',
+        scan_at: iso(0, 10, 5), sent_at: null, dispatched_at: iso(0, 10, 6), updated_at: iso(0, 10, 6), created_at: iso(0, 10, 6),
+        wa_message_id: null, error_code: '131026', error_detail: 'Message undeliverable', attempts: 1 });
+    OFD_MSGS.push({ wa_message_id: 'wamid.ofd1', status: 'delivered' }, { wa_message_id: 'wamid.ofd2', status: 'read' });
+    // (بعد تعريف TABLES — الـIIFE ده تحته في الملف)
+    TABLES.wa_ofd_sends = OFD_SENDS;
+    TABLES.wa_messages = TABLES.wa_messages.concat(OFD_MSGS);
+  })();
+
   // ══ استثناءات الشحن (8 أكتوبر) — صفوف بشكل v_jt_issues بالحرف (الفيو بيحسب `attempt`
   // وبيجيب بيانات العميل من الأوردر على السيرفر — هنا بنبنيها من أوردرات المعاينة نفسها).
   // فيها: مفتوح · محاولتين على نفس الشحنة · FAKE UPDATE · اتسلمت بعد الاستثناء · راجعة ·
@@ -492,6 +516,7 @@
     // رسايل الشات: من غير الفلتر ده كل محادثة كانت بتعرض رسايل كل المحادثات
     if(t === 'wa_messages'){
       if(st.eqConv) rows = rows.filter(function(m){ return m.conversation_id === st.eqConv; });
+      (st.inAny || []).forEach(function(f){ if(f.col === 'wa_message_id') rows = rows.filter(function(m){ return (f.val || []).indexOf(m.wa_message_id) >= 0; }); });
       rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     }
     // 🔴 فلتر «جه من إعلان» بيستعلم من السيرفر بـ`or(ctwa_*)`. الستب
@@ -513,6 +538,10 @@
       }
       rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
       if(st.limit) rows = rows.slice(0, st.limit);
+    }
+    if(t === 'wa_ofd_sends'){
+      (st.f || []).forEach(function(f){ if(f.op === 'eq' && f.col === 'order_id') rows = rows.filter(function(r){ return r.order_id === f.val; }); });
+      rows.sort(function(a,b){ return String(a.created_at) < String(b.created_at) ? 1 : -1; });
     }
     if(t === 'stock_movements') rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     // استثناءات الشحن: الفترة والمزامنة التدريجية (updated_at) والبوالص (in) بتتطبّق زي السيرفر
@@ -544,6 +573,7 @@
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
           if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; if(a === 'exchange_of') st.eqExchange = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
+          if(m === 'in') (st.inAny = st.inAny || []).push({ col:a, val:b });
           if(m === 'eq' || m === 'gte' || m === 'in') (st.f = st.f || []).push({ op:m, col:a, val:b });
           if(m === 'or')    st.or = a;
           if(m === 'not')   st.not = {col:a, op:b, val:c};
@@ -767,6 +797,7 @@
         review_note:jr.review_note, reviewed_at:jr.reviewed_at, reviewed_by_name:jr.reviewed_by_name, updated_at:jr.updated_at }, error:null });
     }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
+    if(name === 'jt_sync_health') return Promise.resolve({ data:{ enabled:false, ofd:{ mode:'off' } }, error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
       if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:true, has_number:true, has_token:true, sahl_ready:false, wa_enabled:true }, error:null });

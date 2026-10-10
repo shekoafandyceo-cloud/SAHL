@@ -1,5 +1,5 @@
-// بانر «مزامنة حالات J&T واقفة» + «حسابات J&T محتاجة مراجعة» + «سحب نسبة استلام العميل واقف» — للأدمن بس
-// (30 سبتمبر · 1 أكتوبر · 10 أكتوبر)
+// بانر «مزامنة حالات J&T واقفة» + «حسابات J&T محتاجة مراجعة» + «سحب نسبة استلام العميل واقف» + «رسايل المندوب في الطريق» — للأدمن بس
+// (30 سبتمبر · 1 أكتوبر · 10 أكتوبر · 11 أكتوبر)
 //
 // 🔴 ليه: الـpush من J&T بيضيع ~1% من المسحات (17309 فضل «استثناء» 3 أيام وهو
 // متسلّم ومتحصّل). الحل الجذري `trace_sync` كل 15 دقيقة (pg_cron) — بس لو المزامنة
@@ -12,6 +12,7 @@
 // - الإقفال (×) للجلسة دي بس (درس 9) — لو لسه واقفة بعد ريفريش يرجع.
 
 import { $id, esc } from '../core/dom.js';
+import { fmtDT } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 
 export var JT_SYNC_STALE_MIN = 45;
@@ -23,17 +24,18 @@ var started = false;
 export function jtSyncState(h){
   if(!h) return { show: false };
   var rate = rateSyncIssues(h);
-  // سحب نسبة الاستلام مالوش علاقة بـJ&T — بيبان حتى لو المتجر مش على J&T أو ساعة السيرفر مش مفهومة
-  var rateOnly = rate.length ? { show: true, stale: false, minutes: null, error: '', issues: [], rate: rate } : { show: false };
+  var ofd = ofdIssues(h);
+  // سحب نسبة الاستلام ورسايل المندوب مالهمش علاقة بمزامنة J&T — بيبانوا حتى لو المتجر مش على J&T أو ساعة السيرفر مش مفهومة
+  var rateOnly = (rate.length || ofd.length) ? { show: true, stale: false, minutes: null, error: '', issues: [], rate: rate, ofd: ofd } : { show: false, ofd: ofd };
   if(!h.enabled) return rateOnly;
   var now = Date.parse(h.now || '');
   var last = Date.parse(h.trace_last_ok || '');
   if(!isFinite(now)) return rateOnly;
   var issues = jtAccountingIssues(h);
-  if(!isFinite(last)) return { show: true, stale: true, minutes: null, error: h.trace_last_error || '', issues: issues, rate: rate };
+  if(!isFinite(last)) return { show: true, stale: true, minutes: null, error: h.trace_last_error || '', issues: issues, rate: rate, ofd: ofd };
   var min = Math.floor((now - last) / 60000);
   var stale = min >= JT_SYNC_STALE_MIN;
-  return { show: stale || issues.length > 0 || rate.length > 0, stale: stale, minutes: min, error: h.trace_last_error || '', issues: issues, rate: rate };
+  return { show: stale || issues.length > 0 || ofd.length > 0 || rate.length > 0, stale: stale, minutes: min, error: h.trace_last_error || '', issues: issues, rate: rate, ofd: ofd };
 }
 
 // (10 أكتوبر) سحب «نسبة استلام العميل» واقف — الطبيعي إن الأوردر يتسأل خلال 1–3 دقايق من نزوله، فـ>15 دقيقة = السحب
@@ -49,6 +51,26 @@ export function rateSyncIssues(h){
   var es = Number(h.eo_stale || 0);
   if(es > 0)
     out.push('نسبة الاستلام من EasyOrders: ' + es + ' أوردر تقييمه ماتسحبش بقاله أكتر من ربع ساعة — السحب واقف.');
+  return out;
+}
+
+// (11 أكتوبر) رسايل «المندوب في الطريق» (h.ofd من app.wa_ofd_health) — درس 51: شبكة الأمان لازم تقول لما تقع.
+// mode=off = ولا سطر (الميزة مقفولة لحد موافقة ميتا). last_error بيتقال لوحده حتى لو stale=0 (الـEF وقعت والشحنات اتلمّت بعدها).
+export function ofdIssues(h){
+  var o = h && h.ofd, out = [];
+  if(!o) return out;
+  if(o.health_error){ out.push('فحص رسايل «المندوب في الطريق» نفسه وقع ('+String(o.health_error).slice(0,20)+').'); return out; }
+  if(!o.mode || o.mode==='off') return out;
+  if(o.paused) out.push('رسايل «المندوب في الطريق» واقفة: '+String(o.paused).slice(0,120)+' — '
+    + (o.paused_until ? 'هتتجرّب تاني لوحدها '+fmtDT(o.paused_until)+'.'
+       : 'محتاج مراجعة القالب في WhatsApp Manager، وبعدها اطلب من Claude يشغّلها تاني (مفيش زرار في اللوحة).'));
+  if(o.cap_hit) out.push('رسايل «المندوب في الطريق» وصلت السقف اليومي ('+Number(o.max_per_day||0)+') — هتكمّل بكرة.');
+  var errAt = Date.parse(o.last_error_at || ''), okAt = Date.parse(o.last_ok || '');
+  if(o.last_error && (!isFinite(okAt) || (isFinite(errAt) && errAt > okAt)))
+    out.push('آخر تشغيل لرسايل «المندوب في الطريق» وقف بخطأ: '+String(o.last_error).slice(0,80)+'.');
+  var n = Number(o.stale||0) + Number(o.overdue||0);
+  if(n>0 && !o.paused && !o.cap_hit) out.push('رسايل «المندوب في الطريق»: '+n+' شحنة خرجت للتسليم ورسالتها ماخرجتش من أكتر من 10–15 دقيقة.');
+  if(Number(o.unparsed_24h||0)>0) out.push('J&T غيّرت شكل بيانات المندوب؟ '+Number(o.unparsed_24h)+' شحنة خرجت للتسليم من غير رقم مندوب مفهوم (آخر 24 ساعة).');
   return out;
 }
 
@@ -98,10 +120,14 @@ export function renderJtSyncAlert(st){
   var rateHtml = rate.length
     ? '<b>سحب نسبة استلام العميل واقف</b>' + rate.map(function(t){ return '<span class="jsa-issue jsa-rate">• ' + esc(t) + '</span>'; }).join('')
     : '';
+  var ofd = Array.isArray(st.ofd) ? st.ofd : [];
+  var ofdHtml = ofd.length
+    ? '<b>رسايل «المندوب في الطريق»</b>' + ofd.map(function(t){ return '<span class="jsa-issue jsa-rate">• ' + esc(t) + '</span>'; }).join('')
+    : '';
   el.innerHTML =
       '<div class="jt-sync-alert" role="alert">'
     +   '<span class="jsa-ic">⚠️</span>'
-    +   '<div class="jsa-body">' + staleHtml + issuesHtml + rateHtml + '</div>'
+    +   '<div class="jsa-body">' + staleHtml + issuesHtml + rateHtml + ofdHtml + '</div>'
     +   '<button type="button" class="jsa-x" id="jsa-x" title="إخفاء لحد الريفريش">×</button>'
     + '</div>';
   el.style.display = '';

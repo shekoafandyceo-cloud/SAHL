@@ -85,7 +85,9 @@
                 // بيحط `attempt` وأعمدة الأوردر بإيده (اللي الفيو بيحسبها على السيرفر)
                 v_jt_issues:'__JT_ISSUES', jt_issues:'__JT_ISSUES',
                 // سجل التعامل على الاستثناء (8 أكتوبر — v70): صف لكل حفظة/مراجعة
-                jt_issue_log:'__JT_LOG' };
+                jt_issue_log:'__JT_LOG',
+                // رسايل «المندوب في الطريق» (11 أكتوبر): صفوف wa_ofd_sends للأوردر
+                wa_ofd_sends:'__OFD_SENDS' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -182,7 +184,7 @@
     // 🔴 جداول الاستثناءات: كل الفلاتر بتتطبّق فعلاً زي PostgREST (eq/gte/lt/in/is + order + limit)
     // — ستب بيرجّع كل الصفوف مهما اتطلب = أي فحص على الفترة أو المزامنة التدريجية بيعدّي أعمى (درس 33).
     // ونسخ مش نفس المراجع: الكود بيكتب حقول على الصفوف (`_t` · `_ymd`).
-    if(table === 'v_jt_issues' || table === 'jt_issues' || table === 'jt_issue_log'){
+    if(table === 'v_jt_issues' || table === 'jt_issues' || table === 'jt_issue_log' || table === 'wa_ofd_sends'){
       rows = rows.map(function(r){ return Object.assign({}, r); });
       (st.f || []).forEach(function(f){
         rows = rows.filter(function(r){
@@ -203,6 +205,13 @@
       }
       if(st.limit) rows = rows.slice(0, st.limit);
       if(window.__JT_FAIL) return null;
+    }
+    // حالة رسايل «المندوب في الطريق» (11 أكتوبر): `.in('wa_message_id', ids)` بس بيتطبّق — الاختبارات القديمة
+    // على wa_messages بتعتمد إنه مابيفلترش غير كده (السلوك القديم بالحرف)
+    if(table === 'wa_messages'){
+      (st.f || []).forEach(function(f){
+        if(f.op === 'in' && f.col === 'wa_message_id') rows = rows.filter(function(r){ return (f.val || []).map(String).indexOf(String(r.wa_message_id)) >= 0; });
+      });
     }
     return rows;
   }
@@ -270,6 +279,9 @@
       }
       var rows = project(raw, st.cols);
       var out = st.single ? {data: rows[0] || null, error:null} : {data: rows, error:null, count: rows.length};
+      // تأخير رد اختياري لجدول/استعلام بعينه (`__TABLE_DELAY(table, st)` → ms) — اختبار «رد قديم وصل بعد ما الموظف فتح أوردر تاني»
+      var dl = typeof window.__TABLE_DELAY === 'function' ? window.__TABLE_DELAY(table, st) : 0;
+      if(dl) return new Promise(function(r){ setTimeout(function(){ r(out); }, dl); }).then(res);
       return Promise.resolve(out).then(res);
     };
     return api;

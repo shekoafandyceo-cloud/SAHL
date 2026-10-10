@@ -215,6 +215,52 @@ function loadExchangeLinks(o){
   });
 }
 
+// (11 أكتوبر) رسالة «المندوب في الطريق» (wa-ofd-notify): آخر رسالة اتبعتت للعميل برقم المندوب + حالة وصولها.
+// الخطأ للأدمن بس. من wa_ofd_sends (قراية بس) — مفيش عمود جديد على orders (الريل-تايم مايعيدش الرسم).
+export function ofdLineHtml(rows, msgStatus, admin){
+  rows = (rows||[]).slice().sort(function(a,b){ return String(b.created_at).localeCompare(String(a.created_at)); });
+  // unknown بيتحسب «اتبعت غالباً» بس لو اتختم قبل ميتا (dispatched_at) — غير كده ماخرجش مننا
+  var sent = rows.filter(function(r){ return r.status==='sent' || (r.status==='unknown' && r.dispatched_at); });
+  var last = sent[0];
+  if(last){
+    var st = msgStatus && last.wa_message_id ? msgStatus[last.wa_message_id] : null;
+    var tick = st==='read' ? ' · <span style="color:var(--green)">اتقرت ✓✓</span>'
+      : st==='delivered' ? ' · وصلت ✓✓'
+      : st==='failed' ? ' · <span style="color:var(--red)">⚠️ ماوصلتش للعميل</span>' : '';
+    return '<span class="dkey">رسالة المندوب للعميل</span><span class="dval ar">'
+      + (last.status==='unknown' ? '📲 اتبعتت غالباً (ماجالناش رد من واتساب) — ' : '📲 اتبعت للعميل رقم المندوب ')
+      + '<b>'+esc(last.courier_name||'—')+'</b> <span dir="ltr">'+esc(last.courier_phone||'')+'</span> · '
+      + esc(fmtDT(last.sent_at||last.dispatched_at||last.updated_at)) + tick
+      + (sent.length>1 ? ' <span style="color:var(--muted)">(الرسالة '+sent.length+' — المندوب اتغيّر)</span>' : '')
+      + '</span>';
+  }
+  if(!admin) return '';
+  var f = rows.filter(function(r){ return ['failed_permanent','failed_transient','deferred','expired'].indexOf(r.status)>=0; })[0];
+  if(!f) return '';
+  var lbl = f.status==='failed_permanent' ? 'ماتبعتتش'
+    : f.status==='expired' ? 'ماتبعتتش (المسح اتغيّر/قدم)'
+    : 'لسه ماتبعتتش — هتتحاول تاني';                               // failed_transient / deferred بس
+  return '<span class="dkey">رسالة المندوب للعميل</span><span class="dval ar" style="color:var(--red)">⚠️ '
+    + lbl + (f.error_code ? ': '+esc(f.error_code) : '') + (f.error_detail?' — '+esc(f.error_detail):'')+'</span>';
+}
+// استعلامين صغيرين بعد الرسم (زي loadExchangeLinks) — الرد القديم (الموظف فتح أوردر تاني) بيترمي
+function loadOfdNotice(o){
+  var box = $id('ofd-row');
+  if(!box || !o || o.shipping_carrier!=='jt' || tourActive || !sb || !currentTenantId) return;
+  sb.from('wa_ofd_sends').select('id,status,courier_name,courier_phone,scan_at,sent_at,dispatched_at,updated_at,created_at,wa_message_id,error_code,error_detail,attempts')
+    .eq('order_id', o.id).eq('tenant_id', currentTenantId).order('created_at',{ascending:false}).limit(5).then(function(r){
+      var rows = (r && r.data) || [];
+      if(!sel || sel.id!==o.id || !$id('ofd-row') || !rows.length) return;
+      var ids = rows.map(function(x){ return x.wa_message_id; }).filter(Boolean);
+      var paint = function(ms){ if(!sel || sel.id!==o.id) return; var b=$id('ofd-row'); if(!b) return;
+        var h = ofdLineHtml(rows, ms, isAdmin()); b.innerHTML = h; b.style.display = h ? '' : 'none'; };
+      if(!ids.length){ paint({}); return; }
+      sb.from('wa_messages').select('wa_message_id,status').eq('tenant_id', currentTenantId).in('wa_message_id', ids).then(function(m){
+        var ms = {}; ((m && m.data)||[]).forEach(function(x){ ms[x.wa_message_id]=x.status; }); paint(ms);
+      });
+    });
+}
+
 export function openDetail(id){
   // Guard: when the wallet is depleted, sensitive data is locked across the app.
   if(walletStateCache && walletStateCache.is_depleted && !tourActive){
@@ -405,6 +451,9 @@ export function renderDetail(){
     +dr('رقم الطلب','<span class="dval">'+esc(fmt(o.order_uid))+'</span>')
     +dr('رقم التتبع','<span class="dval">'+(o.tracking_no?esc(o.tracking_no):'<span style="color:var(--muted);font-style:italic">في انتظار شركة الشحن</span>')+'</span>')
     +(o.shipping_carrier==='jt'?dr('شركة الشحن','<span class="dval">J&T Express</span>')
+      // (11 أكتوبر) رسالة «المندوب في الطريق» — بتتملى بعد الرسم (loadOfdNotice). 🔴 مكانها هنا مش آخر القسم: المخفي
+      // بيفضل :last-child (display:none مابيغيّرش ده) فآخر سطر ظاهر كان بياخد شَرطة تحت (مراجعة 10 أكتوبر) — «كود الفرز» بعده دايماً
+      +'<div class="drow" id="ofd-row" style="display:none"></div>'
       +dr('كود الفرز (J&T)','<span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+(o.jt_sorting_code?esc(o.jt_sorting_code):'<span style="color:var(--muted);font-style:italic">J&T مرجّعتش كود</span>')+'</span>')
       +(o.ship_prov?dr('عنوان J&T','<span class="dval ar">'+esc([o.ship_prov,o.ship_city,o.ship_area].filter(Boolean).join(' — '))+(o.shipping_weight_kg?' · '+esc(String(o.shipping_weight_kg))+' كجم':'')+'</span>'):'')
       +(o.carrier_status_raw?dr('آخر حالة من J&T','<span class="dval">'+esc(o.carrier_status_raw)+(o.carrier_status_at?' <span style="color:var(--muted);font-size:.78rem">'+fmtDT(o.carrier_status_at)+'</span>':'')+'</span>'):'')
@@ -566,6 +615,7 @@ export function renderDetail(){
   if($id('da-bs'))$id('da-bs').addEventListener('click',function(){manualShipFlow();});
   if($id('da-ex'))$id('da-ex').addEventListener('click',function(){ if(sel) openOrderForm({ mode:'exchange', order: sel }); });
   loadExchangeLinks(o);
+  loadOfdNotice(o);
   wireShipControls();
   if($id('wa-follow-btn'))$id('wa-follow-btn').addEventListener('click',function(){waFollowupFlow();});
   $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);});});

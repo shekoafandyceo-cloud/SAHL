@@ -13,6 +13,9 @@
 //  (3) 1 أكتوبر: «حسابات J&T محتاجة مراجعة» — تكلفة ماتقفلتش · مسح مش في الخريطة · COD مختلف.
 //  (4) 10 أكتوبر: «سحب نسبة استلام العميل واقف» — rank_stale (شركة الشحن) · eo_stale (EasyOrders) — بيبان حتى لو
 //      المتجر مش على J&T. معايرات: (و) شيل rate من شرط الظهور · (ز) المتجر مش على J&T بيخفيه.
+//  (5) 11 أكتوبر: «رسايل المندوب في الطريق» (h.ofd من app.wa_ofd_health) — إيقاف بتجربة لوحدها/يدوي · آخر خطأ أحدث من آخر
+//      نجاح حتى لو stale=0 · mode=off = ولا سطر · health_error = سطر · عنوان لوحده (مش تحت «سحب نسبة الاستلام»).
+//      معايرات: (ح) سطر الخطأ مشروط بـstale>0 · (ط) سطور الرسايل متلزّقة في rate.
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -202,6 +205,31 @@ const H_RATE = Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 4, r
   await p.close();
 }
 
+console.log('── (5) رسايل «المندوب في الطريق» (11 أكتوبر)');
+const OFD = (o) => Object.assign({}, H_FRESH, { ofd: Object.assign({ mode: 'on', stale: 0, overdue: 0, unparsed_24h: 0, cap_hit: false, max_per_day: 150 }, o) });
+{
+  let p = await openApp({ health: OFD({ paused: '132015 template paused', paused_until: '2026-10-10T15:00:00Z' }) });
+  let s = await banner(p);
+  ok(s && /رسايل «المندوب في الطريق» واقفة/.test(s.text) && /هتتجرّب تاني لوحدها/.test(s.text), '30) إيقاف 132015 = «هتتجرّب تاني لوحدها» — ' + (s && s.text.slice(0, 90)));
+  ok(s && !/سحب نسبة استلام العميل واقف/.test(s.text) && /رسايل «المندوب في الطريق»/.test(s.text), '31) عنوان لوحده — مش تحت «سحب نسبة استلام العميل واقف»');
+  await p.close();
+  p = await openApp({ health: OFD({ paused: 'circuit_unknown' }) });
+  s = await banner(p);
+  ok(s && /اطلب من Claude/.test(s.text), '32) إيقاف يدوي (من غير paused_until) = «اطلب من Claude يشغّلها تاني»');
+  await p.close();
+  p = await openApp({ health: OFD({ last_error: 'claim_failed:57014', last_error_at: '2026-09-30T11:55:00Z', last_ok: '2026-09-30T11:40:00Z' }) });
+  s = await banner(p);
+  ok(s && /وقف بخطأ: claim_failed:57014/.test(s.text), '33) 🔴 آخر خطأ أحدث من آخر نجاح (stale=0) = سطر الخطأ — ' + (s && s.text.slice(0, 90)));
+  await p.close();
+  p = await openApp({ health: OFD({ mode: 'off', last_error: 'x', paused: 'y' }) });
+  ok(!(await banner(p)), '34) mode=off = مفيش ولا سطر (الميزة مقفولة لحد موافقة ميتا)');
+  await p.close();
+  p = await openApp({ health: Object.assign({}, H_FRESH, { enabled: false, ofd: { health_error: '42P01' } }) });
+  s = await banner(p);
+  ok(s && /فحص رسايل «المندوب في الطريق» نفسه وقع/.test(s.text), '35) health_error = سطر «الفحص نفسه وقع» (حتى لو المتجر مش على J&T)');
+  await p.close();
+}
+
 console.log('── المعايرات');
 {
   const OLD = `export function parseStatusLog(val){
@@ -250,6 +278,20 @@ function __unused_new(val){`;
 {
   const p = await openApp({ health: Object.assign({}, H_RATE, { enabled: false }), patchHealth: s => s.replace('  if(!h.enabled) return rateOnly;', "  if(!h.enabled) return { show: false };") });
   ok(!(await banner(p)), 'معايرة ز: متجر مش على J&T بيخفي تنبيه السحب — فحص 28 بيمسكها');
+  await p.close();
+}
+
+{
+  const p = await openApp({ health: OFD({ last_error: 'claim_failed:57014', last_error_at: '2026-09-30T11:55:00Z', last_ok: '2026-09-30T11:40:00Z' }),
+    patchHealth: s => s.replace('  if(o.last_error && (', '  if(Number(o.stale||0) > 0 && o.last_error && (') });
+  ok(!(await banner(p)), 'معايرة ح: سطر الخطأ مشروط بـstale>0 = الخطأ بيعدّي في صمت — فحص 33 بيمسكها');
+  await p.close();
+}
+{
+  const p = await openApp({ health: OFD({ paused: '132015 template paused', paused_until: '2026-10-10T15:00:00Z' }),
+    patchHealth: s => s.replace('  var ofd = ofdIssues(h);', '  var ofd = []; rate = rate.concat(ofdIssues(h));') });
+  const s = await banner(p);
+  ok(s && /سحب نسبة استلام العميل واقف/.test(s.text), 'معايرة ط: سطور الرسايل تحت عنوان السحب — فحص 31 بيمسكها');
   await p.close();
 }
 

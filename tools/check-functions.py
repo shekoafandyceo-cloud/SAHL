@@ -293,6 +293,45 @@ CONTRACTS = [
      and s.index("unknownStreak(phones.length)") < s.index('admin.rpc("ship_rank_apply_v1"')),
     ("ship-rank-sync", u"bad_row/apply_error في التطبيق = التشغيل ok=false (البانر يبان)",
      lambda s: '(tally.bad_row ? "bad_row" : null)' in s and '(tally.apply_error ? "apply_error" : null)' in s),
+    # ── «المندوب في الطريق» — قالب واتساب أوتوماتيك على مسح 94 (11 أكتوبر) ──
+    ("wa-ofd-notify", u"service/diag بس — مفيش مسار للموظف",
+     lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
+    ("wa-ofd-notify", u"الحمولة من غير أي نص — dry_run/shadow/order_uids بس (النص والأرقام من الداتابيز)",
+     lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"dry_run", "shadow", "order_uids"} and "body.text" not in s),
+    ("wa-ofd-notify", u"dry_run بيرجع قبل الحجز وميتا ومن غير سجل تشغيل",
+     lambda s: "if (dry)" in s and s.index("if (dry)") < s.index('"wa_ofd_claim_v1"')
+     and s.index("if (dry)") < s.index("fetch(`${GRAPH}")
+     and "logRun" not in s[s.index("if (dry)"):s.index('"wa_ofd_claim_v1"')]),
+    ("wa-ofd-notify", u"shadow مع dry_run بس — عمره ما بيوصل الحجز",
+     lambda s: "const shadow = dry && body?.shadow === true" in s and "p_shadow" not in s[s.index('"wa_ofd_claim_v1"'):]),
+    ("wa-ofd-notify", u"نافذة الإرسال من SQL (send_until) قبل كل إرسال — مفيش حساب ساعة في TS",
+     lambda s: "Date.parse(r.send_until)" in s and s.index("Date.parse(r.send_until)") < s.index("fetch(`${GRAPH}")
+     and "inSendWindow" not in s and "Intl." not in s),
+    ("wa-ofd-notify", u"نص القالب من الداتابيز مش محفور (renderTemplate(r.body))",
+     lambda s: u"خرج النهارده" not in s and "renderTemplate(r.body" in s),
+    ("_shared/wa-ofd", u"الاستثناء عمره ما بيتعاد أعمى: timeout/reset = unknown · قبل الاتصال بس = transient",
+     lambda s: '"TimeoutError"' in s and "PRECONNECT" in s
+     and any('code: "fetch_error"' in l and 'kind: "unknown"' in l for l in s.splitlines())
+     and not any('code: "fetch_error"' in l and 'kind: "transient"' in l for l in s.splitlines())),
+    ("wa-ofd-notify", u"خطأ fetch بيتصنّف بـclassifyFetchError · pause/deferred بيوقفوا الدورة",
+     lambda s: "classifyFetchError(e)" in s and 'v.kind === "pause" || v.kind === "deferred"' in s),
+    ("_shared/wa-ofd", u"المتغيرات: المسافات بتتلم · الاسم الغريب = «حضرتك» · من غير import",
+     lambda s: 'replace(/\\s+/g, " ")' in s and u'"حضرتك"' in s and "NAME_TOKEN" in s and "import " not in s),
+    ("wa-ofd-notify", u"الحجز مالوش باراميتر ساعة (p_limit + p_uids بس)",
+     lambda s: "p_now" not in s and re.search(r'admin\.rpc\("wa_ofd_claim_v1", \{([^}]*)\}\)', s) is not None
+     and set(re.findall(r"(p_\w+)", re.search(r'admin\.rpc\("wa_ofd_claim_v1", \{([^}]*)\}\)', s).group(1))) == {"p_limit", "p_uids"}),
+    ("wa-ofd-notify", u"الختم (dispatch) وميزانية الدورة قبل fetch لميتا",
+     lambda s: '"wa_ofd_dispatch_v1"' in s and s.index('"wa_ofd_dispatch_v1"') < s.index("fetch(`${GRAPH}")
+     and "RUN_BUDGET_MS" in s and "Date.now() - t0 > RUN_BUDGET_MS" in s
+     and s.index("Date.now() - t0 > RUN_BUDGET_MS") < s.index("fetch(`${GRAPH}")),
+    ("wa-ofd-notify", u"الختم بالحجز نفسه (p_claimed_at) — الإعادة بعد رد ضايع مابتسيبش صف «اتبعت غالباً» وهو ماخرجش",
+     lambda s: 'rpc("wa_ofd_dispatch_v1", { p_id: r.id, p_claimed_at: r.claimed_at })' in s),
+    ("wa-ofd-notify", u"خطأ حساب/توكن/سقف (deferred) = run_stop ⇒ إيقاف مؤقت للمتجر مش الدورة بس",
+     lambda s: 'run_stop: v.kind === "deferred"' in s and 'error_code: "no_wa_config", run_stop: true' in s),
+    ("_shared/wa-ofd", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
+     lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
+    ("wa-ofd-notify", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
+     lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
 ]
 
 
