@@ -118,3 +118,6 @@ td.id.has-cx .cx-badge{display:block;width:max-content;margin:3px 0 0;}
 .eo-meter.rk-good,.eo-meter.rk-mid,.eo-meter.rk-bad,.eo-meter.rk-new{background:none;}
 .eo-meter.rk-good i.on{background:#10b981;}.eo-meter.rk-mid i.on{background:#f59e0b;}.eo-meter.rk-bad i.on{background:#ef4444;}
 .ds-muted{color:var(--muted);font-size:.8rem;font-style:italic;}
+/* المصدرين في طرفين عكس بعض (جامد ↔ زبالة) — المتوسط لوحده بيخبّيها */
+.ds-conflict{box-shadow:inset 0 0 0 1.5px #f59e0b;}
+.ds-warn{display:block;margin-top:4px;color:#b45309;font-size:.78rem;font-weight:600;}

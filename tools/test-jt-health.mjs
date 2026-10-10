@@ -11,6 +11,8 @@
 // معايرات: (أ) parseStatusLog القديمة · (ب) العمر من ساعة الجهاز · (ج) شيل العتبة ·
 //          (د) الإقفال (×) مابيعملش حاجة · (هـ) مشاكل الحسابات مش في شرط الظهور.
 //  (3) 1 أكتوبر: «حسابات J&T محتاجة مراجعة» — تكلفة ماتقفلتش · مسح مش في الخريطة · COD مختلف.
+//  (4) 10 أكتوبر: «سحب نسبة استلام العميل واقف» — rank_stale (شركة الشحن) · eo_stale (EasyOrders) — بيبان حتى لو
+//      المتجر مش على J&T. معايرات: (و) شيل rate من شرط الظهور · (ز) المتجر مش على J&T بيخفيه.
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -171,6 +173,35 @@ console.log('── (3) حسابات J&T محتاجة مراجعة (1 أكتوب
   await p.close();
 }
 
+console.log('── (4) سحب نسبة استلام العميل واقف (10 أكتوبر)');
+const H_RATE = Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 4, rank_last_error: 'auth_401', eo_stale: 0 });
+{
+  let p = await openApp({ health: H_RATE });
+  const s = await banner(p);
+  ok(s && /سحب نسبة استلام العميل واقف/.test(s.text) && /4 أوردر ماتسألش/.test(s.text), '23) 🔴 rank_stale = بانر «سحب نسبة استلام العميل واقف» بالعدد — ' + (s && s.text.slice(0, 90)));
+  ok(s && /auth_401/.test(s.text) && !/مزامنة حالات J&T واقفة/.test(s.text), '24) آخر خطأ السحب ظاهر · J&T شغّالة = مفيش «واقفة»');
+  ok(s && !/بوسطة/.test(s.text), '25) اسم الشركة مش في النص (check_carrier_naming)');
+  await p.close();
+
+  p = await openApp({ health: Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 0, eo_stale: 3 }) });
+  const e = await banner(p);
+  ok(e && /EasyOrders: 3 أوردر/.test(e.text) && !/شركة الشحن: /.test(e.text), '26) eo_stale = سطر EasyOrders لوحده');
+  await p.close();
+
+  p = await openApp({ health: Object.assign({}, H_RATE, { rank_enabled: false }) });
+  ok(!(await banner(p)), '27) مفيش مفتاح لشركة الشحن (rank_enabled=false) = مفيش سطر ولا بانر');
+  await p.close();
+
+  p = await openApp({ health: Object.assign({}, H_RATE, { enabled: false }) });
+  const n = await banner(p);
+  ok(n && /سحب نسبة استلام العميل واقف/.test(n.text) && !/J&T/.test(n.text), '28) متجر مش على J&T والسحب واقف = البانر بسطر السحب بس');
+  await p.close();
+
+  p = await openApp({ health: Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 0, eo_stale: 0 }) });
+  ok(!(await banner(p)), '29) السحب ماشي (صفر) = مفيش بانر');
+  await p.close();
+}
+
 console.log('── المعايرات');
 {
   const OLD = `export function parseStatusLog(val){
@@ -208,6 +239,17 @@ function __unused_new(val){`;
   const H_ISS = Object.assign({}, H_FRESH, { cod_mismatch: [{ uid: '17260', total: 3328, jt: 3554 }] });
   const p = await openApp({ health: H_ISS, patchHealth: s => s.replace('show: stale || issues.length > 0', 'show: stale') });
   ok(!(await banner(p)), 'معايرة هـ: من غير المشاكل في شرط الظهور، اختلاف الـCOD بيعدّي في صمت — فحص 16 بيمسكها');
+  await p.close();
+}
+
+{
+  const p = await openApp({ health: H_RATE, patchHealth: s => s.replace(' || rate.length > 0, stale: stale', ', stale: stale') });
+  ok(!(await banner(p)), 'معايرة و: من غير السحب في شرط الظهور، الشارة بتختفي في صمت — فحص 23 بيمسكها');
+  await p.close();
+}
+{
+  const p = await openApp({ health: Object.assign({}, H_RATE, { enabled: false }), patchHealth: s => s.replace('  if(!h.enabled) return rateOnly;', "  if(!h.enabled) return { show: false };") });
+  ok(!(await banner(p)), 'معايرة ز: متجر مش على J&T بيخفي تنبيه السحب — فحص 28 بيمسكها');
   await p.close();
 }
 

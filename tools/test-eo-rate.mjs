@@ -23,6 +23,10 @@
 //        سطر المتوسط والرقم الإضافي في التفاصيل · وحدث شركة الشحن في الريل-تايم مابيمسحش الكلام.
 //  (ز) EasyOrders الأول بدل المتوسط → 21 يقع · (ح) القديم يكسب الجديد → 22 يقع · (ط) شيل ship_rank من ORDER_LIST_COLS →
 //  18 يقع · (ي) شيل أعمدة شركة الشحن من RT_SCORE_COLS → 28 يقع
+// 29–35) المراجعة العدائية (10 أكتوبر): الأساسي «جديد» والإضافي ليه شحنات = الشارة بالإضافي · التليفون اتعدّل بعد السؤال =
+//        النسبة القديمة مش محسوبة · الدرجة من المتوسط المقرّب (79.6 → 80 = جامد) · المصدرين في طرفين عكس بعض (≥3 شحنات) = ⚠ ·
+//        shipP10 = app.ship_rank_p10 على نفس المدخلات اللي اتجرّبت على الحي.
+//  (ك) شيل الإضافي → 29 يقع · (ل) شيل كشف التليفون المتعدّل → 30 يقع · (م) شيل التقريب → 31 يقع · (ن) شيل ⚠ → 32 يقع
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -58,6 +62,10 @@ const FIX = `(function(){
   mk('o11', '90011', '01000000011', Object.assign({ eo_rate: 'low', alt_phone: '01233334444' },
      sr('1000000011', 2, 0, ['1233334444', 5, 5])));                                                             // 20 + 100 = 60 متوسط · إضافي 50%
   mk('o12', '90012', '01000000012', Object.assign({ customer_ranking: 90 }, sr('1000000012', 10, 12)));            // الجديد 45.5% يكسب القديم 90
+  mk('o13', '90013', '01000000013', Object.assign({ alt_phone: '01155556666' }, sr('1000000013', 0, 0, ['1155556666', 8, 2])));   // الأساسي جديد · الإضافي 80% = جامد
+  mk('o14', '90014', '01000000014', Object.assign({ eo_rate: 'moderate' }, sr('1000000099', 1, 9)));              // اتسأل على رقم تاني (اتعدّل بعده) → EasyOrders لوحده
+  mk('o15', '90015', '01000000015', Object.assign({ eo_rate: 'moderate' }, sr('1000000015', 124, 1)));            // (60 + 99.2)/2 = 79.6 → 80 = جامد
+  mk('o16', '90016', '01000000016', Object.assign({ eo_rate: 'high' }, sr('1000000016', 3, 7)));                  // 100 ↔ 30% (10 شحنات) = متوسط ⚠
 })();`;
 
 const FILES = {
@@ -105,6 +113,7 @@ async function detail(p, id){
     const meter = document.querySelector('#ds-eo .eo-meter');
     return {
       sec: !!document.getElementById('ds-sec'),
+      warn: !!document.querySelector('#ds-avg .ds-warn'),
       eo: t('ds-eo'), alt: t('ds-eo-alt'), ship: t('ds-ship'), shipAlt: t('ds-ship-alt'), avg: t('ds-avg'),
       on: meter ? meter.querySelectorAll('i.on').length : null,
       cells: meter ? meter.querySelectorAll('i').length : null,
@@ -119,7 +128,7 @@ async function detail(p, id){
 async function runAll(patches){
   const p = await openApp(patches);
   const res = { b: await badges(p) };
-  for(const id of ['o1','o2','o3','o4','o5','o6','o7','o8','o9','o10','o11','o12']) res[id] = await detail(p, id);
+  for(const id of ['o1','o2','o3','o4','o5','o6','o7','o8','o9','o10','o11','o12','o13','o14','o15','o16']) res[id] = await detail(p, id);
   await p.close();
   return res;
 }
@@ -160,6 +169,32 @@ ok(/وقت الشحن/.test(R.o1.ship || '') && /90\.0%/.test(R.o1.ship || '') &
 ok(R.o11.avg && /60/.test(R.o11.avg) && /EasyOrders \(20\)/.test(R.o11.avg) && /شركة الشحن \(100\)/.test(R.o11.avg) && R.o2.avg === null && R.o8.avg === null,
   '26) سطر «المتوسط» بس لما المصدرين موجودين — ' + R.o11.avg);
 ok(R.o11.shipAlt && /50\.0%/.test(R.o11.shipAlt) && /اتسلّم 5/.test(R.o11.shipAlt) && R.o8.shipAlt === null, '27) الرقم الإضافي عند شركة الشحن سطر لوحده — ' + R.o11.shipAlt);
+
+console.log('— المراجعة العدائية (10 أكتوبر)');
+ok(B.o13 && /rk-good/.test(B.o13.eo || '') && /الرقم الإضافي/.test(B.o13.eoTitle || '') && /80\.0%/.test(B.o13.eoTitle || ''),
+  '29) الأساسي «جديد» والإضافي 80% = الشارة «جامد» من الإضافي والتلميح بيقول كده — ' + (B.o13 && B.o13.eoTitle));
+ok(/جديد/.test(R.o13.ship || '') && R.o13.shipAlt && /80\.0%/.test(R.o13.shipAlt), '29ب) التفاصيل: سطر الأساسي «جديد» وسطر الإضافي 80% لوحده');
+ok(B.o14 && /rk-mid/.test(B.o14.eo || '') && !/10\.0%/.test(B.o14.eoTitle || '') && /اتعدّل/.test(B.o14.eoTitle || ''),
+  '30) 🔴 التليفون اتعدّل بعد السؤال = نسبة الرقم القديم (10%) مش في الشارة — EasyOrders لوحده «متوسط» — ' + (B.o14 && B.o14.eoTitle));
+ok(/اتعدّل/.test(R.o14.ship || '') && !/10\.0%/.test(R.o14.ship || '') && R.o14.avg === null, '30ب) التفاصيل: «التليفون اتعدّل بعد ما اتسأل» ومفيش متوسط — ' + R.o14.ship);
+ok(B.o15 && /rk-good/.test(B.o15.eo || '') && /متوسط المصدرين: 80/.test(B.o15.eoTitle || ''), '31) 79.6 بيتكتب «80» وبيبقى «جامد» (الدرجة من المقرّب) — ' + (B.o15 && B.o15.eo));
+ok(B.o16 && /rk-mid/.test(B.o16.eo || '') && /⚠/.test(B.o16.eo || '') && /ds-conflict/.test(B.o16.eo || '') && /مختلفين جامد/.test(B.o16.eoTitle || ''),
+  '32) مرتفعة ↔ 30% على 10 شحنات = «متوسط ⚠» والتلميح بيقول إنهم مختلفين — ' + (B.o16 && B.o16.eo));
+ok(R.o16.warn && !R.o11.warn && B.o11 && !/⚠/.test(B.o11.eo || ''), '33) سطر التحذير في التفاصيل · ضابط: o11 (طرفين بس شحنتين) مالوش ⚠');
+const P10 = await (async () => {
+  const p = await openApp();
+  const r = await p.evaluate(async () => {
+    const m = await import('./js/orders/delivery-score.js');
+    // نفس المدخلات بالترتيب اللي اتجرّبت على app.ship_rank_p10 في الحي (ترانزاكشن راجعة 10 أكتوبر)
+    return ['011234567890','+971501234567','01012345678','+201012345678','+2001012345678','00201012345678','\u0660\u0661\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668','01412345678','1012345678','02 25551234']
+      .map(x => m.shipP10(x) || 'NULL').join(',');
+  });
+  await p.close();
+  return r;
+})();
+ok(P10 === 'NULL,NULL,1012345678,1012345678,1012345678,1012345678,1012345678,NULL,1012345678,NULL',
+  '34) shipP10 = app.ship_rank_p10 على الحي (نفس العشر مدخلات) — ' + P10);
+ok(Object.keys(B).every(k => B[k].n <= 1), '35) لسه شارة واحدة بس في خانة الاسم بعد ⚠');
 
 console.log('— الريل-تايم (سحب التقييم)');
 async function rtScore(patches){
@@ -236,7 +271,7 @@ const cB = await runAll({ score: s => s.replace("var EO_SCORE = { high: 100, mod
 ok(cB.b.o5.eo !== null, '(ب) pending بشارة → الفحص 5 كان هيقع');
 const cC = await runAll({ score: s => s.replace("'قيمة جديدة من EasyOrders: ' + esc(String(v))", "'قيمة جديدة من EasyOrders: ' + String(v)") });
 ok(cC.o7.xss === true, '(ج) من غير esc → الـHTML اترسم (الفحص 13 كان هيقع)');
-const cE = await runAll({ score: s => s.replace("return '<span class=\"rk-badge ' + t.cls + ' ds-badge\" title=\"' + esc(head + ' · ' + tip.join(' · ')) + '\">' + t.tag + '</span>';", "return '<span class=\"rk-badge ' + t.cls + ' ds-badge\" title=\"' + esc(head + ' · ' + tip.join(' · ')) + '\">' + t.tag + '</span>' + (s ? '<span class=\"rk-badge rk-good\">x</span>' : '');") });
+const cE = await runAll({ score: s => s.replace("+ t.tag + (ds.conflict ? ' ⚠' : '') + '</span>';", "+ t.tag + (ds.conflict ? ' ⚠' : '') + '</span>' + (s ? '<span class=\"rk-badge rk-good\">x</span>' : '');") });
 ok(cE.b.o1.n === 2, '(هـ) شارتين جنب بعض → الفحص 5ب كان هيقع');
 const cD = await runAll({ detail: s => s.replace('    +deliveryScoreSection(o)\n', '') });
 ok(!cD.o1.sec && cD.o1.on === null, '(د) القسم اتشال → فحوص التفاصيل كانت هتقع');
@@ -248,6 +283,15 @@ const cH = await runAll({ score: s => s.replace('  if(o.ship_rank_at){', '  if(o
 ok(/rk-good/.test(cH.b.o12.eo || ''), '(ح) القديم يكسب الجديد → o12 «جامد» من الـ90 القديمة (الفحص 22 كان هيقع)');
 const cJ = await rtShip({ orders: s => s.replace('  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1 };', ' };') });
 ok(cJ.r.notes !== cJ.TYPED, '(ي) أعمدة شركة الشحن مش في RT_SCORE_COLS → رسم كامل والكلام ضاع (الفحص 28 كان هيقع)');
+
+const cK = await runAll({ score: s => s.replace('    if(a) return { kind: \'rate\', rate: a.rate, n: a.n, alt: true };\n', '') });
+ok(/rk-new/.test(cK.b.o13.eo || ''), '(ك) من غير الإضافي → o13 «جديد» رغم إن الإضافي 80% (الفحص 29 كان هيقع) — ' + cK.b.o13.eo);
+const cL = await runAll({ score: s => s.replace("    if(partStale(o, 'primary', o.phone)) return { kind: 'stale' };\n", '') });
+ok(/rk-bad/.test(cL.b.o14.eo || ''), '(ل) من غير كشف التليفون المتعدّل → o14 «زبالة» من نسبة الرقم القديم (الفحص 30 كان هيقع) — ' + cL.b.o14.eo);
+const cM = await runAll({ score: s => s.replace('score: Math.round(sum / parts.length),', 'score: sum / parts.length,') });
+ok(/rk-mid/.test(cM.b.o15.eo || ''), '(م) من غير التقريب → 79.6 «متوسط» وهي بتتكتب 80 (الفحص 31 كان هيقع)');
+const cN = await runAll({ score: s => s.replace("Math.abs(tierIdx(eo) - tierIdx(sh)) === 2;", 'false;') });
+ok(!/⚠/.test(cN.b.o16.eo || ''), '(ن) من غير ⚠ → «متوسط» بيخبّي إن المصدرين عكس بعض (الفحص 32 كان هيقع)');
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

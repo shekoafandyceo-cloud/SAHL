@@ -468,7 +468,9 @@ export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bost
 
 // manufacturer_note = خصائص المنتج كاملة من الويبهوك (لون + مقاس…) — **عرض بس**.
 // عمود نصي قصير فمالوش أثر يُذكر على حجم النقل (درس 32 عن الـJSONB).
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,eo_rate,eo_rate_alt,ship_rank,ship_rank_n,ship_rank_at,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
+// ship_rank_raw (jsonb ~295 بايت · أقصى 362 — اتقاس 10 أكتوبر): الشارة محتاجاه عشان تعرف الرقم اللي اتسأل فعلاً
+// (التليفون اتعدّل بعده = النسبة مش بتاعته) — من غيره الجدول يعرض نسبة رقم قديم والتفاصيل تقول غير كده.
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,eo_rate,eo_rate_alt,ship_rank,ship_rank_n,ship_rank_at,ship_rank_alt,ship_rank_alt_n,ship_rank_raw,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){

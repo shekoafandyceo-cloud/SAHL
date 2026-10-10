@@ -118,6 +118,21 @@
       ].concat(shipped ? [{from:'confirmed', to:st, at: iso(Math.max(0,days-2), 16, 0), by:'شركة الشحن', reason:null}] : [])
     }, shipRankFx(i, days, '010' + String(20000000 + i*13571).slice(0,8), i % 5 === 0 ? '011' + String(40000000 + i*911).slice(0,8) : null)));
   }
+  // حالات المراجعة العدائية (10 أكتوبر) عشان تبان في المعاينة:
+  //  ord-0 = الأساسي «جديد» والإضافي 96.8% → الشارة من الإضافي (موجودة من الـFX) ·
+  //  ord-1 = التليفون اتعدّل بعد ما اتسأل → النسبة القديمة مش محسوبة ·
+  //  ord-6 = EasyOrders مرتفعة وشركة الشحن 13% على 23 شحنة → «متوسط ⚠»
+  (function(){
+    var by = function(id){ for(var k = 0; k < ORDERS.length; k++) if(ORDERS[k].id === id) return ORDERS[k]; return null; };
+    var o1 = by('ord-1');
+    if(o1 && o1.ship_rank_raw && o1.ship_rank_raw.primary) o1.ship_rank_raw.primary.phone10 = '1099999999';
+    var o6 = by('ord-6');
+    if(o6 && o6.ship_rank_raw && o6.ship_rank_raw.primary){
+      var pr = o6.ship_rank_raw.primary;
+      pr.delivered = 3; pr.returned = 20; pr.found = true; pr.rate = 13.04;
+      o6.ship_rank = 13.04; o6.ship_rank_n = 23;
+    }
+  })();
 
   // منتجات المخزون — أول منتج عيلة بخصائص (ألوان) عشان الميزة تبان في المعاينة
   var STOCK = PRODUCTS.map(function(nm, i){

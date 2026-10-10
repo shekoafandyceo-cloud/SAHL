@@ -1,4 +1,5 @@
-// بانر «مزامنة حالات J&T واقفة» + «حسابات J&T محتاجة مراجعة» — للأدمن بس (30 سبتمبر · 1 أكتوبر)
+// بانر «مزامنة حالات J&T واقفة» + «حسابات J&T محتاجة مراجعة» + «سحب نسبة استلام العميل واقف» — للأدمن بس
+// (30 سبتمبر · 1 أكتوبر · 10 أكتوبر)
 //
 // 🔴 ليه: الـpush من J&T بيضيع ~1% من المسحات (17309 فضل «استثناء» 3 أيام وهو
 // متسلّم ومتحصّل). الحل الجذري `trace_sync` كل 15 دقيقة (pg_cron) — بس لو المزامنة
@@ -20,15 +21,35 @@ var started = false;
 
 // الحالة من رد السيرفر — مصدر واحد للبانر وللهارنس
 export function jtSyncState(h){
-  if(!h || !h.enabled) return { show: false };
+  if(!h) return { show: false };
+  var rate = rateSyncIssues(h);
+  // سحب نسبة الاستلام مالوش علاقة بـJ&T — بيبان حتى لو المتجر مش على J&T أو ساعة السيرفر مش مفهومة
+  var rateOnly = rate.length ? { show: true, stale: false, minutes: null, error: '', issues: [], rate: rate } : { show: false };
+  if(!h.enabled) return rateOnly;
   var now = Date.parse(h.now || '');
   var last = Date.parse(h.trace_last_ok || '');
-  if(!isFinite(now)) return { show: false };
+  if(!isFinite(now)) return rateOnly;
   var issues = jtAccountingIssues(h);
-  if(!isFinite(last)) return { show: true, stale: true, minutes: null, error: h.trace_last_error || '', issues: issues };
+  if(!isFinite(last)) return { show: true, stale: true, minutes: null, error: h.trace_last_error || '', issues: issues, rate: rate };
   var min = Math.floor((now - last) / 60000);
   var stale = min >= JT_SYNC_STALE_MIN;
-  return { show: stale || issues.length > 0, stale: stale, minutes: min, error: h.trace_last_error || '', issues: issues };
+  return { show: stale || issues.length > 0 || rate.length > 0, stale: stale, minutes: min, error: h.trace_last_error || '', issues: issues, rate: rate };
+}
+
+// (10 أكتوبر) سحب «نسبة استلام العميل» واقف — الطبيعي إن الأوردر يتسأل خلال 1–3 دقايق من نزوله، فـ>15 دقيقة = السحب
+// نفسه واقف (مفتاح · cron · شركة الشحن قافلة · EasyOrders). من غير التنبيه ده الشارة بتختفي في صمت (درس 51).
+export function rateSyncIssues(h){
+  var out = [];
+  if(!h) return out;
+  var rs = Number(h.rank_stale || 0);
+  if(h.rank_enabled && rs > 0)
+    out.push('نسبة الاستلام من شركة الشحن: ' + rs + ' أوردر ماتسألش بقاله أكتر من ربع ساعة — السحب واقف'
+      + (h.rank_last_error ? ' (آخر خطأ: ' + String(h.rank_last_error).slice(0, 120) + ')' : '')
+      + '. الشارة على الأوردرات دي من EasyOrders لوحدها لحد ما يرجع.');
+  var es = Number(h.eo_stale || 0);
+  if(es > 0)
+    out.push('نسبة الاستلام من EasyOrders: ' + es + ' أوردر تقييمه ماتسحبش بقاله أكتر من ربع ساعة — السحب واقف.');
+  return out;
 }
 
 // (1 أكتوبر — مراجعة الحسابات) حاجات بتخلّي رقم يكدب في صمت حتى والمزامنة شغّالة:
@@ -73,10 +94,14 @@ export function renderJtSyncAlert(st){
   var issuesHtml = issues.length
     ? '<b>حسابات J&amp;T محتاجة مراجعة</b>' + issues.map(function(t){ return '<span class="jsa-issue">• ' + esc(t) + '</span>'; }).join('')
     : '';
+  var rate = Array.isArray(st.rate) ? st.rate : [];
+  var rateHtml = rate.length
+    ? '<b>سحب نسبة استلام العميل واقف</b>' + rate.map(function(t){ return '<span class="jsa-issue jsa-rate">• ' + esc(t) + '</span>'; }).join('')
+    : '';
   el.innerHTML =
       '<div class="jt-sync-alert" role="alert">'
     +   '<span class="jsa-ic">⚠️</span>'
-    +   '<div class="jsa-body">' + staleHtml + issuesHtml + '</div>'
+    +   '<div class="jsa-body">' + staleHtml + issuesHtml + rateHtml + '</div>'
     +   '<button type="button" class="jsa-x" id="jsa-x" title="إخفاء لحد الريفريش">×</button>'
     + '</div>';
   el.style.display = '';
