@@ -14,13 +14,20 @@
 // الأساسي + الإضافي) → نداء واحد لبوسطة → ship_rank_apply_v1 (دفعة واحدة). التطبيع والحساب في SQL بس.
 //
 // الحمولة: { order_uids?: string[] (≤100), dry_run?: boolean }
-//   • من غير order_uids = المرشّحين (آخر 24 ساعة اللي ماتسألتش، أو التليفون اتعدّل بعد السؤال).
+//   • من غير order_uids = المرشّحين (آخر 72 ساعة اللي ماتسألتش · التليفون اتعدّل بعد السؤال (30 يوم) · «جديد» عند الرقمين
+//     بيتسأل مرة تانية بعد 30 دقيقة) — القواعد في ship_rank_candidates_v1.
 //   • order_uids = أوردرات بعينها (ملء القديم بقرار المالك) — دفعات 25 ورا بعض بفاصل ثانية ونص.
 //   • dry_run = بيسأل بوسطة وبيرجّع العدّ بس **من غير أي كتابة** (ولا سجل تشغيل).
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف.
 // المفتاح من الـVault (`bosta_rank_key:<tenant_id>`) — عمره ما بيتطبع ولا بيرجع في رد. والرد مافيهوش أرقام تليفونات.
 // 🔴 اللي بيتبعت لبوسطة رقم التليفون بس — من غير اسم ولا عنوان ولا مبلغ (موافقة المالك 10 أكتوبر).
 // أي رد غير 200 سليم = **مفيش كتابة** والتشغيل بيقف (ok=false في ship_rank_runs) — الدورة الجاية تحاول تاني.
+// v2 (المراجعة العدائية — 10 أكتوبر): الـendpoint مش موثّق، فأي شكل غريب = وقف من غير كتابة بدل «عميل جديد» للأبد:
+//   • الرد فيه صفوف ومفيش ولا صف طابق رقم سألنا عنه (`unmatched_rows` — بوسطة غيّرت شكل الرقم).
+//   • ولا رقم معروف في الدفعة دي **ولا** في آخر التشغيلات اللي مجموعها ≥10 أرقام (`all_unknown_streak` — بيمسك الرد
+//     الفاضي على الدفعات الصغيرة اللي EMPTY_SUSPICIOUS_AT مابيشوفهاش). الطبيعي ~90% معروفين (اتقاس على 470 أوردر).
+//   • صف من غير عدّ مفهوم (`bad_row` في SQL) = التشغيل ok=false.
+//   • فشل قراية المفاتيح بيتسجّل · order_uids كلها اترفضت = `no_valid_uids` (مش «مفيش مرشّحين» في صمت).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -35,6 +42,7 @@ const FETCH_TIMEOUT_MS = 15000;
 const BATCH_PAUSE_MS = 1500;
 // ردّ فاضي على دفعة كبيرة = مش طبيعي (45 من 50 رجعوا في القياس) → وقف من غير كتابة بدل ما نعلّم الكل «عميل جديد»
 const EMPTY_SUSPICIOUS_AT = 10;
+const STREAK_RUNS = 20;        // آخر كام تشغيل ناجح بنبص عليهم لما الدفعة كلها «مش معروفة»
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -68,7 +76,7 @@ type Row = Record<string, unknown>;
 const last10 = (s: unknown) => String(s ?? "").replace(/\D/g, "").slice(-10);
 
 // نداء واحد لبوسطة لدفعة أوردرات (متجر واحد). بيرجّع خريطة آخر-10-أرقام → الصف، أو سبب الوقف.
-async function lookup(key: string, phones: string[]): Promise<{ map?: Map<string, Row>; stop?: string }> {
+async function lookup(key: string, phones: string[]): Promise<{ map?: Map<string, Row>; unmatched?: number; stop?: string }> {
   let res: Response;
   try {
     res = await fetch(BOSTA_RANKING, {
@@ -94,12 +102,33 @@ async function lookup(key: string, phones: string[]): Promise<{ map?: Map<string
   if (!arr.length && phones.length >= EMPTY_SUSPICIOUS_AT) return { stop: "empty_response" };
   const wanted = new Set(phones);
   const map = new Map<string, Row>();
+  let unmatched = 0;
   for (const r of arr) {
-    if (!r || typeof r !== "object") continue;
+    if (!r || typeof r !== "object") { unmatched++; continue; }
     const k = last10((r as Row).consigneePhone);
-    if (k.length === 10 && wanted.has(k) && !map.has(k)) map.set(k, r as Row);
+    if (k.length === 10 && wanted.has(k)) { if (!map.has(k)) map.set(k, r as Row); }
+    else unmatched++;
   }
-  return { map };
+  // صفوف رجعت ومفيش ولا واحد بتاعنا = الشكل اتغيّر — لو كتبنا هنعلّم الكل «جديد»
+  if (arr.length && !map.size) return { stop: "unmatched_rows" };
+  return { map, unmatched };
+}
+
+// الدفعة كلها «مش معروفة»: طبيعي في دفعة صغيرة (~10% من الأرقام) — بس لو آخر التشغيلات كمان مفيهاش ولا رقم معروف
+// ومجموعهم ≥ EMPTY_SUSPICIOUS_AT، فالأرجح إن بوسطة بقت بترد فاضي → وقف.
+async function unknownStreak(asked: number): Promise<boolean> {
+  try {
+    const { data } = await admin.from("ship_rank_runs").select("tally").eq("ok", true)
+      .order("ran_at", { ascending: false }).limit(STREAK_RUNS);
+    let a = asked, k = 0;
+    for (const r of (data || []) as Array<{ tally: Record<string, number> | null }>) {
+      a += Number(r?.tally?.phones_asked || 0);
+      k += Number(r?.tally?.phones_known || 0);
+      if (k > 0) return false;
+      if (a >= EMPTY_SUSPICIOUS_AT) break;
+    }
+    return a >= EMPTY_SUSPICIOUS_AT && k === 0;
+  } catch { return false; }   // السجل مش متاح = مانوقفش السحب عليه
 }
 
 Deno.serve(async (req: Request) => {
@@ -113,7 +142,10 @@ Deno.serve(async (req: Request) => {
   const dry = body?.dry_run === true;
 
   const { data: keys, error: kErr } = await admin.rpc("ship_rank_keys_v1");
-  if (kErr) return json({ error: "keys_failed", message: kErr.message }, 500);
+  if (kErr) {
+    if (!dry) await logRun(false, 0, {}, "keys_failed: " + kErr.message);
+    return json({ ok: false, error: "keys_failed" }, 500);
+  }
   const keyByTenant = new Map<string, string>();
   for (const k of (keys || []) as Array<{ tenant_id: string; api_key: string }>) {
     if (k?.tenant_id && k?.api_key) keyByTenant.set(String(k.tenant_id), String(k.api_key));
@@ -127,6 +159,9 @@ Deno.serve(async (req: Request) => {
   const uids: string[] = Array.isArray(body?.order_uids)
     ? [...new Set(body.order_uids.map((x: unknown) => String(x ?? "").trim()).filter((x: string) => /^[A-Za-z0-9-]{1,40}$/.test(x)))].slice(0, MAX_UIDS) as string[]
     : [];
+  if (Array.isArray(body?.order_uids) && body.order_uids.length && !uids.length) {
+    return json({ ok: false, error: "no_valid_uids" }, 400);   // نداء يدوي غلط — مش تشغيل، فمالوش سطر في السجل
+  }
   const uidChunks: Array<string[] | null> = [];
   if (uids.length) for (let i = 0; i < uids.length; i += MAX_ORDERS) uidChunks.push(uids.slice(i, i + MAX_ORDERS));
   else uidChunks.push(null);
@@ -161,8 +196,10 @@ Deno.serve(async (req: Request) => {
       if (r.stop) { stop = r.stop; break outer; }
       answered++;
       const map = r.map!;
+      if (!map.size && await unknownStreak(phones.length)) { stop = "all_unknown_streak"; break outer; }
       add("phones_asked", phones.length);
       add("phones_known", map.size);
+      if (r.unmatched) add("phones_unmatched", r.unmatched);
       const items = list.map((c) => ({
         order_id: c.order_id, p10: c.p10, alt10: c.alt10,
         primary: map.get(c.p10) ?? null,
@@ -177,7 +214,10 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const runError = stop || (candidates > 0 && answered === 0 && !tally.no_key_for_tenant ? "no_answer" : null);
+  const runError = stop
+    || (candidates > 0 && answered === 0 && !tally.no_key_for_tenant ? "no_answer" : null)
+    || (tally.bad_row ? "bad_row" : null)
+    || (tally.apply_error ? "apply_error" : null);
   if (!dry) await logRun(!runError, candidates, tally, runError);
   return json({ ok: !runError, dry_run: dry, candidates, tally, error: runError }, 200);
 });

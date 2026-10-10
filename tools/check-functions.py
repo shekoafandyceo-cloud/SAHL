@@ -282,6 +282,17 @@ CONTRACTS = [
      lambda s: "jt_ship_attempted_at: new Date().toISOString(), jt_ship_error: null" in s
      and 'error: "order_changed"' in s
      and s.index('error: "order_changed"') < s.index("jtCall(cfg, JT_PATHS.addOrder, biz")),
+    # ── نسبة استلام العميل من شركة الشحن (10 أكتوبر) ──
+    ("ship-rank-sync", u"service/diag بس — مفيش مسار للموظف",
+     lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
+    ("ship-rank-sync", u"اللي بيتبعت لبوسطة رقم التليفون بس (موافقة المالك) — مفيش اسم ولا عنوان ولا مبلغ",
+     lambda s: 'JSON.stringify({ phoneNumbers: phones.map((p) => "+20" + p) })' in s
+     and not any(w in s for w in ("customer_name", "address", "total_cost", "product_name"))),
+    ("ship-rank-sync", u"شكل رد غريب = وقف قبل الكتابة (unmatched_rows · all_unknown_streak · empty_response)",
+     lambda s: '"unmatched_rows"' in s and '"all_unknown_streak"' in s and '"empty_response"' in s
+     and s.index("unknownStreak(phones.length)") < s.index('admin.rpc("ship_rank_apply_v1"')),
+    ("ship-rank-sync", u"bad_row/apply_error في التطبيق = التشغيل ok=false (البانر يبان)",
+     lambda s: '(tally.bad_row ? "bad_row" : null)' in s and '(tally.apply_error ? "apply_error" : null)' in s),
 ]
 
 
