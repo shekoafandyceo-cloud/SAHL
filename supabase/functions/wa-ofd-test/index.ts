@@ -24,7 +24,7 @@
 // الحمولة: { send?: boolean, order_uid?: string }   التصريح: service_role أو x-diag-token (زي wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildOfdParams, classifyFetchError, classifyMeta, maskDigits, maskPhone, maxPlaceholder, OFD_LAYOUTS, ofdNeedsOrder,
+  buildOfdParams, classifyFetchError, classifyMeta, maskDigits, maskPhone, ofdNeedsOrder, ofdTemplateOk,
   renderTemplate, type MetaVerdict,
 } from "../_shared/wa-ofd.ts";
 
@@ -117,7 +117,7 @@ Deno.serve(async (req: Request) => {
     if (ov.lang) c.lang = String(ov.lang);
   }
   const nParams = Number(c.param_count);
-  if (!OFD_LAYOUTS[nParams] || maxPlaceholder(c.body) !== nParams) return json({ ok: false, error: "bad_template_params" });
+  if (!ofdTemplateOk(c.body, nParams)) return json({ ok: false, error: "bad_template_params" });
   if (ofdNeedsOrder(nParams)) {
     const { data: o, error: oErr } = await admin.from("orders").select("tenant_id, product_name, jt_cod_amount, total_cost")
       .eq("id", c.order_id).maybeSingle();

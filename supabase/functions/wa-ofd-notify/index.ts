@@ -10,7 +10,8 @@
 // مساءً)** · سقف 3 للأوردر · 9 الصبح–9 بالليل القاهرة (المسح بالليل بيستنى 9 الصبح، بآخر مندوب، ولو الشحنة لسه ماتسلّمتش) ·
 // القالب `order_out_for_delivery_ar` ar_EG بـ5 متغيرات — شغّال للكل من 11 أكتوبر (mode='on').
 // القالب التاني (7 متغيرات: + المنتج والمبلغ شامل الشحن — طلب المالك 11 أكتوبر) مستني موافقة ميتا: الترتيب بيتختار بـparam_count
-// (OFD_LAYOUTS في _shared/wa-ofd.ts) والمنتج والمبلغ بيتقروا من orders (قراية بس) — تبديل القالب = تعديل صف wa_auto_templates.
+// (OFD_LAYOUTS في _shared/wa-ofd.ts) ومتأكد بمراسي النص (OFD_ANCHORS) · المنتج والمبلغ من orders (قراية بس) — تبديل القالب = تعديل صف
+// wa_auto_templates بعد تجربة wa-ofd-test على رقم المالك بالقالب الجديد.
 //
 // المسار: pg_cron كل دقيقة → app.wa_ofd_tick (تنضيف + نداء هنا بس لو فيه مرشّحين) → wa_ofd_claim_v1 (حجز ذري ≤8) →
 //   لكل صف: wa_ofd_dispatch_v1 (ختم «خرجت لميتا» قبل fetch بالظبط) → ميتا → wa_ofd_mark_v1 (النتيجة + صف في الصندوق).
@@ -34,8 +35,8 @@
 // الرد ودليل الحياة (wa_ofd_runs) مافيهمش أرقام ولا نصوص — أكواد بس.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildOfdParams, classifyFetchError, classifyMeta, errCode, maskDigits, maskPhone, maxPlaceholder, OFD_LAYOUTS,
-  ofdNeedsOrder, renderTemplate, type MetaVerdict,
+  buildOfdParams, classifyFetchError, classifyMeta, errCode, maskDigits, maskPhone, ofdNeedsOrder, ofdTemplateOk,
+  renderTemplate, type MetaVerdict,
 } from "../_shared/wa-ofd.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -175,7 +176,7 @@ Deno.serve(async (req: Request) => {
     const t = tenantCfg.get(String(r.tenant_id));
     if (!t?.whatsapp_phone_id || !t?.whatsapp_token) { await mark(r.id, { outcome: "deferred", error_code: "no_wa_config", run_stop: true }); stop = "no_wa_config"; continue; }
     const nParams = Number(r.param_count);
-    if (!OFD_LAYOUTS[nParams] || maxPlaceholder(r.body) !== nParams) {
+    if (!ofdTemplateOk(r.body, nParams)) {     // عدد المتغيرات + الكلام اللي قبل كل متغير (مش بالمكان بس)
       await mark(r.id, { outcome: "pause", error_code: "bad_template_params" }); stop = "bad_template_params"; continue;
     }
     let params: string[];

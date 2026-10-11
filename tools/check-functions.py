@@ -158,6 +158,21 @@ def check_source(slug, path, require_entry):
 
 
 # العقود الموثّقة في CLAUDE.md — (slug, وصف, دالة بترجّع bool)
+# (11 أكتوبر مساءً — المراجعة) wa-ofd-notify: withOrderFields لازم ترجّع false لو قراية orders وقعت، وأول سطر في اللوب
+# بيعمل release لكل الصفوف لو الدورة واقفة — من غيرهم العقد كان بيعدّي «if (error) return true» و«شيل سطر الوقف».
+_OFD_LOOP_STOP = 'if (stop) { await mark(r.id, { outcome: "release", error_code: "run_stopped" });'
+
+
+def _ofd_wof_ok(s):
+    m = re.search(r"async function withOrderFields\([^)]*\)[^{]*\{(.*?)\n\}", s, re.S)
+    if not m:
+        return False
+    body = m.group(1)
+    return ("if (error) return false;" in body and body.count("return true") == 2
+            and "if (!ids.length) return true;" in body
+            and body.index("if (error) return false;") < body.rindex("return true"))
+
+
 CONTRACTS = [
     ("wa-send", u"حارس الرد `bad_reply_target`",
      lambda s: "bad_reply_target" in s),
@@ -333,13 +348,16 @@ CONTRACTS = [
     ("wa-ofd-notify", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
     # (11 أكتوبر مساءً) القالب 7 — المنتج والمبلغ من orders: قراية بس، ولو وقعت = مفيش إرسال (مفيش رسالة بمبلغ ناقص)
-    ("wa-ofd-notify", u"orders قراية بس · قراية المنتج/المبلغ وقعت = وقف الدورة قبل أي fetch · الترتيب من OFD_LAYOUTS بـparam_count",
-     lambda s: all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\("orders"\)', s))
+    ("wa-ofd-notify", u"orders قراية بس · قراية المنتج/المبلغ وقعت = false = وقف الدورة (release) قبل أي fetch · القالب بالعدد + المراسي",
+     lambda s: all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]orders[\'"`]\s*\)', s))
+     and _ofd_wof_ok(s)
      and 'if (!(await withOrderFields(rows))) stop = "order_read_failed";' in s
-     and s.index('if (!(await withOrderFields(rows)))') < s.index("fetch(`${GRAPH}")
-     and "OFD_LAYOUTS[nParams]" in s and "buildOfdParams(r, nParams)" in s and "OFD_PARAMS" not in s),
-    ("_shared/wa-ofd", u"المبلغ: مش رقم/سالب/فاضي = bad_amount (مفيش رسالة بمبلغ غلط) · صفر = «مدفوع مسبقاً»",
-     lambda s: 'throw new Error("bad_amount")' in s and u'"0 جنيه (مدفوع مسبقاً)"' in s and "Number.isFinite(n) || n < 0" in s),
+     and s.index('if (!(await withOrderFields(rows)))') < s.index(_OFD_LOOP_STOP) < s.index("buildOfdParams(r, nParams)") < s.index("fetch(`${GRAPH}")
+     and "ofdTemplateOk(r.body, nParams)" in s and s.index("ofdTemplateOk(r.body, nParams)") < s.index("buildOfdParams(r, nParams)")
+     and "OFD_PARAMS" not in s),
+    ("_shared/wa-ofd", u"المبلغ: مش رقم/سالب/فاضي = bad_amount (مفيش رسالة بمبلغ غلط) · صفر = «0 جنيه» · القالب بالمراسي مش بالمكان بس",
+     lambda s: 'throw new Error("bad_amount")' in s and u'if (n === 0) return "0 جنيه";' in s and "Number.isFinite(n) || n < 0" in s
+     and "a.every((x) => b.includes(x))" in s),
     # ── رسالة تجربة «المندوب في الطريق» على رقم المالك (11 أكتوبر) ──
     ("wa-ofd-test", u"service/diag بس — مفيش مسار للموظف",
      lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
@@ -351,7 +369,8 @@ CONTRACTS = [
      lambda s: not any(w in s for w in ('"wa_ofd_claim_v1"', '"wa_ofd_dispatch_v1"', '"wa_ofd_mark_v1"',
                                          'from("wa_ofd_sends")', 'from("wa_ofd_runs")'))
      and not re.search(r'from\("wa_auto_templates"\)\s*\.(update|upsert|insert|delete)', s)
-     and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\("orders"\)', s))),
+     and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]orders[\'"`]\s*\)', s))
+     and "ofdTemplateOk(c.body, nParams)" in s),
     ("wa-ofd-test", u"المعاينة قبل الإرسال (send=true + order_uid اللي اتعاين) + حجز ذري قبل fetch بيقفل لو وقع",
      lambda s: "const send = body?.send === true" in s and "if (send && !uidRaw)" in s
      and s.index("if (!send)") < s.index("fetch(`${GRAPH}")

@@ -6,13 +6,17 @@
 -- يعني بالظبط العميل اللي الرسالة معمولة عشانه.
 --
 -- القاعدة الجديدة (في المرشّحين والحجز بالحرف): نفس المندوب **ونفس يوم القاهرة** لآخر رسالة = مفيش.
---   • اليوم = يوم **الإرسال** (sent_at ← created_at) مش يوم المسح: مسح 10 بالليل بيتبعت 9 الصبح اللي بعده، ولو المندوب
---     مسح تاني الصبح مايتبعتش رسالتين في نفس الصبح.
+--   • اليوم = يوم **خروج الرسالة لميتا** (sent_at ← dispatched_at ← created_at) مش يوم المسح ولا أول حجز: مسح 10 بالليل بيتبعت
+--     9 الصبح اللي بعده (ولو المندوب مسح تاني الصبح مايتبعتش رسالتين نفس الصبح) · retry اتحجز امبارح 20:58 وخرج النهارده 9:00
+--     بـunknown (مالوش sent_at) = النهارده — من غير dispatched_at كان هيبان امبارح وتطلع رسالة تانية نفس الصبح (المراجعة — اتجرّبت).
 --   • مندوب مختلف = رسالة زي ما كان (حتى في نفس اليوم) · السقف 3 للأوردر زي ما هو (قرار المالك 10 أكتوبر).
+--   • 🔴 التذكير (نفس المندوب) مابياخدش **آخر خانة** في السقف — محجوزة لتغيير المندوب. من غيرها: A · A (تذكير) · A (تذكير) = 3
+--     والمندوب B بعدها مالوش رسالة = العميل معاه رقم قديم (المراجعة: 11 أوردر في 20 يوم كانوا هيخسروا رسالة تغيير المندوب).
+--     بالسقف 3: التذكير بيبقى الرسالة 2 بالكتير، والخانة 3 لتغيير المندوب. رفع السقف (max_per_order ≤ 5) = تذكيرات أكتر.
 --   • اللي اتبعت قبل كده مابيتعادش: الرسالة بتطلع على مسح 94 **جديد** بس (الصف الموجود لنفس المسح = القاعدة 16).
 --
 -- create or replace بنفس التوقيع (مفيش DROP — درس 53). الجسمين = 20261011100000_wa_ofd_notify.sql (md5 الحي اتطابق
--- قبل التعديل: 6e175536… / 641b106a…) + التعديل ده بس. اتجرّب بترانزاكشن راجعة على الحي الأول.
+-- قبل التعديل: 6e175536… / 641b106a…) + التعديل ده بس. اتجرّب بترانزاكشن راجعة على الحي مرتين (7 حالات + ضابطين — الشبكة 0).
 
 set local lock_timeout = '4s';
 
@@ -97,8 +101,9 @@ h as (                                                       -- (10) اللي ا
   left join lateral (
     select count(*) filter (where x.status in ('sent', 'unknown', 'sending')) as n_sent,
            (array_agg(x.courier_phone order by x.scan_at desc) filter (where x.status in ('sent', 'unknown', 'sending')))[1] as last_phone,
-           -- يوم آخر رسالة بتوقيت القاهرة (يوم الإرسال مش يوم المسح: مسح 10 بالليل بيتبعت 9 الصبح اللي بعده)
-           (array_agg((coalesce(x.sent_at, x.created_at) at time zone 'Africa/Cairo')::date order by x.scan_at desc)
+           -- يوم آخر رسالة بتوقيت القاهرة = يوم خروجها لميتا (sent_at ← dispatched_at ← created_at) مش يوم المسح ولا أول حجز:
+           -- مسح 10 بالليل بيتبعت 9 الصبح اللي بعده · retry اتعمل امبارح وخرج النهارده بـunknown (مالوش sent_at) = النهارده
+           (array_agg((coalesce(x.sent_at, x.dispatched_at, x.created_at) at time zone 'Africa/Cairo')::date order by x.scan_at desc)
               filter (where x.status in ('sent', 'unknown', 'sending')))[1] as last_day,
            -- 🔴 «الرقم ده ميّت» للرقم نفسه بس — الموظف صلّح التليفون = يتبعت للجديد
            bool_or(x.wa_id = g.wa_id and (
@@ -119,8 +124,10 @@ where (p_shadow or h.row_id is not null or h.t >= h.enabled_since)
   and h.store_ph is not null
   and h.now_ >= h.due and h.now_ - h.due <= make_interval(mins => h.fresh_minutes) -- (12) طازة (6 ساعات من due)
   and h.n_sent < h.max_per_order                                                  -- (13) السقف 3
-  -- (14) نفس المندوب في نفس اليوم = مفيش · يوم تاني (خروج تاني بعد تأجيل/مابيردش) = تذكير — قرار المالك 11 أكتوبر
-  and not (h.last_phone is not distinct from h.c_phone and h.last_day = (h.now_ at time zone 'Africa/Cairo')::date)
+  -- (14) نفس المندوب في نفس اليوم = مفيش · يوم تاني (خروج تاني بعد تأجيل/مابيردش) = تذكير — قرار المالك 11 أكتوبر ·
+  --      و🔴 التذكير مابياخدش آخر خانة في السقف: محجوزة لتغيير المندوب (من غيرها العميل يفضل معاه رقم مندوب قديم — المراجعة)
+  and not (h.last_phone is not distinct from h.c_phone
+           and (h.last_day = (h.now_ at time zone 'Africa/Cairo')::date or h.n_sent >= h.max_per_order - 1))
   and not h.dead                                                                  -- (15)
   and (h.row_id is null                                                           -- (16) جديد أو retry مستحق
        or (h.row_status = 'failed_transient' and h.row_attempts < 3 and h.row_next <= h.now_)
@@ -139,7 +146,7 @@ returns table (id bigint, attempt int, order_id uuid, tenant_id uuid, order_uid 
 language plpgsql security definer set search_path = public, app, pg_temp as $fn$
 #variable_conflict use_column
 declare c record; v_id bigint; v_att int; v_n int; v_last text; v_now timestamptz := app.wa_ofd_now(); v_probed uuid[] := '{}';
-        v_day int; v_cap int; v_last_day date;
+        v_day int; v_cap int; v_last_day date; v_max_order int;
 begin
   perform public.wa_ofd_housekeep_v1();
   for c in select * from public.wa_ofd_candidates_v1(least(greatest(coalesce(p_limit, 8), 1), 8), p_uids, false) loop
@@ -148,19 +155,23 @@ begin
       -- 🔴 السقف اليومي لكل صف (مراجعة 10 أكتوبر): المرشّحين بيفحصوه مرة للدفعة كلها — 149/150 + 8 مستحقين كان = 157.
       -- قفل المتجر **قبل** قفل الأوردر (نفس الترتيب في كل تشغيل = مفيش deadlock) · والعدّ بعد القفل = تشغيلين متداخلين مايعدّوش السقف
       perform pg_advisory_xact_lock(hashtextextended('wa_ofd_cap:' || c.tenant_id::text, 0));
-      select a.max_per_day into v_cap from wa_auto_templates a where a.tenant_id = c.tenant_id and a.event = 'out_for_delivery';
+      select a.max_per_day, a.max_per_order into v_cap, v_max_order from wa_auto_templates a
+       where a.tenant_id = c.tenant_id and a.event = 'out_for_delivery';
       select count(*) into v_day from wa_ofd_sends x where x.tenant_id = c.tenant_id and x.status in ('sent', 'unknown', 'sending')
          and x.created_at >= (date_trunc('day', v_now at time zone 'Africa/Cairo') at time zone 'Africa/Cairo');
       if v_day >= coalesce(v_cap, 0) then continue; end if;
       perform pg_advisory_xact_lock(hashtextextended('wa_ofd:' || c.order_id::text, 0));
       select count(*) filter (where x.status in ('sent','unknown','sending')),
              (array_agg(x.courier_phone order by x.scan_at desc) filter (where x.status in ('sent','unknown','sending')))[1],
-             (array_agg((coalesce(x.sent_at, x.created_at) at time zone 'Africa/Cairo')::date order by x.scan_at desc)
+             (array_agg((coalesce(x.sent_at, x.dispatched_at, x.created_at) at time zone 'Africa/Cairo')::date order by x.scan_at desc)
                 filter (where x.status in ('sent','unknown','sending')))[1]
         into v_n, v_last, v_last_day from wa_ofd_sends x where x.order_id = c.order_id;
-      -- (14) زي المرشّحين بالحرف: نفس المندوب ونفس يوم القاهرة = مفيش · يوم تاني = تذكير
+      -- (14) زي المرشّحين بالحرف: نفس المندوب ونفس يوم القاهرة = مفيش · يوم تاني = تذكير (إلا آخر خانة — لتغيير المندوب)
       if coalesce(v_n, 0) + 1 <> c.send_no
-         or (v_last is not distinct from c.courier_phone and v_last_day = (v_now at time zone 'Africa/Cairo')::date) then continue; end if;
+         or (v_last is not distinct from c.courier_phone
+             and (v_last_day = (v_now at time zone 'Africa/Cairo')::date or coalesce(v_n, 0) >= coalesce(v_max_order, 3) - 1)) then
+        continue;
+      end if;
 
       v_id := null;
       if c.retry_id is null then

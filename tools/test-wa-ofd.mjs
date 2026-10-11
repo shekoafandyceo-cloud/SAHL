@@ -2,7 +2,8 @@
 //
 //  1) رسالة اتبعتت: السطر ظاهر · اسم المندوب · الرقم جوّه [dir=ltr] · الوقت
 //  2) رسالتين بمندوبين مختلفين: آخر مندوب + «الرسالة 2 — المندوب اتغيّر»
-// 14) (11 أكتوبر مساءً) رسالتين بنفس المندوب (خرج تاني يوم جديد) = «الرسالة 2 — تذكير: خرج تاني» مش «المندوب اتغيّر»
+// 14) (11 أكتوبر مساءً) رسالتين بنفس المندوب (خرج تاني يوم جديد) = «الرسالة 2 — تذكير: خرج تاني» مش «المندوب اتغيّر» ·
+//     3 رسايل A·B·B = «الرسالة 3 — تذكير» (المقارنة بالرسالة اللي قبلها بالظبط مش الأقدم) · A·(فشلت B)·A = «الرسالة 2 — تذكير» (الفاشلة مابتتعدّش)
 //  3) حالة الرسالة من wa_messages: read = «اتقرت» · failed = «⚠️ ماوصلتش للعميل»
 //  4) failed_permanent بس: الأدمن بيشوف الكود · الموظف مايشوفش حاجة
 //  5) expired (أدمن) = «ماتبعتتش (المسح اتغيّر/قدم)» مش «هتتحاول تاني» · deferred = «هتتحاول تاني»
@@ -18,7 +19,7 @@
 //
 // المعايرات (مرساة + حارس — درس 47): شيل esc → 9 · شيل حارس الأدمن → 4 · أقدم رسالة بدل الأحدث → 2 · شيل حارس J&T → 8 ·
 // شيل حارس sel.id → 11 · expired كأنها retry → 5 · unknown من غير شرط dispatched_at → 6 · شيل الوقت → 1 · السطر المخفي آخر القسم → 13 ·
-// «المندوب اتغيّر» دايماً → 14
+// «المندوب اتغيّر» دايماً → 14 · المقارنة بالأقدم → 14 (THREE) · المقارنة بأي صف من غير فلتر «اتبعتت» → 14 (MIXED)
 // تشغيل:  cd tools && node --import ./clock-preload.mjs test-wa-ofd.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -97,6 +98,14 @@ const TWO = [S({ created_at: T(7), sent_at: T(7), courier_name: 'Old Courier', c
 // نفس المندوب يومين ورا بعض (التذكير)
 const SAME2 = [S({ created_at: '2026-10-09T07:05:00Z', sent_at: '2026-10-09T07:05:00Z', scan_at: '2026-10-09T07:00:00Z' }),
                S({ created_at: T(9) })];
+// A · B · B (التاريخ نص كامل والأيام برقمين — الترتيب بالنص)
+const THREE = [S({ created_at: '2026-10-09T07:05:00Z', sent_at: '2026-10-09T07:05:00Z', courier_name: 'Old Courier', courier_phone: '01000000099' }),
+               S({ created_at: '2026-10-09T09:05:00Z', sent_at: '2026-10-09T09:05:00Z', courier_name: 'Mahmoud Goma Al Sayed', courier_phone: '01200000022' }),
+               S({ created_at: '2026-10-10T09:30:00Z', sent_at: '2026-10-10T09:30:00Z', courier_name: 'Mahmoud Goma Al Sayed', courier_phone: '01200000022' })];
+// A · (B فشلت قبل ميتا) · A
+const MIXED = [S({ created_at: '2026-10-09T07:05:00Z', sent_at: '2026-10-09T07:05:00Z' }),
+               S({ created_at: '2026-10-09T09:05:00Z', status: 'failed_permanent', sent_at: null, dispatched_at: null, courier_name: 'Mona Other', courier_phone: '01022222222', error_code: '131026' }),
+               S({ created_at: '2026-10-10T09:30:00Z', sent_at: '2026-10-10T09:30:00Z' })];
 
 console.log('── أدمن');
 let r = await scenario({ sends: ONE });
@@ -109,6 +118,10 @@ ok(/Mahmoud Goma Al Sayed/.test(r.text) && !/Old Courier/.test(r.text) && /ال�
 ok(/اتقرت/.test(r.text), '3) wa_messages read = «اتقرت»');
 r = await scenario({ sends: SAME2 });
 ok(/الرسالة 2 — تذكير: خرج تاني/.test(r.text) && !/المندوب اتغيّر/.test(r.text), '14) نفس المندوب يوم جديد = «تذكير: خرج تاني» — ' + (r.text || '').slice(-60));
+r = await scenario({ sends: THREE });
+ok(/الرسالة 3 — تذكير: خرج تاني/.test(r.text) && !/المندوب اتغيّر/.test(r.text), '14) A·B·B = «الرسالة 3 — تذكير» (بالرسالة اللي قبلها) — ' + (r.text || '').slice(-50));
+r = await scenario({ sends: MIXED });
+ok(/الرسالة 2 — تذكير: خرج تاني/.test(r.text) && !/المندوب اتغيّر/.test(r.text), '14) A·(فشلت B)·A = «الرسالة 2 — تذكير» (الفاشلة مابتتعدّش) — ' + (r.text || '').slice(-50));
 r = await scenario({ sends: [S({ wa_message_id: 'wamid.f' })], msgs: [{ wa_message_id: 'wamid.f', status: 'failed' }] });
 ok(/ماوصلتش للعميل/.test(r.text), '3) wa_messages failed = «⚠️ ماوصلتش للعميل»');
 const FP = [S({ status: 'failed_permanent', sent_at: null, error_code: '131026', error_detail: 'Message undeliverable' })];
@@ -183,6 +196,11 @@ ok(r.calls.length > 0, 'معايرة (8): من غير حارس J&T بيستعل�
   const seg = "(sent[1].courier_phone===last.courier_phone ? 'تذكير: خرج تاني' : 'المندوب اتغيّر')";
   r = await scenario({ sends: SAME2, patch: s => { if(s.indexOf(seg) < 0) throw new Error('المعايرة مالقتش المرساة (14)'); return s.replace(seg, "'المندوب اتغيّر'"); } });
   ok(/المندوب اتغيّر/.test(r.text), 'معايرة (14): «المندوب اتغيّر» دايماً — فحص 14 بيمسكها');
+  const cmp = 'sent[1].courier_phone===last.courier_phone';
+  r = await scenario({ sends: THREE, patch: s => { if(s.indexOf(cmp) < 0) throw new Error('المعايرة مالقتش المرساة (14ب)'); return s.replace(cmp, 'sent[sent.length-1].courier_phone===last.courier_phone'); } });
+  ok(/المندوب اتغيّر/.test(r.text), 'معايرة (14ب): المقارنة بالأقدم — فحص THREE بيمسكها');
+  r = await scenario({ sends: MIXED, patch: s => { if(s.indexOf(cmp) < 0) throw new Error('المعايرة مالقتش المرساة (14ج)'); return s.replace(cmp, 'rows[1].courier_phone===last.courier_phone'); } });
+  ok(/المندوب اتغيّر/.test(r.text), 'معايرة (14ج): المقارنة بأي صف من غير فلتر «اتبعتت» — فحص MIXED بيمسكها');
 }
 r = await staleRun(s => { if(s.split('sel.id!==o.id').length < 3) throw new Error('المعايرة مالقتش المرساة (11)'); return s.split('sel.id!==o.id').join('false'); });
 ok(/Courier From A/.test(r.text || ''), 'معايرة (11): من غير حارس sel.id الرد القديم بيترسم في B — فحص 11 بيمسكها');

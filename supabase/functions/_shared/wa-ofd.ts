@@ -17,6 +17,21 @@ export const OFD_LAYOUTS: Readonly<Record<number, readonly string[]>> = {
 export function ofdNeedsOrder(n: number): boolean {
   return (OFD_LAYOUTS[n] || []).some((k) => k === "products" || k === "amount");
 }
+// 🔴 الترتيب بالمكان بس كان هيعدّي قالب متسجّل بترتيب تاني (المندوب في {{3}} والمنتج في {{5}}) = نص غلط لكل العملاء من غير
+// أي خطأ من ميتا (المراجعة 11 أكتوبر مساءً). فكل قالب ليه مراسي = الكلام اللي قبل كل متغير في النص المسجّل — النص لازم يحتويها
+// كلها وإلا bad_template_params (= إيقاف قبل أي إرسال).
+export const OFD_ANCHORS: Readonly<Record<number, readonly string[]>> = {
+  5: ["أهلاً {{1}}", "رقم {{2}}", "اسم المندوب: {{3}}", "رقم المندوب: {{4}}", "على {{5}}"],
+  7: ["أهلاً {{1}}", "رقم {{2}}", "المنتج: {{3}}", "(شامل الشحن): {{4}}", "اسم المندوب: {{5}}", "رقم المندوب: {{6}}", "على {{7}}"],
+};
+export function ofdTemplateOk(body: unknown, n: number): boolean {
+  const b = String(body ?? ""), a = OFD_ANCHORS[n];
+  return !!a && !!OFD_LAYOUTS[n] && maxPlaceholder(b) === n && a.every((x) => b.includes(x));
+}
+// نص القالب التاني بالحرف (اللي المالك بيسجّله عند ميتا باسم order_out_for_delivery_v2_ar) — مرجع واحد للتسجيل والتبديل والهارنس.
+export const OFD_BODY_V2 = "أهلاً {{1}}،\nطلبك رقم {{2}} خرج النهارده مع مندوب الشحن وفي الطريق ليك 🚚\n\nالمنتج: {{3}}\n"
+  + "المطلوب عند الاستلام (شامل الشحن): {{4}}\n\nاسم المندوب: {{5}}\nرقم المندوب: {{6}}\n\n"
+  + "تقدر تكلّم المندوب على طول لو حابب تتفق معاه على معاد الاستلام.\nولو فيه أي مشكلة كلّمنا على {{7}} أو رد على الرسالة دي.";
 
 // ميتا بترفض المتغير اللي فيه سطر/تاب أو >4 مسافات ورا بعض (132018) وبترفض الفاضي
 export function cleanParam(s: unknown, max: number): string {
@@ -30,12 +45,12 @@ const NAME_TOKEN = /^[\p{L}\p{M}'\u2019-]{2,25}$/u;
 // (11 أكتوبر مساءً — اتقاس على 60 يوم): «ام/أم X» (50) · «عبد X» (11) · «ابو X» · «Om X» كانوا بيطلعوا «أهلاً ام،» ·
 // اللقب اللازق «د/زينب» «د.كفايه» «Dr.Hebatullah» كان بيترفض كله فيطلع اسم الأب · حرفين لاتيني «HH» «Ro» = مش اسم.
 // كلمة لوحدها مش اسم — بتتلزق في اللي بعدها: «ام علي» · «عبد الرحمن» · «ام عبد الرحمن» · «Om Basel»
-const JOIN_NEXT = new Set(["ام", "أم", "إم", "ابو", "أبو", "ابن", "بنت", "عبد", "om", "um", "umm", "abo", "abu", "abd", "el"]);
+const JOIN_NEXT = new Set(["ام", "أم", "إم", "ابو", "أبو", "ابن", "بنت", "عبد", "om", "um", "umm", "abo", "abu", "abd", "el", "al"]);
 // لقب كامل بيتقال مع الاسم: «مدام حنان» · «دكتورة اسماء» — لوحده (من غير اسم بعده) = «حضرتك»
 const TITLES = new Set(["مدام", "الحاج", "الحاجه", "الحاجة", "حاج", "حاجه", "حاجة", "استاذ", "أستاذ", "الاستاذ", "الأستاذ",
   "استاذه", "استاذة", "أستاذة", "الاستاذه", "الاستاذة", "الأستاذة", "دكتور", "دكتوره", "دكتورة", "الدكتور", "الدكتوره",
   "الدكتورة", "مهندس", "مهندسه", "مهندسة", "المهندس", "المهندسه", "المهندسة", "الشيخ", "شيخ", "كابتن", "انسه", "انسة", "آنسه",
-  "آنسة", "مستر", "dr", "mr", "mrs", "ms", "miss", "eng"]);
+  "آنسة", "مستر", "مس", "ميس", "dr", "mr", "mrs", "ms", "miss", "eng"]);
 // لقب مختصر لازق في الاسم («د/زينب» «د.كفايه» «م/احمد» «Dr.Hebatullah») = الاسم بس (مش عارفين دكتور ولا دكتورة)
 const GLUED = /^(?:د|م|أ|ا|dr|eng|mr|mrs|ms)[./](.+)$/iu;
 function nameTok(raw: string): string | null {
@@ -90,34 +105,52 @@ export function egLocalPhone(p: unknown): string | null {
 }
 
 // (11 أكتوبر مساءً) المنتج من orders.product_name («الاسم (عدد N)» — المتعدد بسطر جديد «\n+ » أو « - » بعد قوس الكمية،
-// والاسم نفسه ممكن يكون فيه « - » فالتقسيم بعد قوس الكمية بس — نفس فكرة splitProductSegments في الواجهة).
-// «(عدد 1)» بيتشال · «(عدد 2)» بيفضل · المتعدد بـ« + » · سقف 120 حرف بـ«…».
+// والاسم نفسه ممكن يكون فيه « - » فالتقسيم بعد قوس الكمية بس — نفس فكرة splitProductSegments في الواجهة: جزء من غير قوس كمية
+// بعد منتج = بقية اسمه («… (عدد 1) - مقاس 85 عرض» = لاحقة خاصية قديمة) مش منتج لوحده).
+// «(عدد 1)» بيتشال · «(عدد 2)» بيفضل · المتعدد بـ« + » · سقف 120 حرف **على منتجات كاملة** + «+ N منتجات تانية» (المبلغ في {{4}}
+// بيغطي الكل — المنتج ماينفعش يختفي في صمت) · منتج واحد أطول من السقف بيتقص على آخر مسافة بـ«…».
 export const PRODUCTS_MAX = 120;
 const QTY = /\(\s*عدد\s*([0-9\u0660-\u0669]+)\s*\)/gu;
+const cpLen = (x: string) => Array.from(x).length;
+function cutWords(x: string, max: number): string {
+  const c = Array.from(x);
+  if (c.length <= max) return x;
+  const cut = c.slice(0, max).join(""), sp = cut.lastIndexOf(" ");
+  return (sp >= max / 2 ? cut.slice(0, sp) : cut).trim();
+}
+function moreTail(r: number): string {
+  return r <= 0 ? "" : r === 1 ? " + منتج تاني" : r <= 10 ? ` + ${r} منتجات تانية` : ` + ${r} منتج تاني`;
+}
 export function ofdProducts(raw: unknown): string {
-  const segs = String(raw ?? "").split(/\r?\n|(?<=\(\s*عدد\s*[0-9\u0660-\u0669]+\s*\))\s*[-+]\s*/u);
-  const out: string[] = [];
-  for (const seg of segs) {
-    let q = 1;
+  const items: { name: string; q: number }[] = [];
+  for (const seg of String(raw ?? "").split(/\r?\n|(?<=\(\s*عدد\s*[0-9\u0660-\u0669]+\s*\))\s*[-+]\s*/u)) {
+    let q = 0;                                                                     // 0 = الجزء ده مالوش قوس كمية
     for (const m of seg.matchAll(QTY)) {
       q = Number(m[1].replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x660))) || 1;
     }
-    const name = cleanParam(seg.replace(QTY, " ").replace(/^\s*\+\s*/, ""), PRODUCTS_MAX);
-    if (name) out.push(q > 1 ? `${name} (عدد ${q})` : name);
+    const name = cleanParam(seg.replace(QTY, " ").replace(/^\s*\+\s*/, ""), 400);
+    if (!name) continue;
+    if (!q && items.length) { items[items.length - 1].name += " - " + name; continue; }   // بقية اسم المنتج اللي قبله
+    items.push({ name, q: q || 1 });
   }
-  const s = out.join(" + "), c = Array.from(s);
-  if (!s) return "—";
-  return c.length > PRODUCTS_MAX ? c.slice(0, PRODUCTS_MAX - 1).join("").trim() + "…" : s;
+  if (!items.length) return "—";
+  const fmt = (it: { name: string; q: number }) => (it.q > 1 ? `${it.name} (عدد ${it.q})` : it.name);
+  for (let k = items.length; k >= 1; k--) {
+    const s = items.slice(0, k).map(fmt).join(" + ") + moreTail(items.length - k);
+    if (cpLen(s) <= PRODUCTS_MAX) return s;
+  }
+  const tail = moreTail(items.length - 1);
+  return cutWords(fmt(items[0]), PRODUCTS_MAX - 1 - cpLen(tail)) + "…" + tail;
 }
 
 // المبلغ اللي المندوب هيحصّله (شامل الشحن): jt_cod_amount (= itemsValue عند J&T) ← total_cost.
-// صفر = «مدفوع مسبقاً» (أونلاين) · مش رقم/سالب = bad_amount (الرسالة ماتطلعش بمبلغ غلط).
+// صفر = «0 جنيه» (أونلاين أو استبدال بفرق صفر) · مش رقم/سالب = bad_amount (الرسالة ماتطلعش بمبلغ غلط).
 export function ofdAmount(cod: unknown, total: unknown): string {
   const raw = cod === null || cod === undefined || String(cod).trim() === "" ? total : cod;
   if (raw === null || raw === undefined || String(raw).trim() === "") throw new Error("bad_amount");
   const n = Number(String(raw).trim());
   if (!Number.isFinite(n) || n < 0) throw new Error("bad_amount");
-  if (n === 0) return "0 جنيه (مدفوع مسبقاً)";
+  if (n === 0) return "0 جنيه";   // أونلاين · استبدال بفرق صفر — الصفر لوحده صح في الحالتين (مش «مدفوع» — المراجعة)
   const [i, f] = (Math.round(n * 100) / 100).toFixed(2).split(".");
   const int = i.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return (f === "00" ? int : int + "." + f.replace(/0$/, "")) + " جنيه";
