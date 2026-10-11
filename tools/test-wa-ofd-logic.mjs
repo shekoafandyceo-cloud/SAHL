@@ -12,9 +12,14 @@
 //  9) classifyFetchError: timeout/reset = unknown · dns/refused = transient
 // 10) maskDigits = app.wa_ofd_mask (مخرجات SQL من الترانزاكشن الراجعة على الحي — 10 أكتوبر)
 // 11) مفيش حرف خفي مكتوب حرفياً في wa-ofd.ts
+// 12) (11 أكتوبر مساءً) الاسم الأول: «ام/أم/عبد/ابو/Om X» بيتلزقوا · لقب كامل + الاسم · لقب لازق «د/زينب» = الاسم · «HH» = «حضرتك»
+// 13) المنتج: «(عدد 1)» بيتشال · المتعدد بسطر/« - » بعد قوس الكمية = « + » · « - » جوّه الاسم بيفضل · سقف 120
+// 14) المبلغ: J&T ← الإجمالي · 1,450 جنيه · صفر = مدفوع مسبقاً · مش رقم/سالب/فاضي = bad_amount
+// 15) القالب 7 (V2_BODY = النص اللي هيتسجّل عند ميتا): الترتيب + النص المرسوم بالحرف · القالب 5 زي ما كان بالظبط
 //
 // المعايرات (نسخة مؤقتة محقونة + حارس مرساة — درس 47): (أ) شيل لمّ المسافات → 3 · (ب) NAME_TOKEN فضفاض → 2/3 ·
-// (ج) 131005 يرجع message-permanent → 8 · (د) fetch_error → transient → 9 · (هـ) حرف في نص البذرة → 7 · (و) maskDigits من غير \+? والمسافات → 8/10
+// (ج) 131005 يرجع message-permanent → 8 · (د) fetch_error → transient → 9 · (هـ) حرف في نص البذرة → 7 · (و) maskDigits من غير \+? والمسافات → 8/10 ·
+// (ز) شيل لزق «ام/عبد» → 12 · (ح) المبلغ من غير الرجوع للإجمالي → 14 · (ط) تقسيم المنتج على أي « - » → 13 · (ي) القالب 7 بترتيب غلط → 15
 // تشغيل:  node tools/test-wa-ofd-logic.mjs
 import fs from 'fs';
 import os from 'os';
@@ -27,6 +32,10 @@ const SQL = path.join(ROOT, 'supabase/migrations/20261011100000_wa_ofd_notify.sq
 
 const BODY = 'أهلاً {{1}}،\nطلبك رقم {{2}} خرج النهارده مع مندوب الشحن وفي الطريق ليك 🚚\n\nاسم المندوب: {{3}}\nرقم المندوب: {{4}}\n\n'
   + 'تقدر تكلّم المندوب على طول لو حابب تتفق معاه على معاد الاستلام.\nولو فيه أي مشكلة كلّمنا على {{5}} أو رد على الرسالة دي.';
+// القالب التاني (11 أكتوبر مساءً — «احط في الرسالة اسم المنتج و سعره شامل الشحن») = اللي المالك هيسجّله عند ميتا بالحرف
+const V2_BODY = 'أهلاً {{1}}،\nطلبك رقم {{2}} خرج النهارده مع مندوب الشحن وفي الطريق ليك 🚚\n\nالمنتج: {{3}}\n'
+  + 'المطلوب عند الاستلام (شامل الشحن): {{4}}\n\nاسم المندوب: {{5}}\nرقم المندوب: {{6}}\n\n'
+  + 'تقدر تكلّم المندوب على طول لو حابب تتفق معاه على معاد الاستلام.\nولو فيه أي مشكلة كلّمنا على {{7}} أو رد على الرسالة دي.';
 // مخرجات app.wa_ofd_mask على الحي (run3a — 10 أكتوبر) للمتجهات دي بالترتيب
 const MASK_VEC = ['+20 101 234 5678', 'call 01012345678 now', 'رقم ٠١٠١٢٣٤٥٦٧٨', 'code 131026 x', '12-34-56-78', 'abc 1234567 def'];
 const MASK_SQL = ['#', 'call # now', 'رقم #', 'code 131026 x', '#', 'abc 1234567 def'];
@@ -62,7 +71,8 @@ function runChecks(m, sqlText){
     const cn = Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => parts[Math.floor(rnd() * parts.length)]).join(' , ');
     const p = m.buildOfdParams({ customer_name: nm, order_uid: rnd() < .2 ? '' : '1' + i, tracking_no: 'JEG' + i, courier_name: cn, courier_phone: '01000000011', store_phone: '19999' });
     if(p.length !== 5 || p.some((x) => !x || /[\n\t]/.test(x) || /\s{2,}/.test(x))) fuzzBad++;
-    if(!(p[0] === 'حضرتك' || (/^[\p{L}\p{M}'\u2019-]{2,25}$/u.test(p[0]) && !/[./@0-9]/.test(p[0])))) fuzzShape++;
+    if(!(p[0] === 'حضرتك' || (Array.from(p[0]).length <= 30 && p[0].split(' ').length <= 4
+         && p[0].split(' ').every((w) => /^[\p{L}\p{M}'\u2019-]{2,25}$/u.test(w)) && !/[./@0-9]/.test(p[0])))) fuzzShape++;
   }
   ok(3, fuzzBad === 0, '3) fuzz 300: ولا متغير فاضي/سطر/تاب/مسافتين (' + fuzzBad + ')');
   ok(3, fuzzShape === 0, '3) fuzz 300: الاسم الأول حروف بس أو «حضرتك» (' + fuzzShape + ')');
@@ -109,6 +119,39 @@ function runChecks(m, sqlText){
   // 10
   const mv = MASK_VEC.map((v) => m.maskDigits(v));
   ok(10, JSON.stringify(mv) === JSON.stringify(MASK_SQL), '10) maskDigits = app.wa_ofd_mask على 6 متجهات — ' + mv.join(' | '));
+  // 12 — أشكال مقاسة من 60 يوم أوردرات (11 أكتوبر)
+  const NAMES = [['ام يوسف محمد', 'ام يوسف'], ['أم عبد الرحمن', 'أم عبد الرحمن'], ['عبد الرحمن احمد', 'عبد الرحمن'],
+    ['ابو يوسف', 'ابو يوسف'], ['Om Basel', 'Om Basel'], ['مدام حنان علي', 'مدام حنان'], ['دكتورة اسماء', 'دكتورة اسماء'],
+    ['د/زينب فتحى', 'زينب'], ['د.كفايه سليمان', 'كفايه'], ['Dr.Hebatullah Awad', 'Hebatullah'], ['م/ احمد', 'احمد'],
+    ['HH', 'حضرتك'], ['Ro Ro', 'حضرتك'], ['ام', 'حضرتك'], ['مدام', 'حضرتك'], ['عبد', 'حضرتك'], ['AYA Emad', 'Aya'],
+    ['السيد الخياط', 'السيد'], ['مي محمد', 'مي'], ['Abd alsamed', 'Abd Alsamed']];
+  const nbad = NAMES.filter(([i, o]) => fn(i) !== o);
+  ok(12, !nbad.length, '12) الاسم الأول على ' + NAMES.length + ' شكل حقيقي' + (nbad.length ? ' — غلط: ' + nbad.map(([i, o]) => i + '→' + fn(i) + ' (المتوقع ' + o + ')').join(' · ') : ''));
+  // 13
+  const P = (x) => m.ofdProducts(x);
+  ok(13, P('منظم المطبخ المتكامل (عدد 1)') === 'منظم المطبخ المتكامل' && P('سبت (عدد 3)') === 'سبت (عدد 3)', '13) «(عدد 1)» بيتشال · «(عدد 3)» بيفضل');
+  ok(13, P('تيربو بريمو 4 دور (عدد 1)\n+ منظم المطبخ المتكامل (عدد 2)') === 'تيربو بريمو 4 دور + منظم المطبخ المتكامل (عدد 2)'
+     && P('رف (عدد 1) - بوكس IKEA ( 3 قطع ) (عدد 1)') === 'رف + بوكس IKEA ( 3 قطع )', '13) المتعدد بسطر أو « - » بعد قوس الكمية = « + »');
+  ok(13, P('استاند 4 دور - جزامة و شماعة (عدد ٢)') === 'استاند 4 دور - جزامة و شماعة (عدد 2)' && P('رف (عدد 1) (عدد 1)') === 'رف',
+     '13) « - » جوّه الاسم بيفضل · عدد هندي · القوس المكرر');
+  const longP = P(Array.from({ length: 6 }, (_, i) => 'منتج طويل جداً رقم ' + i + ' (عدد 1)').join('\n+ '));
+  ok(13, Array.from(longP).length === 120 && longP.endsWith('…') && P('') === '—' && P(null) === '—' && !/[\n\t]|\s{2,}/.test(longP), '13) سقف 120 بـ«…» · الفاضي «—»');
+  // 14
+  const A = (c, t) => { try { return m.ofdAmount(c, t); } catch(e){ return 'ERR:' + e.message; } };
+  ok(14, A(1450, 1500) === '1,450 جنيه' && A('1450.00', null) === '1,450 جنيه' && A(null, '1759.5') === '1,759.5 جنيه'
+     && A(undefined, 900) === '900 جنيه' && A('', 900) === '900 جنيه' && A(1234567.891, 0) === '1,234,567.89 جنيه', '14) J&T ← الإجمالي + التنسيق');
+  ok(14, A(0, 1349) === '0 جنيه (مدفوع مسبقاً)', '14) صفر عند J&T = مدفوع مسبقاً (مش الإجمالي)');
+  ok(14, ['ERR:bad_amount'].includes(A(null, null)) && A('abc', 1) === 'ERR:bad_amount' && A(-1, 1) === 'ERR:bad_amount' && A(NaN, 5) === 'ERR:bad_amount', '14) مش رقم/سالب/فاضي = bad_amount');
+  // 15
+  const r7 = Object.assign({}, base, { customer_name: 'ام يوسف', order_uid: '18053', courier_name: 'Sherif Ashraf', product_name: 'سبت (عدد 2)', cod_amount: '1450.00', total_cost: 1500 });
+  const p7 = m.buildOfdParams(r7, 7);
+  ok(15, JSON.stringify(p7) === JSON.stringify(['ام يوسف', '18053', 'سبت (عدد 2)', '1,450 جنيه', 'Sherif Ashraf', '01000000011', '01200000800']), '15) القالب 7 بالترتيب — ' + p7.join(' | '));
+  ok(15, m.maxPlaceholder(V2_BODY) === 7 && m.renderTemplate(V2_BODY, p7).includes('المنتج: سبت (عدد 2)\nالمطلوب عند الاستلام (شامل الشحن): 1,450 جنيه\n\nاسم المندوب: Sherif Ashraf'), '15) نص القالب 7 المرسوم');
+  ok(15, JSON.stringify(m.buildOfdParams(r7)) === JSON.stringify(m.buildOfdParams(r7, 5)) && m.buildOfdParams(r7).length === 5
+     && m.ofdNeedsOrder(7) && !m.ofdNeedsOrder(5), '15) القالب 5 زي ما كان (من غير المنتج والمبلغ)');
+  thr = ''; try { m.buildOfdParams(r7, 6); } catch(e){ thr = e.message; }
+  let thr2 = ''; try { m.buildOfdParams(Object.assign({}, r7, { cod_amount: null, total_cost: null }), 7); } catch(e){ thr2 = e.message; }
+  ok(15, thr === 'bad_template_params' && thr2 === 'bad_amount', '15) عدد متغيرات مش معروف = bad_template_params · المبلغ ناقص = bad_amount');
   return R;
 }
 
@@ -145,6 +188,10 @@ await calib('ب (NAME_TOKEN فضفاض)', (s) => s.replace("const NAME_TOKEN = /
 await calib('ج (131005 رجع message-permanent)', (s) => s.replace('131005, ', ''), [8]);
 await calib('د (fetch_error → transient)', (s) => s.replace('return { kind: "unknown", code: "fetch_error", detail: "" };', 'return { kind: "transient", code: "fetch_error", detail: "" };'), [9]);
 await calib('هـ (حرف في نص البذرة)', null, [7], (t) => t.replace("E'أهلاً {{1}}،", "E'أهلا {{1}}،"));
+await calib('ز (من غير لزق «ام/عبد»)', (s) => s.replace('while (j < toks.length && toks[j] && JOIN_NEXT.has(toks[j]!.toLowerCase()) && parts.length < 3) parts.push(toks[j++]!);', ''), [12]);
+await calib('ح (المبلغ من غير الرجوع للإجمالي)', (s) => s.replace('String(cod).trim() === "" ? total : cod;', 'String(cod).trim() === "" ? cod : cod;'), [14]);
+await calib('ط (تقسيم المنتج على أي « - »)', (s) => s.replace("(?<=\\(\\s*عدد\\s*[0-9\\u0660-\\u0669]+\\s*\\))\\s*[-+]\\s*", "\\s+[-+]\\s+"), [13]);
+await calib('ي (القالب 7 بترتيب غلط)', (s) => s.replace('7: ["first_name", "order_no", "products", "amount",', '7: ["first_name", "order_no", "amount", "products",'), [15]);
 await calib('و (maskDigits من غير \\+? والمسافات)', (s) => s.replace('/\\+?[0-9\\u0660-\\u0669][0-9\\u0660-\\u0669\\s-]{6,}[0-9\\u0660-\\u0669]/g', '/[0-9]{8,}/g'), [8, 10]);
 fs.rmSync(tmpDir, { recursive: true, force: true });
 

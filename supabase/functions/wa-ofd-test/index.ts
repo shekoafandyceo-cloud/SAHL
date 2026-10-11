@@ -17,11 +17,15 @@
 //   • خطوتين: من غير send=true = معاينة (المستلم بالرقم كامل — رقم المالك نفسه — وأرقام العميل والمندوب متغطية) ·
 //     send=true لازم معاه order_uid اللي رجع في المعاينة — لو الشحنة دي مابقتش مرشّحة = no_candidate مش أوردر تاني.
 //
+//   • (11 أكتوبر مساءً) قالب لسه مااتفعّلش في الإنتاج (المنتج + المبلغ): platform_settings('wa_ofd_test').template =
+//     {name, lang?, body, param_count} = بيتجرّب هو بدل صف الإنتاج — عشان رسالة القالب الجديد توصل رقم المالك قبل التبديل.
+//     النص = المسجّل عند ميتا بالحرف (بيتكتب بـSQL مع الإعداد) · الترتيب من OFD_LAYOUTS · المنتج والمبلغ من orders (قراية بس).
+//
 // الحمولة: { send?: boolean, order_uid?: string }   التصريح: service_role أو x-diag-token (زي wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildOfdParams, classifyFetchError, classifyMeta, maskDigits, maskPhone, maxPlaceholder, OFD_PARAMS, renderTemplate,
-  type MetaVerdict,
+  buildOfdParams, classifyFetchError, classifyMeta, maskDigits, maskPhone, maxPlaceholder, OFD_LAYOUTS, ofdNeedsOrder,
+  renderTemplate, type MetaVerdict,
 } from "../_shared/wa-ofd.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -104,15 +108,30 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, error: "no_candidate", reason });
   }
   if (c.tenant_id !== cfg.tenant_id) return json({ ok: false, error: "wrong_tenant" });
-  if (c.param_count !== OFD_PARAMS || maxPlaceholder(c.body) !== OFD_PARAMS) return json({ ok: false, error: "bad_template_params" });
+  // قالب التجربة (لو متسجّل في الإعداد) بدل قالب الإنتاج — الإنتاج نفسه مايتلمسش
+  const ov = cfg.template;
+  if (ov != null) {
+    if (typeof ov !== "object" || !/^[a-z0-9_]{1,512}$/.test(String(ov.name || "")) || typeof ov.body !== "string"
+        || !ov.body || ov.body.length > 1024) return json({ ok: false, error: "bad_test_template" });
+    c.template_name = String(ov.name); c.body = ov.body; c.param_count = Number(ov.param_count);
+    if (ov.lang) c.lang = String(ov.lang);
+  }
+  const nParams = Number(c.param_count);
+  if (!OFD_LAYOUTS[nParams] || maxPlaceholder(c.body) !== nParams) return json({ ok: false, error: "bad_template_params" });
+  if (ofdNeedsOrder(nParams)) {
+    const { data: o, error: oErr } = await admin.from("orders").select("tenant_id, product_name, jt_cod_amount, total_cost")
+      .eq("id", c.order_id).maybeSingle();
+    if (oErr) return json({ ok: false, error: "order_read_failed" }, 500);
+    if (o && o.tenant_id === c.tenant_id) { c.product_name = o.product_name; c.cod_amount = o.jt_cod_amount; c.total_cost = o.total_cost; }
+  }
   let params: string[];
-  try { params = buildOfdParams(c); } catch (e) { return json({ ok: false, error: String((e as Error).message) }); }
+  try { params = buildOfdParams(c, nParams); } catch (e) { return json({ ok: false, error: String((e as Error).message) }); }
   const text = renderTemplate(c.body, params);
   const masked = text.replace(/0\d{9,10}/g, (m) => maskPhone(m));
 
   if (!send) {
     return json({ ok: true, preview: true, order_uid: c.order_uid, to, expires_at: cfg.expires_at, max_sends: cfg.max_sends ?? null,
-      text: masked, next: `send:true + order_uid:"${c.order_uid}"` });
+      template: c.template_name, text: masked, next: `send:true + order_uid:"${c.order_uid}"` });
   }
 
   const { data: t, error: tErr } = await admin.from("tenants").select("whatsapp_phone_id, whatsapp_token").eq("id", c.tenant_id).maybeSingle();

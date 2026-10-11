@@ -222,7 +222,7 @@ const OFD = (o) => Object.assign({}, H_FRESH, { ofd: Object.assign({ mode: 'on',
   ok(s && /وقف بخطأ: claim_failed:57014/.test(s.text), '33) 🔴 آخر خطأ أحدث من آخر نجاح (stale=0) = سطر الخطأ — ' + (s && s.text.slice(0, 90)));
   await p.close();
   p = await openApp({ health: OFD({ mode: 'off', last_error: 'x', paused: 'y' }) });
-  ok(!(await banner(p)), '34) mode=off = مفيش ولا سطر (الميزة مقفولة لحد موافقة ميتا)');
+  ok(!(await banner(p)), '34) mode=off (إيقاف يدوي بقرار) = مفيش ولا سطر');
   await p.close();
   p = await openApp({ health: Object.assign({}, H_FRESH, { enabled: false, ofd: { health_error: '42P01' } }) });
   s = await banner(p);

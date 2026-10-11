@@ -6,8 +6,11 @@
 //   • مش wa-followup: دي بضغطة موظف بتوكنه (RLS) — هنا مفيش موظف، الإرسال من الجدولة.
 //   • مش n8n: قاعدة أمان 1 (ممنوع تعديل آلي على وركفلوهات الإنتاج) + المنطق كله في SQL متجرّب بترانزاكشن راجعة.
 //
-// قرارات المالك (10 أكتوبر): أول 94 ذهاب · تاني بس لو مندوب برقم مختلف · سقف 3 للأوردر · 9 الصبح–9 بالليل القاهرة (المسح بالليل
-// بيستنى 9 الصبح، بآخر مندوب، ولو الشحنة لسه ماتسلّمتش) · القالب `order_out_for_delivery_ar` ar_EG بـ5 متغيرات · مقفول لحد موافقة ميتا.
+// قرارات المالك: أول 94 ذهاب · تاني لو مندوب برقم مختلف · **ولو خرج تاني في يوم جديد حتى مع نفس المندوب (تذكير — 11 أكتوبر
+// مساءً)** · سقف 3 للأوردر · 9 الصبح–9 بالليل القاهرة (المسح بالليل بيستنى 9 الصبح، بآخر مندوب، ولو الشحنة لسه ماتسلّمتش) ·
+// القالب `order_out_for_delivery_ar` ar_EG بـ5 متغيرات — شغّال للكل من 11 أكتوبر (mode='on').
+// القالب التاني (7 متغيرات: + المنتج والمبلغ شامل الشحن — طلب المالك 11 أكتوبر) مستني موافقة ميتا: الترتيب بيتختار بـparam_count
+// (OFD_LAYOUTS في _shared/wa-ofd.ts) والمنتج والمبلغ بيتقروا من orders (قراية بس) — تبديل القالب = تعديل صف wa_auto_templates.
 //
 // المسار: pg_cron كل دقيقة → app.wa_ofd_tick (تنضيف + نداء هنا بس لو فيه مرشّحين) → wa_ofd_claim_v1 (حجز ذري ≤8) →
 //   لكل صف: wa_ofd_dispatch_v1 (ختم «خرجت لميتا» قبل fetch بالظبط) → ميتا → wa_ofd_mark_v1 (النتيجة + صف في الصندوق).
@@ -31,8 +34,8 @@
 // الرد ودليل الحياة (wa_ofd_runs) مافيهمش أرقام ولا نصوص — أكواد بس.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildOfdParams, classifyFetchError, classifyMeta, errCode, maskDigits, maskPhone, maxPlaceholder, OFD_PARAMS,
-  renderTemplate, type MetaVerdict,
+  buildOfdParams, classifyFetchError, classifyMeta, errCode, maskDigits, maskPhone, maxPlaceholder, OFD_LAYOUTS,
+  ofdNeedsOrder, renderTemplate, type MetaVerdict,
 } from "../_shared/wa-ofd.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -77,6 +80,22 @@ async function rpc(fn: string, args: Record<string, unknown>) {
   return r;
 }
 
+// القالب 7 (المنتج + المبلغ): من orders بالـid والمتجر — قراية بس (صفر كتابة على orders: الريل-تايم). false = القراية وقعت.
+// deno-lint-ignore no-explicit-any
+async function withOrderFields(rows: any[]): Promise<boolean> {
+  const ids = [...new Set(rows.filter((r) => ofdNeedsOrder(Number(r.param_count))).map((r) => String(r.order_id)))];
+  if (!ids.length) return true;
+  const { data, error } = await admin.from("orders").select("id, tenant_id, product_name, jt_cod_amount, total_cost").in("id", ids);
+  if (error) return false;
+  // deno-lint-ignore no-explicit-any
+  const byId = new Map((data || []).map((o: any) => [String(o.id), o]));
+  for (const r of rows) {
+    const o = byId.get(String(r.order_id));
+    if (o && String(o.tenant_id) === String(r.tenant_id)) { r.product_name = o.product_name; r.cod_amount = o.jt_cod_amount; r.total_cost = o.total_cost; }
+  }
+  return true;
+}
+
 function sanitize(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return [...new Set(v.map((x) => String(x ?? "").trim()).filter((x) => /^[A-Za-z0-9-]{1,40}$/.test(x)))].slice(0, MAX_UIDS);
@@ -101,10 +120,11 @@ Deno.serve(async (req: Request) => {
   if (dry) {
     const { data, error } = await admin.rpc("wa_ofd_candidates_v1", { p_limit: 20, p_uids: uids.length ? uids : null, p_shadow: shadow });
     if (error) return json({ ok: false, error: "candidates_failed" }, 500);
+    if (!(await withOrderFields(data || []))) return json({ ok: false, error: "order_read_failed" }, 500);
     // deno-lint-ignore no-explicit-any
     return json({ ok: true, dry_run: true, shadow, candidates: (data || []).map((c: any) => {
       let params: string[] | null = null, err: string | null = null;
-      try { params = buildOfdParams(c); } catch (e) { err = String((e as Error).message); }
+      try { params = buildOfdParams(c, Number(c.param_count)); } catch (e) { err = String((e as Error).message); }
       return {
         order_uid: c.order_uid, to: maskPhone(c.wa_id), courier: maskPhone(c.courier_phone), send_no: c.send_no,
         due_at: c.due_at, send_until: c.send_until, scan_at: c.scan_at, probing: c.probing, error: err,
@@ -136,6 +156,8 @@ Deno.serve(async (req: Request) => {
   const add = (k: string) => { const key = errCode(k); tally[key] = (tally[key] || 0) + 1; };
   const runMsg = new Map<string, number>();
   let stop: string | null = null;
+  // القالب 7: المنتج والمبلغ لازم يتقروا قبل أي إرسال — القراية وقعت = كل الصفوف release (مفيش رسالة بمبلغ ناقص)
+  if (!(await withOrderFields(rows))) stop = "order_read_failed";
   const mark = async (id: number, res: Record<string, unknown>) => {
     const r = await rpc("wa_ofd_mark_v1", { p_id: id, p_result: res });
     // deno-lint-ignore no-explicit-any
@@ -152,11 +174,12 @@ Deno.serve(async (req: Request) => {
     if (Date.now() >= Date.parse(r.send_until)) { stop = "quiet_hours"; await mark(r.id, { outcome: "release", error_code: "quiet_hours" }); add("released"); continue; }
     const t = tenantCfg.get(String(r.tenant_id));
     if (!t?.whatsapp_phone_id || !t?.whatsapp_token) { await mark(r.id, { outcome: "deferred", error_code: "no_wa_config", run_stop: true }); stop = "no_wa_config"; continue; }
-    if (r.param_count !== OFD_PARAMS || maxPlaceholder(r.body) !== OFD_PARAMS) {
+    const nParams = Number(r.param_count);
+    if (!OFD_LAYOUTS[nParams] || maxPlaceholder(r.body) !== nParams) {
       await mark(r.id, { outcome: "pause", error_code: "bad_template_params" }); stop = "bad_template_params"; continue;
     }
     let params: string[];
-    try { params = buildOfdParams(r); }
+    try { params = buildOfdParams(r, nParams); }
     catch (e) {
       const m = String((e as Error).message);
       if (m === "bad_store_phone") { await mark(r.id, { outcome: "pause", error_code: m }); stop = m; }

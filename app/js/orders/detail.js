@@ -216,6 +216,7 @@ function loadExchangeLinks(o){
 }
 
 // (11 أكتوبر) رسالة «المندوب في الطريق» (wa-ofd-notify): آخر رسالة اتبعتت للعميل برقم المندوب + حالة وصولها.
+// الرسالة التانية وما بعدها: مندوب تاني = «المندوب اتغيّر» · نفس المندوب = «تذكير: خرج تاني» (يوم جديد — قرار 11 أكتوبر مساءً).
 // الخطأ للأدمن بس. من wa_ofd_sends (قراية بس) — مفيش عمود جديد على orders (الريل-تايم مايعيدش الرسم).
 export function ofdLineHtml(rows, msgStatus, admin){
   rows = (rows||[]).slice().sort(function(a,b){ return String(b.created_at).localeCompare(String(a.created_at)); });
@@ -231,7 +232,8 @@ export function ofdLineHtml(rows, msgStatus, admin){
       + (last.status==='unknown' ? '📲 اتبعتت غالباً (ماجالناش رد من واتساب) — ' : '📲 اتبعت للعميل رقم المندوب ')
       + '<b>'+esc(last.courier_name||'—')+'</b> <span dir="ltr">'+esc(last.courier_phone||'')+'</span> · '
       + esc(fmtDT(last.sent_at||last.dispatched_at||last.updated_at)) + tick
-      + (sent.length>1 ? ' <span style="color:var(--muted)">(الرسالة '+sent.length+' — المندوب اتغيّر)</span>' : '')
+      + (sent.length>1 ? ' <span style="color:var(--muted)">(الرسالة '+sent.length+' — '
+          + (sent[1].courier_phone===last.courier_phone ? 'تذكير: خرج تاني' : 'المندوب اتغيّر')+')</span>' : '')
       + '</span>';
   }
   if(!admin) return '';

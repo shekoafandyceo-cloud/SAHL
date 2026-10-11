@@ -332,6 +332,14 @@ CONTRACTS = [
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
     ("wa-ofd-notify", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
+    # (11 أكتوبر مساءً) القالب 7 — المنتج والمبلغ من orders: قراية بس، ولو وقعت = مفيش إرسال (مفيش رسالة بمبلغ ناقص)
+    ("wa-ofd-notify", u"orders قراية بس · قراية المنتج/المبلغ وقعت = وقف الدورة قبل أي fetch · الترتيب من OFD_LAYOUTS بـparam_count",
+     lambda s: all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\("orders"\)', s))
+     and 'if (!(await withOrderFields(rows))) stop = "order_read_failed";' in s
+     and s.index('if (!(await withOrderFields(rows)))') < s.index("fetch(`${GRAPH}")
+     and "OFD_LAYOUTS[nParams]" in s and "buildOfdParams(r, nParams)" in s and "OFD_PARAMS" not in s),
+    ("_shared/wa-ofd", u"المبلغ: مش رقم/سالب/فاضي = bad_amount (مفيش رسالة بمبلغ غلط) · صفر = «مدفوع مسبقاً»",
+     lambda s: 'throw new Error("bad_amount")' in s and u'"0 جنيه (مدفوع مسبقاً)"' in s and "Number.isFinite(n) || n < 0" in s),
     # ── رسالة تجربة «المندوب في الطريق» على رقم المالك (11 أكتوبر) ──
     ("wa-ofd-test", u"service/diag بس — مفيش مسار للموظف",
      lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
@@ -339,17 +347,18 @@ CONTRACTS = [
      lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"send", "order_uid"} and 'eq("key", "wa_ofd_test")' in s
      and "pilot_wa_ids\")" not in s and not re.search(r"select\([^)]*pilot_wa_ids", s)
      and "to: waId" in s and "body.to" not in s),
-    ("wa-ofd-test", u"صفر لمس للإنتاجية: مفيش حجز/ختم/نتيجة ولا كتابة في wa_ofd_sends/wa_auto_templates/wa_ofd_runs/orders",
+    ("wa-ofd-test", u"صفر لمس للإنتاجية: مفيش حجز/ختم/نتيجة ولا كتابة في wa_ofd_sends/wa_auto_templates/wa_ofd_runs/orders (orders قراية بس للقالب 7)",
      lambda s: not any(w in s for w in ('"wa_ofd_claim_v1"', '"wa_ofd_dispatch_v1"', '"wa_ofd_mark_v1"',
-                                         'from("wa_ofd_sends")', 'from("wa_ofd_runs")', 'from("orders")'))
-     and not re.search(r'from\("wa_auto_templates"\)\s*\.(update|upsert|insert|delete)', s)),
+                                         'from("wa_ofd_sends")', 'from("wa_ofd_runs")'))
+     and not re.search(r'from\("wa_auto_templates"\)\s*\.(update|upsert|insert|delete)', s)
+     and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\("orders"\)', s))),
     ("wa-ofd-test", u"المعاينة قبل الإرسال (send=true + order_uid اللي اتعاين) + حجز ذري قبل fetch بيقفل لو وقع",
      lambda s: "const send = body?.send === true" in s and "if (send && !uidRaw)" in s
      and s.index("if (!send)") < s.index("fetch(`${GRAPH}")
      and '"wa_ofd_test_reserve"' in s and s.index('"wa_ofd_test_reserve"') < s.index("fetch(`${GRAPH}")
      and "if (rErr || !rsv)" in s and "if (rsv.ok !== true)" in s),
     ("wa-ofd-test", u"بيانات حقيقية بالمعاينة ونص القالب من الداتابيز (renderTemplate(c.body))",
-     lambda s: "p_shadow: true" in s and "buildOfdParams(c)" in s and "renderTemplate(c.body" in s and u"خرج النهارده" not in s),
+     lambda s: "p_shadow: true" in s and "buildOfdParams(c, nParams)" in s and "renderTemplate(c.body" in s and u"خرج النهارده" not in s),
     ("wa-ofd-test", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
 ]

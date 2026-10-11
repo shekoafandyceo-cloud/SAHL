@@ -1,7 +1,8 @@
 // «المندوب في الطريق» (11 أكتوبر) — سطر «رسالة المندوب للعميل» في نافذة التفاصيل (wa_ofd_sends · قراية بس).
 //
 //  1) رسالة اتبعتت: السطر ظاهر · اسم المندوب · الرقم جوّه [dir=ltr] · الوقت
-//  2) رسالتين بمندوبين مختلفين: آخر مندوب + «الرسالة 2»
+//  2) رسالتين بمندوبين مختلفين: آخر مندوب + «الرسالة 2 — المندوب اتغيّر»
+// 14) (11 أكتوبر مساءً) رسالتين بنفس المندوب (خرج تاني يوم جديد) = «الرسالة 2 — تذكير: خرج تاني» مش «المندوب اتغيّر»
 //  3) حالة الرسالة من wa_messages: read = «اتقرت» · failed = «⚠️ ماوصلتش للعميل»
 //  4) failed_permanent بس: الأدمن بيشوف الكود · الموظف مايشوفش حاجة
 //  5) expired (أدمن) = «ماتبعتتش (المسح اتغيّر/قدم)» مش «هتتحاول تاني» · deferred = «هتتحاول تاني»
@@ -16,7 +17,8 @@
 //  1) الوقت نفسه مكتوب (بعد شيل رقم المندوب من النص — الرقم كان بيعدّي /\d{4}/ لوحده)
 //
 // المعايرات (مرساة + حارس — درس 47): شيل esc → 9 · شيل حارس الأدمن → 4 · أقدم رسالة بدل الأحدث → 2 · شيل حارس J&T → 8 ·
-// شيل حارس sel.id → 11 · expired كأنها retry → 5 · unknown من غير شرط dispatched_at → 6 · شيل الوقت → 1 · السطر المخفي آخر القسم → 13
+// شيل حارس sel.id → 11 · expired كأنها retry → 5 · unknown من غير شرط dispatched_at → 6 · شيل الوقت → 1 · السطر المخفي آخر القسم → 13 ·
+// «المندوب اتغيّر» دايماً → 14
 // تشغيل:  cd tools && node --import ./clock-preload.mjs test-wa-ofd.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -92,6 +94,9 @@ async function scenario(opts, id){
 const ONE = [S({})];
 const TWO = [S({ created_at: T(7), sent_at: T(7), courier_name: 'Old Courier', courier_phone: '01000000099' }),
              S({ created_at: T(9), courier_name: 'Mahmoud Goma Al Sayed', courier_phone: '01200000022', wa_message_id: 'wamid.x2' })];
+// نفس المندوب يومين ورا بعض (التذكير)
+const SAME2 = [S({ created_at: '2026-10-09T07:05:00Z', sent_at: '2026-10-09T07:05:00Z', scan_at: '2026-10-09T07:00:00Z' }),
+               S({ created_at: T(9) })];
 
 console.log('── أدمن');
 let r = await scenario({ sends: ONE });
@@ -100,8 +105,10 @@ ok(r.ltr === '01000000011', '1) الرقم جوّه [dir=ltr] (' + r.ltr + ')');
 ok(/\d{1,2}:\d{2}/.test(r.noLtr) && /2026/.test(r.noLtr) && /اتبعت للعميل رقم المندوب/.test(r.text), '1) الوقت مكتوب (من غير رقم المندوب): ' + (r.noLtr || '').slice(-40));
 const R1 = r;
 r = await scenario({ sends: TWO, msgs: [{ wa_message_id: 'wamid.x2', status: 'read' }] });
-ok(/Mahmoud Goma Al Sayed/.test(r.text) && !/Old Courier/.test(r.text) && /الرسالة 2/.test(r.text), '2) رسالتين: آخر مندوب + «الرسالة 2» — ' + (r.text || '').slice(0, 90));
+ok(/Mahmoud Goma Al Sayed/.test(r.text) && !/Old Courier/.test(r.text) && /الرسالة 2 — المندوب اتغيّر/.test(r.text), '2) رسالتين: آخر مندوب + «الرسالة 2 — المندوب اتغيّر» — ' + (r.text || '').slice(0, 90));
 ok(/اتقرت/.test(r.text), '3) wa_messages read = «اتقرت»');
+r = await scenario({ sends: SAME2 });
+ok(/الرسالة 2 — تذكير: خرج تاني/.test(r.text) && !/المندوب اتغيّر/.test(r.text), '14) نفس المندوب يوم جديد = «تذكير: خرج تاني» — ' + (r.text || '').slice(-60));
 r = await scenario({ sends: [S({ wa_message_id: 'wamid.f' })], msgs: [{ wa_message_id: 'wamid.f', status: 'failed' }] });
 ok(/ماوصلتش للعميل/.test(r.text), '3) wa_messages failed = «⚠️ ماوصلتش للعميل»');
 const FP = [S({ status: 'failed_permanent', sent_at: null, error_code: '131026', error_detail: 'Message undeliverable' })];
@@ -172,6 +179,11 @@ r = await scenario({ sends: TWO, patch: s => s.replace('  var last = sent[0];', 
 ok(/Old Courier/.test(r.text), 'معايرة (2): أقدم رسالة بدل الأحدث — فحص 2 بيمسكها');
 r = await scenario({ sends: ONE, patch: s => { const o = s.replace("o.shipping_carrier!=='jt' || ", '').replace("  var box = $id('ofd-row');\n  if(!box", "  var box = $id('ofd-row') || document.body;\n  if(!box"); if(o.split('ofd-row\') || document.body').length !== 2 || o.indexOf("o.shipping_carrier!=='jt' || ") >= 0) throw new Error('المعايرة مالقتش المرساة (8)'); return o; } }, 'o1');   // (السطر نفسه لو اتنقل بره فرع J&T)
 ok(r.calls.length > 0, 'معايرة (8): من غير حارس J&T بيستعلم على أوردر مش J&T — فحص 8 بيمسكها');
+{
+  const seg = "(sent[1].courier_phone===last.courier_phone ? 'تذكير: خرج تاني' : 'المندوب اتغيّر')";
+  r = await scenario({ sends: SAME2, patch: s => { if(s.indexOf(seg) < 0) throw new Error('المعايرة مالقتش المرساة (14)'); return s.replace(seg, "'المندوب اتغيّر'"); } });
+  ok(/المندوب اتغيّر/.test(r.text), 'معايرة (14): «المندوب اتغيّر» دايماً — فحص 14 بيمسكها');
+}
 r = await staleRun(s => { if(s.split('sel.id!==o.id').length < 3) throw new Error('المعايرة مالقتش المرساة (11)'); return s.split('sel.id!==o.id').join('false'); });
 ok(/Courier From A/.test(r.text || ''), 'معايرة (11): من غير حارس sel.id الرد القديم بيترسم في B — فحص 11 بيمسكها');
 r = await scenario({ sends: [S({ status: 'expired', sent_at: null, error_code: 'superseded_or_stale' })], patch: s => s.replace("    : f.status==='expired' ? 'ماتبعتتش (المسح اتغيّر/قدم)'\n", '') });

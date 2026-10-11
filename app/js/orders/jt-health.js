@@ -55,7 +55,8 @@ export function rateSyncIssues(h){
 }
 
 // (11 أكتوبر) رسايل «المندوب في الطريق» (h.ofd من app.wa_ofd_health) — درس 51: شبكة الأمان لازم تقول لما تقع.
-// mode=off = ولا سطر (الميزة مقفولة لحد موافقة ميتا). last_error بيتقال لوحده حتى لو stale=0 (الـEF وقعت والشحنات اتلمّت بعدها).
+// mode=off = ولا سطر: ده إيقاف يدوي بقرار (SQL) — الإيقاف الأوتوماتيك عمره ما بيكتب off، بيكتب paused (وده بيبان تحت).
+// last_error بيتقال لوحده حتى لو stale=0 (الـEF وقعت والشحنات اتلمّت بعدها).
 export function ofdIssues(h){
   var o = h && h.ofd, out = [];
   if(!o) return out;
