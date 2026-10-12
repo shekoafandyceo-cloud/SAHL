@@ -116,9 +116,14 @@ Deno.serve(async (req: Request) => {
       .order("id", { ascending: false }).limit(1).maybeSingle();
     if (lastErr) return json({ ok: false, error: "sends_read_failed" }, 500);
     if (!last) return json({ ok: false, error: "no_candidate", reason: "never_sent" });
+    // رقم المحل = wa_ofd_candidates_v1 بالحرف: store_phone ← support_phone ← sender_phone (الفاضي بعد trim = مش موجود)
+    const { data: ten, error: tenErr } = await admin.from("tenants").select("support_phone, sender_phone").eq("id", cfg.tenant_id).maybeSingle();
+    if (tenErr) return json({ ok: false, error: "tenant_read_failed" }, 500);
+    const nb = (x: unknown) => String(x ?? "").trim() || null;
     c = { tenant_id: ord.tenant_id, order_id: ord.id, order_uid: ord.order_uid, customer_name: ord.customer_name,
           tracking_no: ord.tracking_no, courier_name: last.courier_name, courier_phone: last.courier_phone,
-          store_phone: tpl.store_phone, template_name: tpl.template_name, lang: tpl.lang, body: tpl.body,
+          store_phone: nb(tpl.store_phone) || nb(ten?.support_phone) || nb(ten?.sender_phone),
+          template_name: tpl.template_name, lang: tpl.lang, body: tpl.body,
           param_count: tpl.param_count, source_send_id: last.id };
   } else {
     const { data: cands, error: cErr } = await admin.rpc("wa_ofd_candidates_v1", { p_limit: 1, p_uids: uidRaw ? [uidRaw] : null, p_shadow: true });
@@ -144,10 +149,13 @@ Deno.serve(async (req: Request) => {
   const nParams = Number(c.param_count);
   if (!ofdTemplateOk(c.body, nParams)) return json({ ok: false, error: "bad_template_params" });
   if (ofdNeedsOrder(nParams)) {
-    const { data: o, error: oErr } = await admin.from("orders").select("tenant_id, product_name, jt_cod_amount, total_cost")
+    const { data: o, error: oErr } = await admin.from("orders").select("tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost")
       .eq("id", c.order_id).maybeSingle();
     if (oErr) return json({ ok: false, error: "order_read_failed" }, 500);
-    if (o && o.tenant_id === c.tenant_id) { c.product_name = o.product_name; c.cod_amount = o.jt_cod_amount; c.total_cost = o.total_cost; }
+    if (o && o.tenant_id === c.tenant_id) {
+      c.product_name = o.product_name; c.manufacturer_note = o.manufacturer_note; c.var = o.var;
+      c.cod_amount = o.jt_cod_amount; c.total_cost = o.total_cost;
+    }
   }
   let params: string[];
   try { params = buildOfdParams(c, nParams); } catch (e) { return json({ ok: false, error: String((e as Error).message) }); }

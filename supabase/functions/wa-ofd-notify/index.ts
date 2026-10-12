@@ -86,13 +86,16 @@ async function rpc(fn: string, args: Record<string, unknown>) {
 async function withOrderFields(rows: any[]): Promise<boolean> {
   const ids = [...new Set(rows.filter((r) => ofdNeedsOrder(Number(r.param_count))).map((r) => String(r.order_id)))];
   if (!ids.length) return true;
-  const { data, error } = await admin.from("orders").select("id, tenant_id, product_name, jt_cod_amount, total_cost").in("id", ids);
+  const { data, error } = await admin.from("orders").select("id, tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost").in("id", ids);
   if (error) return false;
   // deno-lint-ignore no-explicit-any
   const byId = new Map((data || []).map((o: any) => [String(o.id), o]));
   for (const r of rows) {
     const o = byId.get(String(r.order_id));
-    if (o && String(o.tenant_id) === String(r.tenant_id)) { r.product_name = o.product_name; r.cod_amount = o.jt_cod_amount; r.total_cost = o.total_cost; }
+    if (o && String(o.tenant_id) === String(r.tenant_id)) {
+      r.product_name = o.product_name; r.manufacturer_note = o.manufacturer_note; r.var = o.var;   // الخاصية جنب أول منتج (ofdProducts)
+      r.cod_amount = o.jt_cod_amount; r.total_cost = o.total_cost;
+    }
   }
   return true;
 }

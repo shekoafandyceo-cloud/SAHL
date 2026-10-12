@@ -143,8 +143,8 @@ function runChecks(m, sqlText){
   // شكل 17392 (6 منتجات أسماء طويلة): المنتجات الكاملة + «+ N منتجات تانية» — مفيش كلمة مقصوصة
   const six = Array.from({ length: 6 }, (_, i) => 'صاعق ومضرب الناموس الذكي رقم ' + i + ' (عدد ' + (i === 1 ? 3 : 1) + ')');
   const longP = P(six.join('\n+ '));
-  const kept = longP.replace(/ \+ \d+ منتجات تانية$| \+ منتج تاني$/, '').split(' + ');
-  const n6 = kept.length + Number((longP.match(/\+ (\d+) منتجات تانية$/) || [0, longP.endsWith('+ منتج تاني') ? 1 : 0])[1]);
+  const kept = longP.replace(/ \+ \d+ منتجات تانية$| \+ منتجين تانيين$| \+ منتج تاني$/, '').split(' + ');
+  const n6 = kept.length + Number((longP.match(/\+ (\d+) منتجات تانية$/) || [0, longP.endsWith('+ منتجين تانيين') ? 2 : longP.endsWith('+ منتج تاني') ? 1 : 0])[1]);
   ok(13, Array.from(longP).length <= 120 && !longP.includes('…') && n6 === 6 && kept[1] === 'صاعق ومضرب الناموس الذكي رقم 1 (عدد 3)'
      && kept.every((k, i) => k.startsWith('صاعق ومضرب الناموس الذكي رقم ' + i)) && !/[\n\t]|\s{2,}/.test(longP), '13) سقف 120 على منتجات كاملة + الباقي بالعدد — ' + longP);
   const one = P('ا'.repeat(80) + ' ' + 'ب'.repeat(80) + ' (عدد 1)\n+ X (عدد 1)');
@@ -167,6 +167,30 @@ function runChecks(m, sqlText){
   ok(15, m.maxPlaceholder(V2_BODY) === 7 && m.renderTemplate(V2_BODY, p7).includes('المنتج: سبت (عدد 2)\nالمطلوب عند الاستلام (شامل الشحن): 1,450 جنيه\n\nاسم المندوب: Sherif Ashraf'), '15) نص القالب 7 المرسوم');
   ok(15, JSON.stringify(m.buildOfdParams(r7)) === JSON.stringify(m.buildOfdParams(r7, 5)) && m.buildOfdParams(r7).length === 5
      && m.ofdNeedsOrder(7) && !m.ofdNeedsOrder(5), '15) القالب 5 زي ما كان (من غير المنتج والمبلغ)');
+  // 16 — (12 أكتوبر — المراجعة) الخاصية اللي العميل اختارها جنب أول منتج · «منتجين تانيين» · لاحقة المخزون المكررة · «\n» الحرفي
+  const PP = (x, p) => m.ofdProducts(x, p);
+  ok(16, PP('تيربو بريمو 5 دور (عدد 1)', '4 أدوار مدور') === 'تيربو بريمو 5 دور (4 أدوار مدور)'
+     && PP('تيربو بريمو (عدد 2)', '4 أدوار مدور') === 'تيربو بريمو (4 أدوار مدور) (عدد 2)'
+     && PP('تيربو بريمو (عدد 1)\n+ استاند قابل للطي مزود بعجل (عدد 1)', '5 أدوار مدور') === 'تيربو بريمو (5 أدوار مدور) + استاند قابل للطي مزود بعجل',
+     '16) الخاصية بين قوسين بعد أول منتج (17712 · 18158 · 18165 بالحرف) — ' + PP('تيربو بريمو 5 دور (عدد 1)', '4 أدوار مدور'));
+  ok(16, PP('منظم المطبخ المتكامل (عدد 1) - مقاس 85 عرض', 'مقاس 85 عرض') === 'منظم المطبخ المتكامل - مقاس 85 عرض'
+     && PP('ترولي 3 دور ايكيا — أسود (عدد 1)', ' أسود ') === 'ترولي 3 دور ايكيا — أسود' && PP('رف (عدد 1)', '   ') === 'رف' && PP('رف (عدد 1)', null) === 'رف',
+     '16) الخاصية مابتتكررش لو في الاسم · الفاضي مالوش أثر');
+  const r7p = Object.assign({}, r7, { product_name: 'تيربو بريمو 5 دور (عدد 1)', manufacturer_note: '  ', var: '4 أدوار' });
+  ok(16, m.buildOfdParams(r7p, 7)[2] === 'تيربو بريمو 5 دور (4 أدوار)'
+     && m.buildOfdParams(Object.assign({}, r7p, { manufacturer_note: '4 أدوار مدور ' }), 7)[2] === 'تيربو بريمو 5 دور (4 أدوار مدور)'
+     && JSON.stringify(m.buildOfdParams(r7p, 5)) === JSON.stringify(m.buildOfdParams(r7, 5)), '16) buildOfdParams: manufacturer_note ← var (= orderProps) · القالب 5 مالوش دعوة');
+  const big = 'ا'.repeat(55) + ' (عدد 1)\n+ ' + 'ب'.repeat(55) + ' (عدد 1)';
+  const bigP = PP(big, 'مقاس 85 عرض');
+  ok(16, bigP === 'ا'.repeat(55) + ' (مقاس 85 عرض) + منتج تاني' && PP('ا'.repeat(115) + ' (عدد 1)', 'مقاس 85 عرض') === 'ا'.repeat(115)
+     && Array.from(PP('ا'.repeat(60) + ' ' + 'ب'.repeat(80) + ' (عدد 1)', 'مقاس 85 عرض')).length <= 120,
+     '16) مش هتساع: المنتجات اللي بعد الأول «+ N» قبل الخاصية · ولو الأول لوحده مايساعهاش = من غيرها — ' + bigP);
+  const three = ['ستاند الحمام والغسالة المعدني 3 أدوار الذكي (عدد 2)', 'شواية الفحم المحمولة القابلة للطي (عدد 1)', 'صينية وشبكة التحمير والقلي الهوائي في الفرن (عدد 1)', 'بوكس تخزين (عدد 1)'].join('\n+ ');
+  ok(16, PP(three).endsWith(' + منتجين تانيين') && PP('باسكت قابل للطي (عدد 1)\n+ تيربو بريمو 5 دور — 5 دور (عدد 1)') === 'باسكت قابل للطي + تيربو بريمو 5 دور'
+     && PP('تيربو بريمو 5 دور — 4 دور (عدد 1)') === 'تيربو بريمو 5 دور — 4 دور' && PP('ترولي 3 دور ايكيا — بينك (عدد 1)') === 'ترولي 3 دور ايكيا — بينك',
+     '16) «منتجين تانيين» · «— 5 دور» المكررة بتتشال · «— 4 دور»/«— بينك» بيفضلوا');
+  ok(16, !m.ofdTemplateOk(V2_BODY.replace(/\n/g, '\\n'), 7) && !m.ofdTemplateOk(V2_BODY.replace(/\n/g, '\r\n'), 7) && m.ofdTemplateOk(V2_BODY, 7) && m.ofdTemplateOk(BODY, 5),
+     '16) نص فيه «\\n» حرفي (SQL من غير E) أو \\r = مرفوض · الصح بيعدّي');
   thr = ''; try { m.buildOfdParams(r7, 6); } catch(e){ thr = e.message; }
   let thr2 = ''; try { m.buildOfdParams(Object.assign({}, r7, { cod_amount: null, total_cost: null }), 7); } catch(e){ thr2 = e.message; }
   ok(15, thr === 'bad_template_params' && thr2 === 'bad_amount', '15) عدد متغيرات مش معروف = bad_template_params · المبلغ ناقص = bad_amount');
@@ -210,8 +234,13 @@ await calib('ز (من غير لزق «ام/عبد»)', (s) => s.replace('while (
 await calib('ح (المبلغ من غير الرجوع للإجمالي)', (s) => s.replace('String(cod).trim() === "" ? total : cod;', 'String(cod).trim() === "" ? cod : cod;'), [14]);
 await calib('ط (تقسيم المنتج على أي « - »)', (s) => s.replace("(?<=\\(\\s*عدد\\s*[0-9\\u0660-\\u0669]+\\s*\\))\\s*[-+]\\s*", "\\s+[-+]\\s+"), [13]);
 await calib('ي (القالب 7 بترتيب غلط)', (s) => s.replace('7: ["first_name", "order_no", "products", "amount",', '7: ["first_name", "order_no", "amount", "products",'), [15]);
-await calib('ك (المراسي متشالة — العدد بس)', (s) => s.replace('maxPlaceholder(b) === n && a.every((x) => b.includes(x));', 'maxPlaceholder(b) === n;'), [15]);
+await calib('ك (المراسي متشالة — العدد بس)', (s) => s.replace('maxPlaceholder(b) === n && a.every((x) => b.includes(x)) &&', 'maxPlaceholder(b) === n &&'), [15]);
 await calib('ل (القص على الحروف مش المنتجات)', (s) => s.replace('  for (let k = items.length; k >= 1; k--) {', '  for (let k = items.length; k >= 1 && false; k--) {'), [13]);
+await calib('م (الخاصية مش واصلة لـofdProducts)', (s) => s.replace('ofdProducts(r.product_name, ofdProps(r))', 'ofdProducts(r.product_name)'), [16]);
+await calib('ن (الخاصية مكررة لو في الاسم)', (s) => s.replace('p && !items[0].name.includes(p) ?', 'p ?'), [16]);
+await calib('س (الخاصية بتتشال قبل المنتجات التانية)', (s) => s.replace('for (const t of tag ? [tag, ""] : [""]) {', 'for (const t of [""]) {'), [16]);
+await calib('ع (من غير حارس «\\n» الحرفي)', (s) => s.replace(' && !b.includes("\\\\n")', ''), [16]);
+await calib('ف (اللاحقة المكررة بتفضل)', (s) => s.replace('for (const it of items) it.name = dropEchoSuffix(it.name);', ''), [16]);
 await calib('و (maskDigits من غير \\+? والمسافات)', (s) => s.replace('/\\+?[0-9\\u0660-\\u0669][0-9\\u0660-\\u0669\\s-]{6,}[0-9\\u0660-\\u0669]/g', '/[0-9]{8,}/g'), [8, 10]);
 fs.rmSync(tmpDir, { recursive: true, force: true });
 

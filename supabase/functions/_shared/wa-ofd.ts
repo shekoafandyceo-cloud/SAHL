@@ -24,9 +24,11 @@ export const OFD_ANCHORS: Readonly<Record<number, readonly string[]>> = {
   5: ["أهلاً {{1}}", "رقم {{2}}", "اسم المندوب: {{3}}", "رقم المندوب: {{4}}", "على {{5}}"],
   7: ["أهلاً {{1}}", "رقم {{2}}", "المنتج: {{3}}", "(شامل الشحن): {{4}}", "اسم المندوب: {{5}}", "رقم المندوب: {{6}}", "على {{7}}"],
 };
+// (12 أكتوبر — المراجعة) نص اتلزق في SQL بـ'…\n…' عادي بيتخزن «\» + «n» حرفياً — المراسي والـCHECK بيعدّوه والصندوق بيعرض «\n»
+// قدام الموظف في صمت؛ و\r من نسخة ويندوز. الاتنين = إيقاف قبل أي إرسال (النص الصح فيه سطور حقيقية بس).
 export function ofdTemplateOk(body: unknown, n: number): boolean {
   const b = String(body ?? ""), a = OFD_ANCHORS[n];
-  return !!a && !!OFD_LAYOUTS[n] && maxPlaceholder(b) === n && a.every((x) => b.includes(x));
+  return !!a && !!OFD_LAYOUTS[n] && maxPlaceholder(b) === n && a.every((x) => b.includes(x)) && !b.includes("\\n") && !b.includes("\r");
 }
 // نص القالب التاني بالحرف (اللي المالك بيسجّله عند ميتا باسم order_out_for_delivery_v2_ar) — مرجع واحد للتسجيل والتبديل والهارنس.
 export const OFD_BODY_V2 = "أهلاً {{1}}،\nطلبك رقم {{2}} خرج النهارده مع مندوب الشحن وفي الطريق ليك 🚚\n\nالمنتج: {{3}}\n"
@@ -109,6 +111,11 @@ export function egLocalPhone(p: unknown): string | null {
 // بعد منتج = بقية اسمه («… (عدد 1) - مقاس 85 عرض» = لاحقة خاصية قديمة) مش منتج لوحده).
 // «(عدد 1)» بيتشال · «(عدد 2)» بيفضل · المتعدد بـ« + » · سقف 120 حرف **على منتجات كاملة** + «+ N منتجات تانية» (المبلغ في {{4}}
 // بيغطي الكل — المنتج ماينفعش يختفي في صمت) · منتج واحد أطول من السقف بيتقص على آخر مسافة بـ«…».
+// 🔴 (12 أكتوبر — المراجعة) الخاصية اللي العميل اختارها (props = manufacturer_note ← var) بتتحط بين قوسين بعد **أول** منتج:
+//    24 أوردر في 30 يوم اسمهم «تيربو بريمو 5 دور» والعميل طالب «4 أدوار مدور» بسعر الـ4 — الرسالة كانت هتقول «5 دور» والبوليصة
+//    (composeRemark) بتقول «4 أدوار مدور». أول منتج لأن var = cart_items[0] (اتقاس: 16 من 16 أوردر متعدد الخاصية بتاعة أوله) ·
+//    مابتتكررش لو الاسم فيه نصها (نفس قاعدة remarkBaseLines) · ولو مش هتساع: المنتجات اللي بعده بتبقى «+ N» قبل ما الخاصية تتشال.
+// لاحقة خاصية المخزون اللي بتكرر آخر الاسم «تيربو بريمو 5 دور — 5 دور» بتتشال (اللي بتضيف معلومة «— 4 دور» «— أسود» بتفضل).
 export const PRODUCTS_MAX = 120;
 const QTY = /\(\s*عدد\s*([0-9\u0660-\u0669]+)\s*\)/gu;
 const cpLen = (x: string) => Array.from(x).length;
@@ -119,9 +126,14 @@ function cutWords(x: string, max: number): string {
   return (sp >= max / 2 ? cut.slice(0, sp) : cut).trim();
 }
 function moreTail(r: number): string {
-  return r <= 0 ? "" : r === 1 ? " + منتج تاني" : r <= 10 ? ` + ${r} منتجات تانية` : ` + ${r} منتج تاني`;
+  return r <= 0 ? "" : r === 1 ? " + منتج تاني" : r === 2 ? " + منتجين تانيين" : r <= 10 ? ` + ${r} منتجات تانية` : ` + ${r} منتج تاني`;
 }
-export function ofdProducts(raw: unknown): string {
+function dropEchoSuffix(name: string): string {
+  const vm = name.match(/^(.*\S)\s+—\s+(.+)$/u);
+  return vm && (vm[1] === vm[2] || vm[1].endsWith(" " + vm[2])) ? vm[1] : name;
+}
+export const PROPS_MAX = 40;
+export function ofdProducts(raw: unknown, props?: unknown): string {
   const items: { name: string; q: number }[] = [];
   for (const seg of String(raw ?? "").split(/\r?\n|(?<=\(\s*عدد\s*[0-9\u0660-\u0669]+\s*\))\s*[-+]\s*/u)) {
     let q = 0;                                                                     // 0 = الجزء ده مالوش قوس كمية
@@ -134,13 +146,18 @@ export function ofdProducts(raw: unknown): string {
     items.push({ name, q: q || 1 });
   }
   if (!items.length) return "—";
-  const fmt = (it: { name: string; q: number }) => (it.q > 1 ? `${it.name} (عدد ${it.q})` : it.name);
-  for (let k = items.length; k >= 1; k--) {
-    const s = items.slice(0, k).map(fmt).join(" + ") + moreTail(items.length - k);
-    if (cpLen(s) <= PRODUCTS_MAX) return s;
+  for (const it of items) it.name = dropEchoSuffix(it.name);
+  const p = cleanParam(props, PROPS_MAX);
+  const tag = p && !items[0].name.includes(p) ? ` (${p})` : "";
+  const fmt = (it: { name: string; q: number }, i: number, t: string) => (i === 0 ? it.name + t : it.name) + (it.q > 1 ? ` (عدد ${it.q})` : "");
+  for (const t of tag ? [tag, ""] : [""]) {
+    for (let k = items.length; k >= 1; k--) {
+      const s = items.slice(0, k).map((it, i) => fmt(it, i, t)).join(" + ") + moreTail(items.length - k);
+      if (cpLen(s) <= PRODUCTS_MAX) return s;
+    }
   }
   const tail = moreTail(items.length - 1);
-  return cutWords(fmt(items[0]), PRODUCTS_MAX - 1 - cpLen(tail)) + "…" + tail;
+  return cutWords(fmt(items[0], 0, ""), PRODUCTS_MAX - 1 - cpLen(tail)) + "…" + tail;
 }
 
 // المبلغ اللي المندوب هيحصّله (شامل الشحن): jt_cod_amount (= itemsValue عند J&T) ← total_cost.
@@ -160,7 +177,11 @@ export type OfdRow = {
   customer_name?: string | null; order_uid?: string | null; tracking_no?: string | null;
   courier_name?: string | null; courier_phone?: string | null; store_phone?: string | null;
   product_name?: string | null; cod_amount?: unknown; total_cost?: unknown;     // للقالب 7 بس (من orders في الـEF)
+  manufacturer_note?: string | null; var?: string | null;                       // الخاصية = manufacturer_note ← var (= orderProps في الواجهة)
 };
+export function ofdProps(r: OfdRow): string {
+  return String(r.manufacturer_note ?? "").trim() || String(r.var ?? "").trim();
+}
 
 // المتغيرات بترتيب القالب (OFD_LAYOUTS[n]) — ولا واحد فاضي. الـ5: الاسم الأول · رقم الطلب · اسم المندوب · رقمه · رقم المحل
 export function buildOfdParams(r: OfdRow, n: number = OFD_PARAMS): string[] {
@@ -172,7 +193,7 @@ export function buildOfdParams(r: OfdRow, n: number = OFD_PARAMS): string[] {
     order_no: cleanParam(r.order_uid, 40) || cleanParam(r.tracking_no, 40) || "—",
     courier_name: ofdCourierName(r.courier_name), courier_phone: cp, store_phone: sp,
   };
-  if (keys.includes("products")) v.products = ofdProducts(r.product_name);
+  if (keys.includes("products")) v.products = ofdProducts(r.product_name, ofdProps(r));
   if (keys.includes("amount")) v.amount = ofdAmount(r.cod_amount, r.total_cost);
   return keys.map((k) => v[k]);
 }

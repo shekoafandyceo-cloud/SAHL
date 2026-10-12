@@ -364,7 +364,11 @@ CONTRACTS = [
     ("wa-ofd-test", u"المستلم من platform_settings('wa_ofd_test') مش pilot_wa_ids (قايمة الإنتاج) — الحمولة send/order_uid/replay بس",
      lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"send", "order_uid", "replay"} and 'eq("key", "wa_ofd_test")' in s
      and "pilot_wa_ids\")" not in s and not re.search(r"select\([^)]*pilot_wa_ids", s)
-     and "to: waId" in s and "body.to" not in s),
+     and "to: waId" in s and "body.to" not in s
+     # (12 أكتوبر — المراجعة) المستلم والحجز بنفس الرقم ومن `to` بس (من cfg.wa_ids) — من غيرهم «c.wa_id» (رقم العميل) كان بيعدّي العقد
+     and s.count("for (const waId of ") == 1 and "for (const waId of to) {" in s
+     and "const to = [...new Set((Array.isArray(cfg.wa_ids) ? cfg.wa_ids : [])" in s
+     and re.search(r'rpc\("wa_ofd_test_reserve", \{[^}]*p_wa_id: waId[,\s}]', s) is not None),
     ("wa-ofd-test", u"صفر لمس للإنتاجية: مفيش حجز/ختم/نتيجة ولا كتابة في wa_ofd_sends/wa_auto_templates/wa_ofd_runs/orders (orders وwa_ofd_sends قراية بس)",
      lambda s: not any(w in s for w in ('"wa_ofd_claim_v1"', '"wa_ofd_dispatch_v1"', '"wa_ofd_mark_v1"', 'from("wa_ofd_runs")'))
      and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]wa_ofd_sends[\'"`]\s*\)', s))
@@ -383,8 +387,21 @@ CONTRACTS = [
      lambda s: "const replay = body?.replay === true;" in s and "if (replay && !uidRaw)" in s
      and s.index("if (replay && !uidRaw)") < s.index("fetch(`${GRAPH}")
      and re.search(r'from\("orders"\)\s*\.select\([^)]*\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_uid", uidRaw\)', s) is not None
-     and re.search(r'from\("wa_ofd_sends"\)\s*\.select\([^)]*\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_id", ord\.id\)\.in\("status", \["sent", "unknown"\]\)', s) is not None
+     and re.search(r'from\("wa_ofd_sends"\)\s*\.select\("id, courier_name, courier_phone"\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_id", ord\.id\)\.in\("status", \["sent", "unknown"\]\)\s*\.order\("id", \{ ascending: false \}\)\.limit\(1\)\.maybeSingle\(\)', s) is not None
      and 'if (c.tenant_id !== cfg.tenant_id)' in s),
+    # (12 أكتوبر — المراجعة) القالب 7: الخاصية اللي العميل اختارها (manufacturer_note ← var) جنب المنتج — «تيربو بريمو 5 دور»
+    # لعميل طالب «4 أدوار مدور» = رسالة بتناقض البوليصة. القرايتين (الإنتاج والتجربة) لازم يجيبوها
+    ("wa-ofd-notify", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders)",
+     lambda s: "select(\"id, tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost\")" in s
+     and "r.manufacturer_note = o.manufacturer_note; r.var = o.var;" in s),
+    ("wa-ofd-test", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders) · رقم المحل = wa_ofd_candidates_v1 في replay",
+     lambda s: "select(\"tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost\")" in s
+     and "c.manufacturer_note = o.manufacturer_note; c.var = o.var;" in s
+     and "store_phone: nb(tpl.store_phone) || nb(ten?.support_phone) || nb(ten?.sender_phone)" in s),
+    ("_shared/wa-ofd", u"المنتج بالخاصية (ofdProps) · نص فيه «\\n» حرفي أو \\r = مرفوض قبل الإرسال",
+     lambda s: "ofdProducts(r.product_name, ofdProps(r))" in s
+     and 'return String(r.manufacturer_note ?? "").trim() || String(r.var ?? "").trim();' in s
+     and '!b.includes("\\\\n") && !b.includes("\\r")' in s),
     ("wa-ofd-test", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
 ]
