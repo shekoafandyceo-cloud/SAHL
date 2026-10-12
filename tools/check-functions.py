@@ -361,13 +361,13 @@ CONTRACTS = [
     # ── رسالة تجربة «المندوب في الطريق» على رقم المالك (11 أكتوبر) ──
     ("wa-ofd-test", u"service/diag بس — مفيش مسار للموظف",
      lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
-    ("wa-ofd-test", u"المستلم من platform_settings('wa_ofd_test') مش pilot_wa_ids (قايمة الإنتاج) — الحمولة send/order_uid بس",
-     lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"send", "order_uid"} and 'eq("key", "wa_ofd_test")' in s
+    ("wa-ofd-test", u"المستلم من platform_settings('wa_ofd_test') مش pilot_wa_ids (قايمة الإنتاج) — الحمولة send/order_uid/replay بس",
+     lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"send", "order_uid", "replay"} and 'eq("key", "wa_ofd_test")' in s
      and "pilot_wa_ids\")" not in s and not re.search(r"select\([^)]*pilot_wa_ids", s)
      and "to: waId" in s and "body.to" not in s),
-    ("wa-ofd-test", u"صفر لمس للإنتاجية: مفيش حجز/ختم/نتيجة ولا كتابة في wa_ofd_sends/wa_auto_templates/wa_ofd_runs/orders (orders قراية بس للقالب 7)",
-     lambda s: not any(w in s for w in ('"wa_ofd_claim_v1"', '"wa_ofd_dispatch_v1"', '"wa_ofd_mark_v1"',
-                                         'from("wa_ofd_sends")', 'from("wa_ofd_runs")'))
+    ("wa-ofd-test", u"صفر لمس للإنتاجية: مفيش حجز/ختم/نتيجة ولا كتابة في wa_ofd_sends/wa_auto_templates/wa_ofd_runs/orders (orders وwa_ofd_sends قراية بس)",
+     lambda s: not any(w in s for w in ('"wa_ofd_claim_v1"', '"wa_ofd_dispatch_v1"', '"wa_ofd_mark_v1"', 'from("wa_ofd_runs")'))
+     and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]wa_ofd_sends[\'"`]\s*\)', s))
      and not re.search(r'from\("wa_auto_templates"\)\s*\.(update|upsert|insert|delete)', s)
      and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]orders[\'"`]\s*\)', s))
      and "ofdTemplateOk(c.body, nParams)" in s),
@@ -378,6 +378,13 @@ CONTRACTS = [
      and "if (rErr || !rsv)" in s and "if (rsv.ok !== true)" in s),
     ("wa-ofd-test", u"بيانات حقيقية بالمعاينة ونص القالب من الداتابيز (renderTemplate(c.body))",
      lambda s: "p_shadow: true" in s and "buildOfdParams(c, nParams)" in s and "renderTemplate(c.body" in s and u"خرج النهارده" not in s),
+    # (12 أكتوبر) replay: أوردر اتبعتله فعلاً — order_uid إجباري · المتجر من الإعداد في القرايتين · آخر رسالة sent/unknown بس
+    ("wa-ofd-test", u"replay بـorder_uid بس · orders وwa_ofd_sends بمتجر الإعداد · آخر رسالة اتبعتت (sent/unknown) · قبل fetch",
+     lambda s: "const replay = body?.replay === true;" in s and "if (replay && !uidRaw)" in s
+     and s.index("if (replay && !uidRaw)") < s.index("fetch(`${GRAPH}")
+     and re.search(r'from\("orders"\)\s*\.select\([^)]*\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_uid", uidRaw\)', s) is not None
+     and re.search(r'from\("wa_ofd_sends"\)\s*\.select\([^)]*\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_id", ord\.id\)\.in\("status", \["sent", "unknown"\]\)', s) is not None
+     and 'if (c.tenant_id !== cfg.tenant_id)' in s),
     ("wa-ofd-test", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
 ]

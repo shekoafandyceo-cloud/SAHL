@@ -20,8 +20,11 @@
 //   • (11 أكتوبر مساءً) قالب لسه مااتفعّلش في الإنتاج (المنتج + المبلغ): platform_settings('wa_ofd_test').template =
 //     {name, lang?, body, param_count} = بيتجرّب هو بدل صف الإنتاج — عشان رسالة القالب الجديد توصل رقم المالك قبل التبديل.
 //     النص = المسجّل عند ميتا بالحرف (بيتكتب بـSQL مع الإعداد) · الترتيب من OFD_LAYOUTS · المنتج والمبلغ من orders (قراية بس).
+//   • (12 أكتوبر) replay=true + order_uid: والإنتاج شغّال (mode='on') أي مسح 94 جديد بياخد رسالته خلال دقيقة، فالمعاينة (shadow)
+//     مابتلاقيش مرشّح «لسه مااتبعتلوش» أبداً. replay بياخد أوردر **اتبعتله** «المندوب في الطريق» فعلاً (آخر صف sent/unknown في
+//     wa_ofd_sends — قراية بس) ويبني نفس البيانات (نفس المندوب ورقمه) — والمستلم برضه رقم المالك بس من الإعداد.
 //
-// الحمولة: { send?: boolean, order_uid?: string }   التصريح: service_role أو x-diag-token (زي wa-ofd-notify).
+// الحمولة: { send?: boolean, order_uid?: string, replay?: boolean }   التصريح: service_role أو x-diag-token (زي wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildOfdParams, classifyFetchError, classifyMeta, maskDigits, maskPhone, ofdNeedsOrder, ofdTemplateOk,
@@ -73,6 +76,8 @@ Deno.serve(async (req: Request) => {
   const uidRaw = String(body?.order_uid ?? "").trim();
   if (uidRaw && !/^[A-Za-z0-9-]{1,40}$/.test(uidRaw)) return json({ ok: false, error: "bad_order_uid" }, 400);
   if (send && !uidRaw) return json({ ok: false, error: "order_uid_required" }, 400);   // الإرسال على اللي اتعاين بس
+  const replay = body?.replay === true;
+  if (replay && !uidRaw) return json({ ok: false, error: "order_uid_required" }, 400);  // replay لأوردر بعينه بس
 
   // 1) إعداد التجربة (المستلمين · الانتهاء · السقف) — منفصل عن pilot_wa_ids
   const { data: cfgRow, error: cfgErr } = await admin.from("platform_settings").select("value").eq("key", "wa_ofd_test").maybeSingle();
@@ -90,22 +95,42 @@ Deno.serve(async (req: Request) => {
 
   // 2) حالة القالب — عشان «مفيش مرشّح» يتقال بسببه
   const { data: tpl, error: tplErr } = await admin.from("wa_auto_templates")
-    .select("paused_at, paused_reason, send_from_hour, send_to_hour")
+    .select("paused_at, paused_reason, send_from_hour, send_to_hour, template_name, lang, body, param_count, store_phone")
     .eq("tenant_id", cfg.tenant_id).eq("event", "out_for_delivery").maybeSingle();
   if (tplErr) return json({ ok: false, error: "template_read_failed" }, 500);
   if (!tpl) return json({ ok: false, error: "no_template_row" });
 
-  // 3) مرشّح حقيقي بالمعاينة (shadow: بيتجاهل mode/pilot/enabled_since — بيحترم الإيقاف والساعات والطازة)
-  const { data: cands, error: cErr } = await admin.rpc("wa_ofd_candidates_v1", { p_limit: 1, p_uids: uidRaw ? [uidRaw] : null, p_shadow: true });
-  if (cErr) return json({ ok: false, error: "candidates_failed" }, 500);
+  // 3) المرشّح: (أ) حقيقي بالمعاينة (shadow: بيتجاهل mode/pilot/enabled_since — بيحترم الإيقاف والساعات والطازة) ·
+  //    (ب) replay: أوردر اتبعتله فعلاً — المتجر من الإعداد · آخر رسالة sent/unknown · نفس المندوب ورقمه اللي العميل استلمهم
   // deno-lint-ignore no-explicit-any
-  const c: any = (cands || [])[0];
-  if (!c) {
-    const h = cairoHour();
-    const reason = tpl.paused_at ? `paused:${tpl.paused_reason || "?"}`
-      : (h < tpl.send_from_hour || h >= tpl.send_to_hour) ? `outside_hours:${h}`
-      : uidRaw ? "order_not_candidate_now" : "no_fresh_out_for_delivery";
-    return json({ ok: false, error: "no_candidate", reason });
+  let c: any = null;
+  if (replay) {
+    const { data: ord, error: ordErr } = await admin.from("orders")
+      .select("id, tenant_id, order_uid, customer_name, tracking_no, product_name, jt_cod_amount, total_cost")
+      .eq("tenant_id", cfg.tenant_id).eq("order_uid", uidRaw).maybeSingle();
+    if (ordErr) return json({ ok: false, error: "order_read_failed" }, 500);
+    if (!ord) return json({ ok: false, error: "no_candidate", reason: "order_not_found" });
+    const { data: last, error: lastErr } = await admin.from("wa_ofd_sends")
+      .select("id, courier_name, courier_phone")
+      .eq("tenant_id", cfg.tenant_id).eq("order_id", ord.id).in("status", ["sent", "unknown"])
+      .order("id", { ascending: false }).limit(1).maybeSingle();
+    if (lastErr) return json({ ok: false, error: "sends_read_failed" }, 500);
+    if (!last) return json({ ok: false, error: "no_candidate", reason: "never_sent" });
+    c = { tenant_id: ord.tenant_id, order_id: ord.id, order_uid: ord.order_uid, customer_name: ord.customer_name,
+          tracking_no: ord.tracking_no, courier_name: last.courier_name, courier_phone: last.courier_phone,
+          store_phone: tpl.store_phone, template_name: tpl.template_name, lang: tpl.lang, body: tpl.body,
+          param_count: tpl.param_count, source_send_id: last.id };
+  } else {
+    const { data: cands, error: cErr } = await admin.rpc("wa_ofd_candidates_v1", { p_limit: 1, p_uids: uidRaw ? [uidRaw] : null, p_shadow: true });
+    if (cErr) return json({ ok: false, error: "candidates_failed" }, 500);
+    c = (cands || [])[0] || null;
+    if (!c) {
+      const h = cairoHour();
+      const reason = tpl.paused_at ? `paused:${tpl.paused_reason || "?"}`
+        : (h < tpl.send_from_hour || h >= tpl.send_to_hour) ? `outside_hours:${h}`
+        : uidRaw ? "order_not_candidate_now" : "no_fresh_out_for_delivery";
+      return json({ ok: false, error: "no_candidate", reason });
+    }
   }
   if (c.tenant_id !== cfg.tenant_id) return json({ ok: false, error: "wrong_tenant" });
   // قالب التجربة (لو متسجّل في الإعداد) بدل قالب الإنتاج — الإنتاج نفسه مايتلمسش
@@ -131,7 +156,8 @@ Deno.serve(async (req: Request) => {
 
   if (!send) {
     return json({ ok: true, preview: true, order_uid: c.order_uid, to, expires_at: cfg.expires_at, max_sends: cfg.max_sends ?? null,
-      template: c.template_name, text: masked, next: `send:true + order_uid:"${c.order_uid}"` });
+      template: c.template_name, replay, source_send_id: c.source_send_id ?? null, text: masked,
+      next: `send:true + order_uid:"${c.order_uid}"` + (replay ? " + replay:true" : "") });
   }
 
   const { data: t, error: tErr } = await admin.from("tenants").select("whatsapp_phone_id, whatsapp_token").eq("id", c.tenant_id).maybeSingle();
