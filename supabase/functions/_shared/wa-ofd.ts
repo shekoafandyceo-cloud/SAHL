@@ -115,6 +115,8 @@ export function egLocalPhone(p: unknown): string | null {
 //    24 أوردر في 30 يوم اسمهم «تيربو بريمو 5 دور» والعميل طالب «4 أدوار مدور» بسعر الـ4 — الرسالة كانت هتقول «5 دور» والبوليصة
 //    (composeRemark) بتقول «4 أدوار مدور». أول منتج لأن var = cart_items[0] (اتقاس: 16 من 16 أوردر متعدد الخاصية بتاعة أوله) ·
 //    مابتتكررش لو الاسم فيه نصها (نفس قاعدة remarkBaseLines) · ولو مش هتساع: المنتجات اللي بعده بتبقى «+ N» قبل ما الخاصية تتشال.
+//    ولو الخاصية فيها عدد أدوار، عدد الأدوار القديم في اسم أول منتج بيتشال («تيربو بريمو 5 دور» + «4 أدوار مدور» = «تيربو بريمو
+//    (4 أدوار مدور)» — اسم اللاندنج القديم كان «5 دور» للعيلة كلها والسعر بتاع الـ4).
 // لاحقة خاصية المخزون اللي بتكرر آخر الاسم «تيربو بريمو 5 دور — 5 دور» بتتشال (اللي بتضيف معلومة «— 4 دور» «— أسود» بتفضل).
 export const PRODUCTS_MAX = 120;
 const QTY = /\(\s*عدد\s*([0-9\u0660-\u0669]+)\s*\)/gu;
@@ -133,6 +135,8 @@ function dropEchoSuffix(name: string): string {
   return vm && (vm[1] === vm[2] || vm[1].endsWith(" " + vm[2])) ? vm[1] : name;
 }
 export const PROPS_MAX = 40;
+const TIER_IN_PROPS = /[0-9\u0660-\u0669]+\s*(?:أدوار|ادوار|دور)/u;
+const TIER_IN_NAME = /(?<=^|\s)[0-9\u0660-\u0669]+\s*(?:أدوار|ادوار|دور)(?=\s|$)/gu;
 export function ofdProducts(raw: unknown, props?: unknown): string {
   const items: { name: string; q: number }[] = [];
   for (const seg of String(raw ?? "").split(/\r?\n|(?<=\(\s*عدد\s*[0-9\u0660-\u0669]+\s*\))\s*[-+]\s*/u)) {
@@ -148,6 +152,9 @@ export function ofdProducts(raw: unknown, props?: unknown): string {
   if (!items.length) return "—";
   for (const it of items) it.name = dropEchoSuffix(it.name);
   const p = cleanParam(props, PROPS_MAX);
+  if (p && TIER_IN_PROPS.test(p)) {
+    items[0].name = items[0].name.replace(TIER_IN_NAME, " ").replace(/\s+/g, " ").replace(/^[\s—-]+|[\s—-]+$/gu, "").trim() || items[0].name;
+  }
   const tag = p && !items[0].name.includes(p) ? ` (${p})` : "";
   const fmt = (it: { name: string; q: number }, i: number, t: string) => (i === 0 ? it.name + t : it.name) + (it.q > 1 ? ` (عدد ${it.q})` : "");
   for (const t of tag ? [tag, ""] : [""]) {
@@ -178,8 +185,14 @@ export type OfdRow = {
   courier_name?: string | null; courier_phone?: string | null; store_phone?: string | null;
   product_name?: string | null; cod_amount?: unknown; total_cost?: unknown;     // للقالب 7 بس (من orders في الـEF)
   manufacturer_note?: string | null; var?: string | null;                       // الخاصية = manufacturer_note ← var (= orderProps في الواجهة)
+  line_prices?: unknown; has_upsell?: boolean | null;                           // الموظف عدّل المنتجات؟ (save_order_products)
 };
+// 🔴 (12 أكتوبر — المراجعة) الخاصية جاية من أول منتج في سلة اللاندنج (cart_items[0]) — والموظف لو بدّل المنتج من محرر المنتجات
+// الخاصية بتفضل على الأوردر (18039: استاند «5 أدوار» اتبدّل بمنظم المطبخ = «منظم المطبخ المتكامل (5 أدوار)»). ومفيش أي سجل بأول
+// منتج الأصلي، فأي أوردر المنتجات فيه اتعدّلت (line_prices · has_upsell) = من غير خاصية (زي قبل) — معلومة ناقصة أحسن من غلط.
+// أوردرات الشات (create_manual_order) مالهاش line_prices: الموظف بيختار المنتج والخاصية مع بعض.
 export function ofdProps(r: OfdRow): string {
+  if (r.line_prices != null || r.has_upsell === true) return "";
   return String(r.manufacturer_note ?? "").trim() || String(r.var ?? "").trim();
 }
 

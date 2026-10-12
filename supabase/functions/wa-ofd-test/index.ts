@@ -149,11 +149,12 @@ Deno.serve(async (req: Request) => {
   const nParams = Number(c.param_count);
   if (!ofdTemplateOk(c.body, nParams)) return json({ ok: false, error: "bad_template_params" });
   if (ofdNeedsOrder(nParams)) {
-    const { data: o, error: oErr } = await admin.from("orders").select("tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost")
+    const { data: o, error: oErr } = await admin.from("orders").select("tenant_id, product_name, manufacturer_note, var, line_prices, has_upsell, jt_cod_amount, total_cost")
       .eq("id", c.order_id).maybeSingle();
     if (oErr) return json({ ok: false, error: "order_read_failed" }, 500);
     if (o && o.tenant_id === c.tenant_id) {
       c.product_name = o.product_name; c.manufacturer_note = o.manufacturer_note; c.var = o.var;
+      c.line_prices = o.line_prices; c.has_upsell = o.has_upsell;
       c.cod_amount = o.jt_cod_amount; c.total_cost = o.total_cost;
     }
   }

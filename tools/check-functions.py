@@ -392,15 +392,16 @@ CONTRACTS = [
     # (12 أكتوبر — المراجعة) القالب 7: الخاصية اللي العميل اختارها (manufacturer_note ← var) جنب المنتج — «تيربو بريمو 5 دور»
     # لعميل طالب «4 أدوار مدور» = رسالة بتناقض البوليصة. القرايتين (الإنتاج والتجربة) لازم يجيبوها
     ("wa-ofd-notify", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders)",
-     lambda s: "select(\"id, tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost\")" in s
-     and "r.manufacturer_note = o.manufacturer_note; r.var = o.var;" in s),
+     lambda s: "select(\"id, tenant_id, product_name, manufacturer_note, var, line_prices, has_upsell, jt_cod_amount, total_cost\")" in s
+     and "r.manufacturer_note = o.manufacturer_note; r.var = o.var;" in s and "r.line_prices = o.line_prices; r.has_upsell = o.has_upsell;" in s),
     ("wa-ofd-test", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders) · رقم المحل = wa_ofd_candidates_v1 في replay",
-     lambda s: "select(\"tenant_id, product_name, manufacturer_note, var, jt_cod_amount, total_cost\")" in s
-     and "c.manufacturer_note = o.manufacturer_note; c.var = o.var;" in s
+     lambda s: "select(\"tenant_id, product_name, manufacturer_note, var, line_prices, has_upsell, jt_cod_amount, total_cost\")" in s
+     and "c.manufacturer_note = o.manufacturer_note; c.var = o.var;" in s and "c.line_prices = o.line_prices; c.has_upsell = o.has_upsell;" in s
      and "store_phone: nb(tpl.store_phone) || nb(ten?.support_phone) || nb(ten?.sender_phone)" in s),
     ("_shared/wa-ofd", u"المنتج بالخاصية (ofdProps) · نص فيه «\\n» حرفي أو \\r = مرفوض قبل الإرسال",
      lambda s: "ofdProducts(r.product_name, ofdProps(r))" in s
      and 'return String(r.manufacturer_note ?? "").trim() || String(r.var ?? "").trim();' in s
+     and 'if (r.line_prices != null || r.has_upsell === true) return "";' in s
      and '!b.includes("\\\\n") && !b.includes("\\r")' in s),
     ("wa-ofd-test", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
      lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
