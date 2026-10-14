@@ -48,6 +48,7 @@ import { WA_LABELS, handleWaRealtime, initInbox, loadInbox, openConversation, re
 import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.js';
 
 import { initExceptions, loadJtIssues } from './exceptions/exceptions.js';
+import { initWarehouse, loadWarehouse } from './warehouse/warehouse.js';
 import { initAlertSound } from './core/alert-sound.js';
 
 import { copyWebhookUrl } from './settings/webhook.js';
@@ -172,7 +173,7 @@ function initSideCollapse(){
 }
 
 // ── الوضع الليلي ────────────────────────────────────────────────────
-// الكلاس على <html> عشان 23-dark.css يمسك كل حاجة، والتفضيل محفوظ.
+// الكلاس على <html> عشان 24-dark.css يمسك كل حاجة، والتفضيل محفوظ.
 // ألوان Chart.js مش CSS فبتتظبط هنا — الرسم البياني بيترندر من جديد
 // مع كل فتح لصفحة الماليات فبياخد القيم الجديدة.
 function applyDark(on){
@@ -368,6 +369,7 @@ export function showPage(page, opts){
   if($id('page-analytics'))$id('page-analytics').style.display = page==='analytics' ? 'block' : 'none';
   if($id('page-inbox'))$id('page-inbox').style.display = page==='inbox' ? 'block' : 'none';
   if($id('page-exceptions'))$id('page-exceptions').style.display = page==='exceptions' ? 'block' : 'none';
+  if($id('page-warehouse'))$id('page-warehouse').style.display = page==='warehouse' ? 'block' : 'none';
   if($id('page-mycommission'))$id('page-mycommission').style.display = page==='mycommission' ? 'block' : 'none';
   document.querySelectorAll('.tnav-btn').forEach(function(b){
     b.classList.toggle('active', b.getAttribute('data-page')===page);
@@ -383,6 +385,7 @@ export function showPage(page, opts){
   if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
   if(page==='inbox'){veilBegin('inbox');loadInbox();}
   if(page==='exceptions'){veilBegin('exceptions');loadJtIssues();}
+  if(page==='warehouse'){veilBegin('warehouse');loadWarehouse();}
   if(page==='mycommission'){loadMyCommission();}
   // بالاستبدال مش بالإضافة في حالتين: تصحيح مسار ممنوع (عشان زرار الرجوع
   // مايرجّعش لنفس المرفوض في حلقة)، والإقلاع.
@@ -502,6 +505,7 @@ initOrdersUI();
   initNav();
   initInbox();
   initExceptions();
+  initWarehouse();
   initAlertSound();
   initStockTabs();
   initAnalyticsTabs();

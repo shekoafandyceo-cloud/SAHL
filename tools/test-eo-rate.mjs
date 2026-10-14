@@ -281,7 +281,7 @@ const cG = await runAll({ score: s => s.replace('  if(sh !== null) parts.push(sh
 ok(!/rk-mid/.test(cG.b.o11.eo || ''), '(ز) EasyOrders الأول بدل المتوسط → o11 مش «متوسط» (الفحص 21 كان هيقع)');
 const cH = await runAll({ score: s => s.replace('  if(o.ship_rank_at){', '  if(o.ship_rank_at && (o.customer_ranking === null || o.customer_ranking === undefined)){') });
 ok(/rk-good/.test(cH.b.o12.eo || ''), '(ح) القديم يكسب الجديد → o12 «جامد» من الـ90 القديمة (الفحص 22 كان هيقع)');
-const cJ = await rtShip({ orders: s => s.replace('  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1 };', ' };') });
+const cJ = await rtShip({ orders: s => s.replace('  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1,\n', '') });
 ok(cJ.r.notes !== cJ.TYPED, '(ي) أعمدة شركة الشحن مش في RT_SCORE_COLS → رسم كامل والكلام ضاع (الفحص 28 كان هيقع)');
 
 const cK = await runAll({ score: s => s.replace('    if(a) return { kind: \'rate\', rate: a.rate, n: a.n, alt: true };\n', '') });

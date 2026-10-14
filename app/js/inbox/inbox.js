@@ -21,6 +21,7 @@ import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } fr
 import { openDetail } from '../orders/detail.js';
 import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { ensureTenant } from '../orders/guards.js';
+import { createKeyBuffer, looksScanned, parseWaybill, scanToLatin } from '../warehouse/scan-code.js';
 
 export var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
 
@@ -2214,7 +2215,25 @@ export function initInbox(){
   if($id('wa-attach'))$id('wa-attach').addEventListener('click',function(){var f=$id('wa-file');if(f)f.click();});
   if($id('wa-file'))$id('wa-file').addEventListener('change',waPickImage);
   if($id('wa-input')){
-    $id('wa-input').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();waSend();}});
+    // 🔴 سكانر المخزن (14 أكتوبر): السكانر بيكتب في أي خانة عليها الفوكس وبيبعت Enter في الآخر — لو التاب دي
+    // اللي قدامك، كود البوليصة كان هيتبعت للعميل اللي الشات بتاعه مفتوح. الحارس: الكلام كله كود بوليصة
+    // **وجه بسرعة السكانر** (الكتابة بالإيد أو اللصق بيعدّوا عادي — الموظف ممكن يبعت رقم البوليصة للعميل بقصد).
+    var waScanKeys=createKeyBuffer();
+    $id('wa-input').addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&!e.shiftKey){
+        e.preventDefault();
+        var t=waScanKeys.timing(); waScanKeys.reset();
+        var pw=parseWaybill(this.value||'');
+        if((pw.kind==='jt'||pw.kind==='jt_sandbox') && scanToLatin(this.value||'')===pw.code && looksScanned(t)){
+          this.value='';
+          toast('⛔ ده كود بوليصة من السكانر — مااتبعتش للعميل. اضرب في صفحة «سكانر المخزن»','er');
+          return;
+        }
+        waSend();
+        return;
+      }
+      waScanKeys.push(e);
+    });
     $id('wa-input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
   }
 }

@@ -26,6 +26,7 @@ var ROUTES = {
   inventory:    'stock',
   chats:        'inbox',
   exceptions:   'exceptions',
+  warehouse:    'warehouse',
   finance:      'finance',
   analytics:    'analytics',
   settings:     'settings',
@@ -50,6 +51,7 @@ var PAGE_TITLES = {
   stock:        'المخزون',
   inbox:        'المحادثات',
   exceptions:   'استثناءات الشحن',
+  warehouse:    'سكانر المخزن',
   finance:      'الماليات',
   analytics:    'إحصائيات الأداء',
   settings:     'الإعدادات',
@@ -70,7 +72,9 @@ export function setPageTitle(page){
 // ════ تاب مستقلة للمحادثات (طلب المالك 6 سبتمبر) ════
 // الصفحة → **اسم ثابت للتاب**. الاسم هو المهم: `window.open` باسم بيعيد
 // استخدام نفس التاب، فالضغط 10 مرات بيركّز تاب واحدة مش بيفتح 10.
-var OWN_TAB = { inbox: 'sahl-chats' };
+// والسكانر (14 أكتوبر): الصفحة اللي على جهاز المخزن طول اليوم — الضغط عليها من أي تاب بيركّز
+// نفس التاب بدل ما يفتح تانية (تابين سكانر = السكانر بيكتب في واحدة والموظف بيبص على التانية).
+var OWN_TAB = { inbox: 'sahl-chats', warehouse: 'sahl-warehouse' };
 
 function ownTabName(page){
   return Object.prototype.hasOwnProperty.call(OWN_TAB, page) ? OWN_TAB[page] : null;

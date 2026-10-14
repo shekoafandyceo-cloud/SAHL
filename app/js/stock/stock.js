@@ -7,6 +7,7 @@ import { $id, esc } from '../core/dom.js';
 import { fmt, fmtMovementDateParts, num, pad2, short } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
+import { showModal } from '../core/modal.js';
 import { tourDemoMovements, tourDemoStock } from '../tour/demo-data.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
@@ -401,34 +402,69 @@ export function openProductEditor(id){
     else if(!name){toast('اسم المنتج مطلوب','er');return;}
     // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي
     if(qty<0||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
-    var data, op;
+    // 🔴 الكمية عمرها ما بتتكتب مباشرةً (14 أكتوبر — سكانر المخزن): أي تغيير فيها = حركة «تعديل»
+    // بسبب من `wh_stock_adjust` (الفرق على السيرفر من الرقم الحالي — لو السكانر خصم والمحرر مفتوح،
+    // الفرق بيتحسب من الرقم بعد الخصم). قبل كده الـPATCH المباشر كان بيغيّر الرقم من غير أي أثر.
+    // والمنتج الجديد بيتعمل بصفر وبعدين حركة «رصيد أول».
+    var data, op, qtyChanged=false;
     if(isNew){
-      data={tenant_id:currentTenantId, name:name, current_qty:qty, wholesale_price:wholesale, unit_price:unit};
-      op=sb.from('stock_products').insert(data);
+      data={tenant_id:currentTenantId, name:name, current_qty:0, wholesale_price:wholesale, unit_price:unit};
+      op=sb.from('stock_products').insert(data).select('id').single();
     } else {
-      // بنبعت بس الحقول اللي التاجر غيّرها فعلاً عن لحظة الفتح — إرسال
-      // current_qty دايماً كان بيرجّع كمية خصمها السكانر والمحرر مفتوح
-      // (حفظ تعديل سعر = الكمية القديمة ترجع تتكتب فوق الخصم)
+      // بنبعت بس الحقول اللي التاجر غيّرها فعلاً عن لحظة الفتح
       data={};
       if(isChild){ if(label!==orig.label) data.variant_label=label; }
       else if(name!==orig.name) data.name=name;
-      if(qty!==orig.qty) data.current_qty=qty;
+      qtyChanged = qty!==orig.qty;
       if(wholesale!==orig.wholesale) data.wholesale_price=wholesale;
       if(unit!==orig.unit) data.unit_price=unit;
-      if(!Object.keys(data).length){ $id('ovl').classList.remove('open'); return; }
-      op=sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId);
+      if(!Object.keys(data).length && !qtyChanged){ $id('ovl').classList.remove('open'); return; }
+      op=Object.keys(data).length
+        ? sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId)
+        : Promise.resolve({ error: null });
     }
-    btn.disabled=true;
-    op.then(function(r){
+    var finish=function(msg){
       btn.disabled=false;
-      if(r.error){
-        toast(r.error.code==='23505'?'فيه منتج/خاصية بنفس الاسم بالفعل':'خطأ: '+r.error.message,'er');
-        return;
-      }
-      toast(isNew?'تم إضافة المنتج ✓':'تم التحديث ✓','ok');
+      toast(msg,'ok');
       $id('ovl').classList.remove('open');
       loadStock();
-    });
+    };
+    var adjust=function(pid, reason, okMsg){
+      sb.rpc('wh_stock_adjust',{p_product_id:pid,p_new_qty:qty,p_reason:reason}).then(function(ar){
+        var d=(ar&&!ar.error&&ar.data)||{ok:false};
+        if(!d.ok){
+          btn.disabled=false;
+          toast(isNew?'المنتج اتضاف بس الكمية مااتسجلتش — عدّلها من المحرر':'الكمية مااتعدّلتش — حاول تاني','er');
+          loadStock();
+          return;
+        }
+        finish(okMsg);
+      });
+    };
+    var run=function(reason){
+      btn.disabled=true;
+      Promise.resolve(op).then(function(r){
+        if(r.error){
+          btn.disabled=false;
+          toast(r.error.code==='23505'?'فيه منتج/خاصية بنفس الاسم بالفعل':'خطأ: '+r.error.message,'er');
+          return;
+        }
+        if(isNew){
+          var nid=r.data&&r.data.id;
+          if(qty>0&&nid){ adjust(nid,'رصيد أول للمنتج','تم إضافة المنتج ✓'); return; }
+          finish('تم إضافة المنتج ✓'); return;
+        }
+        if(qtyChanged){ adjust(p.id,reason,'تم التحديث ✓ — الكمية اتسجلت حركة «تعديل»'); return; }
+        finish('تم التحديث ✓');
+      });
+    };
+    if(qtyChanged){
+      showModal({icon:'✏️',title:'ليه الكمية اتغيّرت من '+orig.qty+' لـ'+qty+'؟',
+        sub:'التعديل بيتسجّل حركة في سجل المخزون باسمك — اكتب السبب (مثلاً: جرد · بضاعة وصلت · تالف).',
+        okLabel:'احفظ',input:true,placeholder:'السبب',onOk:function(reason){ run(reason); }});
+      return;
+    }
+    run(null);
   });
 
   if(!isNew){

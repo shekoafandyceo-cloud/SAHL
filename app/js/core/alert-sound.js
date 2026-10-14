@@ -76,3 +76,55 @@ function ring(c){
   try{ window.dispatchEvent(new CustomEvent('sahl:alert')); }catch(e){ /* متصفح قديم */ }
   return true;
 }
+
+// ── أصوات سكانر المخزن (14 أكتوبر) ─────────────────────────────────────
+// الموظف قدام الكومة مش قدام الشاشة — الصوت هو اللي بيقوله «تمام» أو «وقّف». كل نبرة شكل مختلف:
+//   ok   = بيب واحدة عالية قصيرة (اتخصم)        in   = نغمتين طالعين (مرتجع رجع)
+//   dup  = بيبتين واطيين (اتضرب قبل كده)       warn = 3 نبضات متوسطة (محتاج قرار)
+//   stop = بزّ واطي طويل (وقّف — ماتسلّموش)
+// مفتاح كتم لوحده (`sahl_wh_sound`) — كتم الاستثناءات مايكتمش السكانر والعكس.
+var SCAN_KEY = 'sahl_wh_sound';
+export function scanSoundOn(){
+  try{ return localStorage.getItem(SCAN_KEY) !== '0'; }catch(e){ return true; }
+}
+export function setScanSound(on){
+  try{ localStorage.setItem(SCAN_KEY, on ? '1' : '0'); }catch(e){ /* مفيش storage */ }
+}
+
+var SCAN_TONES = {
+  ok:   { type: 'square',   notes: [[1568, 0, 0.09]] },
+  in:   { type: 'triangle', notes: [[784, 0, 0.1], [1175, 0.12, 0.14]] },
+  dup:  { type: 'square',   notes: [[523, 0, 0.08], [523, 0.13, 0.08]] },
+  warn: { type: 'triangle', notes: [[880, 0, 0.1], [880, 0.16, 0.1], [880, 0.32, 0.1]] },
+  stop: { type: 'sawtooth', notes: [[196, 0, 0.55]] }
+};
+
+export function playScanTone(kind){
+  var spec = SCAN_TONES[kind] || SCAN_TONES.stop;
+  var c = getCtx();
+  if(!c) return Promise.resolve(false);
+  var go = function(){
+    if(c.state !== 'running') return false;
+    try{
+      var t0 = c.currentTime + 0.01;
+      for(var i = 0; i < spec.notes.length; i++){
+        var n = spec.notes[i], at = t0 + n[1], dur = n[2];
+        var o = c.createOscillator(), g = c.createGain();
+        o.type = spec.type;
+        o.frequency.setValueAtTime(n[0], at);
+        g.gain.setValueAtTime(0.0001, at);
+        g.gain.exponentialRampToValueAtTime(kind === 'stop' ? 0.4 : 0.3, at + 0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+        o.connect(g); g.connect(c.destination);
+        o.start(at); o.stop(at + dur + 0.02);
+      }
+    }catch(e){ return false; }
+    try{ window.dispatchEvent(new CustomEvent('sahl:scan-tone', { detail: kind })); }catch(e){ /* متصفح قديم */ }
+    return true;
+  };
+  if(c.state === 'running') return Promise.resolve(go());
+  var p;
+  try{ p = c.resume(); }catch(e){ p = null; }
+  if(!p || typeof p.then !== 'function') return Promise.resolve(go());
+  return p.then(go, function(){ return false; });
+}

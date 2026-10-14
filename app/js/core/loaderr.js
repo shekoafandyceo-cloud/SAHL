@@ -14,7 +14,8 @@ var HOSTS = {
   finance:   ['fin-cost-section', 'exp-tbody'],
   analytics: ['perf-tbody', 'finplat-tbody', 'dcal'],
   stock:     ['prod-tbody', 'mov-tbody'],
-  exceptions:['jx-list']
+  exceptions:['jx-list'],
+  warehouse: ['wh-lists']
 };
 
 export function renderLoadError(page){

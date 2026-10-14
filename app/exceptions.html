@@ -31,7 +31,8 @@
 <link rel="stylesheet" href="./css/20-orders-extras.css">
 <link rel="stylesheet" href="./css/21-inbox.css">
 <link rel="stylesheet" href="./css/22-exceptions.css">
-<link rel="stylesheet" href="./css/23-dark.css">
+<link rel="stylesheet" href="./css/23-warehouse.css">
+<link rel="stylesheet" href="./css/24-dark.css">
 </head>
 <body>
 
@@ -112,6 +113,7 @@
       <div class="sn-label">التشغيل</div>
       <button class="tnav-btn active" data-page="orders" id="nav-orders" title="الطلبات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg></span><span class="nv-txt">الطلبات</span></button>
       <button class="tnav-btn" data-page="stock" id="nav-stock" title="المخزون"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg></span><span class="nv-txt">المخزون</span></button>
+      <button class="tnav-btn" data-page="warehouse" id="nav-warehouse" title="سكانر المخزن"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 7v10"/><path d="M12 7v10"/><path d="M17 7v10"/></svg></span><span class="nv-txt">سكانر المخزن</span><span class="wa-nav-badge wh-nav-badge" id="wh-nav-badge" style="display:none"></span><span class="wa-nav-badge wh-nav-badge2 admin-only" id="wh-nav-badge2" style="display:none"></span></button>
       <button class="tnav-btn" data-page="inbox" id="nav-inbox" title="المحادثات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span><span class="nv-txt">المحادثات</span><span class="wa-nav-badge" id="wa-nav-badge" style="display:none"></span></button>
       <button class="tnav-btn" data-page="exceptions" id="nav-exceptions" title="استثناءات الشحن"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nv-txt">استثناءات الشحن</span><span class="wa-nav-badge jx-nav-badge" id="jx-nav-badge" style="display:none"></span><span class="wa-nav-badge jx-nav-badge2 admin-only" id="jx-nav-badge2" style="display:none"></span></button>
       <div class="sn-label admin-only">الأعمال</div>
@@ -468,6 +470,42 @@
       <summary>📊 تقرير J&amp;T للفترة — حسب الفرع والمندوب والسبب</summary>
       <div id="jx-report"></div>
     </details>
+  </div>
+
+  <div class="main" id="page-warehouse" style="display:none" data-tab="scan">
+    <div class="sp-head">
+      <div class="sp-head-ico">📦</div>
+      <div>
+        <h2>سكانر المخزن</h2>
+        <p>اضرب كل بوليصة خارجة بالسكانر — بتتخصم من المخزن لوحدها. والمرتجع يتضرب أول ما يوصل فيرجع للمخزن.</p>
+      </div>
+    </div>
+    <div class="wh-tabs admin-only">
+      <button type="button" class="wh-tab on" data-wh-tab="scan">🔫 السكان</button>
+      <button type="button" class="wh-tab" data-wh-tab="map">🔗 ربط المنتجات</button>
+      <button type="button" class="wh-tab" data-wh-tab="count">🧮 الجرد والتشغيل</button>
+    </div>
+    <div class="wh-mode" id="wh-mode" hidden></div>
+    <div class="wh-pane wh-pane-scan">
+      <div class="wh-scanbox">
+        <input id="wh-input" class="wh-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" dir="ltr" placeholder="اضرب البوليصة — أو اكتب آخر أرقامها / رقم الأوردر واضغط Enter">
+        <div class="wh-scanbar">
+          <button type="button" class="wh-focus is-lost" id="wh-focus" data-wh-act="focus">⚠️ اضغط هنا الأول</button>
+          <span class="wh-queue" id="wh-queue" hidden></span>
+          <button type="button" class="wh-btn wh-btn-ghost" id="wh-sound" data-wh-act="sound" title="أصوات السكانر">🔔</button>
+        </div>
+      </div>
+      <div class="wh-result is-idle" id="wh-result"><div class="wh-r-title">جاهز للسكان</div><div class="wh-r-sub">النتيجة بتظهر هنا بلون وصوت: أخضر = اتخصم · أزرق = مرتجع رجع · رمادي = اتضرب قبل كده · برتقاني = محتاج قرار · أحمر = وقّف.</div></div>
+      <div class="wh-stats" id="wh-stats"></div>
+      <div class="wh-chips" id="wh-chips"></div>
+      <div class="wh-lists" id="wh-lists"></div>
+      <details class="wh-logbox">
+        <summary>🕘 آخر سكانات من الجهاز ده</summary>
+        <div class="wh-log" id="wh-log"></div>
+      </details>
+    </div>
+    <div class="wh-pane wh-pane-map admin-only"><div id="wh-map"></div></div>
+    <div class="wh-pane wh-pane-count admin-only"><div id="wh-count"></div></div>
   </div>
 
   <div class="main" id="page-finance" style="display:none">

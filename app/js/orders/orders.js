@@ -28,6 +28,7 @@ import { initShipTicker } from './ship.js';
 import { initJtHealth } from './jt-health.js';
 import { initOrderForm } from './order-form.js';
 import { jtRefreshNavBadge } from '../exceptions/exceptions.js';
+import { whRefreshNavBadge } from '../warehouse/warehouse.js';
 
 export function ordersInPeriod(){
   var p=ordersPeriod;
@@ -191,6 +192,7 @@ export function loadAll(){
   startRealtime();
   waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
   jtRefreshNavBadge();       // عدّاد «استثناءات الشحن» اللي محتاجة متابعة (وبيفتح الريل-تايم بتاعها)
+  whRefreshNavBadge();       // عدّاد «سكانر المخزن» (اسحب من الكومة · رجع ومااتضربش — والأدمن: خرج من غير سكان)
   loadWalletState();         // للجميع (أدمن + موظف) — للقفل عند نفاد الرصيد
   try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
 }
@@ -400,8 +402,11 @@ export function handleRealtimeChange(payload){
 
 // أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE)
 // + شركة الشحن (ship-rank-sync — 10 أكتوبر): بيعمل UPDATE تاني بعد ~0–2 دقيقة من نزول الأوردر بنفس الشكل
+// + سكانر المخزن (14 أكتوبر): السكان بيختم `stock_deducted_at`/`stock_returned_at` بس — مايتحسبش تعديل في
+//   الأوردر، فنافذة التفاصيل المفتوحة مابتترسمش من جديد (وكلام الموظف اللي مااتحفظش مابيضيعش)
 var RT_SCORE_COLS = { eo_metadata: 1, eo_rate: 1, eo_rate_alt: 1, updated_at: 1,
-  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1 };
+  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1,
+  stock_deducted_at: 1, stock_returned_at: 1 };
 // نفس القيمة بشكلين؟ PostgREST والريل-تايم ممكن يختلفوا في كتابة الرقم أو الوقت — والفرق ده
 // مايتحسبش تغيير (ولو اتحسب: رسم كامل زي الأول، يعني الغلط في الاتجاه الآمن).
 function rtSameValue(a, b){
@@ -700,4 +705,9 @@ export function initNav(){
   if($id('nav-mycommission'))$id('nav-mycommission').addEventListener('click',function(){showPage('mycommission');});
   // «استثناءات الشحن» (8 أكتوبر) — للأدمن والموظف
   if($id('nav-exceptions'))$id('nav-exceptions').addEventListener('click',function(){showPage('exceptions');});
+  // «سكانر المخزن» (14 أكتوبر) — للأدمن والموظف · تاب لوحدها زي المحادثات (جهاز المخزن فاتحها طول اليوم)
+  if($id('nav-warehouse'))$id('nav-warehouse').addEventListener('click',function(){
+    if(openOwnTab('warehouse')) return;
+    showPage('warehouse');
+  });
 }
