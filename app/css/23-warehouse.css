@@ -20,6 +20,8 @@
 .wh-mode.is-trial{background:#fef9c3;border-color:#fde047;color:#713f12;}
 .wh-mode.is-paused{background:#fee2e2;border-color:#fca5a5;color:#7f1d1d;}
 .wh-mode.is-on{background:#dcfce7;border-color:#86efac;color:#14532d;}
+.wh-orphan{margin-bottom:10px;padding:10px 14px;border-radius:14px;font-size:.85rem;line-height:1.7;background:#e0f2fe;border:1px solid #7dd3fc;color:#075985;}
+.wh-orphan[hidden]{display:none;}
 
 /* خانة السكان */
 .wh-scanbox{padding:12px;background:var(--sur);border:1px solid var(--brd);border-radius:18px;box-shadow:var(--shadow2);}
@@ -61,6 +63,16 @@
 .wh-r-warns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}
 .wh-warn{display:inline-flex;padding:3px 10px;border-radius:999px;background:#fff;border:1px solid #fdba74;color:#9a3412;font-size:.8rem;}
 .wh-r-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+
+/* نتايج محتاجة انتباه — عدّت وانت بتضرب اللي بعدها */
+.wh-attn{margin-top:10px;padding:10px 12px;border-radius:16px;background:#fff7ed;border:2px solid #fdba74;}
+.wh-attn[hidden]{display:none;}
+.wh-attn-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px;font-size:.85rem;color:#9a3412;}
+.wh-attn-head .wh-btn{margin-inline-start:auto;}
+.wh-attn-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 10px;margin-top:5px;border-radius:10px;background:#fff;font-size:.82rem;border-inline-start:4px solid #f97316;}
+.wh-attn-row.tone-stop{border-inline-start-color:#ef4444;}
+.wh-attn-c{flex:1 1 180px;}
+.wh-attn-acts{display:flex;flex-wrap:wrap;gap:6px;margin-inline-start:auto;}
 .wh-ltr{direction:ltr;unicode-bidi:isolate;font-family:'JetBrains Mono',monospace;}
 
 /* الأزرار */
@@ -191,6 +203,10 @@ html.dark .wh-result.tone-in{background:#0b1f44;border-color:#3b82f6;}
 html.dark .wh-result.tone-dup{background:#1e293b;border-color:#64748b;}
 html.dark .wh-result.tone-warn{background:#3a1d07;border-color:#f97316;}
 html.dark .wh-result.tone-stop{background:#3b0b0b;border-color:#ef4444;}
+html.dark .wh-attn{background:#2a1606;border-color:#c2410c;}
+html.dark .wh-attn-head{color:#fdba74;}
+html.dark .wh-attn-row{background:#111827;}
+html.dark .wh-orphan{background:#0b2235;border-color:#0369a1;color:#bae6fd;}
 html.dark .wh-r-sub,html.dark .wh-l-prod,html.dark .wh-row-items,html.dark .wh-steps{color:#cbd5e1;}
 html.dark .wh-mode.is-trial{background:#3a3006;border-color:#a16207;color:#fde68a;}
 html.dark .wh-mode.is-paused{background:#3b0b0b;border-color:#b91c1c;color:#fecaca;}

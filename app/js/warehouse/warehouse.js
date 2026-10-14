@@ -27,7 +27,7 @@ import { playScanTone, scanSoundOn, setScanSound, unlockAudio } from '../core/al
 import { currentRole, currentTenantId, currentUser } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
 import { createKeyBuffer, isEndKey, looksScanned, parseWaybill, scanToLatin } from './scan-code.js';
-import { whAdminInit, whAdminRender } from './wh-admin.js';
+import { whAdminBoard, whAdminInit, whAdminRender } from './wh-admin.js';
 
 // ── الثوابت ──────────────────────────────────────────────────────────
 export var WH_DEDUPE_MS = 3000;        // نفس الكود مرتين خلال 3ث = السكانر قرا مرتين — بنطنّش التانية
@@ -59,6 +59,12 @@ var whDone = {};           // client_ids خلصت في التاب دي — عش�
 var whQueueFor = '';       // مفتاح الطابور اللي اتحمّل (المستخدم)
 var whAuthOff = false;     // الجلسة خلصت — السكانات بتفضل في الطابور
 var WH_REQ_TIMEOUT_MS = 20000;
+var whAttn = [];           // نتايج محتاجة انتباه (قرار · وقّف · تحذير) لحد ما الموظف يقول «شفته» أو تتحل
+var whAttnSeq = 0;
+var WH_ATTN_MAX = 20;
+var whCardGen = 0;         // بيزيد مع كل رسم للكارت — رد قديم (بحث · تراجع · خصم) مايغطّيش على سكان أحدث
+var whToneQ = [], whToneBusy = false;
+var whModalKeys = createKeyBuffer();   // السكانر ضرب والمودال مفتوح (سبب التراجع مثلاً)
 
 // ── أدوات ────────────────────────────────────────────────────────────
 export function whUuid(){
@@ -131,6 +137,7 @@ var WH_TEXT = {
   already_reversed:          ['🔁 السكان ده اتلغى قبل كده', ''],
   nothing_applied:           ['⛔ السكان ده ماغيّرش حاجة', 'مفيش حاجة تتلغى.'],
   has_later_scan:            ['⛔ فيه سكان بعده على نفس الطرد', 'الغي اللي بعده الأول.'],
+  busy_manual:               ['⏳ السيرفر مشغول — جرّب تاني', 'مااتعملش حاجة — اضغط تاني كمان ثانية.'],
   net:                       ['📡 مستني النت', 'السكان محفوظ وهيتبعت لوحده أول ما النت يرجع.']
 };
 
@@ -286,29 +293,102 @@ function onResult(it, res){
   var entry = { cid: it.cid, code: it.code, at: new Date().toISOString(), res: res };
   whLog.unshift(entry);
   if(whLog.length > WH_LOG_MAX) whLog.length = WH_LOG_MAX;
-  renderCard(res, it);
+  // نتيجة جديدة لنفس الطرد = اللي قبلها اتحلّت (اتضرب تاني · اختار مرتجع/خارج)
+  var pc = resCode(res, it);
+  if(pc) whAttn = whAttn.filter(function(a){ return a.code !== pc; });
+  var a = attnPush(res, it);
+  renderCard(res, it, a);
   renderLog();
-  // الطابور فيه كذا نتيجة ورا بعض (النت رجع) = صوت لكل «stop» بس، والباقي صوت واحد
+  // 🔴 الطابور فيه كذا نتيجة ورا بعض (النت رجع): كل «وقّف» و«محتاج قرار» ليه صوته **ورا بعض بمسافة** —
+  // كانوا بيتبلعوا لو جم في نفس الثانية، والموظف مش باصص للشاشة. الأخضر صوت واحد في الآخر.
   var tone = whTone(res);
-  if(!whQueue.length || tone === 'stop') toneOnce(tone);
+  if(tone === 'stop' || tone === 'warn') toneQueue(tone);
+  else if(!whQueue.length) toneOnce(tone);
   if(res.applied || res.code === 'pulled_back') scheduleBoard(1200);
   try{ window.dispatchEvent(new CustomEvent('sahl:wh-result', { detail: { code: res.code, tone: tone } })); }catch(e){ /* قديم */ }
 }
 
 function toneOnce(tone){
+  if(whToneBusy){ toneQueue(tone); return; }
   var now = Date.now();
   if(tone !== 'stop' && now - whLastTone < 250) return;
   whLastTone = now;
   if(scanSoundOn()) playScanTone(tone);
 }
 
+function toneQueue(tone){
+  whToneQ.push(tone);
+  if(!whToneBusy) toneNext();
+}
+function toneNext(){
+  var t = whToneQ.shift();
+  if(!t){ whToneBusy = false; return; }
+  whToneBusy = true;
+  whLastTone = Date.now();
+  if(scanSoundOn()) playScanTone(t);
+  setTimeout(toneNext, 450);
+}
+
+// ── النتايج اللي محتاجة انتباه ───────────────────────────────────────
+// الكارت بيعرض آخر نتيجة بس — والموظف بيضرب بسرعة: «⛔ ملغي» عدّى عليه وهو بيضرب اللي بعده = طرد ملغي
+// اتسلّم للمندوب. فكل نتيجة فيها قرار أو وقّف أو تحذير بتفضل في قايمة تحت الكارت لحد «✓ شفته» أو ما تتحل.
+function resCode(res, it){
+  return (res && res.order && res.order.tracking_no) || (res && res.tracking_no) || (it && it.code) || '';
+}
+function attnPush(res, it){
+  if(!res || res.code === 'net') return null;
+  var tone = whTone(res);
+  var opts = Array.isArray(res.options) ? res.options : [];
+  if(!opts.length && tone !== 'warn' && tone !== 'stop') return null;
+  var a = { id: ++whAttnSeq, res: res, code: resCode(res, it), at: new Date().toISOString() };
+  whAttn.unshift(a);
+  if(whAttn.length > WH_ATTN_MAX) whAttn.length = WH_ATTN_MAX;
+  return a;
+}
+function attnFind(id){
+  for(var i = 0; i < whAttn.length; i++) if(whAttn[i].id === id) return whAttn[i];
+  return null;
+}
+function attnRemove(id){ whAttn = whAttn.filter(function(a){ return a.id !== id; }); }
+function attnLatestWith(opt){
+  for(var i = 0; i < whAttn.length; i++){
+    var o = whAttn[i].res.options || [];
+    if(o.indexOf(opt) >= 0) return whAttn[i];
+  }
+  return null;
+}
+
+function renderAttn(){
+  var el = $id('wh-attn'); if(!el) return;
+  var cur = whCard && whCard.attnId;
+  var list = whAttn.filter(function(a){ return a.id !== cur; });
+  if(!list.length){ el.hidden = true; el.innerHTML = ''; return; }
+  var h = '<div class="wh-attn-head"><b>⚠️ نتايج محتاجة انتباهك (' + list.length + ')</b> — عدّت وانت بتضرب اللي بعدها'
+    + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="attn-clear">✓ شفتهم كلهم</button></div>';
+  for(var i = 0; i < list.length; i++){
+    var a = list[i], r = a.res || {}, t = whText(r.code), o = r.order || {}, opts = r.options || [];
+    h += '<div class="wh-attn-row tone-' + whTone(r) + '">'
+      + '<span class="wh-log-t">' + esc(whTime(a.at)) + '</span>'
+      + '<span class="wh-attn-c">' + esc(t[0]) + '</span>'
+      + '<span class="wh-log-o">' + (o.uid ? '#' + esc(o.uid) + ' ' : '') + ltr((a.code || '').slice(-8)) + '</span>'
+      + '<span class="wh-attn-acts">'
+      + (opts.indexOf('in') >= 0 ? '<button type="button" class="wh-btn wh-btn-in wh-btn-sm" data-wh-act="force-in" data-attn="' + a.id + '">↩️ مرتجع</button>' : '')
+      + (opts.indexOf('out') >= 0 ? '<button type="button" class="wh-btn wh-btn-out wh-btn-sm" data-wh-act="force-out" data-attn="' + a.id + '">📦 خارج</button>' : '')
+      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="attn-ok" data-attn="' + a.id + '">✓ شفته</button>'
+      + '</span></div>';
+  }
+  el.innerHTML = h;
+  el.hidden = false;
+}
+
 function renderPending(it){
   var el = $id('wh-result'); if(!el) return;
+  whCardGen++;
   el.className = 'wh-result is-pending';
   el.innerHTML = '<div class="wh-r-title">⏳ بيتسجّل…</div><div class="wh-r-code">' + ltr(it.code) + '</div>';
 }
 
-export function whCardHtml(res, it){
+export function whCardHtml(res, it, attnId){
   res = res || {};
   var t = whText(res.code);
   var o = res.order || null;
@@ -362,23 +442,27 @@ export function whCardHtml(res, it){
   }
   var acts = '';
   var opts = Array.isArray(res.options) ? res.options : [];
-  if(opts.indexOf('in') >= 0) acts += '<button type="button" class="wh-btn wh-btn-in" data-wh-act="force-in">↩️ أيوه مرتجع رجع <kbd>F9</kbd></button>';
-  if(opts.indexOf('out') >= 0) acts += '<button type="button" class="wh-btn wh-btn-out" data-wh-act="force-out">📦 لا — ده خارج دلوقتي <kbd>F10</kbd></button>';
+  var da = attnId ? ' data-attn="' + esc(String(attnId)) + '"' : '';
+  if(opts.indexOf('in') >= 0) acts += '<button type="button" class="wh-btn wh-btn-in" data-wh-act="force-in"' + da + '>↩️ أيوه مرتجع رجع <kbd>F9</kbd></button>';
+  if(opts.indexOf('out') >= 0) acts += '<button type="button" class="wh-btn wh-btn-out" data-wh-act="force-out"' + da + '>📦 لا — ده خارج دلوقتي <kbd>F10</kbd></button>';
   if(res.code === 'blocked_cancel_requested' && isAdminUser()) acts += '<button type="button" class="wh-btn" data-wh-act="ship-anyway">🚚 اشحنه برضه (أدمن)</button>';
   if(res.scan_id && res.applied && (res.dir === 'out' || res.dir === 'in') && !res.dry){
     acts += '<button type="button" class="wh-btn wh-btn-ghost" data-wh-act="undo" data-scan="' + esc(String(res.scan_id)) + '">↶ تراجع</button>';
   }
+  if(attnId && !opts.length) acts += '<button type="button" class="wh-btn wh-btn-ghost" data-wh-act="attn-ok"' + da + '>✓ شفته</button>';
   if(acts) h += '<div class="wh-r-acts">' + acts + '</div>';
   return { tone: tone, html: h };
 }
 
-function renderCard(res, it){
+function renderCard(res, it, attn){
   var el = $id('wh-result'); if(!el) return;
-  var c = whCardHtml(res, it);
-  whCard = { res: res, code: (res.order && res.order.tracking_no) || res.tracking_no || (it && it.code) || res._code || '' };
+  whCardGen++;
+  var c = whCardHtml(res, it, attn ? attn.id : null);
+  whCard = { res: res, code: resCode(res, it) || res._code || '', attnId: attn ? attn.id : null };
   el.className = 'wh-result tone-' + c.tone + (res.dry ? ' is-dry' : '');
   el.innerHTML = c.html;
   el.setAttribute('data-code', res.code || '');
+  renderAttn();
 }
 
 function renderLog(){
@@ -408,32 +492,81 @@ function captureActive(){
   return true;
 }
 
-function focusInput(){
+// الموبايل/التابلت: الفوكس الأوتوماتيك بيطلّع الكيبورد ويغطي نص الشاشة — هناك الفوكس بضغطة بس
+function autoFocusOk(){
+  try{ if(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return false; }catch(e){ /* قديم */ }
+  return !(window.innerWidth && window.innerWidth <= 768);
+}
+
+function focusInput(force){
   var inp = $id('wh-input');
-  if(inp && captureActive() && document.activeElement !== inp){
+  if(inp && captureActive() && document.activeElement !== inp && (force || autoFocusOk())){
     try{ inp.focus({ preventScroll: true }); }catch(e){ inp.focus(); }
   }
 }
 
+// 🔴 المودال مفتوح (سبب التراجع · اشحنه برضه · خصم) والموظف ضرب طرد: الحروف كانت بتتكتب في خانة السبب وEnter
+// بيأكّد المودال **بكود البوليصة كسبب** — والطرد نفسه مااتسجّلش. دلوقتي: الضربة بتتعرف من سرعتها وشكلها
+// (JEG + 12 رقم)، الحروف بتتشال من الخانة، والسكان بيدخل الطابور عادي، والمودال يفضل مفتوح زي ما هو.
+function modalOpenOnScan(){
+  if(!whPageVisible() || whTab !== 'scan') return false;
+  var bd = $id('cmodal-backdrop');
+  return !!(bd && bd.style.display === 'flex');
+}
+function modalScanGuard(e){
+  if(!modalOpenOnScan()){ whModalKeys.reset(); return false; }
+  var mi = $id('cmodal-input');
+  var inMi = mi && document.activeElement === mi;
+  if(isEndKey(e)){
+    var tail = whModalKeys.tail(15), t = whModalKeys.timing(15), start = whModalKeys.markAt(15);
+    whModalKeys.reset();
+    if(/^[JU]EG\d{12}$/.test(tail) && looksScanned(t)){
+      e.preventDefault();
+      if(e.stopImmediatePropagation) e.stopImmediatePropagation();
+      if(inMi && typeof start === 'number'){
+        var v = mi.value || '', end = mi.selectionStart == null ? v.length : mi.selectionStart;
+        if(start >= 0 && start <= end && end <= v.length) mi.value = v.slice(0, start) + v.slice(end);
+      }
+      var now = Date.now();
+      if(!(tail === whLastCode && now - whLastAt < WH_DEDUPE_MS)){
+        whLastCode = tail; whLastAt = now;
+        unlockAudio();
+        whEnqueue(tail, { raw: tail });
+        toast('📦 السكان اتسجّل — النافذة اللي فوق لسه مفتوحة', 'ok');
+      }
+      return true;
+    }
+    if(e.ctrlKey && (e.code === 'KeyJ' || e.code === 'KeyM')) e.preventDefault();
+    return true;   // Enter عادي = المودال يكمّل شغله
+  }
+  whModalKeys.push(e, inMi ? mi.selectionStart : undefined);
+  return true;
+}
+
 function onKeyDown(e){
+  if(modalScanGuard(e)) return;
   if(!captureActive()) return;
   var inp = $id('wh-input');
   var ae = document.activeElement;
   var inOther = ae && ae !== inp && ae !== document.body && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName || '');
   if(inOther) return;
-  // F9/F10 = أزرار التأكيد في الكارت
-  if((e.key === 'F9' || e.key === 'F10') && whCard && whCard.res){
-    var o = whCard.res.options || [];
+  // F9/F10 = أزرار التأكيد — على آخر نتيجة فيها الاختيار ده (الكارت أو قايمة «محتاجة انتباهك»).
+  // 🔴 دايماً preventDefault: F10 بيفتح قايمة المتصفح، والفوكس كان بيروح هناك والسكان اللي بعده يضيع.
+  if(e.key === 'F9' || e.key === 'F10'){
+    e.preventDefault();
     var want = e.key === 'F9' ? 'in' : 'out';
-    if(o.indexOf(want) >= 0){ e.preventDefault(); whForce(want); }
+    var co = (whCard && whCard.res && whCard.res.options) || [];
+    if(attnLatestWith(want) || co.indexOf(want) >= 0) whForce(want);
     return;
   }
   if(isEndKey(e)){
+    // Ctrl+J (لاحقة بعض السكانرات) بيفتح التحميلات في كروم — حتى لو مفيش كود اتقرا
+    if(e.ctrlKey) e.preventDefault();
     var txt = inp ? inp.value : '';
     var buf = whKeys.value();
     if(!buf && !String(txt).trim()) { whKeys.reset(); return; }
     e.preventDefault();
-    var scanned = looksScanned(whKeys.timing());
+    var scanned = looksScanned(whKeys.timing(16));
     whKeys.reset();
     if(inp) inp.value = '';
     whSubmit(buf, txt, scanned);
@@ -442,7 +575,8 @@ function onKeyDown(e){
   if(e.key === 'Escape'){ whKeys.reset(); if(inp) inp.value = ''; return; }
   whKeys.push(e);
   // الفوكس مش في الخانة (اتضغط على حاجة في الصفحة): الحروف بتتجمّع في البافر، ونرجّع الفوكس
-  if(inp && ae !== inp){ focusInput(); }
+  // (فيه كيبورد/سكانر حقيقي بيكتب — فالفوكس هنا مايطلّعش كيبورد الموبايل)
+  if(inp && ae !== inp){ focusInput(true); }
 }
 
 // القرار: الكود من البافر لو مفهوم، وإلا من نص الخانة، وإلا بحث.
@@ -476,7 +610,10 @@ function whLookup(q){
   var el = $id('wh-result'); if(!el || !sb) return;
   el.className = 'wh-result is-pending';
   el.innerHTML = '<div class="wh-r-title">🔎 بندوّر على ' + ltr(q) + '…</div>';
+  var gen = ++whCardGen;
   sb.rpc('wh_lookup', { p_q: q }).then(function(r){
+    // اتضرب طرد بعد ما البحث خرج = الكارت بتاعه — نتيجة البحث ماتغطّيش عليه
+    if(gen !== whCardGen){ toast('🔎 نتيجة البحث عن ' + q + ' وصلت بعد سكان تاني — اكتبه تاني', 'er'); return; }
     if(r.error || !r.data || !r.data.ok){
       renderCard({ code: 'error', tone: 'stop' });
       return;
@@ -502,15 +639,33 @@ function whLookup(q){
     el.className = 'wh-result tone-info';
     el.innerHTML = h;
     whCard = null;
+    renderAttn();
   });
 }
 
 // ── الأزرار في الكارت ────────────────────────────────────────────────
-export function whForce(dir){
-  if(!whCard || !whCard.code) return;
-  var code = whCard.code;
+// الاختيار على نتيجة بعينها (`attnId` من الزرار) — وإلا آخر نتيجة فيها الاختيار ده (F9/F10)
+export function whForce(dir, attnId){
+  var a = attnId ? attnFind(Number(attnId)) : attnLatestWith(dir);
+  var code = '';
+  if(a && (a.res.options || []).indexOf(dir) >= 0) code = a.code;
+  else if(!attnId && whCard && whCard.code && ((whCard.res && whCard.res.options) || []).indexOf(dir) >= 0) code = whCard.code;
+  if(!code) return;
+  if(a) attnRemove(a.id);
   whCard = null;
+  renderAttn();
   whEnqueue(code, { force: dir, src: 'manual' });
+}
+
+function attnOk(attnId){
+  var id = Number(attnId);
+  attnRemove(id);
+  if(whCard && whCard.attnId === id){
+    var el = $id('wh-result');
+    whCard.attnId = null;
+    if(el){ var b = el.querySelector('[data-wh-act="attn-ok"]'); if(b) b.remove(); }
+  }
+  renderAttn();
 }
 
 function whShipAnyway(){
@@ -526,10 +681,14 @@ export function whUndo(scanId){
   showModal({ icon: '↶', title: 'تراجع عن السكان ده؟', sub: 'المخزون هيرجع زي ما كان قبل السكان. اكتب السبب.',
     okLabel: 'تراجع', okColor: 'var(--red)', input: true, placeholder: 'السبب (مثلاً: اتضرب بالغلط)',
     onOk: function(reason){
+      var gen = whCardGen;
       sb.rpc('wh_scan_undo', { p_scan_id: Number(scanId), p_reason: reason }).then(function(r){
         var res = (r && r.data) || { code: 'error', tone: 'stop' };
         if(r && r.error) res = { code: 'error', tone: 'stop' };
-        renderCard(res);
+        // «مشغول» هنا مش بيتبعت تاني لوحده (مش في الطابور) — الرسالة بتقول جرّب تاني
+        if(res.code === 'busy') res = Object.assign({}, res, { code: 'busy_manual' });
+        // اتضرب طرد وانت مستني = الكارت بتاعه، والنتيجة دي toast بس
+        if(gen === whCardGen) renderCard(res);
         toneOnce(res.ok ? 'warn' : 'stop');
         if(res.ok){ toast('اتلغى السكان ✓', 'ok'); scheduleBoard(300); }
         else toast(whText(res.code)[0], 'er');
@@ -602,7 +761,7 @@ function loadBoard(){
     renderMode();
     renderChips();
     renderList();
-    whAdminRender(whBoard);
+    whAdminBoard(whBoard);
   });
 }
 
@@ -715,12 +874,15 @@ function whLeakAct(oid, dir){
     sub: out ? 'بيتخصم كأنه اتضرب خروج — اكتب السبب (مثلاً: اتسلّم للمندوب من غير سكان).' : 'مش هيتخصم من المخزن ومش هيظهر هنا تاني. اكتب السبب.',
     okLabel: out ? 'اخصمه' : 'اقفله', input: true, placeholder: 'السبب',
     onOk: function(reason){
+      var gen = whCardGen;
       sb.rpc('wh_scan_order', { p_order_id: oid, p_dir: out ? 'out' : 'dismiss_leak', p_client_id: whUuid(), p_reason: reason }).then(function(r){
         var res = (r && !r.error && r.data) || { code: 'error', tone: 'stop' };
-        renderCard(res);
+        if(res.code === 'busy') res = Object.assign({}, res, { code: 'busy_manual' });
+        if(gen === whCardGen) renderCard(res);
+        else toast(whText(res.code)[0], res.ok ? 'ok' : 'er');
         toneOnce(whTone(res));
         if(res.ok && res.applied) scheduleBoard(300);
-        else if(!res.ok) toast(whText(res.code)[0], 'er');
+        else if(!res.ok && gen === whCardGen) toast(whText(res.code)[0], 'er');
       });
     } });
 }
@@ -746,6 +908,46 @@ function setTab(t){
   else whAdminRender(whBoard, t);
 }
 
+// ── سكانات جلسة تانية على نفس الجهاز ─────────────────────────────────
+// الطابور بمفتاح المستخدم: الجلسة خلصت والسكانات لسه ماتبعتتش، ودخل موظف تاني = سكاناته مستخبية للأبد.
+// بنقول عليها ونبعتها بضغطة (بنفس الـclient_id — اللي كان وصل السيرفر بيرجع نتيجته من غير تكرار).
+function orphanQueues(){
+  var mine = queueKey(), out = [];
+  try{
+    for(var i = 0; i < localStorage.length; i++){
+      var k = localStorage.key(i);
+      if(!k || k.indexOf('sahl_wh_queue_') !== 0 || k === mine) continue;
+      var q = [];
+      try{ q = JSON.parse(localStorage.getItem(k) || '[]'); }catch(e2){ q = []; }
+      q = Array.isArray(q) ? q.filter(function(it){ return it && it.cid && it.code; }) : [];
+      if(q.length) out.push({ k: k, q: q });
+    }
+  }catch(e){ swallow('warehouse/orphans', e); }
+  return out;
+}
+function renderOrphans(){
+  var el = $id('wh-orphan'); if(!el) return;
+  var n = 0;
+  orphanQueues().forEach(function(x){ n += x.q.length; });
+  if(!n){ el.hidden = true; el.innerHTML = ''; return; }
+  el.innerHTML = '📥 فيه <b>' + n + '</b> سكان على الجهاز ده من جلسة تانية (موظف تاني أو جلسة خلصت) لسه ماتبعتوش. '
+    + '<button type="button" class="wh-btn wh-btn-sm" data-wh-act="orphans-send">📤 ابعتهم دلوقتي</button>';
+  el.hidden = false;
+}
+function sendOrphans(){
+  var have = {}, added = 0;
+  whQueue.forEach(function(it){ have[it.cid] = 1; });
+  orphanQueues().forEach(function(x){
+    x.q.forEach(function(it){ if(!have[it.cid] && !whDone[it.cid]){ whQueue.push(it); have[it.cid] = 1; added++; } });
+    try{ localStorage.removeItem(x.k); }catch(e){ swallow('warehouse/orphans-rm', e); }
+  });
+  queueSave();
+  renderQueueState();
+  renderOrphans();
+  pumpQueue();
+  toast(added ? 'اتضافوا للطابور: ' + added + ' سكان — هيتسجّلوا باسمك' : 'مفيش سكانات جديدة', 'ok');
+}
+
 // ── الدخول للصفحة ────────────────────────────────────────────────────
 export function loadWarehouse(){
   if(tourActive){ veilDone('warehouse'); return; }
@@ -753,8 +955,10 @@ export function loadWarehouse(){
   // الطابور اتحمّل وقت الإقلاع — بيتحمّل تاني بس لو المستخدم اتغيّر أو مفيش حاجة في السكة
   if(queueKey() !== whQueueFor || (!whBusy && !whQueue.length)) queueLoad();
   renderQueueState();
+  renderOrphans();
   renderSoundBtn();
   renderLog();
+  renderAttn();
   setTab(whTab === 'scan' || isAdminUser() ? whTab : 'scan');
   loadBoard();
   if(whQueue.length) pumpQueue();
@@ -769,8 +973,11 @@ function onClick(e){
   var tb = t.getAttribute('data-wh-tab');
   if(tb){ setTab(tb); return; }
   var a = t.getAttribute('data-wh-act');
-  if(a === 'force-in') whForce('in');
-  else if(a === 'force-out') whForce('out');
+  if(a === 'force-in') whForce('in', t.getAttribute('data-attn'));
+  else if(a === 'force-out') whForce('out', t.getAttribute('data-attn'));
+  else if(a === 'attn-ok') attnOk(t.getAttribute('data-attn'));
+  else if(a === 'attn-clear'){ var keep = whCard && whCard.attnId; whAttn = whAttn.filter(function(x){ return x.id === keep; }); renderAttn(); }
+  else if(a === 'orphans-send') sendOrphans();
   else if(a === 'ship-anyway') whShipAnyway();
   else if(a === 'undo') whUndo(t.getAttribute('data-scan'));
   else if(a === 'pick'){ var c = t.getAttribute('data-code'); if(c){ unlockAudio(); whEnqueue(c, { src: 'manual' }); } }
@@ -778,7 +985,7 @@ function onClick(e){
   else if(a === 'leak-dismiss') whLeakAct(t.getAttribute('data-oid'), 'dismiss');
   else if(a === 'reload-board') loadBoard();
   else if(a === 'sound'){ var on = !scanSoundOn(); setScanSound(on); if(on){ unlockAudio(); playScanTone('ok'); } renderSoundBtn(); }
-  else if(a === 'focus') focusInput();
+  else if(a === 'focus') focusInput(true);
   if(whTab === 'scan' && a !== 'undo' && a !== 'ship-anyway' && a !== 'leak-out' && a !== 'leak-dismiss') focusInput();
 }
 
@@ -804,7 +1011,10 @@ export function initWarehouse(){
   window.addEventListener('focus', function(){ renderFocus(); if(whPageVisible()) setTimeout(focusInput, 30); });
   window.addEventListener('blur', renderFocus);
   window.addEventListener('online', onOnline);
-  window.addEventListener('storage', function(e){ if(e.key === 'sahl_wh_sound') renderSoundBtn(); });
+  window.addEventListener('storage', function(e){
+    if(e.key === 'sahl_wh_sound') renderSoundBtn();
+    else if(e.key && e.key.indexOf('sahl_wh_queue_') === 0) renderOrphans();
+  });
   document.addEventListener('visibilitychange', function(){
     if(!document.hidden && whPageVisible()){
       if(Date.now() - whBoardAt > WH_BOARD_MS) loadBoard();
@@ -821,5 +1031,6 @@ export function initWarehouse(){
 
 // للهارنس: حالة داخلية للقراية بس
 export function whDebugState(){
-  return { queue: whQueue.slice(), log: whLog.slice(), board: whBoard, list: whList, tab: whTab, busy: whBusy, netFails: whNetFails };
+  return { queue: whQueue.slice(), log: whLog.slice(), board: whBoard, list: whList, tab: whTab, busy: whBusy, netFails: whNetFails,
+           attn: whAttn.map(function(a){ return { id: a.id, code: a.code, res: a.res.code }; }), cardGen: whCardGen };
 }

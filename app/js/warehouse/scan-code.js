@@ -73,28 +73,36 @@ export function isEndKey(e){
 }
 
 // بافر الضغطات: بيتبني من e.code، ولو حصل تعديل بالإيد (Backspace/أسهم) بيتعلّم «مش موثوق»
-// فالقرار يرجع لنص الخانة. ومعاه أوقات الضغطات (للتمييز بين السكانر والإيد في المحادثات).
+// فالقرار يرجع لنص الخانة. ومعاه أوقات الضغطات (للتمييز بين السكانر والإيد) و«علامة» اختيارية لكل ضغطة
+// (مكان الكارسر قبلها — المحادثات بتستخدمها عشان تشيل كود السكانر من آخر رسالة متكتبة من غير ما تمسحها).
 export function createKeyBuffer(){
-  var buf = '', dirty = false, times = [];
+  var buf = '', dirty = false, times = [], marks = [];
   return {
-    push: function(e){
+    push: function(e, mark){
       if(!e) return;
       var t = typeof e.timeStamp === 'number' ? e.timeStamp : Date.now();
       var ch = codeChar(e.code);
       if(e.altKey){ dirty = true; return; }   // ALT+Numpad = وضع «universal keyboard»
-      if(ch){ buf += ch; times.push(t); return; }
+      if(e.ctrlKey || e.metaKey){ dirty = true; return; }   // Ctrl+V لصق · اختصارات — مش حروف
+      if(ch){ buf += ch; times.push(t); marks.push(mark); return; }
       if(/^(Shift|Caps|Control|Alt|Meta)/.test(String(e.key || '')) || /^(Shift|Caps|Control|Alt|Meta)/.test(String(e.code || ''))) return;
       dirty = true;
     },
     value: function(){ return dirty ? '' : buf; },
-    // متوسط وأقصى الفجوة بين الضغطات (ms) — السكانر ≤ ~35 متوسط
-    timing: function(){
-      if(times.length < 2) return { n: times.length, avg: Infinity, max: Infinity };
+    // آخر n حرف من الزراير (حتى لو البافر «مش موثوق» — المحادثات بتبص على ذيل الكلام بس)
+    tail: function(n){ return buf.slice(-n); },
+    // علامة الضغطة رقم n من الآخر (1 = آخر ضغطة)
+    markAt: function(n){ return marks.length >= n ? marks[marks.length - n] : undefined; },
+    // متوسط وأقصى الفجوة بين الضغطات (ms) — السكانر ≤ ~35 متوسط. `n` = آخر n ضغطة بس
+    // (الموظف كتب كلام بإيده وبعدين السكانر ضرب في نفس الخانة = الذيل بس اللي بسرعة السكانر).
+    timing: function(n){
+      var ts = (n && n > 0) ? times.slice(-n) : times;
+      if(ts.length < 2) return { n: ts.length, avg: Infinity, max: Infinity };
       var sum = 0, mx = 0;
-      for(var i = 1; i < times.length; i++){ var d = times[i] - times[i - 1]; sum += d; if(d > mx) mx = d; }
-      return { n: times.length, avg: sum / (times.length - 1), max: mx };
+      for(var i = 1; i < ts.length; i++){ var d = ts[i] - ts[i - 1]; sum += d; if(d > mx) mx = d; }
+      return { n: ts.length, avg: sum / (ts.length - 1), max: mx };
     },
-    reset: function(){ buf = ''; dirty = false; times = []; }
+    reset: function(){ buf = ''; dirty = false; times = []; marks = []; }
   };
 }
 

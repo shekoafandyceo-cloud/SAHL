@@ -484,7 +484,11 @@
       if(pp.hold_cancel_requested != null) WH.hold = !!pp.hold_cancel_requested;
       return { ok:true, code:'ok', enabled:WH.enabled, hold_cancel_requested:WH.hold };
     }
-    if(name === 'wh_stock_adjust'){ var p3 = whStock(a.p_product_id); if(p3) p3.current_qty = a.p_new_qty; return { ok:true, code:'ok', qty:a.p_new_qty }; }
+    if(name === 'wh_stock_adjust'){
+      var p3 = whStock(a.p_product_id);
+      if(p3 && a.p_expected_qty != null && Number(p3.current_qty || 0) !== Number(a.p_expected_qty)) return { ok:false, code:'stale', qty:Number(p3.current_qty || 0) };
+      if(p3) p3.current_qty = a.p_new_qty; return { ok:true, code:'ok', qty:a.p_new_qty };
+    }
     return null;
   }
 

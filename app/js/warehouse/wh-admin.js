@@ -21,6 +21,9 @@ var board = null;
 // ── ربط المنتجات ─────────────────────────────────────────────────────
 var mapRows = null, mapProducts = [], mapErr = false, mapLoading = false, mapFilter = '', mapQ = '';
 var mapSaving = {};
+// اختيار الأدمن في كل صف قبل ما يحفظ — أي رسم للقايمة (حفظ صف تاني · فلتر · بحث) كان بيرجّع الاختيارات
+// اللي مااتحفظتش لأصلها في صمت
+var mapPick = {};   // rowKey → {pid, scope}
 
 // حالة الصف — مصدر واحد للشريحة والفلتر والشارة
 export function whMapState(r){
@@ -63,6 +66,21 @@ function mapCounts(){
   var c = { unmatched: 0, unallocated: 0, ok: 0, ignored: 0, all: 0 };
   (mapRows || []).forEach(function(r){ c[whMapState(r)]++; c.all++; });
   return c;
+}
+
+function isChildProduct(id){
+  for(var i = 0; i < mapProducts.length; i++) if(mapProducts[i].id === id) return !!mapProducts[i].parent_id;
+  return false;
+}
+
+// النطاق الافتراضي: «بالخاصية دي بس» لو الربط القديم كان بالخاصية، أو المنتج المختار خاصية (بنت) والصف ليه
+// خاصية — ربط الاسم كله بخاصية واحدة معناه كل ألوان/مقاسات الاسم ده تتخصم منها (السيرفر بيصلّح لو خاصية
+// الأوردر بتطابق أخت تانية، بس اللي مالوش أخت مطابقة بيروح للخاصية دي غلط)
+export function whMapDefaultScope(r, pid){
+  if(!r || !r.props_key) return 'item';
+  if(r.alias_props || r.alias_props_ignore) return 'props';
+  if(pid && isChildProduct(pid)) return 'props';
+  return 'item';
 }
 
 function productOptions(sel){
@@ -110,7 +128,9 @@ function renderMap(){
       ? '<span class="wh-ms ' + st + '">' + (st === 'ok' ? '✅ ' : '📦 ') + esc(r.product_name || '') + ' <small>(' + esc(MATCHED_BY[r.matched_by] || r.matched_by || '') + ')</small></span>'
       : (st === 'ignored' ? '<span class="wh-ms ignored">🚫 متجاهَل — مش بيتخصم</span>' : '<span class="wh-ms unmatched">❌ مش مربوط — مش بيتخصم</span>');
     var hasProps = !!(r.props_key);
-    var sel = r.alias_props || r.alias_item || (st === 'ok' || st === 'unallocated' ? r.product_id : '');
+    var pk = mapPick[k];
+    var sel = pk ? pk.pid : (r.alias_props || r.alias_item || (st === 'ok' || st === 'unallocated' ? r.product_id : ''));
+    var scope = pk && pk.scope ? pk.scope : whMapDefaultScope(r, sel);
     h += '<div class="wh-map-row" data-k="' + esc(k) + '">'
       + '<div class="wh-map-name"><b>' + esc(r.sample || r.item_key) + '</b>'
       + (hasProps ? '<span class="wh-map-props">الخاصية: ' + esc(r.props_key) + '</span>' : '')
@@ -118,7 +138,7 @@ function renderMap(){
       + '<div class="wh-map-cur">' + cur + '</div>'
       + '<div class="wh-map-ctl">'
       + '<select class="wh-sel wh-map-prod">' + productOptions(sel) + '</select>'
-      + (hasProps ? '<select class="wh-sel wh-map-scope"><option value="item">للاسم ده بكل خصايصه</option><option value="props"' + (r.alias_props ? ' selected' : '') + '>للاسم ده بالخاصية دي بس</option></select>' : '')
+      + (hasProps ? '<select class="wh-sel wh-map-scope"><option value="item">للاسم ده بكل خصايصه</option><option value="props"' + (scope === 'props' ? ' selected' : '') + '>للاسم ده بالخاصية دي بس</option></select>' : '')
       + '<button type="button" class="wh-btn" data-wha="map-save"' + (mapSaving[k] ? ' disabled' : '') + '>💾 اربط</button>'
       + '<button type="button" class="wh-btn wh-btn-ghost" data-wha="map-ignore"' + (mapSaving[k] ? ' disabled' : '') + ' title="مش منتج في المخزن (هدية · خدمة · شحن)">🚫 تجاهل</button>'
       + '</div></div>';
@@ -152,6 +172,7 @@ function mapSave(btn, ignore){
                              p_replace: !!replace, p_sample: r.sample || null }).then(function(res){
       mapSaving[k] = false;
       var d = (res && !res.error && res.data) || { ok: false, code: 'error' };
+      if(d.ok) delete mapPick[k];
       if(d.code === 'exists_use_replace'){
         renderMap();
         showModal({ icon: '🔗', title: 'الاسم ده مربوط بحاجة تانية', sub: 'تغيّر الربط؟ السكانات اللي جاية بس هي اللي هتتخصم بالربط الجديد.',
@@ -283,7 +304,8 @@ function renderCount(){
   var pay = whCountPayload(cntProducts, cntDraft);
   h += '<div class="wh-count-head"><div><h3>🧮 جرد مفتوح</h3><p>اتفتح ' + esc(whenTxt(cnt.opened_at)) + (cnt.opened_by_name ? ' · ' + esc(cnt.opened_by_name) : '')
     + '. اكتب العدد الحقيقي لكل منتج — الكلام بيتحفظ على الجهاز ده لحد ما تطبّق.</p></div>'
-    + '<div class="wh-count-prog"><b>' + (cntProducts.length - pay.missing) + '</b> من ' + cntProducts.length + ' اتعدّوا</div></div>';
+    + '<div class="wh-count-prog"><b>' + (cntProducts.length - pay.missing) + '</b> من ' + cntProducts.length + ' اتعدّوا'
+    + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload" title="هات أرقام السيستم من جديد ومنتجات اتضافت — اللي كتبته بيفضل">↻</button></div></div>';
   h += '<div class="wh-count-list">';
   fam.forEach(function(f){
     var p = f.p, v = cntDraft[p.id];
@@ -368,7 +390,8 @@ function countApply(force){
         return;
       }
       if(!d.ok){
-        renderCount();
+        // منتج اتضاف في المخزون والجرد مفتوح = القايمة هنا قديمة — نجيبها تاني (الكلام المكتوب بيفضل)
+        if(d.code === 'missing_lines') loadCount(); else renderCount();
         toast(d.code === 'missing_lines' ? 'جرد التشغيل لازم يغطي كل المنتجات — فاضل ' + (d.missing || '') : (d.code === 'bad_qty' ? 'فيه رقم مش مظبوط' : 'مقدرناش نطبّق — حاول تاني'), 'er');
         return;
       }
@@ -411,13 +434,29 @@ function cfgSet(patch){
 }
 
 // ── الربط بالصفحة ────────────────────────────────────────────────────
+// الدخول للتاب (اختيار صريح): الجرد بيتجاب من جديد كل مرة (أرقام السيستم بتتحرك مع السكان، ومنتج اتضاف
+// = جرد التشغيل يترفض «ناقص») — الكلام المكتوب في الـlocalStorage فمابيضيعش.
 export function whAdminRender(b, tab){
   if(b) board = b;
   if(currentRole !== 'admin') return;
   var page = $id('page-warehouse');
   var t = tab || (page && page.getAttribute('data-tab')) || 'scan';
   if(t === 'map'){ if(!mapRows && !mapLoading) loadMap(); else renderMap(); }
-  else if(t === 'count'){ if(!cntProducts && !cntLoading) loadCount(); else renderCount(); }
+  else if(t === 'count'){ loadCount(); }
+}
+
+// 🔴 تحديث القوايم الدوري (كل 30ث) **مابيعيدش رسم** شاشة الربط ولا الجرد: كان بيمسح اختيار الأدمن في الـselect
+// والفوكس من خانة العدّ وهو بيكتب. بيحدّث حالة السكان بس (كتلة الإعدادات) ولو الفوكس مش جوّاها.
+export function whAdminBoard(b){
+  if(b) board = b;
+  if(currentRole !== 'admin') return;
+  var page = $id('page-warehouse');
+  if(!page || page.getAttribute('data-tab') !== 'count' || !cntProducts) return;
+  var set = document.querySelector('#wh-count .wh-set');
+  if(!set || (document.activeElement && set.contains(document.activeElement))) return;
+  var tmp = document.createElement('div');
+  tmp.innerHTML = settingsHtml(!!(board && board.enabled), board && board.baseline_at);
+  if(tmp.firstChild) set.replaceWith(tmp.firstChild);
 }
 
 function onClick(e){
@@ -458,6 +497,19 @@ function onInput(e){
 function onChange(e){
   var t = e.target;
   if(t && t.id === 'wh-hold') cfgSet({ hold_cancel_requested: !!t.checked });
+  if(t && t.classList && (t.classList.contains('wh-map-prod') || t.classList.contains('wh-map-scope'))){
+    var rowEl = t.closest('.wh-map-row'); if(!rowEl) return;
+    var k = rowEl.getAttribute('data-k'), r = findRow(k);
+    var ps = rowEl.querySelector('.wh-map-prod'), sc = rowEl.querySelector('.wh-map-scope');
+    var pk = mapPick[k] || {};
+    pk.pid = ps ? ps.value : '';
+    if(t.classList.contains('wh-map-prod')){
+      // المنتج اتغيّر = النطاق يرجع للافتراضي بتاعه (بنت = بالخاصية) لو الأدمن مااختارش نطاق بإيده
+      if(!pk.scopeSet && sc){ sc.value = whMapDefaultScope(r, pk.pid); }
+    } else pk.scopeSet = true;
+    pk.scope = sc ? sc.value : 'item';
+    mapPick[k] = pk;
+  }
 }
 
 // Enter في خانة الجرد = الخانة اللي بعدها (العدّ بيتعمل بالكيبورد)

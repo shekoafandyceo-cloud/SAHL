@@ -400,8 +400,10 @@ export function openProductEditor(id){
     var unit=parseFloat($id('pe-unit').value)||0;
     if(isChild){ if(!label){toast('اسم الخاصية مطلوب','er');return;} }
     else if(!name){toast('اسم المنتج مطلوب','er');return;}
-    // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي
-    if(qty<0||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
+    // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي.
+    // ⚠️ الكمية بالسالب مرفوضة **لو اتكتبت** بس: السكانر بيسمح بالسالب (قطعة خرجت والرصيد مش متسجّل)،
+    // فمنتج رصيده -2 لازم يتعدّل اسمه أو سعره من غير ما المحرر يرفض رقم ماحدش لمسه.
+    if((qty<0&&(isNew||qty!==orig.qty))||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
     // 🔴 الكمية عمرها ما بتتكتب مباشرةً (14 أكتوبر — سكانر المخزن): أي تغيير فيها = حركة «تعديل»
     // بسبب من `wh_stock_adjust` (الفرق على السيرفر من الرقم الحالي — لو السكانر خصم والمحرر مفتوح،
     // الفرق بيتحسب من الرقم بعد الخصم). قبل كده الـPATCH المباشر كان بيغيّر الرقم من غير أي أثر.
@@ -429,12 +431,27 @@ export function openProductEditor(id){
       $id('ovl').classList.remove('open');
       loadStock();
     };
+    // 🔴 `p_expected_qty` = الرقم اللي التاجر شافه وقت الفتح: لو السكانر خصم والمحرر مفتوح، السيرفر بيرد
+    // `stale` بدل ما يكتب الرقم القديم فوق الخصم (كان بيمسح خصم السكانر في صمت). وساعتها بنحافظ على
+    // **الفرق** اللي التاجر قصده (كتب 12 والرقم كان 10 = +2) على الرقم الجديد، وهو يراجع ويحفظ تاني.
     var adjust=function(pid, reason, okMsg){
-      sb.rpc('wh_stock_adjust',{p_product_id:pid,p_new_qty:qty,p_reason:reason}).then(function(ar){
+      var expected=isNew?0:orig.qty;
+      sb.rpc('wh_stock_adjust',{p_product_id:pid,p_new_qty:qty,p_reason:reason,p_expected_qty:expected}).then(function(ar){
         var d=(ar&&!ar.error&&ar.data)||{ok:false};
         if(!d.ok){
           btn.disabled=false;
-          toast(isNew?'المنتج اتضاف بس الكمية مااتسجلتش — عدّلها من المحرر':'الكمية مااتعدّلتش — حاول تاني','er');
+          if(!isNew&&d.code==='stale'&&typeof d.qty==='number'){
+            var cur=d.qty, want=qty+(cur-orig.qty);
+            orig.qty=cur;
+            var qi=$id('pe-qty'); if(qi) qi.value=String(want);
+            toast('الكمية اتغيّرت وانت فاتح المحرر (السكانر سجّل حركة): بقت '+cur+' — خلّيت فرقك زي ما هو ('+want+')، راجعها واحفظ تاني','er');
+            loadStock();
+            return;
+          }
+          toast(isNew?'المنتج اتضاف بس الكمية مااتسجلتش — عدّلها من المحرر'
+            :d.code==='busy'?'السيرفر مشغول — جرّب تاني'
+            :d.code==='not_allowed'?'تعديل الكمية للأدمن بس'
+            :'الكمية مااتعدّلتش — حاول تاني','er');
           loadStock();
           return;
         }
@@ -454,6 +471,11 @@ export function openProductEditor(id){
           if(qty>0&&nid){ adjust(nid,'رصيد أول للمنتج','تم إضافة المنتج ✓'); return; }
           finish('تم إضافة المنتج ✓'); return;
         }
+        // الحقول التانية اتحفظت: لو الكمية رجعت `stale` والتاجر حفظ تاني، مانبعتهاش مرة تانية
+        if(data.name!==undefined) orig.name=data.name;
+        if(data.variant_label!==undefined) orig.label=data.variant_label;
+        if(data.wholesale_price!==undefined) orig.wholesale=data.wholesale_price;
+        if(data.unit_price!==undefined) orig.unit=data.unit_price;
         if(qtyChanged){ adjust(p.id,reason,'تم التحديث ✓ — الكمية اتسجلت حركة «تعديل»'); return; }
         finish('تم التحديث ✓');
       });

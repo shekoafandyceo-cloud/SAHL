@@ -7,9 +7,11 @@
 //  5) looksScanned: 15 ضغطة كل 10ms = سكانر · كل 150ms = إيد · 5 ضغطات = مش كفاية
 //  6) isEndKey: Enter · NumpadEnter · Tab · Ctrl+J/M — مش J لوحدها
 //  7) نفس نتيجة `app.wh_code` على السيرفر لكل مدخل في TABLE (القيم المتوقعة اتقاست من الدالة الحية 14 أكتوبر)
+//  8) ذيل البافر (المحادثات): كلام بالإيد بطيء وبعده سكان سريع = timing(15) سكانر و timing() كله إيد · tail(15) = الكود ·
+//     markAt(15) = مكان الكارسر قبل أول زرار في الكود · Ctrl+V = «مش موثوق» ومابيضيفش V
 //
 // المعايرات (مرساة + حارس — درس 47): شيل «تثل» من الخريطة (ت→J) → 1 · شيل (?!\d) → 2 · codeChar من e.key → 3 ·
-// البافر مابيتعلّمش dirty → 4 · حد السرعة 1000ms → 5
+// البافر مابيتعلّمش dirty → 4 · حد السرعة 1000ms → 5 · timing(n) بيتجاهل n → 8
 // تشغيل:  cd tools && node test-wh-scan-code.mjs
 import fs from 'fs';
 import os from 'os';
@@ -94,6 +96,15 @@ async function suite(m, label){
   r.s6 = isEndKey({ code: 'Enter', key: 'Enter' }) && isEndKey({ code: 'NumpadEnter', key: 'Enter' }) && isEndKey({ code: 'Tab', key: 'Tab' })
       && isEndKey({ code: 'KeyJ', key: 'j', ctrlKey: true }) && isEndKey({ code: 'KeyM', key: 'm', ctrlKey: true })
       && !isEndKey({ code: 'KeyJ', key: 'j' });
+  // 8 — كلام «سلام» بالإيد (150ms) وبعده سكان (10ms) بعلامة الكارسر
+  kb = createKeyBuffer();
+  ['KeyS', 'KeyG', 'KeyH', 'KeyL'].forEach((c, i) => kb.push(ev(c, 'سلام'[i], i * 150), i));
+  keysFor(CODE, 10).forEach((e, i) => { e.timeStamp = 1000 + i * 10; kb.push(e, 4 + i); });
+  const tailOk = kb.tail(15) === CODE && kb.markAt(15) === 4 && kb.markAt(1) === 18;
+  const tim = looksScanned(kb.timing(15)) === true && looksScanned(kb.timing()) === false;
+  const kc = createKeyBuffer();
+  kc.push(ev('KeyV', 'v', 0, { ctrlKey: true }));
+  r.s8 = tailOk && tim && kc.value() === '' && kc.tail(5) === '';
   if(label) return r;
   ok(r.s1, '1) الكيبورد العربي/الشيفت/CapsLock/أرقام هندي/علامات الاتجاه → JEG000538937803');
   ok(r.s2, '2) البوليصة في أي مكان (AIM · لينك) · 13 رقم مش بوليصة · UEG تجريبي · القديم · باركود منتج');
@@ -102,6 +113,7 @@ async function suite(m, label){
   ok(r.s5, '5) looksScanned: سريع = سكانر · بطيء/قليل = إيد');
   ok(r.s6, '6) isEndKey: Enter · NumpadEnter · Tab · Ctrl+J/M — مش J لوحدها');
   ok(r.s7, '7) ' + TABLE.length + ' مدخل = نفس نتيجة app.wh_code على السيرفر');
+  ok(r.s8, '8) ذيل البافر: كلام بالإيد + سكان = timing(15) سكانر · tail/markAt صح · Ctrl+V مش حرف');
   return r;
 }
 
@@ -118,6 +130,7 @@ await cal('(ب) شيل (?!\\d)', 's2', s => s.replace('([JU]EG\\d{12})(?!\\d)', 
 await cal('(ج) codeChar من الحرف', 's3', s => s.replace("if(m) return m[1];\n  m = c.match(/^(?:Digit|Numpad)(\\d)$/);", "if(m) return '';\n  m = c.match(/^(?:Digit|Numpad)(\\d)$/);"));
 await cal('(د) البافر مابيتعلّمش dirty', 's4', s => s.replace('      dirty = true;\n    },', '    },'));
 await cal('(هـ) حد السرعة 1000ms', 's5', s => s.replace('t.avg <= 35 && t.max <= 120', 't.avg <= 1000 && t.max <= 2000'));
+await cal('(و) timing(n) بيتجاهل n', 's8', s => s.replace('var ts = (n && n > 0) ? times.slice(-n) : times;', 'var ts = times;'));
 
 console.log(bad ? `\n❌ ${bad} فحص وقع` : '\n✅ كله عدّى');
 process.exit(bad ? 1 : 0);

@@ -2216,24 +2216,32 @@ export function initInbox(){
   if($id('wa-file'))$id('wa-file').addEventListener('change',waPickImage);
   if($id('wa-input')){
     // 🔴 سكانر المخزن (14 أكتوبر): السكانر بيكتب في أي خانة عليها الفوكس وبيبعت Enter في الآخر — لو التاب دي
-    // اللي قدامك، كود البوليصة كان هيتبعت للعميل اللي الشات بتاعه مفتوح. الحارس: الكلام كله كود بوليصة
-    // **وجه بسرعة السكانر** (الكتابة بالإيد أو اللصق بيعدّوا عادي — الموظف ممكن يبعت رقم البوليصة للعميل بقصد).
+    // اللي قدامك، كود البوليصة كان هيتبعت للعميل اللي الشات بتاعه مفتوح. الحارس: **آخر 15 زرار** = كود بوليصة
+    // وجم بسرعة السكانر (الكتابة بالإيد أو اللصق بيعدّوا عادي — الموظف ممكن يبعت رقم البوليصة للعميل بقصد).
+    // ولو الموظف كان كاتب رد ومابعتهوش: الكود بس اللي بيتشال (من مكان الكارسر قبل أول زرار فيه) والرد بيفضل.
     var waScanKeys=createKeyBuffer();
     $id('wa-input').addEventListener('keydown',function(e){
       if(e.key==='Enter'&&!e.shiftKey){
         e.preventDefault();
-        var t=waScanKeys.timing(); waScanKeys.reset();
-        var pw=parseWaybill(this.value||'');
-        if((pw.kind==='jt'||pw.kind==='jt_sandbox') && scanToLatin(this.value||'')===pw.code && looksScanned(t)){
-          this.value='';
+        var tail=waScanKeys.tail(15), t=waScanKeys.timing(15), start=waScanKeys.markAt(15);
+        waScanKeys.reset();
+        if(/^[JU]EG\d{12}$/.test(tail) && looksScanned(t)){
+          var v=this.value||'', end=this.selectionStart==null?v.length:this.selectionStart;
+          var cut=(typeof start==='number'&&start>=0&&start<=end&&end<=v.length)?v.slice(start,end):'';
+          // الحروف اللي هتتشال لازم تكون الكود نفسه (بأي لغة كيبورد) — وإلا كلام الموظف مابيتلمسش
+          if(cut && parseWaybill(cut).code===tail){ this.value=v.slice(0,start)+v.slice(end); }
+          else if(parseWaybill(v).code===tail && scanToLatin(v)===tail){ this.value=''; }
+          else { this.value=v.replace(/\s+$/,''); }
           toast('⛔ ده كود بوليصة من السكانر — مااتبعتش للعميل. اضرب في صفحة «سكانر المخزن»','er');
           return;
         }
         waSend();
         return;
       }
-      waScanKeys.push(e);
+      waScanKeys.push(e, this.selectionStart);
     });
+    // الخانة فضيت (اتبعتت · اتمسحت) = اللي قبل كده مالوش علاقة بالضربة الجاية
+    $id('wa-input').addEventListener('input',function(){ if(!this.value) waScanKeys.reset(); });
     $id('wa-input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
   }
 }
