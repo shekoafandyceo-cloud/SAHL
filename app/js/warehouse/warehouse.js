@@ -113,7 +113,8 @@ var WH_TEXT = {
   in_ok:                     ['↩️ مرتجع — رجع للمخزن', 'رجّع القطع مكانها على الرف.'],
   in_ok_precount:            ['↩️ مرتجع — رجع للمخزن', 'الطرد خرج قبل الجرد، فالقطع اتضافت للمخزن.'],
   in_ok_manual:              ['↩️ رجع للمخزن', 'اتسجّل بإيد الأدمن.'],
-  in_counted:                ['↩️ المرتجع ده اتعدّ في الجرد قبل كده', 'اتعلّم إنه رجع — من غير إضافة للمخزن.'],
+  in_ok_leak:                ['↩️ مرتجع — رجع للمخزن', 'الطرد ده كان خرج من غير سكان، والجرد أو الأدمن كان شاله من الحساب — فالقطع اتضافت.'],
+  in_counted:                ['↩️ المرتجع ده اتعدّ في الجرد قبل كده', 'اتعلّم إنه رجع — من غير إضافة للمخزن (الجرد عدّه وهو هنا).'],
   in_leak:                   ['⚠️ مرتجع لطرد خرج من غير سكان', 'اتعلّم إنه رجع — من غير إضافة (عمره ما اتخصم).'],
   in_flag_only:              ['⚠️ اتعلّم إنه رجع — من غير إضافة', 'J&T عمرها ما استلمته ومكانش اتخصم.'],
   already_in:                ['🔁 المرتجع ده اتضرب قبل كده', 'مفيش حاجة اتضافت تاني.'],
@@ -148,7 +149,8 @@ var WH_WARN = {
   short:            '📉 المخزون بقى بالسالب — راجع الجرد',
   multi_piece:      '🔢 الطرد فيه أكتر من قطعة — اتأكد إنهم كلهم جوّه',
   cod_mismatch:     '💰 مبلغ التحصيل عند J&T مختلف عن السيستم',
-  cancel_requested: '⚠️ العميل طالب إلغاء'
+  cancel_requested: '⚠️ العميل طالب إلغاء',
+  counted:          '🧮 فيه منتج اتعدّ في جرد — مالوش حركة تاني (الجرد صلّح رقمه)'
 };
 
 export function whText(code){ return WH_TEXT[code] || ['⛔ ' + (code || 'نتيجة مش معروفة'), '']; }
@@ -350,13 +352,6 @@ function attnFind(id){
   return null;
 }
 function attnRemove(id){ whAttn = whAttn.filter(function(a){ return a.id !== id; }); }
-function attnLatestWith(opt){
-  for(var i = 0; i < whAttn.length; i++){
-    var o = whAttn[i].res.options || [];
-    if(o.indexOf(opt) >= 0) return whAttn[i];
-  }
-  return null;
-}
 
 function renderAttn(){
   var el = $id('wh-attn'); if(!el) return;
@@ -420,6 +415,8 @@ export function whCardHtml(res, it, attnId){
       var st = '';
       if(l.state === 'unmatched') st = '<span class="wh-l-bad">مش مربوط بالمخزن</span>';
       else if(l.state === 'ignored') st = '<span class="wh-l-mute">متجاهَل</span>';
+      else if(l.state === 'superseded') st = '<span class="wh-l-mute">' + esc(l.product_name || '') + ' — اتعدّ في الجرد، مفيش حركة</span>';
+      else if(l.state === 'void') st = '<span class="wh-l-mute">مااتضافش — عمره ما اتخصم</span>';
       else if(l.state === 'posted' || l.state === 'reversed'){
         st = '<span class="wh-l-prod">' + esc(l.product_name || '') + (l.matched_by === 'unallocated' ? ' (غير موزع)' : '') + '</span>'
            + (l.qty_after != null ? ' <span class="wh-l-after' + (l.qty_after < 0 ? ' neg' : '') + '">باقي ' + ltr(String(l.qty_after)) + '</span>' : '');
@@ -518,9 +515,14 @@ function modalScanGuard(e){
   var mi = $id('cmodal-input');
   var inMi = mi && document.activeElement === mi;
   if(isEndKey(e)){
-    var tail = whModalKeys.tail(15), t = whModalKeys.timing(15), start = whModalKeys.markAt(15);
+    // كود البوليصة بشكله (JEG + 12 رقم) كفاية — وأي ضربة تانية بسرعة السكانر (≥ 8 زراير ورا بعض بمتوسط ≤ 35ms)
+    // = قراية سكانر برضه (كود قديم · باركود منتج · قراية ناقصة): ماتأكّدش المودال بيها، والسيرفر يقول نوعها
+    var tail = whModalKeys.tail(15), start = whModalKeys.markAt(15);
+    var bn = whModalKeys.burstLen(120), bt = whModalKeys.timing(bn);
+    var isWay = /^[JU]EG\d{12}$/.test(tail);
+    if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120){ tail = whModalKeys.tail(bn); start = whModalKeys.markAt(bn); isWay = true; }
     whModalKeys.reset();
-    if(/^[JU]EG\d{12}$/.test(tail) && looksScanned(t)){
+    if(isWay){
       e.preventDefault();
       if(e.stopImmediatePropagation) e.stopImmediatePropagation();
       if(inMi && typeof start === 'number'){
@@ -550,13 +552,16 @@ function onKeyDown(e){
   var ae = document.activeElement;
   var inOther = ae && ae !== inp && ae !== document.body && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName || '');
   if(inOther) return;
-  // F9/F10 = أزرار التأكيد — على آخر نتيجة فيها الاختيار ده (الكارت أو قايمة «محتاجة انتباهك»).
+  // F9/F10 = أزرار التأكيد — على النتيجة اللي على الكارت **بس** (اللي الموظف شايفها).
+  // 🔴 كانت بتمشي على «محتاجة انتباهك» لو الكارت مافيهوش الاختيار: ضغطتين F9 (أو زرار متداس) = طرد تاني
+  // اتفرض «مرتجع» من غير ما حد يختاره. ومرة واحدة لكل كارت (الضغطة المتكررة من الزرار المتداس بتترمي).
   // 🔴 دايماً preventDefault: F10 بيفتح قايمة المتصفح، والفوكس كان بيروح هناك والسكان اللي بعده يضيع.
   if(e.key === 'F9' || e.key === 'F10'){
     e.preventDefault();
+    if(e.repeat) return;
     var want = e.key === 'F9' ? 'in' : 'out';
-    var co = (whCard && whCard.res && whCard.res.options) || [];
-    if(attnLatestWith(want) || co.indexOf(want) >= 0) whForce(want);
+    var co = (whCard && !whCard.forced && whCard.res && whCard.res.options) || [];
+    if(co.indexOf(want) >= 0) whForce(want, whCard.attnId || null);
     return;
   }
   if(isEndKey(e)){
@@ -644,15 +649,22 @@ function whLookup(q){
 }
 
 // ── الأزرار في الكارت ────────────────────────────────────────────────
-// الاختيار على نتيجة بعينها (`attnId` من الزرار) — وإلا آخر نتيجة فيها الاختيار ده (F9/F10)
+// الاختيار على نتيجة بعينها (`attnId` من الزرار) — وإلا النتيجة اللي على الكارت (F9/F10)
 export function whForce(dir, attnId){
-  var a = attnId ? attnFind(Number(attnId)) : attnLatestWith(dir);
+  var a = attnId ? attnFind(Number(attnId)) : null;
+  var onCard = !!(whCard && !whCard.forced && (a ? whCard.attnId === a.id : !attnId));
   var code = '';
   if(a && (a.res.options || []).indexOf(dir) >= 0) code = a.code;
-  else if(!attnId && whCard && whCard.code && ((whCard.res && whCard.res.options) || []).indexOf(dir) >= 0) code = whCard.code;
+  else if(onCard && whCard.code && ((whCard.res && whCard.res.options) || []).indexOf(dir) >= 0) code = whCard.code;
   if(!code) return;
   if(a) attnRemove(a.id);
-  whCard = null;
+  // 🔴 الكارت مابيتصفّرش (كان بيرجّع نتيجته في القايمة تحت الماوس — الضغطة التانية كانت بتقع على صف تاني):
+  // بيتعلّم «اتاخد قراره» والأزرار بتتقفل لحد ما النتيجة الجديدة توصل
+  if(onCard){
+    whCard.forced = true;
+    var el = $id('wh-result');
+    if(el) el.querySelectorAll('[data-wh-act="force-in"],[data-wh-act="force-out"]').forEach(function(b){ b.disabled = true; });
+  }
   renderAttn();
   whEnqueue(code, { force: dir, src: 'manual' });
 }
@@ -710,7 +722,7 @@ var WH_LISTS = [
 export function whCountsBadge(c){
   c = c || {};
   return { staff: (c.pull || 0) + (c.closed_unscanned || 0),
-           admin: (c.leak || 0) + (c.unmatched_lines || 0) + (c.negative_products || 0) };
+           admin: Math.max(0, (c.leak || 0) - (c.leak_counted || 0)) + (c.unmatched_lines || 0) + (c.negative_products || 0) };
 }
 
 export function whSetNavBadge(c){
@@ -811,7 +823,7 @@ var WH_LIST_HINT = {
   pull:             'اتضربت خروج وبعدين الأوردر اتلغى أو العميل طلب إلغاء — اسحبها من الكومة واضربها تاني (هترجع للمخزن).',
   courier:          'J&T بتقول إن المرتجعات دي مع المندوب جايين لنا — اضربهم أول ما يوصلوا.',
   closed_unscanned: 'J&T قفلتها «رجعت للتاجر» من أكتر من ساعتين ومحدش ضربها مرتجع — دوّر عليها واضربها.',
-  leak:             'J&T استلمتها ومحدش ضربها خروج (بعد ما السكان اشتغل). خصمها بإيدك لو خرجت فعلاً.'
+  leak:             'J&T استلمتها ومحدش ضربها خروج (بعد ما السكان اشتغل). خصمها بإيدك لو خرجت فعلاً — اللي عليها «🧮» اتعمل جرد بعدها، فالمنتج اللي اتعدّ فيه مش هيتخصم تاني (الجرد شاله).'
 };
 
 function rowsFor(k){
@@ -858,7 +870,8 @@ function rowHtml(k, x){
   } else if(k === 'closed_unscanned'){
     meta = '<span class="wh-row-by">J&amp;T قفلتها ' + esc(whDayTime(x.at)) + '</span>' + (x.marked ? '<span class="wh-row-ok">اتعلّم قبل كده</span>' : '');
   } else if(k === 'leak'){
-    meta = '<span class="wh-row-by">J&amp;T استلمتها ' + esc(whDayTime(x.jt_at)) + '</span>' + (x.cancelled ? '<span class="wh-row-old">ملغي عندنا</span>' : '');
+    meta = '<span class="wh-row-by">J&amp;T استلمتها ' + esc(whDayTime(x.jt_at)) + '</span>' + (x.cancelled ? '<span class="wh-row-old">ملغي عندنا</span>' : '')
+      + (x.counted ? '<span class="wh-row-ok" title="جرد اتفتح بعد ما J&amp;T استلمتها — المنتج اللي اتعدّ فيه مش هيتخصم تاني لو ضغطت «اخصمه»">🧮 اتعمل جرد بعدها</span>' : '');
     if(isAdminUser() && x.id){
       acts = '<button type="button" class="wh-btn wh-btn-sm" data-wh-act="leak-out" data-oid="' + esc(x.id) + '">📦 اخصمه</button>'
         + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="leak-dismiss" data-oid="' + esc(x.id) + '">✖ مش محتاج خصم</button>';
@@ -973,6 +986,9 @@ function onClick(e){
   var tb = t.getAttribute('data-wh-tab');
   if(tb){ setTab(tb); return; }
   var a = t.getAttribute('data-wh-act');
+  // 🔴 دبل كليك: الضغطة الأولى بتشيل الصف والقايمة بتطلع لفوق — التانية كانت بتقع على الصف اللي بعده
+  // (تقفل تحذير «ملغي» أو تفرض طرد تاني). الضغطة التانية من نفس الدبل كليك بتترمي.
+  if(e.detail > 1 && /^(force-in|force-out|attn-ok|attn-clear|ship-anyway|undo|leak-out|leak-dismiss|pick|orphans-send)$/.test(a)) return;
   if(a === 'force-in') whForce('in', t.getAttribute('data-attn'));
   else if(a === 'force-out') whForce('out', t.getAttribute('data-attn'));
   else if(a === 'attn-ok') attnOk(t.getAttribute('data-attn'));
@@ -1024,7 +1040,8 @@ export function initWarehouse(){
   setInterval(function(){
     if(whPageVisible() && Date.now() - whBoardAt >= WH_BOARD_MS - 500) loadBoard();
   }, WH_BOARD_MS);
-  whAdminInit({ reloadBoard: loadBoard, setTab: setTab, enqueue: whEnqueue });
+  whAdminInit({ reloadBoard: loadBoard, setTab: setTab, enqueue: whEnqueue,
+                pending: function(){ return whQueue.length + orphanQueues().reduce(function(n, x){ return n + x.q.length; }, 0); } });
   renderSoundBtn();
   renderFocus();
 }

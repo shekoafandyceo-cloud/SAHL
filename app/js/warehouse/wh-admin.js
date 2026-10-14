@@ -15,12 +15,13 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { currentRole, currentTenantId } from '../auth/auth.js';
 
-var api = { reloadBoard: function(){}, setTab: function(){}, enqueue: function(){} };
+var api = { reloadBoard: function(){}, setTab: function(){}, enqueue: function(){}, pending: function(){ return 0; } };
 var board = null;
 
 // ── ربط المنتجات ─────────────────────────────────────────────────────
 var mapRows = null, mapProducts = [], mapErr = false, mapLoading = false, mapFilter = '', mapQ = '';
 var mapSaving = {};
+var mapAgain = false;   // طلب تحميل جه والتحميل في السكة — بيتعاد بعده (كان بيترمي، فصف اتربط حالاً كان يبان «مش مربوط»)
 // اختيار الأدمن في كل صف قبل ما يحفظ — أي رسم للقايمة (حفظ صف تاني · فلتر · بحث) كان بيرجّع الاختيارات
 // اللي مااتحفظتش لأصلها في صمت
 var mapPick = {};   // rowKey → {pid, scope}
@@ -46,11 +47,13 @@ var MATCHED_BY = { alias: 'ربط بالخاصية', alias_item: 'ربط بال�
 function rowKey(r){ return r.item_key + '|' + (r.props_key || '') + '|' + (r.var_key || ''); }
 
 function loadMap(){
-  if(!sb || mapLoading) return;
+  if(!sb) return;
+  if(mapLoading){ mapAgain = true; return; }
   mapLoading = true; mapErr = false;
   renderMap();
   sb.rpc('wh_items_unmapped', { p_days: 30 }).then(function(r){
     mapLoading = false;
+    if(mapAgain){ mapAgain = false; loadMap(); return; }
     if(r.error || !r.data || !r.data.ok){ mapErr = true; renderMap(); return; }
     mapRows = r.data.rows || [];
     mapProducts = (r.data.products || []).filter(function(p){ return p.active !== false; });
@@ -73,12 +76,14 @@ function isChildProduct(id){
   return false;
 }
 
-// النطاق الافتراضي: «بالخاصية دي بس» لو الربط القديم كان بالخاصية، أو المنتج المختار خاصية (بنت) والصف ليه
-// خاصية — ربط الاسم كله بخاصية واحدة معناه كل ألوان/مقاسات الاسم ده تتخصم منها (السيرفر بيصلّح لو خاصية
-// الأوردر بتطابق أخت تانية، بس اللي مالوش أخت مطابقة بيروح للخاصية دي غلط)
+// النطاق الافتراضي بيوصف الربط الموجود الأول: ربط بالخاصية = «بالخاصية دي بس» · ربط بالاسم والاختيار زي ما
+// هو = «للاسم ده» (حفظ تاني = نفس الربط — كان بيقترح «بالخاصية» على ربط اسم بخاصية، والحفظ كان بيعمل ربط
+// خاصية جديد بيسحب الأوردرات من الأخت الصح). وبعدين لاختيار جديد: المنتج خاصية (بنت) والصف ليه خاصية =
+// «بالخاصية دي بس» — ربط الاسم كله بخاصية واحدة معناه كل ألوان/مقاسات الاسم تتخصم منها.
 export function whMapDefaultScope(r, pid){
   if(!r || !r.props_key) return 'item';
   if(r.alias_props || r.alias_props_ignore) return 'props';
+  if((r.alias_item || r.alias_item_ignore) && (!pid || pid === r.alias_item)) return 'item';
   if(pid && isChildProduct(pid)) return 'props';
   return 'item';
 }
@@ -207,6 +212,10 @@ var cntProducts = null;
 var cntLoading = false, cntErr = false, cntBusy = false;
 var cntDraft = {};
 var cntPreview = false;
+var cntAgain = false;      // نفس فكرة mapAgain
+var cntPile = null;        // {map:{pid:qty}, pile_orders, ret_orders} — wh_count_pile (السيرفر بيطرحها وقت التطبيق)
+var cntGoLive = null, cntGoLiveFor = null;   // اختيار «ده جرد التشغيل» — كان بيرجع لافتراضه مع كل رسم
+var cfgBusy = false;
 
 function draftKey(){ return 'sahl_wh_count_draft_' + (cnt ? cnt.id : 'x'); }
 function draftLoad(){
@@ -224,16 +233,26 @@ function whenTxt(iso){
 }
 
 function loadCount(){
-  if(!sb || !currentTenantId || cntLoading) return;
+  if(!sb || !currentTenantId) return;
+  if(cntLoading){ cntAgain = true; return; }
   cntLoading = true; cntErr = false; renderCount();
   Promise.all([
     sb.from('stock_counts').select('id,opened_at,opened_by_name,note,applied_at,applied_by_name,go_live,cancelled_at')
       .eq('tenant_id', currentTenantId).order('opened_at', { ascending: false }).limit(6),
     sb.from('v_stock_products').select('id,name,current_qty,parent_id,variant_label,active')
-      .eq('tenant_id', currentTenantId).order('name', { ascending: true })
+      .eq('tenant_id', currentTenantId).order('name', { ascending: true }),
+    Promise.resolve(sb.rpc('wh_count_pile')).catch(function(){ return { error: true }; })
   ]).then(function(res){
     cntLoading = false;
+    if(cntAgain){ cntAgain = false; loadCount(); return; }
     if(res[0].error || res[1].error){ cntErr = true; renderCount(); return; }
+    var pd = res[2] && !res[2].error && res[2].data;
+    cntPile = null;
+    if(pd && pd.ok && Array.isArray(pd.pile)){
+      var pm = {};
+      pd.pile.forEach(function(x){ if(x && x.product_id) pm[x.product_id] = Number(x.qty) || 0; });
+      cntPile = { map: pm, pile_orders: Number(pd.pile_orders) || 0, ret_orders: Number(pd.ret_orders) || 0, count_id: pd.count_id };
+    }
     var rows = res[0].data || [];
     cnt = null;
     for(var i = 0; i < rows.length; i++) if(!rows[i].applied_at && !rows[i].cancelled_at){ cnt = rows[i]; break; }
@@ -262,8 +281,10 @@ export function whCountFamilies(products){
   return out;
 }
 
-export function whCountPayload(products, draft){
-  var counts = [], missing = 0, changed = [];
+// pile = {pid: qty} — القطع اللي في طرود اتضربت خروج ولسه هنا: العدّ بيشملها والسيستم خاصمها، فالرقم
+// الجديد = المعدود − الكومة (نفس wh_count_apply بالحرف)
+export function whCountPayload(products, draft, pile){
+  var counts = [], missing = 0, changed = [], short = [];
   (products || []).forEach(function(p){
     var v = draft ? draft[p.id] : undefined;
     var s = v == null ? '' : String(v).trim();
@@ -271,14 +292,30 @@ export function whCountPayload(products, draft){
     if(!/^\d+$/.test(s)) { missing++; return; }
     var n = parseInt(s, 10);
     counts.push({ product_id: p.id, counted: n });
+    var pq = (pile && pile[p.id]) || 0;
+    if(n < pq) short.push({ p: p, counted: n, pile: pq });
     var cur = Number(p.current_qty || 0);
-    if(n !== cur) changed.push({ p: p, from: cur, to: n });
+    if(n - pq !== cur) changed.push({ p: p, from: cur, to: n - pq });
   });
-  return { counts: counts, missing: missing, changed: changed };
+  return { counts: counts, missing: missing, changed: changed, short: short };
 }
 
+// الرسم بيحافظ على خانة العدّ اللي في إيد الأدمن (الكارسر مكانه) — التحميل بيخلص وهو بيكتب
 function renderCount(){
   var el = $id('wh-count'); if(!el) return;
+  var ae = document.activeElement, keep = null;
+  if(ae && el.contains(ae) && ae.classList && ae.classList.contains('wh-ci')){
+    keep = { pid: ae.getAttribute('data-pid'), s: ae.selectionStart, e: ae.selectionEnd };
+  }
+  renderCountBody(el);
+  if(keep && keep.pid){
+    var n = null, all = el.querySelectorAll('.wh-ci');
+    for(var i = 0; i < all.length; i++) if(all[i].getAttribute('data-pid') === keep.pid){ n = all[i]; break; }
+    if(n){ n.focus(); try{ n.setSelectionRange(keep.s, keep.e); }catch(er){ /* */ } }
+  }
+}
+
+function renderCountBody(el){
   if(cntLoading && !cntProducts){ el.innerHTML = '<div class="wh-empty">بنحمّل…</div>'; return; }
   if(cntErr && !cntProducts){ el.innerHTML = '<div class="wh-empty">مقدرناش نحمّل. <button type="button" class="wh-btn wh-btn-ghost" data-wha="count-reload">↻ حاول تاني</button></div>'; return; }
   if(!cntProducts){ el.innerHTML = ''; return; }
@@ -289,11 +326,19 @@ function renderCount(){
       + '<h3>🧮 الجرد</h3>'
       + (base ? '<p>آخر جرد تشغيل: ' + esc(whenTxt(base)) + '. تقدر تعمل جرد دوري في أي وقت — الفرق بيتسجّل حركة «جرد».</p>'
               : '<p><b>جرد التشغيل</b> هو اللي بيبدأ السكان: بتعدّ كل منتج في المخزن بإيدك، والسيستم بيبدأ يخصم كل طرد يتضرب من لحظة فتح الجرد.</p>')
-      + '<ol class="wh-steps">'
-      + '<li>اربط المنتجات الأول (تاب «🔗 ربط المنتجات») — لحد ما «مش مربوط» تبقى صفر أو قريبة منه.</li>'
-      + '<li>اختار وقت مفيش فيه تسليم للمندوب (مثلاً الصبح بدري). افتح الجرد، وعدّ <b>كل القطع اللي في المخزن — بما فيها الطرود المتغلّفة اللي المندوب لسه ماستلمهاش</b> (دي هتتخصم لما تتضرب خروج).</li>'
-      + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد» مع «ده جرد التشغيل».</li>'
-      + '<li>من بعدها: كل طرد خارج يتضرب، وكل مرتجع يتضرب أول ما يوصل.</li></ol>'
+      + (base
+        // 🔴 الجرد الدوري: الطرود اللي في الكومة اتخصمت خلاص — السيستم بيطرحها من العدّ لوحده، والمرتجع اللي
+        // ماتضربش كان هيتضاف مرتين (مرة في العدّ ومرة لما يتضرب)
+        ? '<ol class="wh-steps">'
+          + '<li>اضرب كل المرتجعات اللي وصلت <b>الأول</b> — قايمة «↩️ رجعت ومااتضربتش» لازم تبقى فاضية.</li>'
+          + '<li>افتح الجرد وعدّ <b>كل القطع اللي في المخزن فعلاً — بما فيها الطرود المتغلّفة في الكومة</b> (اللي اتضربت خروج السيستم بيطرحها من العدّ لوحده).</li>'
+          + '<li>متضربش طرود وانت بتعدّ — ولو حصل، السيستم هيسألك قبل ما يطبّق.</li>'
+          + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد».</li></ol>'
+        : '<ol class="wh-steps">'
+          + '<li>اربط المنتجات الأول (تاب «🔗 ربط المنتجات») — لحد ما «مش مربوط» تبقى صفر أو قريبة منه.</li>'
+          + '<li>اختار وقت مفيش فيه تسليم للمندوب (مثلاً الصبح بدري). افتح الجرد، وعدّ <b>كل القطع اللي في المخزن — بما فيها الطرود المتغلّفة اللي المندوب لسه ماستلمهاش</b> (دي هتتخصم لما تتضرب خروج).</li>'
+          + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد» مع «ده جرد التشغيل».</li>'
+          + '<li>من بعدها: كل طرد خارج يتضرب، وكل مرتجع يتضرب أول ما يوصل.</li></ol>')
       + '<button type="button" class="wh-btn wh-btn-main" data-wha="count-open"' + (cntBusy ? ' disabled' : '') + '>🧮 افتح جرد جديد</button>'
       + '</div>';
     h += histHtml();
@@ -301,36 +346,46 @@ function renderCount(){
     return;
   }
   var fam = whCountFamilies(cntProducts);
-  var pay = whCountPayload(cntProducts, cntDraft);
+  var pmap = (cntPile && cntPile.count_id === cnt.id && cntPile.map) || {};
+  var pay = whCountPayload(cntProducts, cntDraft, pmap);
+  if(cntGoLiveFor !== cnt.id){ cntGoLive = !base; cntGoLiveFor = cnt.id; }
   h += '<div class="wh-count-head"><div><h3>🧮 جرد مفتوح</h3><p>اتفتح ' + esc(whenTxt(cnt.opened_at)) + (cnt.opened_by_name ? ' · ' + esc(cnt.opened_by_name) : '')
     + '. اكتب العدد الحقيقي لكل منتج — الكلام بيتحفظ على الجهاز ده لحد ما تطبّق.</p></div>'
     + '<div class="wh-count-prog"><b>' + (cntProducts.length - pay.missing) + '</b> من ' + cntProducts.length + ' اتعدّوا'
     + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload" title="هات أرقام السيستم من جديد ومنتجات اتضافت — اللي كتبته بيفضل">↻</button></div></div>';
+  if(cntPile && cntPile.count_id === cnt.id && (cntPile.pile_orders || cntPile.ret_orders)){
+    h += '<div class="wh-count-warn">'
+      + (cntPile.pile_orders ? '<div>📦 فيه <b>' + cntPile.pile_orders + '</b> طرد اتضربوا خروج ولسه في المخزن (الكومة) — <b>اعدّهم مع الباقي</b>، والسيستم بيطرحهم من العدّ لوحده (الرقم جنب كل منتج).</div>' : '')
+      + (cntPile.ret_orders ? '<div>↩️ فيه <b>' + cntPile.ret_orders + '</b> مرتجع J&amp;T سلّمته لنا ومحدش ضربه — <b>اضربه مرتجع الأول</b>، وإلا هيتسأل عليه وقت التطبيق.</div>' : '')
+      + '</div>';
+  }
   h += '<div class="wh-count-list">';
   fam.forEach(function(f){
     var p = f.p, v = cntDraft[p.id];
     var s = v == null ? '' : String(v);
-    var diff = '';
+    var diff = '', pq = pmap[p.id] || 0;
     if(cntPreview && s !== '' && /^\d+$/.test(s.trim())){
-      var d = parseInt(s, 10) - Number(p.current_qty || 0);
+      var d = parseInt(s, 10) - pq - Number(p.current_qty || 0);
       diff = d === 0 ? '<span class="wh-cd zero">=</span>' : '<span class="wh-cd ' + (d > 0 ? 'up' : 'down') + '" dir="ltr">' + (d > 0 ? '+' : '') + d + '</span>';
     }
     h += '<div class="wh-count-row' + (f.child ? ' child' : '') + '">'
       + '<span class="wh-cn">' + (f.child ? '↳ ' : '') + esc(p.name) + (f.unalloc ? ' <small>(غير موزع — اكتب 0 لو كل القطع على الخصائص)</small>' : '') + '</span>'
       + '<span class="wh-cs" title="الرقم في السيستم دلوقتي">السيستم ' + '<span dir="ltr">' + esc(String(p.current_qty || 0)) + '</span></span>'
       + '<input class="wh-ci" type="text" inputmode="numeric" data-pid="' + esc(p.id) + '" value="' + esc(s) + '" placeholder="العدد" autocomplete="off">'
+      + (pq ? '<span class="wh-cpile" title="قطع في طرود اتضربت خروج ولسه هنا — اعدّها مع الباقي، وبتتطرح من العدّ">📦 منهم <span dir="ltr">' + pq + '</span> في الكومة</span>' : '')
       + diff + '</div>';
   });
   h += '</div>';
   var golive = !enabled;
   h += '<div class="wh-count-foot">'
-    + (golive ? '<label class="wh-check"><input type="checkbox" id="wh-golive"' + (!base ? ' checked' : '') + '> ده <b>جرد التشغيل</b> — السكان يبدأ يخصم من لحظة فتح الجرد (' + esc(whenTxt(cnt.opened_at)) + ')</label>' : '')
+    + (golive ? '<label class="wh-check"><input type="checkbox" id="wh-golive"' + (cntGoLive ? ' checked' : '') + '> ده <b>جرد التشغيل</b> — السكان يبدأ يخصم من لحظة فتح الجرد (' + esc(whenTxt(cnt.opened_at)) + ')</label>' : '')
     + '<div class="wh-count-acts">'
     + '<button type="button" class="wh-btn wh-btn-ghost" data-wha="count-preview">' + (cntPreview ? '🙈 اخفي الفرق' : '👀 وريني الفرق') + '</button>'
     + '<button type="button" class="wh-btn wh-btn-main" data-wha="count-apply"' + (cntBusy ? ' disabled' : '') + '>✅ طبّق الجرد</button>'
     + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-danger" data-wha="count-cancel"' + (cntBusy ? ' disabled' : '') + '>✖ الغي الجرد</button>'
     + '</div>'
     + (pay.changed.length ? '<div class="wh-hint">' + pay.changed.length + ' منتج رقمه هيتغيّر.</div>' : '')
+    + (pay.short.length ? '<div class="wh-hint bad">⚠️ ' + pay.short.length + ' منتج العدد اللي اتكتب أقل من اللي في الكومة — الكومة لازم تتعدّ معاه.</div>' : '')
     + '</div>';
   h += histHtml();
   el.innerHTML = h;
@@ -351,7 +406,7 @@ function settingsHtml(enabled, base){
   var h = '<div class="wh-set"><h3>⚙️ إعدادات السكان</h3>';
   if(base){
     h += '<div class="wh-set-row">' + (enabled ? '🟢 شغّال — بيخصم من ' + esc(whenTxt(base)) : '⏸️ متوقف — مابيخصمش')
-      + ' <button type="button" class="wh-btn wh-btn-ghost" data-wha="cfg-toggle">' + (enabled ? '⏸️ وقّفه' : '▶️ شغّله') + '</button></div>';
+      + ' <button type="button" class="wh-btn wh-btn-ghost" data-wha="cfg-toggle" data-en="' + (enabled ? '0' : '1') + '"' + (cfgBusy ? ' aria-busy="true"' : '') + '>' + (enabled ? '⏸️ وقّفه' : '▶️ شغّله') + '</button></div>';
   } else {
     h += '<div class="wh-set-row">🧪 وضع تجربة — بيشتغل لما تطبّق «جرد التشغيل» تحت.</div>';
   }
@@ -371,38 +426,72 @@ function countOpen(){
   });
 }
 
+function prodName(id){
+  var ps = cntProducts || [];
+  for(var i = 0; i < ps.length; i++) if(ps[i].id === id) return ps[i].name || '';
+  return '';
+}
+
 function countApply(force){
   if(cntBusy || !cnt) return;
-  var pay = whCountPayload(cntProducts, cntDraft);
+  var pmap = (cntPile && cntPile.count_id === cnt.id && cntPile.map) || {};
+  var pay = whCountPayload(cntProducts, cntDraft, pmap);
   var gl = $id('wh-golive');
   var goLive = !!(gl && gl.checked);
   if(!pay.counts.length){ toast('اكتب العدد لمنتج واحد على الأقل', 'er'); return; }
   if(goLive && pay.missing){ toast('جرد التشغيل لازم يغطي كل المنتجات — فاضل ' + pay.missing, 'er'); return; }
+  // 🔴 سكانات محفوظة على الجهاز ده لسه ماوصلتش السيرفر (النت كان واقع): هتتسجّل بوقت وصولها — بعد الجرد —
+  // فالسيرفر مش هيعرف إنها اتعملت وانت بتعدّ. تتبعت الأول.
+  var pend = api.pending ? api.pending() : 0;
+  if(pend > 0){ toast('فيه ' + pend + ' سكان على الجهاز ده لسه ماوصلوش السيرفر — استنى لحد ما يتبعتوا (تاب «السكان») وبعدين طبّق', 'er'); return; }
+  if(pay.short.length){
+    var sh = pay.short[0];
+    toast('«' + (sh.p.name || '') + '»: العدد ' + sh.counted + ' أقل من اللي في الكومة (' + sh.pile + ') — الكومة لازم تتعدّ معاه', 'er');
+    return;
+  }
   var go = function(f){
     cntBusy = true; renderCount();
     sb.rpc('wh_count_apply', { p_count_id: cnt.id, p_counts: pay.counts, p_go_live: goLive, p_force: !!f }).then(function(r){
       cntBusy = false;
       var d = (r && !r.error && r.data) || { ok: false, code: 'error' };
+      var retTxt = d.returns_unscanned ? ' وفيه ' + d.returns_unscanned + ' مرتجع J&T سلّمته لنا ومحدش ضربه — لو هو في المخزن اضربه مرتجع الأول.' : '';
       if(d.code === 'scans_during_count'){
         renderCount();
-        showModal({ icon: '⚠️', title: 'فيه طرود اتضربت بعد ما الجرد اتفتح', sub: 'المنتجات دي اتخصم منها بعد ما بدأت تعدّ. لو العدد اللي كتبته بعد ما الطرود خرجت، طبّق عادي. لو قبلها، الغي واعدّ تاني.',
+        showModal({ icon: '⚠️', title: 'فيه طرود اتضربت بعد ما الجرد اتفتح', sub: 'المنتجات دي اتخصم منها بعد ما بدأت تعدّ. لو العدد اللي كتبته بعد ما الطرود خرجت، طبّق عادي. لو قبلها، الغي واعدّ تاني.' + retTxt,
+          okLabel: 'طبّق برضه', onOk: function(){ go(true); } });
+        return;
+      }
+      if(d.code === 'returns_unscanned'){
+        renderCount();
+        showModal({ icon: '↩️', title: 'فيه ' + d.returns_unscanned + ' مرتجع J&T سلّمته لنا ومحدش ضربه',
+          sub: 'لو هما في المخزن: الغي النافذة دي، اضربهم مرتجع (تاب «السكان»)، وبعدين طبّق — كده الرقم يطلع صح. لو عارف إنهم مش هنا أو اتعدّوا خلاص، طبّق برضه.',
           okLabel: 'طبّق برضه', onOk: function(){ go(true); } });
         return;
       }
       if(!d.ok){
         // منتج اتضاف في المخزون والجرد مفتوح = القايمة هنا قديمة — نجيبها تاني (الكلام المكتوب بيفضل)
-        if(d.code === 'missing_lines') loadCount(); else renderCount();
-        toast(d.code === 'missing_lines' ? 'جرد التشغيل لازم يغطي كل المنتجات — فاضل ' + (d.missing || '') : (d.code === 'bad_qty' ? 'فيه رقم مش مظبوط' : 'مقدرناش نطبّق — حاول تاني'), 'er');
+        // · الكومة اتغيّرت (طرد اتضرب/اتسحب) = نجيب أرقامها تاني
+        if(d.code === 'missing_lines' || d.code === 'pile_exceeds') loadCount(); else renderCount();
+        var nm = d.product_id ? prodName(d.product_id) : '';
+        toast(d.code === 'missing_lines' ? 'جرد التشغيل لازم يغطي كل المنتجات — فاضل ' + (d.missing || '')
+          : d.code === 'pile_exceeds' ? '«' + nm + '»: العدد ' + d.counted + ' أقل من اللي في الكومة (' + d.pile + ') — الكومة لازم تتعدّ معاه'
+          : d.code === 'bad_qty' ? (nm ? 'الرقم بتاع «' + nm + '» مش مظبوط' : 'فيه رقم مش مظبوط')
+          : d.code === 'busy' ? 'السيرفر مشغول — جرّب تاني كمان ثانية'
+          : 'مقدرناش نطبّق — حاول تاني', 'er');
         return;
       }
       try{ localStorage.removeItem(draftKey()); }catch(e){ /* */ }
-      toast(d.go_live ? '🟢 السكان اشتغل — كل طرد يتضرب من دلوقتي بيتخصم' : 'اتطبّق الجرد ✓ — ' + (d.changed || 0) + ' منتج اتعدّل', 'ok');
+      toast(d.go_live ? '🟢 السكان اشتغل — كل طرد يتضرب من دلوقتي بيتخصم'
+        : 'اتطبّق الجرد ✓ — ' + (d.changed || 0) + ' منتج اتعدّل' + (d.pile ? ' · اتطرح ' + d.pile + ' قطعة في الكومة' : ''), 'ok');
       cntPreview = false;
       loadCount();
       api.reloadBoard();
     });
   };
+  var pileN = 0;
+  pay.counts.forEach(function(c){ pileN += pmap[c.product_id] || 0; });
   var sub = pay.changed.length + ' منتج رقمه هيتغيّر' + (pay.missing ? ' · ' + pay.missing + ' مااتعدّوش (هيفضلوا زي ما هم)' : '') + '.'
+    + (pileN ? ' و' + pileN + ' قطعة في الكومة (اتضربت خروج) هتتطرح من العدّ.' : '')
     + (goLive ? ' والسكان هيبدأ يخصم من لحظة فتح الجرد.' : '');
   if(force){ go(true); return; }
   showModal({ icon: goLive ? '🟢' : '🧮', title: goLive ? 'طبّق جرد التشغيل وشغّل السكان؟' : 'طبّق الجرد؟', sub: sub,
@@ -424,13 +513,35 @@ function countCancel(){
     } });
 }
 
+// 🔴 الزرار بيبعت الحالة اللي **مكتوبة عليه** (data-en) مش عكس آخر قراية، وكتلة الإعدادات بتترسم من رد السيرفر
+// فوراً حتى والفوكس على الزرار: كانت بتفضل «⏸️ وقّفه» والسكان واقف، والضغطة التانية بتشغّله تاني في صمت.
+// ⚠️ مفيش `disabled` وقت الحفظ (درس 54 — بيشيل الفوكس) — القفل من التكرار في الكود (`cfgBusy`).
 function cfgSet(patch){
-  sb.rpc('wh_config_set', { p: patch }).then(function(r){
+  if(cfgBusy) return;
+  cfgBusy = true; refreshSet(true);
+  Promise.resolve(sb.rpc('wh_config_set', { p: patch })).then(function(r){
+    cfgBusy = false;
     var d = (r && !r.error && r.data) || { ok: false };
+    if(d.ok && board){ board = Object.assign({}, board, { enabled: !!d.enabled, hold_cancel_requested: d.hold_cancel_requested !== false }); }
+    refreshSet(true);
     if(!d.ok){ toast(d.code === 'needs_count' ? 'لازم جرد التشغيل الأول' : 'مقدرناش نحفظ', 'er'); api.reloadBoard(); return; }
     toast('اتحفظ ✓', 'ok');
     api.reloadBoard();
-  });
+  }, function(){ cfgBusy = false; refreshSet(true); toast('مقدرناش نحفظ', 'er'); });
+}
+
+// كتلة الإعدادات لوحدها — force = حتى والفوكس جوّاها (والفوكس بيرجع لنفس الزرار/الخانة)
+function refreshSet(force){
+  var set = document.querySelector('#wh-count .wh-set');
+  if(!set) return;
+  var ae = document.activeElement, inside = !!(ae && set.contains(ae));
+  if(inside && !force && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName || '')) return;
+  var key = inside ? (ae.id ? '#' + ae.id : (ae.getAttribute('data-wha') ? '[data-wha="' + ae.getAttribute('data-wha') + '"]' : '')) : '';
+  var tmp = document.createElement('div');
+  tmp.innerHTML = settingsHtml(!!(board && board.enabled), board && board.baseline_at);
+  if(!tmp.firstChild) return;
+  set.replaceWith(tmp.firstChild);
+  if(key){ var n = document.querySelector('#wh-count .wh-set ' + key); if(n){ try{ n.focus({ preventScroll: true }); }catch(e){ n.focus(); } } }
 }
 
 // ── الربط بالصفحة ────────────────────────────────────────────────────
@@ -451,12 +562,8 @@ export function whAdminBoard(b){
   if(b) board = b;
   if(currentRole !== 'admin') return;
   var page = $id('page-warehouse');
-  if(!page || page.getAttribute('data-tab') !== 'count' || !cntProducts) return;
-  var set = document.querySelector('#wh-count .wh-set');
-  if(!set || (document.activeElement && set.contains(document.activeElement))) return;
-  var tmp = document.createElement('div');
-  tmp.innerHTML = settingsHtml(!!(board && board.enabled), board && board.baseline_at);
-  if(tmp.firstChild) set.replaceWith(tmp.firstChild);
+  if(!page || page.getAttribute('data-tab') !== 'count' || !cntProducts || cfgBusy) return;
+  refreshSet(false);
 }
 
 function onClick(e){
@@ -473,7 +580,7 @@ function onClick(e){
   else if(a === 'count-cancel') countCancel();
   else if(a === 'count-reload') loadCount();
   else if(a === 'count-preview'){ cntPreview = !cntPreview; renderCount(); }
-  else if(a === 'cfg-toggle') cfgSet({ enabled: !(board && board.enabled) });
+  else if(a === 'cfg-toggle') cfgSet({ enabled: t.getAttribute('data-en') === '1' });
 }
 
 function onInput(e){
@@ -497,6 +604,7 @@ function onInput(e){
 function onChange(e){
   var t = e.target;
   if(t && t.id === 'wh-hold') cfgSet({ hold_cancel_requested: !!t.checked });
+  if(t && t.id === 'wh-golive') cntGoLive = !!t.checked;
   if(t && t.classList && (t.classList.contains('wh-map-prod') || t.classList.contains('wh-map-scope'))){
     var rowEl = t.closest('.wh-map-row'); if(!rowEl) return;
     var k = rowEl.getAttribute('data-k'), r = findRow(k);
@@ -513,13 +621,36 @@ function onChange(e){
 }
 
 // Enter في خانة الجرد = الخانة اللي بعدها (العدّ بيتعمل بالكيبورد)
+// 🔴 السكانر ضرب والأدمن في خانة العدّ: أرقام البوليصة كانت بتتكتب كعدد والـEnter بينقل للخانة اللي بعدها.
+// الضربة بتتعرف من سرعتها (≥ 8 زراير ورا بعض بمتوسط ≤ 35ms) وبترجّع الخانة لقيمتها قبلها.
+var ciBurst = { el: null, snap: '', last: 0, n: 0, sum: 0, max: 0 };
 function onKeyDown(e){
   var t = e.target;
-  if(e.key === 'Enter' && t && t.classList && t.classList.contains('wh-ci')){
-    e.preventDefault();
-    var all = Array.prototype.slice.call(document.querySelectorAll('#wh-count .wh-ci'));
-    var i = all.indexOf(t);
-    if(i >= 0 && all[i + 1]){ all[i + 1].focus(); all[i + 1].select(); }
+  if(!(t && t.classList && t.classList.contains('wh-ci'))) return;
+  var end = e.key === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Tab' || (e.ctrlKey && (e.code === 'KeyJ' || e.code === 'KeyM'));
+  if(end){
+    var b = ciBurst;
+    ciBurst = { el: null, snap: '', last: 0, n: 0, sum: 0, max: 0 };
+    if(b.el === t && b.n >= 8 && b.sum / Math.max(1, b.n - 1) <= 35 && b.max <= 120){
+      e.preventDefault();
+      t.value = b.snap;
+      onInput({ target: t });
+      toast('📦 اتضرب كود في خانة العدّ — اتشال. السكان بيتعمل من تاب «السكان»', 'er');
+      return;
+    }
+    if(e.ctrlKey) e.preventDefault();
+    if(e.key === 'Enter' || e.code === 'NumpadEnter'){
+      e.preventDefault();
+      var all = Array.prototype.slice.call(document.querySelectorAll('#wh-count .wh-ci'));
+      var i = all.indexOf(t);
+      if(i >= 0 && all[i + 1]){ all[i + 1].focus(); all[i + 1].select(); }
+    }
+    return;
+  }
+  if(e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey){
+    var ts = typeof e.timeStamp === 'number' ? e.timeStamp : Date.now();
+    if(ciBurst.el !== t || ts - ciBurst.last > 120){ ciBurst = { el: t, snap: t.value, last: ts, n: 1, sum: 0, max: 0 }; }
+    else { var d = ts - ciBurst.last; ciBurst.n++; ciBurst.sum += d; if(d > ciBurst.max) ciBurst.max = d; ciBurst.last = ts; }
   }
 }
 

@@ -9,9 +9,10 @@
 //  7) نفس نتيجة `app.wh_code` على السيرفر لكل مدخل في TABLE (القيم المتوقعة اتقاست من الدالة الحية 14 أكتوبر)
 //  8) ذيل البافر (المحادثات): كلام بالإيد بطيء وبعده سكان سريع = timing(15) سكانر و timing() كله إيد · tail(15) = الكود ·
 //     markAt(15) = مكان الكارسر قبل أول زرار في الكود · Ctrl+V = «مش موثوق» ومابيضيفش V
+//  9) burstLen(120) = عدد زراير الضربة الأخيرة بس (حارس المودال في السكانر)
 //
 // المعايرات (مرساة + حارس — درس 47): شيل «تثل» من الخريطة (ت→J) → 1 · شيل (?!\d) → 2 · codeChar من e.key → 3 ·
-// البافر مابيتعلّمش dirty → 4 · حد السرعة 1000ms → 5 · timing(n) بيتجاهل n → 8
+// البافر مابيتعلّمش dirty → 4 · حد السرعة 1000ms → 5 · timing(n) بيتجاهل n → 8 · burstLen بيعدّ كله → 9
 // تشغيل:  cd tools && node test-wh-scan-code.mjs
 import fs from 'fs';
 import os from 'os';
@@ -105,6 +106,8 @@ async function suite(m, label){
   const kc = createKeyBuffer();
   kc.push(ev('KeyV', 'v', 0, { ctrlKey: true }));
   r.s8 = tailOk && tim && kc.value() === '' && kc.tail(5) === '';
+  // 9 — burstLen: الضربة الأخيرة بس (الـ15 زرار بتوع السكان — الكلام اللي قبله بفجوة 550ms مابيتحسبش) · فاضي = 0
+  r.s9 = kb.burstLen(120) === 15 && createKeyBuffer().burstLen(120) === 0 && kc.burstLen(120) === 0;
   if(label) return r;
   ok(r.s1, '1) الكيبورد العربي/الشيفت/CapsLock/أرقام هندي/علامات الاتجاه → JEG000538937803');
   ok(r.s2, '2) البوليصة في أي مكان (AIM · لينك) · 13 رقم مش بوليصة · UEG تجريبي · القديم · باركود منتج');
@@ -114,6 +117,7 @@ async function suite(m, label){
   ok(r.s6, '6) isEndKey: Enter · NumpadEnter · Tab · Ctrl+J/M — مش J لوحدها');
   ok(r.s7, '7) ' + TABLE.length + ' مدخل = نفس نتيجة app.wh_code على السيرفر');
   ok(r.s8, '8) ذيل البافر: كلام بالإيد + سكان = timing(15) سكانر · tail/markAt صح · Ctrl+V مش حرف');
+  ok(r.s9, '9) burstLen = الضربة الأخيرة بس (المودال بيعرف ضربة السكانر بيها مهما كان شكل الكود)');
   return r;
 }
 
@@ -131,6 +135,7 @@ await cal('(ج) codeChar من الحرف', 's3', s => s.replace("if(m) return m[
 await cal('(د) البافر مابيتعلّمش dirty', 's4', s => s.replace('      dirty = true;\n    },', '    },'));
 await cal('(هـ) حد السرعة 1000ms', 's5', s => s.replace('t.avg <= 35 && t.max <= 120', 't.avg <= 1000 && t.max <= 2000'));
 await cal('(و) timing(n) بيتجاهل n', 's8', s => s.replace('var ts = (n && n > 0) ? times.slice(-n) : times;', 'var ts = times;'));
+await cal('(ز) burstLen بيعدّ كل الزراير', 's9', s => s.replace('if(times[i] - times[i - 1] > maxGap) break; k++;', 'k++;'));
 
 console.log(bad ? `\n❌ ${bad} فحص وقع` : '\n✅ كله عدّى');
 process.exit(bad ? 1 : 0);

@@ -102,6 +102,14 @@ export function createKeyBuffer(){
       for(var i = 1; i < ts.length; i++){ var d = ts[i] - ts[i - 1]; sum += d; if(d > mx) mx = d; }
       return { n: ts.length, avg: sum / (ts.length - 1), max: mx };
     },
+    // عدد الضغطات الأخيرة اللي ورا بعض من غير فجوة أكبر من maxGap (ms) — «الضربة» الأخيرة
+    burstLen: function(maxGap){
+      var n = times.length;
+      if(!n) return 0;
+      var k = 1;
+      for(var i = n - 1; i > 0; i--){ if(times[i] - times[i - 1] > maxGap) break; k++; }
+      return k;
+    },
     reset: function(){ buf = ''; dirty = false; times = []; marks = []; }
   };
 }

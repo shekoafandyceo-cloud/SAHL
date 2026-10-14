@@ -443,7 +443,16 @@ export function openProductEditor(id){
           if(!isNew&&d.code==='stale'&&typeof d.qty==='number'){
             var cur=d.qty, want=qty+(cur-orig.qty);
             orig.qty=cur;
-            var qi=$id('pe-qty'); if(qi) qi.value=String(want);
+            var qi=$id('pe-qty');
+            // الفرق ممكن ينزّل الرقم تحت الصفر (السكانر خصم أكتر من المتسجّل) — ده رقم مايتحفظش، فبنحط 0
+            // ونقول صراحةً إن المطلوب العدد الحقيقي (كان بيتملى بالسالب والحفظ يترفض «مفيش قيم سالبة»)
+            if(want<0){
+              if(qi) qi.value='0';
+              toast('الكمية اتغيّرت وانت فاتح المحرر (السكانر سجّل حركة): بقت '+cur+' — وفرقك كان هيخلّيها بالسالب. اكتب العدد الحقيقي اللي على الرف واحفظ','er');
+              loadStock();
+              return;
+            }
+            if(qi) qi.value=String(want);
             toast('الكمية اتغيّرت وانت فاتح المحرر (السكانر سجّل حركة): بقت '+cur+' — خلّيت فرقك زي ما هو ('+want+')، راجعها واحفظ تاني','er');
             loadStock();
             return;

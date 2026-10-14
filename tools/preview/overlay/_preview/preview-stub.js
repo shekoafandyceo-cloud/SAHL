@@ -477,6 +477,10 @@
       if(a.p_go_live){ WH.enabled = true; WH.baseline = cc.opened_at; }
       return { ok:true, code:'ok', count_id:cc.id, changed:changed, go_live:!!a.p_go_live, baseline_at:a.p_go_live ? cc.opened_at : null };
     }
+    if(name === 'wh_count_pile'){
+      var op = TABLES.stock_counts.filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
+      return { ok:true, count_id: op ? op.id : null, pile:[], pile_orders:0, ret_orders:0 };
+    }
     if(name === 'wh_config_set'){
       var pp = (a && a.p) || {};
       if(pp.enabled === true && !WH.baseline) return { ok:false, code:'needs_count' };

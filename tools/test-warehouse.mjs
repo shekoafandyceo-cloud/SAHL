@@ -30,6 +30,18 @@
 // 26) سكانات جلسة تانية في الـlocalStorage = بانر + «ابعتهم» = wh_scan بنفس الـclient_id والمفتاح اتمسح
 // 27) محرر المنتج: الكمية اتغيّرت والمحرر مفتوح (stale) = الفرق اللي التاجر قصده اتحفظ على الرقم الجديد ومفيش كتابة
 // 28) ربط المنتجات: تحديث القوايم الدوري مابيمسحش اختيار الأدمن · اختيار خاصية (بنت) = النطاق «بالخاصية دي بس»
+// ── المراجعة العدائية التانية ──
+// 29) F9/F10 على الكارت بس: F10 على كارت «مرتجع؟» بس = ولا حاجة (كان بيفرض طرد تاني «خارج») · F9 متكرر من زرار متداس =
+//     ولا حاجة · F9 مرتين ورا بعض والنتيجة لسه ماوصلتش = طرد واحد بس اتفرض
+// 30) دبل كليك على «✓ شفته» في «محتاجة انتباهك» = صف واحد اتشال (الضغطة التانية كانت بتقفل اللي بعده)
+// 31) «⏸️ وقّفه»: بعد الضغطة الزرار بيقول «▶️ شغّله» والفوكس لسه عليه (كان بيفضل «وقّفه» والسكان واقف)
+// 32) المودال مفتوح وضربة سكانر بكود مش J&T (10 أرقام بسرعة السكانر) = مابتأكّدش المودال · السكان اتسجّل
+// 33) الجرد: الكومة جنب المنتج · الفوكس والكارسر بيفضلوا في خانة العدّ والتحميل بيخلص · «ده جرد التشغيل» مابيرجعش
+//     لافتراضه · ضربة سكانر في خانة العدّ بترجّعها · سكانات لسه ماتبعتتش = التطبيق ممنوع · عدد أقل من الكومة = ممنوع ·
+//     الطبيعي = wh_count_apply والمودال بيقول القطع اللي هتتطرح
+// 34) ربط المنتجات: صف مربوط بالاسم بخاصية = النطاق «للاسم ده» (كان «بالخاصية» = حفظ تاني بيعمل ربط جديد)
+// 35) محرر المنتج stale والفرق هيخلّيها بالسالب = الخانة 0 (مش رقم سالب مايتحفظش)
+// 36) «خرجت من غير سكان»: اللي اتعمل بعدها جرد عليه «🧮» ومابيتعدّش في الشارة الحمرا
 //
 // المعايرات (مرساة + حارس — درس 47): codeChar مابيقراش الزرار → 2 · شيل ت→J → 3 · WH_DEDUPE_MS = 0 → 5 ·
 // client_id جديد مع كل محاولة → 6 · شيل !scanned → 12 · شيل esc من المنتجات في القايمة → 15 · شيل أعمدة المخزن من
@@ -488,6 +500,9 @@ const ATTN_WHR = `window.__WHR = function(n, a){ if(n !== 'wh_scan') return null
   var c = a.p_code;
   if(/91$/.test(c) && !a.p_force) return { ok:true, code:'with_jt_confirm', tone:'warn', options:['in','out'], order:{ uid:'18291', tracking_no:c }, applied:false };
   if(/92$/.test(c)) return { ok:true, code:'blocked_cancelled', tone:'stop', order:{ uid:'18292', tracking_no:c }, applied:false };
+  if(/95$/.test(c)) return { ok:true, code:'blocked_cancel_requested', tone:'stop', order:{ uid:'18295', tracking_no:c }, applied:false };
+  if(/94$/.test(c) && !a.p_force) return { ok:true, code:'confirm_return', tone:'warn', options:['in'], order:{ uid:'18294', tracking_no:c }, applied:false };
+  if(a.p_force && window.__FORCE_DELAY) return new Promise(function(res){ setTimeout(function(){ res({ ok:true, code:'in_ok', tone:'in', dir:'in', applied:true, order:{ uid:'1829x', tracking_no:c }, lines:[] }); }, window.__FORCE_DELAY); });
   if(a.p_force === 'in') return { ok:true, code:'in_ok', tone:'in', dir:'in', applied:true, order:{ uid:'18291', tracking_no:c }, lines:[] };
   return { ok:true, code:'out_ok', tone:'ok', dir:'out', applied:true, order:{ uid:'18293', tracking_no:c }, lines:[] }; };`;
 async function attnFlow(patch){
@@ -497,9 +512,14 @@ async function attnFlow(patch){
   await scanKeys(p, 'JEG000700000093', {}); await p.waitForTimeout(300);
   const a1 = await p.evaluate(() => ({ rows: document.querySelectorAll('#wh-attn .wh-attn-row').length, vis: !document.getElementById('wh-attn').hidden,
     inBtn: !!document.querySelector('#wh-attn [data-wh-act="force-in"]'), card: document.getElementById('wh-result').getAttribute('data-code') }));
+  // F9 والكارت أخضر (مالوش اختيار) = ولا حاجة — الاختيار من زرار الصف نفسه
   await p.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F9', code: 'F9', bubbles: true, cancelable: true })));
+  await p.waitForTimeout(200);
+  const f0 = (await calls(p, 'wh_scan')).filter(c => c.args.p_force === 'in').length;
+  const rb = await p.$('#wh-attn [data-wh-act="force-in"]');
+  if(rb) await rb.click();
   await p.waitForTimeout(300);
-  const f = (await calls(p, 'wh_scan')).filter(c => c.args.p_force === 'in').map(c => c.args.p_code);
+  const f = f0 ? ['f9-forced'] : (await calls(p, 'wh_scan')).filter(c => c.args.p_force === 'in').map(c => c.args.p_code);
   const a2 = await p.evaluate(() => document.querySelectorAll('#wh-attn .wh-attn-row').length);
   const okBtn = await p.$('#wh-attn [data-wh-act="attn-ok"]');
   if(okBtn) await okBtn.click();
@@ -510,7 +530,7 @@ async function attnFlow(patch){
 }
 const at = await attnFlow();
 ok(at.a1.rows === 2 && at.a1.vis && at.a1.inBtn && at.a1.card === 'out_ok' && at.f.length === 1 && /91$/.test(at.f[0]) && at.a2 === 1 && at.a3 === true,
-  '23) «محتاجة انتباهك»: قرار + وقّف فضلوا بعد السكان الأخضر · F9 = مرتجع على 91 · «✓ شفته» شاله (' + JSON.stringify(at) + ')');
+  '23) «محتاجة انتباهك»: قرار + وقّف فضلوا بعد السكان الأخضر · F9 والكارت أخضر = ولا حاجة · «↩️ مرتجع» في الصف = 91 · «✓ شفته» شاله (' + JSON.stringify(at) + ')');
 
 // 24 — Ctrl+J و F10
 {
@@ -617,6 +637,185 @@ const mf = await mapFlow();
 ok(mf.scope === 'props' && mf.after.a === 'p2a' && mf.after.s === 'props' && mf.after.b === 'p1',
   '28) ربط المنتجات: اختيار خاصية = «بالخاصية دي بس» · تحديث القوايم ورسم القايمة مابيمسحوش الاختيارات (' + JSON.stringify(mf) + ')');
 
+// ── 29–36: المراجعة العدائية التانية ──────────────────────────────────
+const key = (p, k, extra) => p.evaluate(({ k, extra }) => document.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: k, code: k, bubbles: true, cancelable: true }, extra || {}))), { k, extra });
+async function f9Flow(patch){
+  const p = await open({ patch, init: ATTN_WHR + 'window.__FORCE_DELAY = 500;' });
+  await scanKeys(p, 'JEG000700000091', {}); await p.waitForTimeout(250);
+  await scanKeys(p, 'JEG000700000094', {}); await p.waitForTimeout(250);
+  const card = await p.evaluate(() => document.getElementById('wh-result').getAttribute('data-code'));
+  await key(p, 'F10'); await p.waitForTimeout(150);
+  const out = (await calls(p, 'wh_scan')).filter(c => c.args.p_force === 'out').length;
+  await key(p, 'F9', { repeat: true }); await p.waitForTimeout(150);
+  const rep = (await calls(p, 'wh_scan')).filter(c => c.args.p_force === 'in').length;
+  await key(p, 'F9'); await p.waitForTimeout(60); await key(p, 'F9'); await p.waitForTimeout(900);
+  const ins = (await calls(p, 'wh_scan')).filter(c => c.args.p_force === 'in').map(c => c.args.p_code.slice(-2));
+  await p.context().close();
+  return { card, out, rep, ins };
+}
+const f9 = await f9Flow();
+ok(f9.card === 'confirm_return' && f9.out === 0 && f9.rep === 0 && f9.ins.length === 1 && f9.ins[0] === '94',
+  '29) F9/F10 على الكارت بس: F10 على «مرتجع؟» = ولا حاجة · F9 متكرر = ولا حاجة · F9 مرتين = 94 بس (' + JSON.stringify(f9) + ')');
+
+async function dblFlow(patch){
+  const p = await open({ patch, init: ATTN_WHR });
+  await scanKeys(p, 'JEG000700000092', {}); await p.waitForTimeout(250);
+  await scanKeys(p, 'JEG000700000095', {}); await p.waitForTimeout(250);
+  await scanKeys(p, 'JEG000700000093', {}); await p.waitForTimeout(300);
+  const before = await p.evaluate(() => document.querySelectorAll('#wh-attn .wh-attn-row').length);
+  await p.locator('#wh-attn .wh-attn-row').first().locator('[data-wh-act="attn-ok"]').dblclick();
+  await p.waitForTimeout(250);
+  const after = await p.evaluate(() => document.querySelectorAll('#wh-attn .wh-attn-row').length);
+  await p.context().close();
+  return { before, after };
+}
+const dc = await dblFlow();
+ok(dc.before === 2 && dc.after === 1, '30) دبل كليك على «✓ شفته» = صف واحد اتشال (' + JSON.stringify(dc) + ')');
+
+const BOARD_ON = Object.assign({}, BOARD, { enabled: true, baseline_at: NOW() });
+async function cfgFlow(patch){
+  const p = await open({ patch, board: BOARD_ON, init: `window.__WHR = function(n, a){ if(n === 'wh_config_set'){ var en = a.p && a.p.enabled; if(en != null) window.__BOARD = Object.assign({}, window.__BOARD, { enabled: !!en });
+      return { ok:true, code:'ok', enabled: window.__BOARD.enabled, hold_cancel_requested:true }; } return null; };` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count [data-wha="cfg-toggle"]', { timeout: 5000 });
+  const l0 = await p.textContent('#wh-count [data-wha="cfg-toggle"]');
+  await p.click('#wh-count [data-wha="cfg-toggle"]');
+  await p.waitForTimeout(500);
+  const r = await p.evaluate(() => { const b = document.querySelector('#wh-count [data-wha="cfg-toggle"]');
+    return { l1: b ? b.textContent : null, foc: document.activeElement === b, mode: document.getElementById('wh-mode').className }; });
+  await p.click('#wh-count [data-wha="cfg-toggle"]');
+  await p.waitForTimeout(400);
+  const sent = (await calls(p, 'wh_config_set')).map(c => c.args.p.enabled);
+  await p.context().close();
+  return Object.assign({ l0, sent }, r);
+}
+const cfg31 = await cfgFlow();
+ok(/وقّفه/.test(cfg31.l0) && /شغّله/.test(cfg31.l1 || '') && cfg31.foc && cfg31.sent.length === 2 && cfg31.sent[0] === false && cfg31.sent[1] === true,
+  '31) «⏸️ وقّفه» بعد الضغطة = «▶️ شغّله» والفوكس عليه · الضغطة التانية = تشغيل (' + JSON.stringify(cfg31) + ')');
+
+async function modalBurst(patch){
+  const p = await open({ patch });
+  await scanKeys(p, CODE, {}); await p.waitForTimeout(250);
+  await p.click('#wh-result [data-wh-act="undo"]');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  const m = await p.evaluate(async () => {
+    const mi = document.getElementById('cmodal-input'); mi.focus(); mi.value = 'سبب '; mi.setSelectionRange(4, 4);
+    for(const ch of '1234567890'.split('')){
+      const ev = new KeyboardEvent('keydown', { code: 'Digit' + ch, key: ch, bubbles: true, cancelable: true });
+      mi.dispatchEvent(ev); if(!ev.defaultPrevented) mi.setRangeText(ch, mi.selectionStart, mi.selectionEnd, 'end');
+    }
+    mi.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 300));
+    return { v: mi.value, open: document.getElementById('cmodal-backdrop').style.display === 'flex' };
+  });
+  const sc = (await calls(p, 'wh_scan')).filter(c => c.args.p_code === '1234567890').length;
+  const und = (await calls(p, 'wh_scan_undo')).length;
+  await p.context().close();
+  return Object.assign({ sc, und }, m);
+}
+const mb = await modalBurst();
+ok(mb.open && mb.v === 'سبب ' && mb.sc === 1 && mb.und === 0, '32) المودال مفتوح + ضربة 10 أرقام بسرعة السكانر = المودال فاضل · السكان اتسجّل (' + JSON.stringify(mb) + ')');
+
+async function countFlow2(patch){
+  const p = await open({ patch, init: `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null },
+      { id:'p2', tenant_id:'t-test-1', name:'ترولي', current_qty:5, active:true, parent_id:null }];
+    window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];
+    window.__WHR = function(n){
+      if(n === 'wh_count_pile') return new Promise(function(res){ setTimeout(function(){ res({ ok:true, count_id:7, pile:[{ product_id:'p1', qty:2 }], pile_orders:1, ret_orders:0 }); }, window.__PILE_DELAY || 0); });
+      if(n === 'wh_count_apply') return { ok:true, code:'ok', changed:1, pile:2 }; return null; };` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count .wh-ci[data-pid="p1"]', { timeout: 5000 });
+  const R = {};
+  R.pile = await p.evaluate(() => { const r = document.querySelector('#wh-count .wh-ci[data-pid="p1"]').closest('.wh-count-row').querySelector('.wh-cpile'); return r ? r.textContent : null; });
+  R.warn = await p.evaluate(() => !!document.querySelector('#wh-count .wh-count-warn'));
+  await p.click('#wh-golive');
+  await p.evaluate(() => { window.__PILE_DELAY = 700; });
+  await p.focus('#wh-count .wh-ci[data-pid="p2"]');
+  await p.keyboard.type('4');
+  await p.evaluate(() => document.querySelector('#wh-count [data-wha="count-reload"]').click());
+  await p.keyboard.type('2');
+  await p.waitForTimeout(1000);
+  await p.keyboard.type('3');
+  R.focus = await p.evaluate(() => { const a = document.activeElement; return { pid: a && a.getAttribute('data-pid'), v: a && a.value }; });
+  R.gl = await p.evaluate(() => !!document.getElementById('wh-golive').checked);
+  await p.evaluate(() => { window.__PILE_DELAY = 0; });
+  // ضربة سكانر في خانة العدّ
+  await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
+  R.burst = await p.evaluate(() => { const t = document.querySelector('#wh-count .wh-ci[data-pid="p1"]'); t.focus();
+    for(const ch of 'JEG000538937803'.split('')){ const ev = new KeyboardEvent('keydown', { code: /\d/.test(ch) ? 'Digit' + ch : 'Key' + ch, key: ch, bubbles: true, cancelable: true });
+      t.dispatchEvent(ev); if(!ev.defaultPrevented) t.setRangeText(ch, t.selectionStart, t.selectionEnd, 'end'); }
+    t.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
+    return t.value; });
+  // سكانات لسه ماتبعتتش (جلسة تانية على الجهاز) = ممنوع
+  await p.evaluate(() => localStorage.setItem('sahl_wh_queue_other', JSON.stringify([{ cid:'11111111-2222-4333-8444-555555555555', code:'JEG000700000066', src:'scanner', at:new Date().toISOString(), tries:0 }])));
+  const closeModal = async () => { if(await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex')){ await p.click('#cmodal-cancel'); await p.waitForTimeout(100); return 1; } return 0; };
+  await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(200);
+  R.pend = (await closeModal()) + (await calls(p, 'wh_count_apply')).length;
+  await p.evaluate(() => localStorage.removeItem('sahl_wh_queue_other'));
+  // أقل من الكومة = ممنوع
+  await p.fill('#wh-count .wh-ci[data-pid="p1"]', '1');
+  await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(200);
+  R.short = (await closeModal()) + (await calls(p, 'wh_count_apply')).length;
+  await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
+  await p.click('[data-wha="count-apply"]');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  R.sub = await p.textContent('#cmodal-sub');
+  await p.click('#cmodal-ok'); await p.waitForTimeout(300);
+  R.ap = (await calls(p, 'wh_count_apply')).map(c => c.args);
+  await p.context().close();
+  return R;
+}
+const c2 = await countFlow2();
+ok(/2/.test(c2.pile || '') && c2.warn && c2.focus.pid === 'p2' && c2.focus.v === '423' && c2.gl === false && c2.burst === '9'
+   && c2.pend === 0 && c2.short === 0 && /2 قطعة/.test(c2.sub || '') && c2.ap.length === 1 && c2.ap[0].p_go_live === false
+   && c2.ap[0].p_counts.some(x => x.product_id === 'p1' && x.counted === 9),
+  '33) الجرد: الكومة · الفوكس فاضل · جرد التشغيل مابيرجعش · ضربة السكانر اترجعت · معلّق = ممنوع · أقل من الكومة = ممنوع · التطبيق (' + JSON.stringify(c2) + ')');
+
+async function mapScope(patch){
+  const p = await open({ patch, init: `window.__WHR = function(n){ if(n === 'wh_items_unmapped') return { ok:true, rows:[
+      { item_key:'ترولي', props_key:'اسود', var_key:'اسود', sample:'ترولي 3 دور', orders:4, pieces:4, state:'posted', product_id:'p2a', matched_by:'alias_item', product_name:'ترولي — أسود', alias_item:'p2a', alias_item_ignore:false }],
+    products:[{ id:'p2', name:'ترولي', parent_id:null }, { id:'p2a', name:'ترولي — أسود', parent_id:'p2', variant_label:'أسود' }] }; return null; };` });
+  await p.click('.wh-tab[data-wh-tab="map"]');
+  await p.click('#wh-map [data-wha="map-filter"][data-k="all"]').catch(() => {});
+  await p.waitForSelector('#wh-map .wh-map-row .wh-map-scope', { timeout: 5000 });
+  const v = await p.evaluate(() => document.querySelector('#wh-map .wh-map-row .wh-map-scope').value);
+  await p.context().close();
+  return v;
+}
+const ms = await mapScope();
+ok(ms === 'item', '34) ربط بالاسم بخاصية = النطاق «للاسم ده» (' + ms + ')');
+
+async function stockNeg(patch){
+  const p = await open({ patch, init: `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:2, unit_price:1000, wholesale_price:600, active:true, parent_id:null, variant_label:null }];
+    window.__WHR = function(n, a){ if(n === 'wh_stock_adjust'){ if(a.p_expected_qty === 2) return { ok:false, code:'stale', qty:-2 }; return { ok:true, code:'ok', qty:a.p_new_qty }; } return null; };` });
+  await p.evaluate(async () => { const m = await import('/js/main.js'); m.showPage('stock'); });
+  await p.waitForSelector('.prod-edit-btn[data-id="p1"]', { timeout: 8000 });
+  await p.click('.prod-edit-btn[data-id="p1"]');
+  await p.waitForSelector('#pe-qty');
+  await p.fill('#pe-qty', '3');
+  await p.click('#pe-save');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible', timeout: 2000 });
+  await p.fill('#cmodal-input', 'بضاعة وصلت'); await p.click('#cmodal-ok');
+  await p.waitForTimeout(400);
+  const v = await p.evaluate(() => { const q = document.getElementById('pe-qty'); return q ? q.value : null; });
+  await p.context().close();
+  return v;
+}
+const sn = await stockNeg();
+ok(sn === '0', '35) stale والفرق هيخلّيها بالسالب = الخانة 0 (' + sn + ')');
+
+const BOARD_LC = Object.assign({}, BOARD, { counts: Object.assign({}, BOARD.counts, { leak: 3, leak_counted: 2, unmatched_lines: 1, negative_products: 0 }),
+  lists: Object.assign({}, BOARD.lists, { leak: [{ id: 'o-leak-1', t: 'JEG000700000021', uid: '18221', items: 'منظم', jt_at: NOW(), cancelled: false, counted: true }] }) });
+async function leakCounted(patch){
+  const p = await open({ patch, board: BOARD_LC });
+  await p.click('#wh-chips .wh-chip[data-wh-list="leak"]'); await p.waitForTimeout(150);
+  const r = await p.evaluate(() => ({ mark: /🧮/.test(document.getElementById('wh-lists').textContent), b2: (document.getElementById('wh-nav-badge2') || {}).textContent }));
+  await p.context().close();
+  return r;
+}
+const lc = await leakCounted();
+ok(lc.mark && lc.b2 === '2', '36) «خرجت من غير سكان» اتعمل بعدها جرد = «🧮» ومابتتعدّش في الشارة (' + JSON.stringify(lc) + ')');
+
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
 {
@@ -707,6 +906,56 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
 {
   const r = await mapFlow({ adm: s => s.replace('    var pk = mapPick[k];\n', '    var pk = null;\n') });
   ok(!(r.after.a === 'p2a' && r.after.b === 'p1'), 'معايرة (ف) الرسم بيمسح الاختيار → 28 وقع (' + JSON.stringify(r) + ')');
+}
+
+{
+  const r = await f9Flow({ wh: s => s.replace("    var co = (whCard && !whCard.forced && whCard.res && whCard.res.options) || [];\n    if(co.indexOf(want) >= 0) whForce(want, whCard.attnId || null);\n",
+    "    for(var i9 = 0; i9 < whAttn.length; i9++){ if((whAttn[i9].res.options || []).indexOf(want) >= 0){ whForce(want, whAttn[i9].id); break; } }\n") });
+  ok(!(r.out === 0 && r.ins.length === 1), 'معايرة (ق) F9/F10 بيمشوا على «محتاجة انتباهك» → 29 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await dblFlow({ wh: s => s.replace(/  if\(e\.detail > 1 && [^\n]*\n/, '') });
+  ok(r.after !== 1, 'معايرة (ر) شيل حارس الدبل كليك → 30 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await cfgFlow({ adm: s => s.replace("  if(inside && !force && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName || '')) return;\n", "  if(inside) return;\n") });
+  ok(!/شغّله/.test(r.l1 || ''), 'معايرة (ش) الإعدادات مابتترسمش والفوكس على الزرار → 31 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await modalBurst({ wh: s => s.replace('    if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120){', '    if(false){') });
+  ok(!(r.open && r.sc === 1 && r.und === 0), 'معايرة (ت) المودال بيقبل JEG بس → 32 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await countFlow2({ adm: s => s.replace('  renderCountBody(el);\n  if(keep && keep.pid){', '  renderCountBody(el);\n  if(false){') });
+  ok(r.focus.v !== '423', 'معايرة (ث) الفوكس بيضيع مع الرسم → 33 وقع (' + JSON.stringify(r.focus) + ')');
+}
+{
+  const r = await countFlow2({ adm: s => s.replace("(cntGoLive ? ' checked' : '')", "(!base ? ' checked' : '')") });
+  ok(r.gl !== false, 'معايرة (خ) «جرد التشغيل» بيرجع لافتراضه → 33 وقع');
+}
+{
+  const r = await countFlow2({ adm: s => s.replace('  if(pay.short.length){\n', '  if(false){\n') });
+  ok(r.short !== 0, 'معايرة (ذ) أقل من الكومة بيعدّي → 33 وقع');
+}
+{
+  const r = await countFlow2({ adm: s => s.replace('    if(b.el === t && b.n >= 8', '    if(false && b.n >= 8') });
+  ok(r.burst !== '9', 'معايرة (ض) ضربة السكانر بتتكتب في خانة العدّ → 33 وقع (' + r.burst + ')');
+}
+{
+  const r = await countFlow2({ adm: s => s.replace('  if(pend > 0){', '  if(false){') });
+  ok(r.pend !== 0, 'معايرة (ظ) سكانات معلّقة مابتمنعش التطبيق → 33 وقع');
+}
+{
+  const v = await mapScope({ adm: s => s.replace("  if((r.alias_item || r.alias_item_ignore) && (!pid || pid === r.alias_item)) return 'item';\n", '') });
+  ok(v !== 'item', 'معايرة (غ) النطاق مابيوصفش الربط الموجود → 34 وقع (' + v + ')');
+}
+{
+  const v = await stockNeg({ stock: s => s.replace('            if(want<0){', '            if(false){') });
+  ok(v !== '0', 'معايرة (أأ) الفرق بالسالب في الخانة → 35 وقع (' + v + ')');
+}
+{
+  const r = await leakCounted({ wh: s => s.replace('Math.max(0, (c.leak || 0) - (c.leak_counted || 0))', '(c.leak || 0)') });
+  ok(r.b2 !== '2', 'معايرة (بب) الشارة بتعدّ اللي اتعمل بعدها جرد → 36 وقع (' + JSON.stringify(r) + ')');
 }
 
 await b.close();
