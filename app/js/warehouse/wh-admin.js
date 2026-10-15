@@ -3,8 +3,10 @@
 // 🔗 ربط المنتجات: اسم المنتج في الأوردر (زي ما اللاندنج بيكتبه) ↔ منتج في المخزون. السيرفر بيحل لوحده
 //    لو الاسم = اسم منتج واحد بالظبط بعد التطبيع؛ اللي مايتحلش بيظهر هنا «مش مربوط». الربط بيتعمل مرة
 //    (`stock_item_aliases`) والسطور المعلّقة اللي اتضربت قبل كده بتتخصم لحظة الربط (`wh_alias_set`).
-// 🧮 الجرد: عدّ حقيقي لكل منتج → حركة «جرد» بالفرق. أول جرد = «جرد التشغيل»: السكان بيبدأ يخصم من لحظة
-//    فتح الجرد (`baseline_at`) — كل اللي خرج قبلها اتحسب في الجرد، واللي يرجع منه بيتضاف.
+// ⚙️ التشغيل (16 أكتوبر — قرار المالك): «▶️ شغّل السكانر» من غير جرد — لحظة البداية (`baseline_at`) = دلوقتي،
+//    وأرقام المخزون بتتظبط مرة من محرر المخزون (حركة «تعديل» بسبب). من بعدها كل سكان بيغيّر الحالة ويحرّك المخزون.
+// 🧮 الجرد الكامل (اختياري — مطوي): عدّ حقيقي لكل منتج → حركة «جرد» بالفرق. «جرد التشغيل» = طريقة تانية للبداية:
+//    السكان بيبدأ يخصم من لحظة فتح الجرد — كل اللي خرج قبلها اتحسب في الجرد، واللي يرجع منه بيتضاف.
 // 🔴 الكتابة كلها RPCs أدمن (السيرفر بيرفض أي حد تاني) — الواجهة مابتحسبش كميات.
 
 import { $id, esc } from '../core/dom.js';
@@ -226,6 +228,7 @@ var cntPileErr = false;    // wh_count_pile وقع — من غيره الصفح�
 var cntOptBusy = false;
 var cntGoLive = null, cntGoLiveFor = null;   // اختيار «ده جرد التشغيل» — كان بيرجع لافتراضه مع كل رسم
 var cfgBusy = false;
+var cntAdvOpen = false;   // «🧮 جرد كامل (اختياري)» مفتوح — بيفضل زي ما الأدمن سابه مع أي رسم
 
 function draftKey(){ return 'sahl_wh_count_draft_' + (cnt ? cnt.id : 'x'); }
 function draftLoad(){
@@ -460,15 +463,16 @@ function renderCountBody(el){
   var enabled = !!(board && board.enabled), base = board && board.baseline_at;
   var h = settingsHtml(enabled, base);
   if(!cnt){
-    h += '<div class="wh-count-intro">'
-      + '<h3>🧮 الجرد</h3>'
-      + (base ? '<p>آخر جرد تشغيل: ' + esc(whenTxt(base)) + '. تقدر تعمل جرد دوري في أي وقت — الفرق بيتسجّل حركة «جرد».</p>'
-              : '<p><b>جرد التشغيل</b> هو اللي بيبدأ السكان: بتعدّ كل منتج في المخزن بإيدك، والسيستم بيبدأ يخصم كل طرد يتضرب من لحظة فتح الجرد.</p>')
+    // مطوي: الطريق العادي هو «▶️ شغّل السكانر» فوق وتظبيط الأرقام من المخزون — الجرد الكامل لما تحب تعدّ كله مرة واحدة
+    h += '<details class="wh-count-adv"' + (cntAdvOpen ? ' open' : '') + '><summary>🧮 جرد كامل للمخزن (اختياري)</summary>'
+      + '<div class="wh-count-intro">'
+      + (base ? '<p>بداية السكان: ' + esc(whenTxt(base)) + '. تقدر تعمل جرد في أي وقت — الفرق بيتسجّل حركة «جرد».</p>'
+              : '<p>بدل ما تظبط الأرقام بإيدك من المخزون: تقدر تعدّ كل منتج هنا، و<b>«جرد التشغيل»</b> بيبدأ السكان من لحظة فتح الجرد.</p>')
       + (base
         // 🔴 الجرد الدوري: الطرود اللي في الكومة اتخصمت خلاص — السيستم بيطرحها من العدّ لوحده، والمرتجع اللي
         // ماتضربش كان هيتضاف مرتين (مرة في العدّ ومرة لما يتضرب)
         ? '<ol class="wh-steps">'
-          + '<li>اضرب كل المرتجعات اللي وصلت <b>الأول</b> — قايمة «↩️ رجعت ومااتضربتش» لازم تبقى فاضية.</li>'
+          + '<li>اضرب كل المرتجعات اللي وصلت <b>الأول</b> — قايمة «🚨 J&amp;T قالت سلّمتها ومش متسجلة» لازم تبقى فاضية.</li>'
           + '<li>افتح الجرد وعدّ <b>كل القطع اللي في المخزن فعلاً — بما فيها الطرود المتغلّفة في الكومة</b> (اللي اتضربت خروج السيستم بيطرحها من العدّ لوحده).</li>'
           + '<li>وانت بتعدّ: الأحسن <b>متسلّمش طرود للمندوب ولا تستلم مرتجعات</b> — ولو حصل، السيستم هيسألك جنب كل منتج «كانوا هنا لما عدّيته؟». الطرد اللي تضربه خروج وانت بتعدّ عادي (بيتحسب مع الكومة) · <b>المرتجع اضربه بعد ما تطبّق</b>.</li>'
           + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد».</li></ol>'
@@ -478,8 +482,7 @@ function renderCountBody(el){
           + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد» مع «ده جرد التشغيل».</li>'
           + '<li>من بعدها: كل طرد خارج يتضرب، وكل مرتجع يتضرب أول ما يوصل.</li></ol>')
       + '<button type="button" class="wh-btn wh-btn-main" data-wha="count-open"' + (cntBusy ? ' disabled' : '') + '>🧮 افتح جرد جديد</button>'
-      + '</div>';
-    h += histHtml();
+      + '</div>' + histHtml() + '</details>';
     el.innerHTML = h;
     return;
   }
@@ -550,12 +553,18 @@ function histHtml(){
 
 function settingsHtml(enabled, base){
   var hold = !board || board.hold_cancel_requested !== false;
-  var h = '<div class="wh-set"><h3>⚙️ إعدادات السكان</h3>';
+  var h = '<div class="wh-set"><h3>⚙️ تشغيل السكانر</h3>';
   if(base){
-    h += '<div class="wh-set-row">' + (enabled ? '🟢 شغّال — بيخصم من ' + esc(whenTxt(base)) : '⏸️ متوقف — مابيخصمش')
+    h += '<div class="wh-set-row">' + (enabled ? '🟢 شغّال من ' + esc(whenTxt(base)) + ' — كل سكان بيغيّر الحالة ويحرّك المخزون' : '⏸️ متوقف — السكان بيرجع وضع تجربة (مابيغيّرش حالة ولا مخزون)')
       + ' <button type="button" class="wh-btn wh-btn-ghost" data-wha="cfg-toggle" data-en="' + (enabled ? '0' : '1') + '"' + (cfgBusy ? ' aria-busy="true"' : '') + '>' + (enabled ? '⏸️ وقّفه' : '▶️ شغّله') + '</button></div>';
   } else {
-    h += '<div class="wh-set-row">🧪 وضع تجربة — بيشتغل لما تطبّق «جرد التشغيل» تحت.</div>';
+    h += '<div class="wh-set-row">🧪 وضع تجربة — السكان بيقولك النتيجة بس، مابيغيّرش الحالة ولا المخزون.</div>'
+      + '<ol class="wh-steps">'
+      + '<li>🔗 اربط المنتجات (تاب «ربط المنتجات») لحد ما «مش مربوط» تبقى صفر — المنتج المش مربوط مابيتخصمش.</li>'
+      + '<li>📦 ظبط أرقام المخزون من صفحة «المخزون»: اكتب <b>كل اللي في المخزن فعلاً</b> — حتى الطرود المتغلّفة اللي لسه ماخرجتش (دي هتتخصم لما تتضرب خروج).</li>'
+      + '<li>▶️ اضغط «شغّل السكانر» — من اللحظة دي: الخروج حالته «اوردر اتضرب» ويتخصم، والمرتجع حالته «مرتجع مضروب» ويرجع المخزن.</li>'
+      + '<li>🔴 بعدها على طول: وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n بإيدك — وإلا الطرد بيتسجّل مرتين.</li></ol>'
+      + '<button type="button" class="wh-btn wh-btn-main" data-wha="cfg-start"' + (cfgBusy ? ' aria-busy="true"' : '') + '>▶️ شغّل السكانر من دلوقتي</button>';
   }
   h += '<label class="wh-check"><input type="checkbox" id="wh-hold"' + (hold ? ' checked' : '') + '> امنع خروج الطرد لو العميل طالب إلغاء ولسه الطلب ماتحسمش</label>';
   return h + '</div>';
@@ -715,12 +724,25 @@ function cfgSet(patch){
   Promise.resolve(sb.rpc('wh_config_set', { p: patch })).then(function(r){
     cfgBusy = false;
     var d = (r && !r.error && r.data) || { ok: false };
-    if(d.ok && board){ board = Object.assign({}, board, { enabled: !!d.enabled, hold_cancel_requested: d.hold_cancel_requested !== false }); }
+    if(d.ok && board){ board = Object.assign({}, board, { enabled: !!d.enabled, hold_cancel_requested: d.hold_cancel_requested !== false,
+                                                         baseline_at: d.baseline_at || board.baseline_at }); }
     refreshSet(true);
-    if(!d.ok){ toast(d.code === 'needs_count' ? 'لازم جرد التشغيل الأول' : 'مقدرناش نحفظ', 'er'); api.reloadBoard(); return; }
+    if(!d.ok){ toast(d.code === 'needs_start' ? 'لازم «▶️ شغّل السكانر» الأول' : 'مقدرناش نحفظ', 'er'); api.reloadBoard(); return; }
     toast('اتحفظ ✓', 'ok');
     api.reloadBoard();
   }, function(){ cfgBusy = false; refreshSet(true); toast('مقدرناش نحفظ', 'er'); });
+}
+
+// التشغيل الأول — تأكيد صريح بالأثر (الحالة + المخزون + n8n القديم)
+function cfgStart(){
+  if(cfgBusy || (board && board.baseline_at)) return;
+  var n = api.pending();
+  showModal({ icon: '▶️', title: 'تشغّل السكانر من دلوقتي؟',
+    sub: 'من اللحظة دي: كل طرد يتضرب خروج حالته بتبقى «اوردر اتضرب» ويتخصم من المخزن، وكل مرتجع يتضرب حالته بتبقى «مرتجع مضروب» ويرجع للمخزن.\n'
+      + 'اتأكد إن أرقام المخزون مظبوطة (صفحة «المخزون»)، وبعدها على طول وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n.'
+      + (n ? '\n⚠️ فيه ' + n + ' سكان على الجهاز ده لسه ماوصلوش السيرفر — هيتسجّلوا بعد التشغيل.' : ''),
+    okLabel: 'شغّله',
+    onOk: function(){ cfgSet({ enabled: true, start: true }); } });
 }
 
 // كتلة الإعدادات لوحدها — force = حتى والفوكس جوّاها (والفوكس بيرجع لنفس الزرار/الخانة)
@@ -775,6 +797,7 @@ function onClick(e){
   else if(a === 'count-preview'){ cntPreview = !cntPreview; renderCount(); }
   else if(a === 'count-opt') countOpt(t.getAttribute('data-k'), t.getAttribute('data-v'), t.getAttribute('data-pid') || '');
   else if(a === 'cfg-toggle') cfgSet({ enabled: t.getAttribute('data-en') === '1' });
+  else if(a === 'cfg-start') cfgStart();
 }
 
 function onInput(e){
@@ -876,4 +899,8 @@ export function whAdminInit(a){
     el.addEventListener('change', onChange);
     el.addEventListener('keydown', onKeyDown);
   });
+  // `toggle` مابيعملش bubble — بنمسكه في الطريق (capture)
+  if(count) count.addEventListener('toggle', function(e){
+    if(e.target && e.target.classList && e.target.classList.contains('wh-count-adv')) cntAdvOpen = !!e.target.open;
+  }, true);
 }

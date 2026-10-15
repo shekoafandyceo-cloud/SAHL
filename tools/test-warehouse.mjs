@@ -13,7 +13,7 @@
 // 11) الكتابة بالإيد «18201» = wh_lookup · اختيار طرد = wh_scan بـp_source manual
 // 12) 12 رقم بالإيد (بطيء) = بحث · 12 رقم بسرعة السكانر = wh_scan
 // 13) القوايم: عدّادات الشرايح · «في الكومة» بتعرض الصفوف · «خرجت من غير سكان» للأدمن بس + «اخصمه» = wh_scan_order out
-// 14) الشارات: البرتقاني = اسحب + رجعت ومااتضربتش · الأحمر للأدمن بس
+// 14) الشارات: البرتقاني = اسحب + مرتجع J&T قفلته من أكتر من 30 دقيقة ومحدش سجّله · الأحمر للأدمن بس
 // 15) XSS: اسم منتج فيه وسم في القايمة والكارت = مفيش عنصر اتعمل
 // 16) الفوكس برّه الخانة (اتضغط على العنوان) = السكان بيتقري برضه والفوكس بيرجع
 // 17) تاب «ربط المنتجات» = ضغطات السكانر مابتعملش سكان · المودال الحقيقي (سبب التراجع) مفتوح والموظف ضرب طرد =
@@ -59,6 +59,14 @@
 //     سؤال المنتج اللي اتقال اسمه (مش أول سؤال في الصفحة) · «طبّق» والإجابة لسه بتتحفظ = ولا حاجة · مودال «سكانات وانت
 //     بتعدّ» بيتكلم عن المرتجع اللي اتضرب والسطور المش مربوطة (مش «سطر خروج»)
 // 43) wh_count_pile وقع = بانر أحمر بـ↻ و«طبّق» مقفول (كانت الصفحة بتتعرض كأن مفيش كومة والتأكيد بيكدب)
+// ── v76 (16 أكتوبر): السكان بيغيّر الحالة + لوحة المرتجعات زي صفحة n8n ──
+// 44) الكارت: «حالة الأوردر بقت: اوردر اتضرب» (من status_to) · التراجع = «رجعت: …» · التجربة = «كانت هتبقى»
+// 45) لوحة المرتجعات: الكروت الأربعة (مع المندوب «1 من 2 ✅» · J&T قفلت النهارده عدّاد بس · اتسجل · ناقص أحمر) ·
+//     «ناقص» بيفتح القايمة · آخر 5 أرقام بارزين · ✅/⏳ · المرحلة · XSS في اسم المنتج = نص
+// 46) آخر 5 أرقام بالإيد = wh_lookup · المرتجع اللي مستني يتسجل عليه «↩️ مرتجع مستني يتسجل»
+// 47) ⚙️ التشغيل: «▶️ شغّل السكانر» = مودال بالأثر (الحالة + المخزون) → wh_config_set {enabled, start} · بعدها «⏸️ وقّفه» ·
+//     الجرد الكامل مطوي («افتح جرد» مش ظاهر لحد ما الأدمن يفتحه)
+// 48) 📷 الكاميرا: BarcodeDetector لقى 3 أكواد (واحد متكرر + بادئة AIM) = 2 سكان يدوي · المتصفح مابيقراش Code128 (كروم الديسكتوب) = الزرار مخفي
 //
 // المعايرات (مرساة + حارس — درس 47): codeChar مابيقراش الزرار → 2 · شيل ت→J → 3 · WH_DEDUPE_MS = 0 → 5 ·
 // client_id جديد مع كل محاولة → 6 · شيل !scanned → 12 · شيل esc من المنتجات في القايمة → 15 · شيل أعمدة المخزن من
@@ -69,6 +77,9 @@
 // الفوكس مابيرجعش للزرار → 39 · «طرود جديدة ظهرت» مابتتقالش → 39
 // + الخامسة: كلام المرتجع القديم → 42 · «طبّق» مابيستناش الإجابة → 42 · السكرول لأول سؤال → 42 · الملخص بيعدّ المش نشط → 42 ·
 // «اكتب 0» على «غير موزع» عليه طرود → 42 · السطور المش مربوطة مش في المودال → 42 · وقوع الكومة صامت → 43
+// + v76: سطر الحالة مش ظاهر → 44 · الشارة بالحساب القديم (closed_unscanned) → 14 · آخر 5 أرقام مش بارزين → 45 · esc
+// اتشال من اسم المرتجع → 45 · وسم «مرتجع مستني» → 46 · التشغيل من غير start → 47 · الجرد مفتوح افتراضياً → 47 ·
+// الكاميرا من غير منع التكرار → 48 · الزرار ظاهر والمتصفح مابيقراش Code128 → 48
 // تشغيل:  python3 tools/spa-server.py 8899 app &   ثم   cd tools && node --import ./clock-preload.mjs test-warehouse.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -94,7 +105,7 @@ const NOW = () => new Date().toISOString();
 const BOARD = {
   ok: true, enabled: false, baseline_at: null, hold_cancel_requested: true, is_admin: true,
   counts: { not_scanned: 1, not_scanned_old: 0, pile: 2, pull: 1, leak: 3, leak_cancelled: 0, stale_pile: 0, courier: 1,
-            courier_scanned: 0, closed_unscanned: 2, out_today: 4, in_today: 1, unmatched_lines: 1, negative_products: 0 },
+            courier_scanned: 0, closed_unscanned: 5, out_today: 4, in_today: 1, unmatched_lines: 1, negative_products: 0 },
   lists: {
     not_scanned: [{ t: 'JEG000700000001', uid: '18201', n: 'منى', items: 'منظم المطبخ', printed: null, created: NOW(), old: false }],
     pile: [{ t: 'JEG000700000011', uid: '18211', items: 'ترولي <img src=x onerror="window.__XSS=1">', at: NOW(), by: 'ebrahim', stale: false },
@@ -103,6 +114,16 @@ const BOARD = {
     leak: [{ id: 'o-leak-1', t: 'JEG000700000021', uid: '18221', items: 'منظم', jt_at: NOW(), cancelled: false }],
     courier: [{ t: 'JEG000700000031', uid: '18231', items: 'منظم', at: NOW(), done: false }],
     closed_unscanned: [], today: []
+  },
+  // لوحة المرتجعات (v76 — نفس صفحة n8n) · الشارة البرتقاني = اسحب (1) + الناقص من أكتر من 30 دقيقة (2)
+  returns: {
+    counts: { courier: 2, courier_done: 1, closed_today: 1, scanned_today: 1, missing: 2, missing_old: 2, transit: 1 },
+    courier: [{ t: 'JEG000700000031', uid: '18231', items: 'منظم', q: 1, cod: 1450, at: NOW(), done: false },
+              { t: 'JEG000700000032', uid: '18232', items: 'ترولي', q: 1, cod: 695, at: NOW(), done: true, sc: NOW() }],
+    missing: [{ t: 'JEG000700000041', uid: '18241', items: 'منظم <b>x</b>', q: 1, cod: 1450, at: NOW(), fresh: false },
+              { t: 'JEG000700000042', uid: '18242', items: 'ترولي', q: 2, cod: 2100, at: NOW(), fresh: false }],
+    scanned: [{ t: 'JEG000700000032', uid: '18232', items: 'ترولي', q: 1, at: NOW(), by: 'ebrahim' }],
+    transit: [{ t: 'JEG000700000051', uid: '18251', items: 'منظم', q: 1, at: NOW(), s: 'بين الفروع' }]
   }
 };
 const order = (o) => Object.assign({ id: 'o-1', uid: '18201', first_name: 'منى', status: 'BOSTA AUTO', tracking_no: CODE, pieces: 1, items: [{ text: 'منظم المطبخ المتكامل', qty: 1 }] }, o || {});
@@ -349,7 +370,7 @@ ok(R.c15.rows === 2 && R.c15.img === 0 && !R.c15.xss && R.c15.txt, '15) XSS في
   ok(roles.admin.leakChip && !roles.employee.leakChip && roles.leak && roles.leak.args.p_dir === 'out' && roles.leak.args.p_order_id === 'o-leak-1',
     '13) «خرجت من غير سكان» للأدمن بس · «اخصمه» = wh_scan_order out بالأوردر');
   ok(roles.admin.b1v && roles.admin.b1 === '3' && roles.admin.b2v && roles.employee.b1v && !roles.employee.b2v,
-    '14) الشارة البرتقاني = اسحب + رجعت ومااتضربتش (3) · الحمرا للأدمن بس');
+    '14) الشارة البرتقاني = اسحب + المرتجع الناقص من أكتر من 30 دقيقة (3) · الحمرا للأدمن بس');
 }
 
 // 16 · 17 · 18
@@ -497,6 +518,9 @@ async function countFlow(patch){
     window.__WHR = function(n){ if(n === 'wh_count_open'){ window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }]; return { ok:true, code:'ok', count_id:7 }; }
       if(n === 'wh_count_apply') return { ok:true, code:'ok', changed:1, go_live:true }; return null; };` });
   await p.click('.wh-tab[data-wh-tab="count"]');
+  // v76: الجرد الكامل بقى اختياري ومطوي تحت «▶️ شغّل السكانر»
+  await p.waitForSelector('#wh-count .wh-count-adv > summary', { timeout: 5000 });
+  await p.click('#wh-count .wh-count-adv > summary');
   await p.waitForSelector('[data-wha="count-open"]', { timeout: 5000 });
   await p.click('[data-wha="count-open"]');
   await p.waitForSelector('#wh-count .wh-ci', { timeout: 5000 });
@@ -1123,6 +1147,133 @@ async function pileErr(patch){
 const pe = await pileErr();
 ok(pe.banner && !pe.modal && pe.ap === 0, '43) wh_count_pile وقع = بانر أحمر بـ↻ و«طبّق» مقفول (' + JSON.stringify(pe) + ')');
 
+// 44 — سطر الحالة على الكارت (v76)
+async function statusCard(patch){
+  const p = await open({ patch, outOk: Object.assign({}, OUT_OK, { status_from: 'BOSTA AUTO', status_to: 'BOSTA2' }),
+    init: `window.__WHR = function(n){ if(n === 'wh_scan_undo') return { ok:true, code:'undone', tone:'warn', applied:true, scan_id: 900, status_to:'BOSTA AUTO' }; return null; };` });
+  const R = {};
+  const st = () => p.evaluate(() => ((document.querySelector('#wh-result .wh-r-st') || {}).textContent || ''));
+  await p.click('#wh-input');
+  await pasteEnter(p, CODE);
+  await p.waitForFunction(() => document.getElementById('wh-result').getAttribute('data-code') === 'out_ok', null, { timeout: 4000 }).catch(() => {});
+  R.on = await st();
+  await p.click('#wh-result [data-wh-act="undo"]');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  await p.fill('#cmodal-input', 'اتضرب بالغلط');
+  await p.click('#cmodal-ok');
+  await p.waitForFunction(() => document.getElementById('wh-result').getAttribute('data-code') === 'undone', null, { timeout: 4000 }).catch(() => {});
+  R.undo = await st();
+  await p.evaluate(() => { window.__OUT_OK = Object.assign({}, window.__OUT_OK, { dry: true }); });
+  await pasteEnter(p, 'JEG000700000099');
+  await p.waitForFunction(() => document.getElementById('wh-result').classList.contains('is-dry'), null, { timeout: 4000 }).catch(() => {});
+  R.dry = await st();
+  await p.context().close();
+  return R;
+}
+const sc44 = await statusCard();
+ok(/بقت/.test(sc44.on) && /اوردر اتضرب/.test(sc44.on) && /رجعت/.test(sc44.undo) && /BOSTA AUTO|شحن/.test(sc44.undo) === true && /كانت هتبقى/.test(sc44.dry),
+  '44) الكارت: «حالة الأوردر بقت: اوردر اتضرب» · التراجع «رجعت» · التجربة «كانت هتبقى» (' + JSON.stringify(sc44) + ')');
+
+// 45 — لوحة المرتجعات (نفس صفحة n8n)
+async function retBoard(patch){
+  const p = await open({ patch });
+  const R = {};
+  R.tiles = await p.evaluate(() => Array.from(document.querySelectorAll('#wh-ret .wh-ret-stat')).map(x =>
+    ((x.querySelector('b') || {}).textContent || '') + '|' + x.tagName + '|' + (x.classList.contains('bad') ? 'bad' : x.classList.contains('ok') ? 'ok' : '') + '|' + ((x.querySelector('small') || {}).textContent || '')));
+  await p.click('#wh-ret .wh-ret-stat.bad');
+  await p.waitForTimeout(80);
+  R.missing = await p.evaluate(() => ({ n: document.querySelectorAll('#wh-lists .wh-row').length,
+    bold: Array.from(document.querySelectorAll('#wh-lists .wh-wb b')).map(x => x.textContent),
+    xss: !!document.querySelector('#wh-lists .wh-row-items b'), raw: /<b>x<\/b>/.test(document.getElementById('wh-lists').textContent),
+    on: (document.querySelector('#wh-chips .wh-chip.on') || { getAttribute: () => '' }).getAttribute('data-wh-list') }));
+  await p.click('#wh-ret .wh-ret-stat[data-wh-list="ret_courier"]');
+  R.courier = await p.evaluate(() => document.getElementById('wh-lists').textContent);
+  await p.click('#wh-chips [data-wh-list="ret_transit"]');
+  R.transit = await p.evaluate(() => document.getElementById('wh-lists').textContent);
+  await p.click('#wh-chips [data-wh-list="ret_scanned"]');
+  R.scanned = await p.evaluate(() => document.getElementById('wh-lists').textContent);
+  await p.context().close();
+  return R;
+}
+const rb45 = await retBoard();
+ok(rb45.tiles.length === 4 && /^2\|BUTTON\|\|1 من 2 ✅$/.test(rb45.tiles[0]) && /^1\|DIV\|/.test(rb45.tiles[1]) && /^1\|BUTTON\|ok\|/.test(rb45.tiles[2])
+   && /^2\|BUTTON\|bad\|/.test(rb45.tiles[3]) && rb45.missing.n === 2 && rb45.missing.bold.join(',') === '00041,00042' && !rb45.missing.xss && rb45.missing.raw
+   && rb45.missing.on === 'ret_missing' && /✅ اتسجل/.test(rb45.courier) && /⏳ لسه/.test(rb45.courier) && /بين الفروع/.test(rb45.transit) && /ebrahim/.test(rb45.scanned),
+  '45) لوحة المرتجعات: الكروت الأربعة · «ناقص» بيفتح القايمة · آخر 5 أرقام بارزين · ✅/⏳ · المرحلة · XSS = نص (' + JSON.stringify(rb45) + ')');
+
+// 46 — آخر 5 أرقام بالإيد = بحث بالبوليصة كمان · المرتجع المستني فوق ومتعلّم
+async function last5(patch){
+  const p = await open({ patch, init: `window.__WHR = function(n){ if(n === 'wh_lookup') return { ok:true, code:'ok', rows:[
+      { tracking_no:'JEG000700076489', uid:'18176', first_name:'سارة', items:'تيربو', open_return:true },
+      { tracking_no:'JEG000700012345', uid:'76489', items:'منظم', open_return:false }] }; return null; };` });
+  await p.click('#wh-input');
+  await pasteEnter(p, '76489');
+  await p.waitForSelector('#wh-result .wh-pick-row', { timeout: 4000 }).catch(() => {});
+  const R = await p.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('#wh-result .wh-pick-row'));
+    return { n: rows.length, tag0: !!(rows[0] && rows[0].querySelector('.wh-pick-st.is-ret')), tag1: !!(rows[1] && rows[1].querySelector('.wh-pick-st.is-ret')) };
+  });
+  R.q = ((await calls(p, 'wh_lookup'))[0] || { args: {} }).args.p_q;
+  R.scan = (await calls(p, 'wh_scan')).length;
+  await p.context().close();
+  return R;
+}
+const l46 = await last5();
+ok(l46.q === '76489' && l46.scan === 0 && l46.n === 2 && l46.tag0 && !l46.tag1,
+  '46) آخر 5 أرقام بالإيد = wh_lookup (مش سكان) · «↩️ مرتجع مستني يتسجل» على المرتجع بس (' + JSON.stringify(l46) + ')');
+
+// 47 — ⚙️ التشغيل من غير جرد
+async function startFlow(patch){
+  const p = await open({ patch, board: Object.assign({}, BOARD, { enabled: false, baseline_at: null }),
+    init: `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null }];
+      window.__WH_COUNTS = [];
+      window.__WHR = function(n, a){ if(n === 'wh_config_set'){ var pp = (a && a.p) || {};
+        if(pp.enabled && !pp.start && !window.__BOARD.baseline_at) return { ok:false, code:'needs_start' };
+        window.__BOARD = Object.assign({}, window.__BOARD, { enabled: !!pp.enabled, baseline_at: window.__BOARD.baseline_at || new Date().toISOString() });
+        return { ok:true, code:'ok', enabled: !!pp.enabled, hold_cancel_requested: true, baseline_at: window.__BOARD.baseline_at }; } return null; };` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count [data-wha="cfg-start"]', { timeout: 5000 });
+  const R = {};
+  R.adv = await p.evaluate(() => { const d = document.querySelector('#wh-count .wh-count-adv'); return !!d && !d.open && !!d.querySelector('[data-wha="count-open"]'); });
+  R.openVis = await p.isVisible('[data-wha="count-open"]');
+  R.steps = await p.evaluate(() => (document.querySelector('#wh-count .wh-set') || {}).textContent || '');
+  await p.click('[data-wha="cfg-start"]');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  R.sub = await p.evaluate(() => document.getElementById('cmodal-sub').textContent);
+  await p.click('#cmodal-ok');
+  await p.waitForTimeout(400);
+  R.sent = (await calls(p, 'wh_config_set')).map(c => c.args.p);
+  R.after = await p.evaluate(() => (document.querySelector('#wh-count .wh-set') || {}).textContent || '');
+  await p.context().close();
+  return R;
+}
+const s47 = await startFlow();
+ok(s47.adv && !s47.openVis && /المخزون/.test(s47.steps) && /n8n/.test(s47.steps) && /اوردر اتضرب/.test(s47.sub) && /مرتجع مضروب/.test(s47.sub)
+   && s47.sent.length === 1 && s47.sent[0].enabled === true && s47.sent[0].start === true && /وقّفه/.test(s47.after),
+  '47) ⚙️ التشغيل: «▶️ شغّل السكانر» بمودال الأثر → {enabled, start} · بعدها «⏸️ وقّفه» · الجرد مطوي (' + JSON.stringify({ adv: s47.adv, openVis: s47.openVis, sent: s47.sent }) + ')');
+
+// 48 — 📷 الكاميرا (BarcodeDetector)
+async function cam(patch, withDetector){
+  const p = await open({ patch, init: withDetector ? `window.BarcodeDetector = function(){};
+      window.BarcodeDetector.getSupportedFormats = function(){ return Promise.resolve(['code_128', 'qr_code']); };
+      window.BarcodeDetector.prototype.detect = function(){ return Promise.resolve([{ rawValue:'JEG000700000061' }, { rawValue:']C1JEG000700000062' }, { rawValue:'JEG000700000061' }, { rawValue:'12345678' }]); };
+      window.createImageBitmap = function(){ return Promise.resolve({}); };`
+      // كروم الديسكتوب: الكلاس موجود ومن غير أي صيغة
+      : `window.BarcodeDetector = function(){}; window.BarcodeDetector.getSupportedFormats = function(){ return Promise.resolve([]); };` });
+  await p.waitForTimeout(150);
+  const R = { vis: await p.isVisible('#wh-cam') };
+  if(withDetector){
+    await p.setInputFiles('#wh-cam-in', { name: 'label.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([255, 216, 255, 224]) });
+    await p.waitForTimeout(700);
+    R.scans = (await calls(p, 'wh_scan')).map(c => c.args.p_code + '|' + c.args.p_source);
+  }
+  await p.context().close();
+  return R;
+}
+const c48a = await cam(null, true), c48b = await cam(null, false);
+ok(c48a.vis && c48a.scans.join(',') === 'JEG000700000061|manual,JEG000700000062|manual' && !c48b.vis,
+  '48) 📷 الكاميرا: 3 أكواد (متكرر + AIM) = 2 سكان يدوي · من غير Code128 = الزرار مخفي (' + JSON.stringify({ a: c48a, b: c48b }) + ')');
+
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
 {
@@ -1341,6 +1492,46 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
 {
   const r = await pileErr({ adm: s => s.replace("    cntPileErr = !(pd && pd.ok && Array.isArray(pd.pile));", "    cntPileErr = false;") }).catch(e => ({ err: String(e) }));
   ok(r.err || r.banner || r.modal || r.ap > 0, 'معايرة (قق) وقوع الكومة صامت → 43 وقع (' + JSON.stringify(r) + ')');
+}
+
+// ── معايرات v76 ──
+{
+  const r = await statusCard({ wh: s => s.replace("  if(res.status_to){\n", "  if(false){\n") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/اوردر اتضرب/.test(r.on || ''), 'معايرة (م1) سطر الحالة مش ظاهر → 44 وقع');
+}
+{
+  const p = await open({ patch: { wh: s => s.replace("  return { staff: (c.pull || 0) + (rc.missing_old || 0),", "  return { staff: (c.pull || 0) + (c.closed_unscanned || 0),") } });
+  const v = await p.evaluate(() => (document.getElementById('wh-nav-badge') || {}).textContent);
+  await p.context().close();
+  ok(v !== '3', 'معايرة (م2) الشارة بالحساب القديم (closed_unscanned) → 14 وقع (' + v + ')');
+}
+{
+  const r = await retBoard({ wh: s => s.replace("'<b>' + esc(t.slice(-5)) + '</b>'", "esc(t.slice(-5))") }).catch(e => ({ err: String(e) }));
+  ok(r.err || (r.missing && r.missing.bold.length === 0), 'معايرة (م3) آخر 5 أرقام مش بارزين → 45 وقع');
+}
+{
+  const r = await retBoard({ wh: s => s.replace("      + (x.items ? '<span class=\"wh-row-items\">' + esc(x.items) + '</span>' : '')\n      + (money(x.cod)", "      + (x.items ? '<span class=\"wh-row-items\">' + x.items + '</span>' : '')\n      + (money(x.cod)") }).catch(e => ({ err: String(e) }));
+  ok(r.err || (r.missing && r.missing.xss), 'معايرة (م4) esc اتشال من اسم المرتجع → 45 وقع');
+}
+{
+  const r = await last5({ wh: s => s.replace("(x.open_return ? '<span class=\"wh-pick-st is-ret\">", "(false ? '<span class=\"wh-pick-st is-ret\">") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.tag0, 'معايرة (م5) وسم «مرتجع مستني» مش ظاهر → 46 وقع');
+}
+{
+  const r = await startFlow({ adm: s => s.replace("    onOk: function(){ cfgSet({ enabled: true, start: true }); } });", "    onOk: function(){ cfgSet({ enabled: true }); } });") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !(r.sent && r.sent[0] && r.sent[0].start === true && /وقّفه/.test(r.after || '')), 'معايرة (م6) التشغيل من غير start → 47 وقع');
+}
+{
+  const r = await startFlow({ adm: s => s.replace("(cntAdvOpen ? ' open' : '')", "' open'") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.adv || r.openVis, 'معايرة (م7) الجرد مفتوح افتراضياً → 47 وقع');
+}
+{
+  const r = await cam({ wh: s => s.replace("    if(w.kind === 'jt' && !seen[w.code]){", "    if(w.kind === 'jt'){") }, true).catch(e => ({ err: String(e) }));
+  ok(r.err || (r.scans || []).length !== 2, 'معايرة (م8) الكاميرا من غير منع التكرار → 48 وقع (' + JSON.stringify(r.scans) + ')');
+}
+{
+  const r = await cam({ wh: s => s.replace("    b.hidden = !(Array.isArray(f) && f.indexOf('code_128') >= 0);", "    b.hidden = false;") }, false).catch(e => ({ err: String(e) }));
+  ok(r.err || r.vis, 'معايرة (م9) زرار الكاميرا ظاهر والمتصفح مابيقراش Code128 → 48 وقع');
 }
 
 await b.close();

@@ -360,7 +360,8 @@
 
   // ══ سكانر المخزن (14 أكتوبر): 6 طرود تجريبية بكل الحالات — عشان المالك يجرّب الصفحة قبل الرفع.
   // اكتب الكود في الخانة واضغط Enter (أو اضغط على طرد من القايمة): ...001 عادي · ...002 ملغي · ...003 مرتجع
-  // · ...004 متسلّم · ...005 طالب إلغاء · ...006 J&T استلمته (بيسأل). وضع التجربة شغّال لحد ما «جرد التشغيل» يتطبّق.
+  // · ...004 متسلّم · ...005 طالب إلغاء · ...006 J&T استلمته (بيسأل) · ...007 مرتجع J&T قفلته ومحدش سجّله («ناقص»).
+  // وضع التجربة شغّال لحد «▶️ شغّل السكانر» (تاب «⚙️ التشغيل») — بعدها الكارت بيقول «حالة الأوردر بقت …».
   var WH = { enabled:false, baseline:null, hold:true, scans:[], seq:100, st:{}, aliases:{}, cnt:null };
   TABLES.stock_counts = [];
   var WH_DEMO = [
@@ -369,8 +370,10 @@
     { t:'JEG000700000003', uid:'18203', n:'هدى',  items:'منظم المطبخ المتكامل ×2', pid:'prd-1', qty:2, kind:'returned' },
     { t:'JEG000700000004', uid:'18204', n:'نورهان', items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'delivered' },
     { t:'JEG000700000005', uid:'18205', n:'ياسمين', items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'cancel_req' },
-    { t:'JEG000700000006', uid:'18206', n:'منى',  items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'with_jt' }
+    { t:'JEG000700000006', uid:'18206', n:'منى',  items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'with_jt' },
+    { t:'JEG000700000007', uid:'18207', n:'رحاب', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', pid:'prd-0', qty:1, kind:'returned' }
   ];
+  var WH_ST0 = { 'new':'BOSTA AUTO', cancelled:'cancelled', returned:'Returned to business', delivered:'Delivered', cancel_req:'BOSTA AUTO', with_jt:'In transit between Hubs' };
   function whStock(id){ for(var i = 0; i < STOCK.length; i++) if(STOCK[i].id === id) return STOCK[i]; return null; }
   function whBrief(d){ return { id:'wh-'+d.uid, uid:d.uid, first_name:d.n, status:'BOSTA AUTO', tracking_no:d.t, pieces:d.qty, items:[{ text:d.items.replace(/ ×\d+$/, ''), qty:d.qty }] }; }
   function whLines(d, dir){
@@ -392,7 +395,11 @@
         if(d.kind === 'delivered') res = Object.assign(base, { code:'blocked_delivered', tone:'stop' });
         else if(d.kind === 'returned' || f === 'in'){
           if(st.in) res = Object.assign(base, { code:'already_in', tone:'dup', prev:st.in });
-          else { res = Object.assign(base, { code: d.kind === 'returned' ? 'in_ok_precount' : 'in_ok', tone:'in', applied:true, dir:'in', lines:whLines(d, 'in') }); if(WH.enabled) st.in = { at:new Date().toISOString(), by:'أدمن المعاينة' }; }
+          else {
+            res = Object.assign(base, { code: d.kind === 'returned' ? 'in_ok_precount' : 'in_ok', tone:'in', applied:true, dir:'in', lines:whLines(d, 'in'),
+                                        status_from: st.status || WH_ST0[d.kind], status_to:'Returned to business2' });
+            if(WH.enabled){ st.in = { at:new Date().toISOString(), by:'أدمن المعاينة' }; st.status = 'Returned to business2'; }
+          }
         }
         else if(d.kind === 'with_jt' && f !== 'out') res = Object.assign(base, { code:'with_jt_confirm', tone:'warn', options:['in','out'] });
         else if(d.kind === 'cancelled') res = Object.assign(base, { code:'blocked_cancelled', tone:'stop' });
@@ -401,7 +408,9 @@
         else {
           res = Object.assign(base, { code: d.kind === 'with_jt' ? 'out_ok' : 'out_ok', tone:'ok', applied:true, dir:'out', lines:whLines(d, 'out') });
           if(d.kind === 'with_jt') res.warnings = ['late'];
-          if(WH.enabled) st.out = { at:new Date().toISOString(), by:'أدمن المعاينة' };
+          // الحالة بتبقى «اوردر اتضرب» من حالة الشحن الأولى بس (J&T حرّكته = حالتها هي الأحدث) — زي السيرفر
+          else { res.status_from = st.status || WH_ST0[d.kind]; res.status_to = 'BOSTA2'; }
+          if(WH.enabled){ st.out = { at:new Date().toISOString(), by:'أدمن المعاينة' }; if(res.status_to) st.status = 'BOSTA2'; }
         }
       }
     }
@@ -419,7 +428,20 @@
     });
     var courier = [{ t:'JEG000700000003', uid:'18203', items:'منظم المطبخ المتكامل ×2', at:iso(0, 10, 30), done: !!(WH.st.JEG000700000003 || {}).in }];
     var unm = 0;
-    return { ok:true, enabled:WH.enabled, baseline_at:WH.baseline, hold_cancel_requested:WH.hold, is_admin:true,
+    // لوحة المرتجعات (wh_board.returns) — نفس صفحة n8n: مع المندوب · J&T قفلت النهارده · اتسجل النهارده · ناقص · في الطريق
+    var s3 = WH.st.JEG000700000003 || {}, s7 = WH.st.JEG000700000007 || {};
+    var rCourier = [{ t:'JEG000700000003', uid:'18203', items:'منظم المطبخ المتكامل ×2', q:2, cod:2150, at:iso(0, 10, 30), done:!!s3.in, sc:s3.in ? s3.in.at : null },
+                    { t:'JEG000553100142', uid:'18142', items:'رف الميكروويف', q:1, cod:695, at:iso(0, 10, 30), done:false, sc:null }];
+    var rMissing = s7.in ? [] : [{ t:'JEG000700000007', uid:'18207', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', q:1, cod:1450, at:iso(0, 9, 15), fresh:false }];
+    var rScanned = [];
+    if(s3.in) rScanned.push({ t:'JEG000700000003', uid:'18203', items:'منظم المطبخ المتكامل ×2', q:2, at:s3.in.at, by:s3.in.by });
+    if(s7.in) rScanned.push({ t:'JEG000700000007', uid:'18207', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', q:1, at:s7.in.at, by:s7.in.by });
+    var rTransit = [{ t:'JEG000553100150', uid:'18150', items:'تيربو بريمو', q:1, at:iso(1, 16, 0), s:'بين الفروع' },
+                    { t:'JEG000553100151', uid:'18151', items:'استاند امريكانا', q:1, at:iso(0, 8, 20), s:'بدأ المرتجع' }];
+    var returns = { counts:{ courier:rCourier.length, courier_done:rCourier.filter(function(x){ return x.done; }).length, closed_today:1 + (s7.in ? 0 : 0),
+                             scanned_today:rScanned.length, missing:rMissing.length, missing_old:rMissing.length, transit:rTransit.length },
+                    courier:rCourier, missing:rMissing, scanned:rScanned, transit:rTransit };
+    return { ok:true, enabled:WH.enabled, baseline_at:WH.baseline, hold_cancel_requested:WH.hold, is_admin:true, returns:returns,
       counts:{ not_scanned:notScanned.length, not_scanned_old:0, pile:pile.length, pull:0, leak:0, leak_cancelled:0, stale_pile:0,
         courier:courier.length, courier_scanned: courier[0].done ? 1 : 0, closed_unscanned:0,
         out_today: WH.scans.filter(function(x){ return x.applied && x.dir === 'out' && !x.reversed; }).length,
@@ -432,8 +454,11 @@
     if(name === 'wh_board') return whBoardData();
     if(name === 'wh_lookup'){
       var q = String((a && a.p_q) || '').toUpperCase().replace(/\s/g, '');
-      var rows = WH_DEMO.filter(function(d){ return d.uid === q || (q.length >= 6 && d.t.slice(-q.length) === q); })
-        .map(function(d){ var st = WH.st[d.t] || {}; return { tracking_no:d.t, uid:d.uid, status:'BOSTA AUTO', first_name:d.n, items:d.items, out_at:st.out ? st.out.at : null, in_at:st.in ? st.in.at : null }; });
+      // آخر 4–5 أرقام = البوليصة كمان (مش رقم الأوردر بس) · المرتجع اللي لسه ماتضربش فوق — زي السيرفر
+      var rows = WH_DEMO.filter(function(d){ return d.uid === q || (q.length >= 4 && d.t.slice(-q.length) === q); })
+        .map(function(d){ var st = WH.st[d.t] || {}; return { tracking_no:d.t, uid:d.uid, status:st.status || WH_ST0[d.kind], first_name:d.n, items:d.items,
+          out_at:st.out ? st.out.at : null, in_at:st.in ? st.in.at : null, open_return: d.kind === 'returned' && !st.in }; })
+        .sort(function(x, y){ return (y.open_return ? 1 : 0) - (x.open_return ? 1 : 0); }).slice(0, 6);
       return { ok:true, code:'ok', rows:rows };
     }
     if(name === 'wh_scan_undo'){
@@ -504,10 +529,11 @@
     }
     if(name === 'wh_config_set'){
       var pp = (a && a.p) || {};
-      if(pp.enabled === true && !WH.baseline) return { ok:false, code:'needs_count' };
+      if(pp.enabled === true && !WH.baseline && !pp.start) return { ok:false, code:'needs_start' };
+      if(pp.enabled === true && !WH.baseline) WH.baseline = new Date().toISOString();
       if(pp.enabled != null) WH.enabled = !!pp.enabled;
       if(pp.hold_cancel_requested != null) WH.hold = !!pp.hold_cancel_requested;
-      return { ok:true, code:'ok', enabled:WH.enabled, hold_cancel_requested:WH.hold };
+      return { ok:true, code:'ok', enabled:WH.enabled, hold_cancel_requested:WH.hold, baseline_at:WH.baseline };
     }
     if(name === 'wh_stock_adjust'){
       var p3 = whStock(a.p_product_id);

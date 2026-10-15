@@ -35,6 +35,8 @@
 .wh-queue{display:inline-flex;align-items:center;min-height:30px;padding:2px 10px;border-radius:10px;background:#e0f2fe;color:#075985;font-size:.8rem;}
 .wh-queue.is-off{background:#fee2e2;color:#991b1b;}
 .wh-queue[hidden]{display:none;}
+/* .wh-btn بيحط display — من غير السطر ده `hidden` كان مابيخفيش زرار الكاميرا على كروم الديسكتوب */
+#wh-cam[hidden]{display:none;}
 
 /* كارت النتيجة — اللون هو الرسالة */
 .wh-result{margin:12px 0;padding:16px 18px;border-radius:18px;border:2px solid var(--brd);background:var(--card);min-height:96px;}
@@ -97,6 +99,25 @@
 .wh-pick-st{padding:0 8px;border-radius:999px;background:var(--bg2);font-size:.75rem;}
 
 /* العدّادات والقوايم */
+/* لوحة المرتجعات (16 أكتوبر) — نفس كروت صفحة «استلام مرتجعات J&T» في n8n */
+.wh-ret{margin:0 0 10px;padding:12px;border:1px solid var(--brd);border-radius:16px;background:var(--card);}
+.wh-ret[hidden]{display:none;}
+.wh-ret-head{margin-bottom:8px;font-size:.85rem;line-height:1.7;color:var(--muted);}
+.wh-ret-head b{color:var(--txt);}
+.wh-ret-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;}
+.wh-ret-stat{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:70px;padding:8px 6px;border:1px solid var(--brd);border-radius:14px;background:#fff;color:var(--muted);font-family:inherit;font-size:.8rem;text-align:center;cursor:pointer;}
+.wh-ret-stat b{font-size:1.5rem;font-weight:900 !important;color:var(--txt);font-family:'JetBrains Mono',monospace;line-height:1.2;}
+.wh-ret-stat small{font-size:.72rem;color:var(--muted);}
+.wh-ret-stat.is-static{cursor:default;}
+.wh-ret-stat.ok b{color:#15803d;}
+.wh-ret-stat.bad{border-color:#fca5a5;background:#fef2f2;}
+.wh-ret-stat.bad b{color:#b91c1c;}
+.wh-ret-stat.on{border-color:var(--acc);box-shadow:0 0 0 3px rgba(245,158,11,.2);}
+@media (max-width:600px){.wh-ret-stats{grid-template-columns:repeat(2,minmax(0,1fr));}}
+.wh-wb b{font-weight:900 !important;color:var(--txt);font-size:1.05em;}
+.wh-r-st{margin-top:6px;font-size:.95rem;color:#334155;}
+.wh-r-st b{color:var(--txt);}
+.wh-pick-st.is-ret{background:#dbeafe;color:#1d4ed8;}
 .wh-stats{display:flex;flex-wrap:wrap;gap:14px;margin:4px 2px 8px;font-size:.85rem;color:var(--muted);}
 .wh-stats b{color:var(--txt);font-family:'JetBrains Mono',monospace;}
 .wh-stats .bad{color:#b91c1c;}
@@ -163,6 +184,9 @@
 .wh-check{display:flex;align-items:flex-start;gap:8px;font-size:.84rem;line-height:1.7;cursor:pointer;}
 .wh-check input{margin-top:5px;}
 .wh-steps{margin:6px 0 10px;padding-inline-start:20px;font-size:.86rem;line-height:1.9;color:#334155;}
+.wh-count-adv{margin-top:12px;padding:10px 14px;border:1px dashed var(--brd2);border-radius:14px;background:var(--card);}
+.wh-count-adv>summary{cursor:pointer;font-size:.9rem;color:var(--muted);}
+.wh-count-adv[open]>summary{margin-bottom:8px;color:var(--txt);}
 .wh-count-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px;margin-bottom:8px;}
 .wh-count-head p{margin:0;font-size:.84rem;color:var(--muted);}
 .wh-count-prog{font-size:.9rem;}
@@ -245,5 +269,11 @@ html.dark .wh-mode.is-paused{background:#3b0b0b;border-color:#b91c1c;color:#feca
 html.dark .wh-mode.is-on{background:#052e1a;border-color:#15803d;color:#bbf7d0;}
 html.dark .wh-focus.is-ready{background:#052e1a;color:#86efac;}
 html.dark .wh-focus.is-lost{background:#3b0b0b;color:#fca5a5;}
+html.dark .wh-ret-stat{background:#111827;border-color:#334155;}
+html.dark .wh-ret-stat.bad{background:#2a0b0b;border-color:#b91c1c;}
+html.dark .wh-ret-stat.bad b{color:#fca5a5;}
+html.dark .wh-ret-stat.ok b{color:#86efac;}
+html.dark .wh-r-st{color:#cbd5e1;}
+html.dark .wh-pick-st.is-ret{background:#0b1f44;color:#93c5fd;}
 html.dark .wh-warn{background:#111827;}
 html.dark #wh-sound.is-off{background:#151c2c;}

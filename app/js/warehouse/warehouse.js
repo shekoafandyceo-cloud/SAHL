@@ -12,12 +12,15 @@
 //    لو كان وصله (idempotent) — فمفيش خصم مرتين.
 // 🔴 الكود بيتقرا من الزراير (`e.code`) مش من الحروف: الكيبورد العربي بيحوّل «JEG» لـ«تثل» — وده كان
 //    هيخلّي كل سكان «كود مش مفهوم» على أي جهاز لغته عربي. ونص الخانة احتياطي (`scanToLatin`).
-// 🔴 الصفحة مابتكتبش حالة الأوردر خالص — السيرفر بيختم `stock_deducted_at`/`stock_returned_at` بس.
+// 🔴 الحالة بتتغيّر على السيرفر مع المخزون (16 أكتوبر — طلب المالك): خروج = «اوردر اتضرب» · مرتجع = «مرتجع
+//    مضروب» · الصفحة بتعرض اللي السيرفر رجّعه (`status_to`) بس — عمرها ما بتكتب حالة.
 // ⚠️ وضع التجربة (`wh_config.enabled=false`): السكان بيعدّي على كل المنطق ويرجّع النتيجة الحقيقية
-//    ومابيكتبش حرف (`dry`) — لحد ما الأدمن يعمل جرد التشغيل.
+//    ومابيكتبش حرف (`dry`) — لحد ما الأدمن يدوس «▶️ شغّل السكانر».
+// 📥 لوحة المرتجعات (`wh_board.returns`) = صفحة «استلام مرتجعات J&T» اللي كانت في n8n بالحرف.
 
 import { $id, esc } from '../core/dom.js';
 import { stripBidi } from '../core/format.js';
+import { statusLabel } from '../core/constants.js';
 import { swallow } from '../core/log.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
@@ -407,6 +410,11 @@ export function whCardHtml(res, it, attnId){
   } else if(res.tracking_no || (it && it.code)){
     h += '<div class="wh-r-code">' + ltr(res.tracking_no || it.code) + '</div>';
   }
+  // الحالة اللي السيرفر كتبها (أو كان هيكتبها في التجربة) — «undone» بيرجّع الحالة اللي رجعت لها
+  if(res.status_to){
+    h += '<div class="wh-r-st">🔄 حالة الأوردر ' + (res.dry ? 'كانت هتبقى' : (res.code === 'undone' ? 'رجعت' : 'بقت'))
+      + ': <b>' + esc(statusLabel(res.status_to)) + '</b></div>';
+  }
   if(res.prev && (res.prev.at || res.prev.by)){
     h += '<div class="wh-r-prev">اتضرب ' + esc(whDayTime(res.prev.at)) + (res.prev.by ? ' · بإيد ' + esc(res.prev.by) : '') + '</div>';
   }
@@ -638,7 +646,7 @@ function whLookup(q){
     var rows = r.data.rows || [];
     if(!rows.length){
       el.className = 'wh-result tone-stop';
-      el.innerHTML = '<div class="wh-r-title">⛔ مفيش بوليصة بالرقم ده</div><div class="wh-r-sub">اكتب آخر 6 أرقام أو أكتر من البوليصة، أو رقم الأوردر.</div>';
+      el.innerHTML = '<div class="wh-r-title">⛔ مفيش بوليصة بالرقم ده</div><div class="wh-r-sub">اكتب آخر 5 أرقام أو أكتر من البوليصة، أو رقم الأوردر.</div>';
       toneOnce('stop');
       return;
     }
@@ -648,6 +656,7 @@ function whLookup(q){
       h += '<button type="button" class="wh-pick-row" data-wh-act="pick" data-code="' + esc(x.tracking_no) + '">'
         + '<b>#' + esc(x.uid || '') + '</b> ' + (x.first_name ? esc(x.first_name) + ' · ' : '') + ltr(x.tracking_no)
         + '<span class="wh-pick-items">' + esc(x.items || '') + '</span>'
+        + (x.open_return ? '<span class="wh-pick-st is-ret">↩️ مرتجع مستني يتسجل</span>' : '')
         + (x.out_at ? '<span class="wh-pick-st">خرج ' + esc(whDayTime(x.out_at)) + '</span>' : '')
         + (x.in_at ? '<span class="wh-pick-st">رجع ' + esc(whDayTime(x.in_at)) + '</span>' : '')
         + '</button>';
@@ -721,24 +730,29 @@ export function whUndo(scanId){
 }
 
 // ── القوايم (wh_board) ───────────────────────────────────────────────
+// rc = عدّادات لوحة المرتجعات (wh_board.returns.counts) — نفس صفحة n8n
 var WH_LISTS = [
   { k: 'today',            t: '🧾 سكانات النهارده',             n: function(c){ return (c.out_today || 0) + (c.in_today || 0); } },
   { k: 'not_scanned',      t: '🖨️ اتطبعت ولسه ماتضربتش',       n: function(c){ return c.not_scanned || 0; } },
   { k: 'pile',             t: '📦 في الكومة — مستنية المندوب', n: function(c){ return c.pile || 0; } },
   { k: 'pull',             t: '⛔ اسحبها من الكومة',            n: function(c){ return c.pull || 0; }, hot: true },
-  { k: 'courier',          t: '🛵 مرتجعات جاية مع المندوب',     n: function(c){ return c.courier || 0; } },
-  { k: 'closed_unscanned', t: '↩️ رجعت ومااتضربتش',             n: function(c){ return c.closed_unscanned || 0; }, hot: true },
+  { k: 'ret_courier',      t: '🚚 مرتجعات مع المندوب',          n: function(c, rc){ return rc.courier || 0; } },
+  { k: 'ret_missing',      t: '🚨 J&T قالت سلّمتها ومش متسجلة', n: function(c, rc){ return rc.missing || 0; }, hot: true },
+  { k: 'ret_scanned',      t: '✅ مرتجعات اتسجلت النهارده',     n: function(c, rc){ return rc.scanned_today || 0; } },
+  { k: 'ret_transit',      t: '🔄 مرتجعات لسه في الطريق',       n: function(c, rc){ return rc.transit || 0; } },
   { k: 'leak',             t: '🔴 خرجت من غير سكان',            n: function(c){ return c.leak || 0; }, hot: true, admin: true }
 ];
 
-export function whCountsBadge(c){
-  c = c || {};
-  return { staff: (c.pull || 0) + (c.closed_unscanned || 0),
+// الشارة البرتقاني: اسحبها من الكومة + المرتجع اللي J&T قفلته من أكتر من 30 دقيقة ومحدش سجّله (نفس سماح تنبيه
+// n8n — الطرد بيتسلّم والسكان بعده بدقايق) · الحمرا للأدمن: خرج من غير سكان + سطور مش مربوطة + رصيد بالسالب
+export function whCountsBadge(c, rc){
+  c = c || {}; rc = rc || {};
+  return { staff: (c.pull || 0) + (rc.missing_old || 0),
            admin: Math.max(0, (c.leak || 0) - (c.leak_counted || 0)) + (c.unmatched_lines || 0) + (c.negative_products || 0) };
 }
 
-export function whSetNavBadge(c){
-  var n = whCountsBadge(c);
+export function whSetNavBadge(c, rc){
+  var n = whCountsBadge(c, rc);
   var b = $id('wh-nav-badge');
   if(b){
     if(n.staff > 0){ b.textContent = n.staff > 99 ? '99+' : String(n.staff); b.title = n.staff + ' طرد محتاج تتحرك له في المخزن'; b.style.display = 'inline-flex'; }
@@ -760,7 +774,7 @@ export function whRefreshNavBadge(){
   if(whPageVisible()) return;   // الصفحة مفتوحة = التحميل الكامل بيحدّثها
   sb.rpc('wh_board', { p_lite: true }).then(function(r){
     if(r.error || !r.data || !r.data.ok) return;
-    whSetNavBadge(r.data.counts);
+    whSetNavBadge(r.data.counts, r.data.returns && r.data.returns.counts);
   });
 }
 
@@ -781,8 +795,9 @@ function loadBoard(){
       return;
     }
     whBoard = r.data; whBoardAt = Date.now();
-    whSetNavBadge(whBoard.counts);
+    whSetNavBadge(whBoard.counts, retCounts());
     renderMode();
+    renderRet();
     renderChips();
     renderList();
     whAdminBoard(whBoard);
@@ -793,8 +808,8 @@ function renderMode(){
   var el = $id('wh-mode'); if(!el || !whBoard) return;
   if(!whBoard.enabled && !whBoard.baseline_at){
     el.className = 'wh-mode is-trial';
-    el.innerHTML = '🧪 <b>وضع تجربة</b> — السكان شغّال وبيقولك النتيجة الحقيقية، بس <b>مابيخصمش من المخزن لسه</b>.'
-      + (isAdminUser() ? ' عشان يشتغل: اربط المنتجات، وبعدين اعمل «جرد التشغيل».' : ' الأدمن هيشغّله بعد الجرد.');
+    el.innerHTML = '🧪 <b>وضع تجربة</b> — السكان شغّال وبيقولك النتيجة الحقيقية، بس <b>مابيغيّرش الحالة ومابيخصمش من المخزن لسه</b>.'
+      + (isAdminUser() ? ' عشان يشتغل: اربط المنتجات، ظبط أرقام المخزون، وبعدين «▶️ شغّل السكانر» من تاب «⚙️ التشغيل».' : ' الأدمن هيشغّله.');
     el.hidden = false;
   } else if(!whBoard.enabled){
     el.className = 'wh-mode is-paused';
@@ -802,19 +817,40 @@ function renderMode(){
     el.hidden = false;
   } else {
     el.className = 'wh-mode is-on';
-    el.innerHTML = '🟢 شغّال — كل سكان بيتخصم من المخزن · من ' + esc(whDayTime(whBoard.baseline_at));
+    el.innerHTML = '🟢 شغّال — الخروج «اوردر اتضرب» ويتخصم · المرتجع «مرتجع مضروب» ويرجع المخزن · من ' + esc(whDayTime(whBoard.baseline_at));
     el.hidden = false;
   }
 }
 
+function retCounts(){ return (whBoard && whBoard.returns && whBoard.returns.counts) || {}; }
+
+// ── لوحة المرتجعات — نفس كروت صفحة «استلام مرتجعات J&T» (n8n): مع المندوب · J&T قفلت النهارده · اتسجل النهارده · ناقص
+function renderRet(){
+  var el = $id('wh-ret'); if(!el || !whBoard) return;
+  var rc = retCounts();
+  var tile = function(list, n, label, cls, sub){
+    return '<button type="button" class="wh-ret-stat' + (cls ? ' ' + cls : '') + (whList === list ? ' on' : '') + '" data-wh-list="' + list + '">'
+      + '<b>' + esc(String(n || 0)) + '</b><span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
+  };
+  var cd = rc.courier ? esc(String(rc.courier_done || 0)) + ' من ' + esc(String(rc.courier)) + ' ✅' : '';
+  el.innerHTML = '<div class="wh-ret-head">↩️ <b>المرتجعات</b> — سجّل كل مرتجع أول ما يوصل. وقبل ما المندوب يمشي، اتأكد إن «مع المندوب» كلها ✅.</div>'
+    + '<div class="wh-ret-stats">'
+    + tile('ret_courier', rc.courier, 'مع المندوب', '', cd)
+    + '<div class="wh-ret-stat is-static"><b>' + esc(String(rc.closed_today || 0)) + '</b><span>J&amp;T قفلت النهارده</span></div>'
+    + tile('ret_scanned', rc.scanned_today, 'اتسجل النهارده', 'ok', '')
+    + tile('ret_missing', rc.missing, 'ناقص', (rc.missing ? 'bad' : ''), rc.missing ? 'J&amp;T قالت سلّمتها' : '')
+    + '</div>';
+  el.hidden = false;
+}
+
 function renderChips(){
   var el = $id('wh-chips'); if(!el || !whBoard) return;
-  var c = whBoard.counts || {};
+  var c = whBoard.counts || {}, rc = retCounts();
   var h = '';
   for(var i = 0; i < WH_LISTS.length; i++){
     var L = WH_LISTS[i];
     if(L.admin && !isAdminUser()) continue;
-    var n = L.n(c);
+    var n = L.n(c, rc);
     h += '<button type="button" class="wh-chip' + (whList === L.k ? ' on' : '') + (L.hot && n > 0 ? ' hot' : '') + '" data-wh-list="' + L.k + '">'
       + esc(L.t) + ' <span class="n">' + esc(String(n)) + '</span></button>';
   }
@@ -833,15 +869,29 @@ var WH_LIST_HINT = {
   not_scanned:      'بوالص J&T اتطبعت والمندوب لسه مااستلمهاش — ومحدش ضربها خروج. اضربها قبل ما تسلّمها.',
   pile:             'اتضربت خروج ومستنية المندوب. لو فضلت أكتر من 30 ساعة اسأل J&T.',
   pull:             'اتضربت خروج وبعدين الأوردر اتلغى أو العميل طلب إلغاء — اسحبها من الكومة واضربها تاني (هترجع للمخزن).',
-  courier:          'J&T بتقول إن المرتجعات دي مع المندوب جايين لنا — اضربهم أول ما يوصلوا.',
-  closed_unscanned: 'J&T قفلتها «رجعت للتاجر» من أكتر من ساعتين ومحدش ضربها مرتجع — دوّر عليها واضربها.',
+  ret_courier:      'مندوب J&T طالع لكم بالمرتجعات دي — اضرب كل واحد أول ما يوصل، وقبل ما المندوب يمشي اتأكد إنهم كلهم ✅.',
+  ret_missing:      'J&T قفلتها إنها اتسلّمت لكم ومحدش سجّلها. لو المرتجع وصل فعلاً اضربه — لو ما وصلش، كلّم المندوب والفرع فوراً.',
+  ret_scanned:      'المرتجعات اللي اتسجلت النهارده (من السكانر أو من صفحة n8n القديمة).',
+  ret_transit:      'مرتجعات J&T لسه راجعة ومش مع المندوب — مرحلتها جنب كل واحد.',
   leak:             'J&T استلمتها ومحدش ضربها خروج (بعد ما السكان اشتغل). خصمها بإيدك لو خرجت فعلاً — اللي عليها «🧮» اتعمل جرد بعدها، فالمنتج اللي اتعدّ فيه مش هيتخصم تاني (الجرد شاله).'
 };
 
 function rowsFor(k){
+  if(k.indexOf('ret_') === 0){
+    var R = (whBoard && whBoard.returns) || {};
+    var v = R[k.slice(4)];
+    return Array.isArray(v) ? v : [];
+  }
   var L = (whBoard && whBoard.lists) || {};
   return Array.isArray(L[k]) ? L[k] : [];
 }
+
+// البوليصة بآخر 5 أرقام بارزين (هما اللي بيتكتبوا بالإيد على الباب — زي صفحة n8n)
+function wbHtml(t){
+  t = String(t || '');
+  return '<span class="wh-ltr wh-wb" dir="ltr">' + esc(t.slice(0, -5)) + '<b>' + esc(t.slice(-5)) + '</b></span>';
+}
+function money(n){ var v = Number(n); return isFinite(v) && v > 0 ? v.toLocaleString('en-US') + ' ج' : ''; }
 
 function renderList(){
   var el = $id('wh-lists'); if(!el || !whBoard) return;
@@ -862,7 +912,23 @@ function rowHtml(k, x){
     + (x.n ? '<span class="wh-row-n">' + esc(x.n) + '</span>' : '')
     + (x.items ? '<span class="wh-row-items">' + esc(x.items) + '</span>' : '');
   var meta = '', acts = '', cls = '';
-  if(k === 'today'){
+  if(k.indexOf('ret_') === 0){
+    base = '<span class="wh-row-t">' + wbHtml(x.t) + '</span>'
+      + (x.uid ? '<span class="wh-row-uid">#' + esc(x.uid) + '</span>' : '')
+      + (x.items ? '<span class="wh-row-items">' + esc(x.items) + '</span>' : '')
+      + (money(x.cod) ? '<span class="wh-row-by">' + ltr(money(x.cod)) + '</span>' : '');
+    if(k === 'ret_courier'){
+      meta = '<span class="wh-row-by">مع المندوب ' + esc(whDayTime(x.at)) + '</span>'
+        + (x.done ? '<span class="wh-row-ok">✅ اتسجل</span>' : '<span class="wh-row-old">⏳ لسه</span>');
+    } else if(k === 'ret_missing'){
+      meta = '<span class="wh-row-old">J&amp;T قفلته ' + esc(whDayTime(x.at)) + '</span>'
+        + (x.fresh ? '<span class="wh-row-by">من أقل من نص ساعة</span>' : '');
+    } else if(k === 'ret_scanned'){
+      meta = '<span class="wh-row-ok">اتسجل ' + esc(whTime(x.at)) + '</span>' + (x.by ? '<span class="wh-row-by">' + esc(x.by) + '</span>' : '');
+    } else if(k === 'ret_transit'){
+      meta = '<span class="wh-row-old">' + esc(x.s || 'في الطريق') + '</span>' + (x.at ? '<span class="wh-row-by">' + esc(whDayTime(x.at)) + '</span>' : '');
+    }
+  } else if(k === 'today'){
     var t = whText(x.code);
     cls = ' tone-' + (x.tone || (x.applied ? 'ok' : 'stop'));
     base = '<span class="wh-row-time">' + esc(whTime(x.at)) + '</span><span class="wh-row-c">' + esc(t[0]) + '</span>'
@@ -877,10 +943,6 @@ function rowHtml(k, x){
   } else if(k === 'pile' || k === 'pull'){
     meta = '<span class="wh-row-by">خرج ' + esc(whDayTime(x.at)) + (x.by ? ' · ' + esc(x.by) : '') + '</span>'
       + (x.stale ? '<span class="wh-row-old">أكتر من 30 ساعة</span>' : '') + (k === 'pull' ? '<span class="wh-row-old">' + (x.cancelled ? 'اتلغى' : 'طالب إلغاء') + '</span>' : '');
-  } else if(k === 'courier'){
-    meta = '<span class="wh-row-by">مع المندوب ' + esc(whDayTime(x.at)) + '</span>' + (x.done ? '<span class="wh-row-ok">✓ اتضرب</span>' : '');
-  } else if(k === 'closed_unscanned'){
-    meta = '<span class="wh-row-by">J&amp;T قفلتها ' + esc(whDayTime(x.at)) + '</span>' + (x.marked ? '<span class="wh-row-ok">اتعلّم قبل كده</span>' : '');
   } else if(k === 'leak'){
     meta = '<span class="wh-row-by">J&amp;T استلمتها ' + esc(whDayTime(x.jt_at)) + '</span>' + (x.cancelled ? '<span class="wh-row-old">ملغي عندنا</span>' : '')
       + (x.counted ? '<span class="wh-row-ok" title="جرد اتفتح بعد ما J&amp;T استلمتها وعدّ كل منتجاتها — «اخصمه» مش هيخصم حاجة (الجرد شالها خلاص)">🧮 اتعمل جرد بعدها</span>'
@@ -974,6 +1036,49 @@ function sendOrphans(){
   toast(added ? 'اتضافوا للطابور: ' + added + ' سكان — هيتسجّلوا باسمك' : 'مفيش سكانات جديدة', 'ok');
 }
 
+// ── 📷 صوّر الباركود (الموبايل على الباب — زي «صوّر الليبل» في صفحة n8n) ──────────────────────────
+// من غير أي خدمة بره: `BarcodeDetector` بتاع المتصفح (أندرويد كروم). مش موجود (آيفون) = الزرار مايبانش، والموظف
+// بيكتب آخر 5 أرقام. أكتر من بوليصة في الصورة = كلهم بيتسجّلوا ورا بعض (كل واحدة سكان لوحدها في الطابور).
+export function whCamCodes(found){
+  var seen = {}, out = [];
+  (Array.isArray(found) ? found : []).forEach(function(x){
+    var w = parseWaybill((x && x.rawValue) || '');
+    if(w.kind === 'jt' && !seen[w.code]){ seen[w.code] = 1; out.push(w.code); }
+  });
+  return out;
+}
+function camInit(){
+  var b = $id('wh-cam'), inp = $id('wh-cam-in');
+  if(!b || !inp) return;
+  // الزرار بيبان بس لو المتصفح بيقرا Code128 فعلاً — كروم الديسكتوب (ويندوز/لينكس) عنده الكلاس من غير أي صيغة
+  b.hidden = true;
+  var BD = window.BarcodeDetector;
+  if(typeof BD !== 'function' || typeof BD.getSupportedFormats !== 'function') return;
+  Promise.resolve(BD.getSupportedFormats()).then(function(f){
+    b.hidden = !(Array.isArray(f) && f.indexOf('code_128') >= 0);
+  }, function(){ b.hidden = true; });
+  inp.addEventListener('change', function(){
+    var f = inp.files && inp.files[0];
+    inp.value = '';
+    if(f) camRead(f);
+  });
+}
+function camRead(f){
+  var det;
+  try{ det = new window.BarcodeDetector({ formats: ['code_128', 'qr_code'] }); }
+  catch(e){ toast('الموبايل ده مايقدرش يقرا الباركود من الصورة — اكتب آخر 5 أرقام من البوليصة', 'er'); return; }
+  Promise.resolve(window.createImageBitmap ? window.createImageBitmap(f) : null).then(function(img){
+    if(!img) throw new Error('no_bitmap');
+    return det.detect(img);
+  }).then(function(found){
+    var codes = whCamCodes(found);
+    if(!codes.length){ toast('مالقيتش بوليصة J&T في الصورة — قرّب الموبايل أو اكتب آخر 5 أرقام', 'er'); toneOnce('stop'); return; }
+    unlockAudio();
+    codes.forEach(function(c){ whEnqueue(c, { src: 'manual', raw: 'photo' }); });
+    if(codes.length > 1) toast('📷 لقيت ' + codes.length + ' بوالص في الصورة — بيتسجّلوا ورا بعض', 'ok');
+  }).catch(function(e){ swallow('warehouse/cam', e); toast('مقدرناش نقرا الصورة — جرّب تاني أو اكتب آخر 5 أرقام', 'er'); });
+}
+
 // ── الدخول للصفحة ────────────────────────────────────────────────────
 export function loadWarehouse(){
   if(tourActive){ veilDone('warehouse'); return; }
@@ -995,7 +1100,7 @@ function onClick(e){
   var t = e.target.closest ? e.target.closest('[data-wh-act],[data-wh-list],[data-wh-tab]') : null;
   if(!t) { if(whTab === 'scan' && !(e.target.closest && e.target.closest('input,select,textarea,button,a'))) focusInput(); return; }
   var l = t.getAttribute('data-wh-list');
-  if(l){ whList = l; renderChips(); renderList(); focusInput(); return; }
+  if(l){ whList = l; renderRet(); renderChips(); renderList(); focusInput(); return; }
   var tb = t.getAttribute('data-wh-tab');
   if(tb){ setTab(tb); return; }
   var a = t.getAttribute('data-wh-act');
@@ -1015,6 +1120,7 @@ function onClick(e){
   else if(a === 'reload-board') loadBoard();
   else if(a === 'sound'){ var on = !scanSoundOn(); setScanSound(on); if(on){ unlockAudio(); playScanTone('ok'); } renderSoundBtn(); }
   else if(a === 'focus') focusInput(true);
+  else if(a === 'cam'){ var ci = $id('wh-cam-in'); if(ci) ci.click(); return; }
   if(whTab === 'scan' && a !== 'undo' && a !== 'ship-anyway' && a !== 'leak-out' && a !== 'leak-dismiss') focusInput();
 }
 
@@ -1055,6 +1161,7 @@ export function initWarehouse(){
   }, WH_BOARD_MS);
   whAdminInit({ reloadBoard: loadBoard, setTab: setTab, enqueue: whEnqueue,
                 pending: function(){ return whQueue.length + orphanQueues().reduce(function(n, x){ return n + x.q.length; }, 0); } });
+  camInit();
   renderSoundBtn();
   renderFocus();
 }
