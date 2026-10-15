@@ -479,7 +479,10 @@
     }
     if(name === 'wh_count_pile'){
       var op = TABLES.stock_counts.filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
-      return { ok:true, count_id: op ? op.id : null, pile:[], pile_orders:0, ret_orders:0 };
+      return { ok:true, count_id: op ? op.id : null, opts:{}, pile:[], pile_orders:0, moved_orders:0, ret_orders:0, moved_list:[], ret_list:[] };
+    }
+    if(name === 'wh_count_opts'){
+      return { ok:true, code:'ok', opts:(a && a.p_opts) || {} };
     }
     if(name === 'wh_config_set'){
       var pp = (a && a.p) || {};

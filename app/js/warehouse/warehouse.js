@@ -379,6 +379,10 @@ function renderAttn(){
 function renderPending(it){
   var el = $id('wh-result'); if(!el) return;
   whCardGen++;
+  // 🔴 الكارت بقى «بيتسجّل» = النتيجة اللي كانت عليه مش ظاهرة — F9/F10 كانوا لسه بيفرضوا قرارها (طرد مش قدام
+  // الموظف). بتتنسى هنا، ولو كانت محتاجة انتباه بترجع لقايمة «محتاجة انتباهك» تحت
+  whCard = null;
+  renderAttn();
   el.className = 'wh-result is-pending';
   el.innerHTML = '<div class="wh-r-title">⏳ بيتسجّل…</div><div class="wh-r-code">' + ltr(it.code) + '</div>';
 }
@@ -519,8 +523,11 @@ function modalScanGuard(e){
     // = قراية سكانر برضه (كود قديم · باركود منتج · قراية ناقصة): ماتأكّدش المودال بيها، والسيرفر يقول نوعها
     var tail = whModalKeys.tail(15), start = whModalKeys.markAt(15);
     var bn = whModalKeys.burstLen(120), bt = whModalKeys.timing(bn);
-    var isWay = /^[JU]EG\d{12}$/.test(tail);
-    if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120){ tail = whModalKeys.tail(bn); start = whModalKeys.markAt(bn); isWay = true; }
+    // 🔴 والشكل لوحده مش كفاية: كود مكتوب بالإيد كسبب = سبب مش سكان (looksScanned) · وزرار متداس
+    // (e.repeat — البافر مابيعدّوش) أو حرف واحد متكرر = مش سكانر
+    var isWay = /^[JU]EG\d{12}$/.test(tail) && looksScanned(whModalKeys.timing(15));
+    var bTail = whModalKeys.tail(bn);
+    if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120 && !/^(.)\1+$/.test(bTail)){ tail = bTail; start = whModalKeys.markAt(bn); isWay = true; }
     whModalKeys.reset();
     if(isWay){
       e.preventDefault();
@@ -613,6 +620,8 @@ export function whSubmit(buf, txt, scanned){
 // ── الكتابة بالإيد: آخر أرقام البوليصة أو رقم الأوردر ───────────────
 function whLookup(q){
   var el = $id('wh-result'); if(!el || !sb) return;
+  whCard = null;   // نفس renderPending: الكارت مابقاش بيعرض النتيجة القديمة
+  renderAttn();
   el.className = 'wh-result is-pending';
   el.innerHTML = '<div class="wh-r-title">🔎 بندوّر على ' + ltr(q) + '…</div>';
   var gen = ++whCardGen;
@@ -871,7 +880,8 @@ function rowHtml(k, x){
     meta = '<span class="wh-row-by">J&amp;T قفلتها ' + esc(whDayTime(x.at)) + '</span>' + (x.marked ? '<span class="wh-row-ok">اتعلّم قبل كده</span>' : '');
   } else if(k === 'leak'){
     meta = '<span class="wh-row-by">J&amp;T استلمتها ' + esc(whDayTime(x.jt_at)) + '</span>' + (x.cancelled ? '<span class="wh-row-old">ملغي عندنا</span>' : '')
-      + (x.counted ? '<span class="wh-row-ok" title="جرد اتفتح بعد ما J&amp;T استلمتها — المنتج اللي اتعدّ فيه مش هيتخصم تاني لو ضغطت «اخصمه»">🧮 اتعمل جرد بعدها</span>' : '');
+      + (x.counted ? '<span class="wh-row-ok" title="جرد اتفتح بعد ما J&amp;T استلمتها وعدّ كل منتجاتها — «اخصمه» مش هيخصم حاجة (الجرد شالها خلاص)">🧮 اتعمل جرد بعدها</span>'
+        : x.counted_some ? '<span class="wh-row-old" title="جرد اتفتح بعد ما J&amp;T استلمتها وعدّ جزء من منتجاتها بس — «اخصمه» بيخصم الباقي">🧮 جزء من منتجاتها اتعدّ</span>' : '');
     if(isAdminUser() && x.id){
       acts = '<button type="button" class="wh-btn wh-btn-sm" data-wh-act="leak-out" data-oid="' + esc(x.id) + '">📦 اخصمه</button>'
         + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="leak-dismiss" data-oid="' + esc(x.id) + '">✖ مش محتاج خصم</button>';

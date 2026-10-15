@@ -183,6 +183,17 @@
 .wh-count-warn{margin-bottom:8px;padding:10px 12px;border:1px solid #fdba74;border-radius:12px;background:#fff7ed;color:#9a3412;font-size:.84rem;line-height:1.8;}
 .wh-cpile{font-size:.76rem;color:#9a3412;background:#fff7ed;border:1px solid #fed7aa;border-radius:999px;padding:1px 8px;}
 .wh-hint.bad{color:#b91c1c;}
+.wh-count-q{margin-top:8px;padding:8px 10px;border:1px solid #fed7aa;border-radius:10px;background:#fffbf5;}
+.wh-count-q.need{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.18);}
+.wh-q-t{color:#7c2d12;}
+.wh-q-s{margin:4px 0 6px;color:#9a3412;font-size:.8rem;}
+.wh-q-list{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0;}
+.wh-q-list>span{font-size:.74rem;padding:0 7px;border-radius:999px;background:#ffedd5;color:#7c2d12;}
+.wh-q-acts{display:flex;flex-wrap:wrap;gap:6px;}
+.wh-count-q .wh-btn.on{background:#ea580c;border-color:#ea580c;color:#fff;}
+.wh-q-a{margin-top:4px;font-size:.78rem;color:#15803d;}
+.wh-q-a.bad{color:#b91c1c;}
+.wh-cpile.q{background:#fef9c3;border-color:#fde047;color:#854d0e;}
 
 /* الشارات على زرار التبويب */
 .wa-nav-badge.wh-nav-badge{background:var(--ora);}
@@ -209,6 +220,12 @@ html.dark .wh-result.tone-stop{background:#3b0b0b;border-color:#ef4444;}
 html.dark .wh-attn{background:#2a1606;border-color:#c2410c;}
 html.dark .wh-count-warn,html.dark .wh-cpile{background:#2a1606;border-color:#c2410c;color:#fdba74;}
 html.dark .wh-hint.bad{color:#fca5a5;}
+html.dark .wh-count-q{background:#1f1206;border-color:#9a3412;}
+html.dark .wh-q-t,html.dark .wh-q-s{color:#fdba74;}
+html.dark .wh-q-list>span{background:#3b1d08;color:#fed7aa;}
+html.dark .wh-q-a{color:#86efac;}
+html.dark .wh-q-a.bad{color:#fca5a5;}
+html.dark .wh-cpile.q{background:#2a2306;border-color:#a16207;color:#fde68a;}
 html.dark .wh-attn-head{color:#fdba74;}
 html.dark .wh-attn-row{background:#111827;}
 html.dark .wh-orphan{background:#0b2235;border-color:#0369a1;color:#bae6fd;}

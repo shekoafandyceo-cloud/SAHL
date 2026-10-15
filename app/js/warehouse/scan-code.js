@@ -82,6 +82,9 @@ export function createKeyBuffer(){
       if(!e) return;
       var t = typeof e.timeStamp === 'number' ? e.timeStamp : Date.now();
       var ch = codeChar(e.code);
+      // زرار متداس (auto-repeat — السكانر عمره ما بيبعته): مش حرف من ضربة، وكان بيعمل «ضربة بسرعة السكانر» وهمية
+      // (حرف واحد كل ~30ms). الـShift المتداس وهو بيكتب كابيتال مالوش أثر
+      if(e.repeat){ if(!/^(Shift|Caps|Control|Alt|Meta)/.test(String(e.key || ''))) dirty = true; return; }
       if(e.altKey){ dirty = true; return; }   // ALT+Numpad = وضع «universal keyboard»
       if(e.ctrlKey || e.metaKey){ dirty = true; return; }   // Ctrl+V لصق · اختصارات — مش حروف
       if(ch){ buf += ch; times.push(t); marks.push(mark); return; }

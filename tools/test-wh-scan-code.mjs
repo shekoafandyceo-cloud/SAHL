@@ -10,9 +10,10 @@
 //  8) ذيل البافر (المحادثات): كلام بالإيد بطيء وبعده سكان سريع = timing(15) سكانر و timing() كله إيد · tail(15) = الكود ·
 //     markAt(15) = مكان الكارسر قبل أول زرار في الكود · Ctrl+V = «مش موثوق» ومابيضيفش V
 //  9) burstLen(120) = عدد زراير الضربة الأخيرة بس (حارس المودال في السكانر)
+// 10) زرار متداس (e.repeat): مابيتعدّش في البافر ولا في الضربة والبافر بيبقى «مش موثوق» · Shift متداس مالوش أثر
 //
 // المعايرات (مرساة + حارس — درس 47): شيل «تثل» من الخريطة (ت→J) → 1 · شيل (?!\d) → 2 · codeChar من e.key → 3 ·
-// البافر مابيتعلّمش dirty → 4 · حد السرعة 1000ms → 5 · timing(n) بيتجاهل n → 8 · burstLen بيعدّ كله → 9
+// الزرار المتداس بيتعدّ → 10 · Shift المتداس بيبوّظ السكان → 10 · البافر مابيتعلّمش dirty → 4 · حد السرعة 1000ms → 5 · timing(n) بيتجاهل n → 8 · burstLen بيعدّ كله → 9
 // تشغيل:  cd tools && node test-wh-scan-code.mjs
 import fs from 'fs';
 import os from 'os';
@@ -108,6 +109,14 @@ async function suite(m, label){
   r.s8 = tailOk && tim && kc.value() === '' && kc.tail(5) === '';
   // 9 — burstLen: الضربة الأخيرة بس (الـ15 زرار بتوع السكان — الكلام اللي قبله بفجوة 550ms مابيتحسبش) · فاضي = 0
   r.s9 = kb.burstLen(120) === 15 && createKeyBuffer().burstLen(120) === 0 && kc.burstLen(120) === 0;
+  // 10 — زرار متداس: 1 + 11 repeat كل 30ms = حرف واحد في البافر والضربة · Shift متداس وسط سكان = السكان سليم
+  const kr = createKeyBuffer();
+  kr.push(ev('Digit1', '1', 0));
+  for(let i = 1; i < 12; i++) kr.push(ev('Digit1', '1', i * 30, { repeat: true }));
+  const ks = createKeyBuffer();
+  ks.push(ev('ShiftLeft', 'Shift', 0)); for(let i = 1; i < 5; i++) ks.push(ev('ShiftLeft', 'Shift', i, { repeat: true }));
+  keysFor(CODE, 10).forEach(e => { e.timeStamp += 5; ks.push(e); });
+  r.s10 = kr.tail(15) === '1' && kr.burstLen(120) === 1 && kr.value() === '' && ks.value() === CODE && looksScanned(ks.timing(15));
   if(label) return r;
   ok(r.s1, '1) الكيبورد العربي/الشيفت/CapsLock/أرقام هندي/علامات الاتجاه → JEG000538937803');
   ok(r.s2, '2) البوليصة في أي مكان (AIM · لينك) · 13 رقم مش بوليصة · UEG تجريبي · القديم · باركود منتج');
@@ -118,6 +127,7 @@ async function suite(m, label){
   ok(r.s7, '7) ' + TABLE.length + ' مدخل = نفس نتيجة app.wh_code على السيرفر');
   ok(r.s8, '8) ذيل البافر: كلام بالإيد + سكان = timing(15) سكانر · tail/markAt صح · Ctrl+V مش حرف');
   ok(r.s9, '9) burstLen = الضربة الأخيرة بس (المودال بيعرف ضربة السكانر بيها مهما كان شكل الكود)');
+  ok(r.s10, '10) زرار متداس مابيتعدّش ضربة ولا حرف (البافر مش موثوق) · Shift متداس وسط السكان مالوش أثر');
   return r;
 }
 
@@ -136,6 +146,8 @@ await cal('(د) البافر مابيتعلّمش dirty', 's4', s => s.replace('
 await cal('(هـ) حد السرعة 1000ms', 's5', s => s.replace('t.avg <= 35 && t.max <= 120', 't.avg <= 1000 && t.max <= 2000'));
 await cal('(و) timing(n) بيتجاهل n', 's8', s => s.replace('var ts = (n && n > 0) ? times.slice(-n) : times;', 'var ts = times;'));
 await cal('(ز) burstLen بيعدّ كل الزراير', 's9', s => s.replace('if(times[i] - times[i - 1] > maxGap) break; k++;', 'k++;'));
+await cal('(ح) الزرار المتداس بيتعدّ', 's10', s => s.replace("      if(e.repeat){ if(!/^(Shift|Caps|Control|Alt|Meta)/.test(String(e.key || ''))) dirty = true; return; }\n", ''));
+await cal('(ط) Shift المتداس بيبوّظ السكان', 's10', s => s.replace("      if(e.repeat){ if(!/^(Shift|Caps|Control|Alt|Meta)/.test(String(e.key || ''))) dirty = true; return; }", "      if(e.repeat){ dirty = true; return; }"));
 
 console.log(bad ? `\n❌ ${bad} فحص وقع` : '\n✅ كله عدّى');
 process.exit(bad ? 1 : 0);

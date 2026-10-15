@@ -42,10 +42,21 @@
 // 34) ربط المنتجات: صف مربوط بالاسم بخاصية = النطاق «للاسم ده» (كان «بالخاصية» = حفظ تاني بيعمل ربط جديد)
 // 35) محرر المنتج stale والفرق هيخلّيها بالسالب = الخانة 0 (مش رقم سالب مايتحفظش)
 // 36) «خرجت من غير سكان»: اللي اتعمل بعدها جرد عليه «🧮» ومابيتعدّش في الشارة الحمرا
+// ── المراجعة العدائية التالتة ──
+// 37) كارت «محتاج قرار» وبعده سكان لسه بيتسجّل (الكارت «⏳ بيتسجّل») = F9 مابيعملش حاجة (كان بيفرض القرار القديم
+//     على طرد مش قدام الموظف) · النتيجة القديمة رجعت «محتاجة انتباهك»
+// 38) المودال مفتوح: زرار متداس (e.repeat) = مش سكان والمودال بيتأكّد بالكلام · كود J&T مكتوب بالإيد (60ms/زرار) = سبب مش سكان
+// 39) الجرد: «اتسلّمت وانت بتعدّ» و«مرتجع ماتضربش» = سؤالين · التطبيق ممنوع قبل الإجابة (مفيش نداء) · ❓ جنب المنتج ·
+//     «✅ أيوه» = wh_count_opts {moved:counted} والكومة جنب المنتج بقت 2 · «🚫 مش هنا» = مفيش طرح · pile_questions من
+//     السيرفر = تحميل تاني · التطبيق بعدها = wh_count_apply
+// 40) «خرجت من غير سكان»: جرد عدّ جزء من منتجاتها = «🧮 جزء من منتجاتها اتعدّ» وبتتعدّ في الشارة
+// 41) خانة العدّ: رقم متداس (e.repeat) + Enter = الرقم بيفضل (كان بيترجّع ويقول «اتضرب كود»)
 //
 // المعايرات (مرساة + حارس — درس 47): codeChar مابيقراش الزرار → 2 · شيل ت→J → 3 · WH_DEDUPE_MS = 0 → 5 ·
 // client_id جديد مع كل محاولة → 6 · شيل !scanned → 12 · شيل esc من المنتجات في القايمة → 15 · شيل أعمدة المخزن من
 // RT_SCORE_COLS → 19 · شيل looksScanned من حارس المحادثات → 20 · الكمية PATCH مباشر → 21 · الفاضي = 0 في الجرد → 22
+// + التالتة: whCard فاضل وقت «بيتسجّل» → 37 · الزرار المتداس ضربة → 38 · الكود بالإيد سكان → 38 · التطبيق من غير إجابة → 39 ·
+// «اتعدّوا» مابيطرحش → 39 · «جزء من منتجاتها» → 40 · الرقم المتداس بيترجّع → 41
 // تشغيل:  python3 tools/spa-server.py 8899 app &   ثم   cd tools && node --import ./clock-preload.mjs test-warehouse.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -721,7 +732,7 @@ async function countFlow2(patch){
       { id:'p2', tenant_id:'t-test-1', name:'ترولي', current_qty:5, active:true, parent_id:null }];
     window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];
     window.__WHR = function(n){
-      if(n === 'wh_count_pile') return new Promise(function(res){ setTimeout(function(){ res({ ok:true, count_id:7, pile:[{ product_id:'p1', qty:2 }], pile_orders:1, ret_orders:0 }); }, window.__PILE_DELAY || 0); });
+      if(n === 'wh_count_pile') return new Promise(function(res){ setTimeout(function(){ res({ ok:true, count_id:7, opts:{}, pile:[{ product_id:'p1', pile:2, moved:0, ret:0 }], pile_orders:1, moved_orders:0, ret_orders:0, moved_list:[], ret_list:[] }); }, window.__PILE_DELAY || 0); });
       if(n === 'wh_count_apply') return { ok:true, code:'ok', changed:1, pile:2 }; return null; };` });
   await p.click('.wh-tab[data-wh-tab="count"]');
   await p.waitForSelector('#wh-count .wh-ci[data-pid="p1"]', { timeout: 5000 });
@@ -815,6 +826,140 @@ async function leakCounted(patch){
 }
 const lc = await leakCounted();
 ok(lc.mark && lc.b2 === '2', '36) «خرجت من غير سكان» اتعمل بعدها جرد = «🧮» ومابتتعدّش في الشارة (' + JSON.stringify(lc) + ')');
+
+// ── 37–41: المراجعة العدائية التالتة ──────────────────────────────────
+async function pendingF9(patch){
+  const p = await open({ patch, init: ATTN_WHR + `var __w0 = window.__WHR; window.__WHR = function(n, a){
+      if(n === 'wh_scan' && /96$/.test(a.p_code)) return new Promise(function(res){ setTimeout(function(){ res({ ok:true, code:'out_ok', tone:'ok', dir:'out', applied:true, order:{ uid:'18296', tracking_no:a.p_code }, lines:[] }); }, 900); });
+      return __w0(n, a); };` });
+  await scanKeys(p, 'JEG000700000091', {}); await p.waitForTimeout(250);
+  const c0 = await p.evaluate(() => document.getElementById('wh-result').getAttribute('data-code'));
+  await scanKeys(p, 'JEG000700000096', {}); await p.waitForTimeout(150);
+  const pend = await p.evaluate(() => /is-pending/.test(document.getElementById('wh-result').className));
+  await key(p, 'F9'); await p.waitForTimeout(150);
+  const attn = await p.evaluate(() => ({ vis: !document.getElementById('wh-attn').hidden, rows: document.querySelectorAll('#wh-attn .wh-attn-row').length,
+    txt: document.getElementById('wh-attn').textContent.indexOf('18291') >= 0 || document.getElementById('wh-attn').textContent.indexOf('00000091') >= 0 }));
+  // القرار المفروض بيستنى في الطابور ورا السكان اللي في السكة — العدّ بعد ما الاتنين يخلصوا
+  await p.waitForTimeout(1300);
+  const forced = (await calls(p, 'wh_scan')).filter(c => c.args.p_force).length;
+  const c1 = await p.evaluate(() => document.getElementById('wh-result').getAttribute('data-code'));
+  await p.context().close();
+  return { c0, pend, forced, attn, c1 };
+}
+const pf = await pendingF9();
+ok(pf.c0 === 'with_jt_confirm' && pf.pend && pf.forced === 0 && pf.attn.vis && pf.attn.rows === 1 && pf.c1 === 'out_ok',
+  '37) الكارت «بيتسجّل» = F9 مابيفرضش القرار القديم · رجع «محتاجة انتباهك» (' + JSON.stringify(pf) + ')');
+
+// المودال مفتوح: ضغطات في خانة السبب (كل زرار: keydown ولو مااتمنعش يتكتب) ثم Enter
+async function modalKeys(patch, seq, gap){
+  const p = await open({ patch });
+  await scanKeys(p, CODE, {}); await p.waitForTimeout(250);
+  await p.click('#wh-result [data-wh-act="undo"]');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  const m = await p.evaluate(async ({ seq, gap }) => {
+    const mi = document.getElementById('cmodal-input'); mi.focus(); mi.value = 'سبب '; mi.setSelectionRange(4, 4);
+    for(const k of seq){
+      const ev = new KeyboardEvent('keydown', { code: /\d/.test(k.ch) ? 'Digit' + k.ch : 'Key' + k.ch, key: k.ch, repeat: !!k.rep, bubbles: true, cancelable: true });
+      mi.dispatchEvent(ev); if(!ev.defaultPrevented) mi.setRangeText(k.ch, mi.selectionStart, mi.selectionEnd, 'end');
+      if(gap) await new Promise(r => setTimeout(r, gap));
+    }
+    const v = mi.value;
+    mi.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 300));
+    return { v, open: document.getElementById('cmodal-backdrop').style.display === 'flex' };
+  }, { seq, gap });
+  const scans = (await calls(p, 'wh_scan')).map(c => c.args.p_code).filter(c => c !== CODE);
+  const und = (await calls(p, 'wh_scan_undo')).map(c => c.args.p_reason);
+  await p.context().close();
+  return Object.assign({ scans, und }, m);
+}
+const HELD = [{ ch: '1' }].concat(Array.from({ length: 11 }, () => ({ ch: '1', rep: true })));
+const MANUAL = 'JEG000700000077'.split('').map(ch => ({ ch }));
+const mh = await modalKeys(null, HELD, 0);
+const mm = await modalKeys(null, MANUAL, 60);
+ok(mh.scans.length === 0 && mh.und.length === 1 && /1{12}/.test(mh.und[0] || '') && mm.scans.length === 0 && mm.und.length === 1 && /JEG000700000077/.test(mm.und[0] || ''),
+  '38) المودال: زرار متداس = مش سكان والسبب اتبعت · كود مكتوب بالإيد = سبب مش سكان (' + JSON.stringify({ mh, mm }) + ')');
+
+const Q_INIT = `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null },
+      { id:'p2', tenant_id:'t-test-1', name:'ترولي', current_qty:5, active:true, parent_id:null }];
+    window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];
+    window.__OPTS = {}; window.__PILEN = 0; window.__APPLY_Q = 0;
+    window.__WHR = function(n, a){
+      if(n === 'wh_count_pile'){ window.__PILEN++; return { ok:true, count_id:7, opts: JSON.parse(JSON.stringify(window.__OPTS)),
+        pile:[{ product_id:'p1', pile:1, moved:1, ret:0 }, { product_id:'p2', pile:0, moved:0, ret:2 }], pile_orders:1, moved_orders:1, ret_orders:1,
+        moved_list:[{ uid:'18300', t:'00000033' }], ret_list:[{ uid:'18301', t:'00000044' }] }; }
+      if(n === 'wh_count_opts'){ var o = a.p_opts || {};
+        if(o.moved){ window.__OPTS.moved = o.moved; window.__OPTS.moved_n = 1; window.__OPTS.moved_by = 'أدمن'; }
+        if(o.ret){ window.__OPTS.ret = o.ret; window.__OPTS.ret_n = 1; window.__OPTS.ret_by = 'أدمن'; }
+        return { ok:true, code:'ok', opts: JSON.parse(JSON.stringify(window.__OPTS)) }; }
+      if(n === 'wh_count_apply'){ if(window.__APPLY_Q){ window.__APPLY_Q = 0; return { ok:false, code:'pile_questions', moved:1, returns_unscanned:1 }; }
+        return { ok:true, code:'ok', changed:1, pile:2 }; }
+      return null; };`;
+async function countQ(patch){
+  const p = await open({ patch, init: Q_INIT });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count .wh-count-q[data-k="moved"]', { timeout: 5000 });
+  const rowTxt = (pid) => p.evaluate(pid => { const r = document.querySelector('#wh-count .wh-ci[data-pid="' + pid + '"]').closest('.wh-count-row');
+    const a = r.querySelector('.wh-cpile:not(.q)'), q = r.querySelector('.wh-cpile.q'); return { pile: a ? a.textContent : '', q: q ? q.textContent : '' }; }, pid);
+  const R = {};
+  R.need0 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
+  R.r1 = await rowTxt('p1'); R.r2 = await rowTxt('p2');
+  await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
+  await p.fill('#wh-count .wh-ci[data-pid="p2"]', '5');
+  await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(200);
+  R.block = (await calls(p, 'wh_count_apply')).length + (await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex' ? 1 : 0));
+  await p.click('#wh-count [data-wha="count-opt"][data-k="moved"][data-v="counted"]'); await p.waitForTimeout(300);
+  R.opt1 = (await calls(p, 'wh_count_opts')).map(c => c.args.p_opts);
+  R.r1b = await rowTxt('p1');
+  await p.click('#wh-count [data-wha="count-opt"][data-k="ret"][data-v="absent"]'); await p.waitForTimeout(300);
+  R.r2b = await rowTxt('p2');
+  R.need1 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
+  // السيرفر لقى طرد جديد وقت التأكيد = pile_questions → تحميل تاني
+  await p.evaluate(() => { window.__APPLY_Q = 1; });
+  const pn0 = await p.evaluate(() => window.__PILEN);
+  await p.click('[data-wha="count-apply"]'); await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  await p.click('#cmodal-ok'); await p.waitForTimeout(400);
+  R.reload = (await p.evaluate(() => window.__PILEN)) > pn0;
+  await p.click('[data-wha="count-apply"]'); await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  R.sub = await p.textContent('#cmodal-sub');
+  await p.click('#cmodal-ok'); await p.waitForTimeout(300);
+  R.ap = (await calls(p, 'wh_count_apply')).length;
+  await p.context().close();
+  return R;
+}
+const cq = await countQ();
+ok(cq.need0 === 2 && /1/.test(cq.r1.pile) && /1/.test(cq.r1.q) && /2/.test(cq.r2.q) && cq.block === 0
+   && cq.opt1.length === 1 && cq.opt1[0].moved === 'counted' && /2/.test(cq.r1b.pile) && !cq.r1b.q && cq.r2b.pile === '' && !cq.r2b.q
+   && cq.need1 === 0 && cq.reload && /2 قطعة/.test(cq.sub || '') && cq.ap === 2,
+  '39) الجرد: سؤالين · التطبيق ممنوع قبل الإجابة · «اتعدّوا» = الكومة 2 · «مش هنا» = مفيش طرح · pile_questions = تحميل تاني · التطبيق (' + JSON.stringify(cq) + ')');
+
+const BOARD_CS = Object.assign({}, BOARD, { counts: Object.assign({}, BOARD.counts, { leak: 1, leak_counted: 0, unmatched_lines: 0, negative_products: 0 }),
+  lists: Object.assign({}, BOARD.lists, { leak: [{ id: 'o-leak-2', t: 'JEG000700000022', uid: '18222', items: 'منظم · استاند', jt_at: NOW(), cancelled: false, counted: false, counted_some: true }] }) });
+async function leakSome(patch){
+  const p = await open({ patch, board: BOARD_CS });
+  await p.click('#wh-chips .wh-chip[data-wh-list="leak"]'); await p.waitForTimeout(150);
+  const r = await p.evaluate(() => ({ some: /جزء من منتجاتها اتعدّ/.test(document.getElementById('wh-lists').textContent), b2: (document.getElementById('wh-nav-badge2') || {}).textContent }));
+  await p.context().close();
+  return r;
+}
+const ls = await leakSome();
+ok(ls.some && ls.b2 === '1', '40) «خرجت من غير سكان» وجرد عدّ جزء من منتجاتها = «جزء من منتجاتها اتعدّ» وبتتعدّ في الشارة (' + JSON.stringify(ls) + ')');
+
+async function ciHeld(patch){
+  const p = await open({ patch, init: `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null }];
+    window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count .wh-ci[data-pid="p1"]', { timeout: 5000 });
+  const v = await p.evaluate(() => { const t = document.querySelector('#wh-count .wh-ci[data-pid="p1"]'); t.focus(); t.value = '';
+    for(let i = 0; i < 10; i++){ const ev = new KeyboardEvent('keydown', { code: 'Digit5', key: '5', repeat: i > 0, bubbles: true, cancelable: true });
+      t.dispatchEvent(ev); if(!ev.defaultPrevented) t.setRangeText('5', t.selectionStart, t.selectionEnd, 'end'); }
+    t.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
+    return t.value; });
+  await p.context().close();
+  return v;
+}
+const ch = await ciHeld();
+ok(ch === '5555555555', '41) خانة العدّ: رقم متداس + Enter = الرقم فاضل (' + ch + ')');
 
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
@@ -922,7 +1067,7 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
   ok(!/شغّله/.test(r.l1 || ''), 'معايرة (ش) الإعدادات مابتترسمش والفوكس على الزرار → 31 وقع (' + JSON.stringify(r) + ')');
 }
 {
-  const r = await modalBurst({ wh: s => s.replace('    if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120){', '    if(false){') });
+  const r = await modalBurst({ wh: s => s.replace('    if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120 && !/^(.)\\1+$/.test(bTail)){', '    if(false){') });
   ok(!(r.open && r.sc === 1 && r.und === 0), 'معايرة (ت) المودال بيقبل JEG بس → 32 وقع (' + JSON.stringify(r) + ')');
 }
 {
@@ -956,6 +1101,35 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
 {
   const r = await leakCounted({ wh: s => s.replace('Math.max(0, (c.leak || 0) - (c.leak_counted || 0))', '(c.leak || 0)') });
   ok(r.b2 !== '2', 'معايرة (بب) الشارة بتعدّ اللي اتعمل بعدها جرد → 36 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await pendingF9({ wh: s => s.replace("  whCard = null;\n  renderAttn();\n  el.className = 'wh-result is-pending';", "  el.className = 'wh-result is-pending';") });
+  ok(r.forced !== 0, 'معايرة (تت) الكارت «بيتسجّل» وwhCard فاضل → 37 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await modalKeys({ code: s => s.replace("      if(e.repeat){ if(!/^(Shift|Caps|Control|Alt|Meta)/.test(String(e.key || ''))) dirty = true; return; }\n", ''),
+                              wh: s => s.replace(" && !/^(.)\\1+$/.test(bTail)){", "){") }, HELD, 0);
+  ok(!(r.scans.length === 0 && r.und.length === 1), 'معايرة (ثث) الزرار المتداس بيتحسب ضربة سكانر → 38 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await modalKeys({ wh: s => s.replace(" && looksScanned(whModalKeys.timing(15));", ";") }, MANUAL, 60);
+  ok(!(r.scans.length === 0 && r.und.length === 1), 'معايرة (جج) كود J&T مكتوب بالإيد بيتحسب سكان → 38 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await countQ({ adm: s => s.replace("  var nq = whPileNeed(cntPile, cnt.id);\n  if(nq.moved || nq.ret){", "  var nq = whPileNeed(cntPile, cnt.id);\n  if(false){") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.block !== 0, 'معايرة (حح) التطبيق مابيستناش الإجابة → 39 وقع');
+}
+{
+  const r = await countQ({ adm: s => s.replace("(o.moved === 'counted' ? r.moved : 0)", '0') }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/2/.test((r.r1b || {}).pile || ''), 'معايرة (خخ) «اتعدّوا» مابيطرحش → 39 وقع (' + JSON.stringify(r.r1b || r.err) + ')');
+}
+{
+  const r = await leakSome({ wh: s => s.replace("        : x.counted_some ? '<span", "        : false ? '<span") });
+  ok(!r.some, 'معايرة (دد) «جزء من منتجاتها» مش ظاهر → 40 وقع');
+}
+{
+  const v = await ciHeld({ adm: s => s.replace("  if(e.repeat){ ciBurst = { el: null, snap: '', last: 0, n: 0, sum: 0, max: 0 }; return; }\n", '') });
+  ok(v !== '5555555555', 'معايرة (ذذ) الرقم المتداس بيترجّع → 41 وقع (' + v + ')');
 }
 
 await b.close();

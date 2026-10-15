@@ -213,7 +213,13 @@ var cntLoading = false, cntErr = false, cntBusy = false;
 var cntDraft = {};
 var cntPreview = false;
 var cntAgain = false;      // نفس فكرة mapAgain
-var cntPile = null;        // {map:{pid:qty}, pile_orders, ret_orders} — wh_count_pile (السيرفر بيطرحها وقت التطبيق)
+// wh_count_pile — نفس الدالة اللي wh_count_apply بيطرح بيها: {count_id, opts, rows:{pid:{pile,moved,ret}},
+// pile_orders, moved_orders, ret_orders, moved_list, ret_list}
+//   pile  = طرود اتضربت خروج ولسه في الكومة → بتتطرح دايماً
+//   moved = اتسلّمت للمندوب **بعد** ما الجرد اتفتح (وانت بتعدّ) · ret = مرتجع J&T سلّمته لنا ومحدش ضربه —
+//   مايتعرفش اتعدّوا ولا لأ، فالأدمن بيجاوب (wh_count_opts) وكل إجابة بتطرح أو لأ
+var cntPile = null;
+var cntOptBusy = false;
 var cntGoLive = null, cntGoLiveFor = null;   // اختيار «ده جرد التشغيل» — كان بيرجع لافتراضه مع كل رسم
 var cfgBusy = false;
 
@@ -249,9 +255,14 @@ function loadCount(){
     var pd = res[2] && !res[2].error && res[2].data;
     cntPile = null;
     if(pd && pd.ok && Array.isArray(pd.pile)){
-      var pm = {};
-      pd.pile.forEach(function(x){ if(x && x.product_id) pm[x.product_id] = Number(x.qty) || 0; });
-      cntPile = { map: pm, pile_orders: Number(pd.pile_orders) || 0, ret_orders: Number(pd.ret_orders) || 0, count_id: pd.count_id };
+      var rw = {};
+      pd.pile.forEach(function(x){
+        if(!x || !x.product_id) return;
+        rw[x.product_id] = { pile: Number(x.pile != null ? x.pile : x.qty) || 0, moved: Number(x.moved) || 0, ret: Number(x.ret) || 0 };
+      });
+      cntPile = { count_id: pd.count_id, opts: (pd.opts && typeof pd.opts === 'object') ? pd.opts : {}, rows: rw,
+                  pile_orders: Number(pd.pile_orders) || 0, moved_orders: Number(pd.moved_orders) || 0, ret_orders: Number(pd.ret_orders) || 0,
+                  moved_list: Array.isArray(pd.moved_list) ? pd.moved_list : [], ret_list: Array.isArray(pd.ret_list) ? pd.ret_list : [] };
     }
     var rows = res[0].data || [];
     cnt = null;
@@ -262,6 +273,48 @@ function loadCount(){
     if(cnt) draftLoad();
     renderCount();
   });
+}
+
+// اللي هيتطرح فعلاً من العدّ لكل منتج = الكومة + (اللي اتسلّم وانت بتعدّ لو «اتعدّوا») + (المرتجع لو «هنا واتعدّ»)
+// — نفس شرط wh_count_apply بالحرف
+export function whPileEffective(cp, countId){
+  var out = {};
+  if(!cp || cp.count_id !== countId) return out;
+  var o = cp.opts || {};
+  Object.keys(cp.rows || {}).forEach(function(pid){
+    var r = cp.rows[pid];
+    out[pid] = r.pile + (o.moved === 'counted' ? r.moved : 0) + (o.ret === 'counted' ? r.ret : 0);
+  });
+  return out;
+}
+// السؤال لسه محتاج إجابة = مفيش إجابة، أو العدد زاد من وقت الإجابة (السيرفر بيرفض بـpile_questions بنفس الشرط)
+export function whPileNeed(cp, countId){
+  var o = (cp && cp.opts) || {};
+  if(!cp || cp.count_id !== countId) return { moved: false, ret: false };
+  return { moved: cp.moved_orders > 0 && (!o.moved || (Number(o.moved_n) || 0) < cp.moved_orders),
+           ret: cp.ret_orders > 0 && (!o.ret || (Number(o.ret_n) || 0) < cp.ret_orders) };
+}
+function pileMap(){ return cnt ? whPileEffective(cntPile, cnt.id) : {}; }
+
+function qListHtml(list, n){
+  if(!list || !list.length) return '';
+  var h = '<div class="wh-q-list">';
+  list.forEach(function(x){ h += '<span>' + (x.uid ? '#' + esc(x.uid) + ' ' : '') + '<span dir="ltr">' + esc(x.t || '') + '</span></span>'; });
+  if(n > list.length) h += '<span>+ ' + (n - list.length) + '</span>';
+  return h + '</div>';
+}
+function qHtml(k, n, list, ans, need, title, ask, yes, no){
+  var o = (cntPile && cntPile.opts) || {};
+  var by = o[k + '_by'];
+  var h = '<div class="wh-count-q' + (need ? ' need' : '') + '" data-k="' + k + '"><div class="wh-q-t">' + title + '</div>'
+    + qListHtml(list, n) + '<div class="wh-q-s">' + ask + '</div><div class="wh-q-acts">'
+    + '<button type="button" class="wh-btn wh-btn-sm' + (ans === yes[0] ? ' on' : ' wh-btn-ghost') + '" data-wha="count-opt" data-k="' + k + '" data-v="' + yes[0] + '"'
+    + (cntOptBusy ? ' aria-busy="true"' : '') + '>' + yes[1] + '</button>'
+    + '<button type="button" class="wh-btn wh-btn-sm' + (ans === no[0] ? ' on' : ' wh-btn-ghost') + '" data-wha="count-opt" data-k="' + k + '" data-v="' + no[0] + '"'
+    + (cntOptBusy ? ' aria-busy="true"' : '') + '>' + no[1] + '</button></div>';
+  if(ans && need) h += '<div class="wh-q-a bad">⚠️ زادوا من آخر إجابة' + (by ? ' (' + esc(by) + ')' : '') + ' — جاوب تاني</div>';
+  else if(ans) h += '<div class="wh-q-a">✓ اتجاوب' + (by ? ' · ' + esc(by) : '') + '</div>';
+  return h + '</div>';
 }
 
 // المنتجات بالعيلة: الأم الأول (لو ليها خصائص = «غير موزع») وبعدها بناتها
@@ -332,7 +385,7 @@ function renderCountBody(el){
         ? '<ol class="wh-steps">'
           + '<li>اضرب كل المرتجعات اللي وصلت <b>الأول</b> — قايمة «↩️ رجعت ومااتضربتش» لازم تبقى فاضية.</li>'
           + '<li>افتح الجرد وعدّ <b>كل القطع اللي في المخزن فعلاً — بما فيها الطرود المتغلّفة في الكومة</b> (اللي اتضربت خروج السيستم بيطرحها من العدّ لوحده).</li>'
-          + '<li>متضربش طرود وانت بتعدّ — ولو حصل، السيستم هيسألك قبل ما يطبّق.</li>'
+          + '<li>وانت بتعدّ: <b>متسلّمش طرود للمندوب ولا تستلم مرتجعات ولا تضرب طرود</b> — ولو حصل، السيستم هيسألك قبل ما يطبّق.</li>'
           + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد».</li></ol>'
         : '<ol class="wh-steps">'
           + '<li>اربط المنتجات الأول (تاب «🔗 ربط المنتجات») — لحد ما «مش مربوط» تبقى صفر أو قريبة منه.</li>'
@@ -346,24 +399,36 @@ function renderCountBody(el){
     return;
   }
   var fam = whCountFamilies(cntProducts);
-  var pmap = (cntPile && cntPile.count_id === cnt.id && cntPile.map) || {};
+  var pmap = pileMap();
+  var need = whPileNeed(cntPile, cnt.id);
   var pay = whCountPayload(cntProducts, cntDraft, pmap);
   if(cntGoLiveFor !== cnt.id){ cntGoLive = !base; cntGoLiveFor = cnt.id; }
   h += '<div class="wh-count-head"><div><h3>🧮 جرد مفتوح</h3><p>اتفتح ' + esc(whenTxt(cnt.opened_at)) + (cnt.opened_by_name ? ' · ' + esc(cnt.opened_by_name) : '')
     + '. اكتب العدد الحقيقي لكل منتج — الكلام بيتحفظ على الجهاز ده لحد ما تطبّق.</p></div>'
     + '<div class="wh-count-prog"><b>' + (cntProducts.length - pay.missing) + '</b> من ' + cntProducts.length + ' اتعدّوا'
     + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload" title="هات أرقام السيستم من جديد ومنتجات اتضافت — اللي كتبته بيفضل">↻</button></div></div>';
-  if(cntPile && cntPile.count_id === cnt.id && (cntPile.pile_orders || cntPile.ret_orders)){
+  var cp = cntPile && cntPile.count_id === cnt.id ? cntPile : null;
+  if(cp && (cp.pile_orders || cp.moved_orders || cp.ret_orders)){
+    var op = cp.opts || {};
     h += '<div class="wh-count-warn">'
-      + (cntPile.pile_orders ? '<div>📦 فيه <b>' + cntPile.pile_orders + '</b> طرد اتضربوا خروج ولسه في المخزن (الكومة) — <b>اعدّهم مع الباقي</b>، والسيستم بيطرحهم من العدّ لوحده (الرقم جنب كل منتج).</div>' : '')
-      + (cntPile.ret_orders ? '<div>↩️ فيه <b>' + cntPile.ret_orders + '</b> مرتجع J&amp;T سلّمته لنا ومحدش ضربه — <b>اضربه مرتجع الأول</b>، وإلا هيتسأل عليه وقت التطبيق.</div>' : '')
+      + (cp.pile_orders ? '<div>📦 فيه <b>' + cp.pile_orders + '</b> طرد اتضربوا خروج ولسه في المخزن (الكومة) — <b>اعدّهم مع الباقي</b>، والسيستم بيطرحهم من العدّ لوحده (الرقم جنب كل منتج).</div>' : '')
+      + (cp.moved_orders ? qHtml('moved', cp.moved_orders, cp.moved_list, op.moved, need.moved,
+          '🚚 <b>' + cp.moved_orders + '</b> طرد اتضربوا خروج قبل الجرد، و<b>المندوب استلمهم بعد ما فتحت الجرد</b> (وانت بتعدّ):',
+          'لما عدّيت منتجاتهم، الطرود دي كانت لسه هنا واتعدّت معاهم؟',
+          ['counted', '✅ أيوه — كانوا هنا واتعدّوا'], ['left', '🚚 لأ — كانوا خرجوا قبل ما أعدّهم']) : '')
+      + (cp.ret_orders ? qHtml('ret', cp.ret_orders, cp.ret_list, op.ret, need.ret,
+          '↩️ <b>' + cp.ret_orders + '</b> مرتجع J&amp;T سلّمته لنا قبل الجرد <b>ومحدش ضربه مرتجع</b>:',
+          'الأحسن: اضربهم مرتجع (تاب «السكان») قبل ما تطبّق — السؤال بيختفي لوحده. لو مش هتضربهم دلوقتي: هما في المخزن واتعدّوا؟',
+          ['counted', '✅ أيوه — هنا واتعدّوا'], ['absent', '🚫 لأ — مش في المخزن']) : '')
       + '</div>';
   }
   h += '<div class="wh-count-list">';
   fam.forEach(function(f){
     var p = f.p, v = cntDraft[p.id];
     var s = v == null ? '' : String(v);
-    var diff = '', pq = pmap[p.id] || 0;
+    var diff = '', pq = pmap[p.id] || 0, rq = cp && cp.rows[p.id];
+    // قطع المنتج ده في طرود لسه السؤال عليها مااتجاوبش — الرقم جنبه لسه ممكن يتغيّر
+    var qn = rq ? (need.moved ? rq.moved : 0) + (need.ret ? rq.ret : 0) : 0;
     if(cntPreview && s !== '' && /^\d+$/.test(s.trim())){
       var d = parseInt(s, 10) - pq - Number(p.current_qty || 0);
       diff = d === 0 ? '<span class="wh-cd zero">=</span>' : '<span class="wh-cd ' + (d > 0 ? 'up' : 'down') + '" dir="ltr">' + (d > 0 ? '+' : '') + d + '</span>';
@@ -373,6 +438,7 @@ function renderCountBody(el){
       + '<span class="wh-cs" title="الرقم في السيستم دلوقتي">السيستم ' + '<span dir="ltr">' + esc(String(p.current_qty || 0)) + '</span></span>'
       + '<input class="wh-ci" type="text" inputmode="numeric" data-pid="' + esc(p.id) + '" value="' + esc(s) + '" placeholder="العدد" autocomplete="off">'
       + (pq ? '<span class="wh-cpile" title="قطع في طرود اتضربت خروج ولسه هنا — اعدّها مع الباقي، وبتتطرح من العدّ">📦 منهم <span dir="ltr">' + pq + '</span> في الكومة</span>' : '')
+      + (qn ? '<span class="wh-cpile q" title="قطع في طرود عليها سؤال فوق لسه مااتجاوبش">❓ <span dir="ltr">' + qn + '</span> مستنية إجابتك</span>' : '')
       + diff + '</div>';
   });
   h += '</div>';
@@ -426,6 +492,22 @@ function countOpen(){
   });
 }
 
+// القفل في الكود مش disabled على الزرار (درس 54 — الفوكس)
+function countOpt(k, v){
+  if(cntOptBusy || !cnt || (k !== 'moved' && k !== 'ret') || !v) return;
+  var o = {}; o[k] = v;
+  var cid = cnt.id;
+  cntOptBusy = true; renderCount();
+  sb.rpc('wh_count_opts', { p_count_id: cid, p_opts: o }).then(function(r){
+    cntOptBusy = false;
+    var d = (r && !r.error && r.data) || { ok: false };
+    if(!d.ok){ toast(d.code === 'not_found' ? 'الجرد ده اتقفل — هات الجديد' : 'مقدرناش نحفظ الإجابة — حاول تاني', 'er'); loadCount(); return; }
+    if(cntPile && cntPile.count_id === cid && d.opts) cntPile.opts = d.opts;
+    renderCount();
+    loadCount();   // العدد ممكن يكون اتغيّر وقت الإجابة (السيرفر حفظ العدد اللي شافه)
+  }, function(){ cntOptBusy = false; toast('مقدرناش نحفظ الإجابة — حاول تاني', 'er'); renderCount(); });
+}
+
 function prodName(id){
   var ps = cntProducts || [];
   for(var i = 0; i < ps.length; i++) if(ps[i].id === id) return ps[i].name || '';
@@ -434,7 +516,7 @@ function prodName(id){
 
 function countApply(force){
   if(cntBusy || !cnt) return;
-  var pmap = (cntPile && cntPile.count_id === cnt.id && cntPile.map) || {};
+  var pmap = pileMap();
   var pay = whCountPayload(cntProducts, cntDraft, pmap);
   var gl = $id('wh-golive');
   var goLive = !!(gl && gl.checked);
@@ -444,6 +526,13 @@ function countApply(force){
   // فالسيرفر مش هيعرف إنها اتعملت وانت بتعدّ. تتبعت الأول.
   var pend = api.pending ? api.pending() : 0;
   if(pend > 0){ toast('فيه ' + pend + ' سكان على الجهاز ده لسه ماوصلوش السيرفر — استنى لحد ما يتبعتوا (تاب «السكان») وبعدين طبّق', 'er'); return; }
+  var nq = whPileNeed(cntPile, cnt.id);
+  if(nq.moved || nq.ret){
+    toast('جاوب على السؤال اللي فوق الأول (' + (nq.moved ? 'الطرود اللي اتسلّمت وانت بتعدّ' : 'المرتجع اللي ماتضربش') + ') — الإجابة بتغيّر الرقم', 'er');
+    var qe = document.querySelector('#wh-count .wh-count-q.need');
+    if(qe && qe.scrollIntoView) qe.scrollIntoView({ behavior: 'instant', block: 'center' });
+    return;
+  }
   if(pay.short.length){
     var sh = pay.short[0];
     toast('«' + (sh.p.name || '') + '»: العدد ' + sh.counted + ' أقل من اللي في الكومة (' + sh.pile + ') — الكومة لازم تتعدّ معاه', 'er');
@@ -454,18 +543,16 @@ function countApply(force){
     sb.rpc('wh_count_apply', { p_count_id: cnt.id, p_counts: pay.counts, p_go_live: goLive, p_force: !!f }).then(function(r){
       cntBusy = false;
       var d = (r && !r.error && r.data) || { ok: false, code: 'error' };
-      var retTxt = d.returns_unscanned ? ' وفيه ' + d.returns_unscanned + ' مرتجع J&T سلّمته لنا ومحدش ضربه — لو هو في المخزن اضربه مرتجع الأول.' : '';
       if(d.code === 'scans_during_count'){
         renderCount();
-        showModal({ icon: '⚠️', title: 'فيه طرود اتضربت بعد ما الجرد اتفتح', sub: 'المنتجات دي اتخصم منها بعد ما بدأت تعدّ. لو العدد اللي كتبته بعد ما الطرود خرجت، طبّق عادي. لو قبلها، الغي واعدّ تاني.' + retTxt,
+        showModal({ icon: '⚠️', title: 'فيه طرود اتضربت بعد ما الجرد اتفتح', sub: 'المنتجات دي اتخصم منها بعد ما بدأت تعدّ. لو العدد اللي كتبته بعد ما الطرود خرجت، طبّق عادي. لو قبلها، الغي واعدّ تاني.',
           okLabel: 'طبّق برضه', onOk: function(){ go(true); } });
         return;
       }
-      if(d.code === 'returns_unscanned'){
-        renderCount();
-        showModal({ icon: '↩️', title: 'فيه ' + d.returns_unscanned + ' مرتجع J&T سلّمته لنا ومحدش ضربه',
-          sub: 'لو هما في المخزن: الغي النافذة دي، اضربهم مرتجع (تاب «السكان»)، وبعدين طبّق — كده الرقم يطلع صح. لو عارف إنهم مش هنا أو اتعدّوا خلاص، طبّق برضه.',
-          okLabel: 'طبّق برضه', onOk: function(){ go(true); } });
+      // طرد اتسلّم للمندوب أو مرتجع وصل وانت بتأكّد (أو العدد زاد من آخر إجابة) — السؤال بيظهر فوق
+      if(d.code === 'pile_questions'){
+        loadCount();
+        toast('فيه طرود محتاجة إجابتك قبل التطبيق — السؤال فوق قايمة المنتجات', 'er');
         return;
       }
       if(!d.ok){
@@ -489,7 +576,7 @@ function countApply(force){
     });
   };
   var pileN = 0;
-  pay.counts.forEach(function(c){ pileN += pmap[c.product_id] || 0; });
+  pay.counts.forEach(function(c){ pileN += pmap[c.product_id] || 0; });   // الكومة + اللي جاوبت إنه اتعدّ
   var sub = pay.changed.length + ' منتج رقمه هيتغيّر' + (pay.missing ? ' · ' + pay.missing + ' مااتعدّوش (هيفضلوا زي ما هم)' : '') + '.'
     + (pileN ? ' و' + pileN + ' قطعة في الكومة (اتضربت خروج) هتتطرح من العدّ.' : '')
     + (goLive ? ' والسكان هيبدأ يخصم من لحظة فتح الجرد.' : '');
@@ -580,6 +667,7 @@ function onClick(e){
   else if(a === 'count-cancel') countCancel();
   else if(a === 'count-reload') loadCount();
   else if(a === 'count-preview'){ cntPreview = !cntPreview; renderCount(); }
+  else if(a === 'count-opt') countOpt(t.getAttribute('data-k'), t.getAttribute('data-v'));
   else if(a === 'cfg-toggle') cfgSet({ enabled: t.getAttribute('data-en') === '1' });
 }
 
@@ -647,6 +735,8 @@ function onKeyDown(e){
     }
     return;
   }
+  // زرار متداس (رقم واحد بيتكرر كل ~30ms) مش سكانر — كان بيترجّع الخانة ويقول «اتضرب كود»
+  if(e.repeat){ ciBurst = { el: null, snap: '', last: 0, n: 0, sum: 0, max: 0 }; return; }
   if(e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey){
     var ts = typeof e.timeStamp === 'number' ? e.timeStamp : Date.now();
     if(ciBurst.el !== t || ts - ciBurst.last > 120){ ciBurst = { el: t, snap: t.value, last: ts, n: 1, sum: 0, max: 0 }; }
