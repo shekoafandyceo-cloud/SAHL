@@ -369,8 +369,11 @@
   // اكتب الكود في الخانة واضغط Enter (أو اضغط على طرد من القايمة): ...001 عادي · ...002 ملغي · ...003 مرتجع
   // · ...004 متسلّم · ...005 طالب إلغاء · ...006 J&T استلمته (بيسأل) · ...007 مرتجع J&T قفلته ومحدش سجّله («ناقص»).
   // وضع التجربة شغّال لحد «▶️ شغّل السكانر» (تاب «⚙️ التشغيل») — بعدها الكارت بيقول «حالة الأوردر بقت …».
-  var WH = { enabled:false, baseline:null, hold:true, scans:[], seq:100, st:{}, aliases:{}, aliasProps:{}, cnt:null };
+  var WH = { enabled:false, baseline:null, hold:true, scans:[], seq:100, st:{}, aliases:{}, aliasProps:{}, cnt:null, unk:{} };
   TABLES.stock_counts = [];
+  // (v78) أصوات السكانر: wh_config.sounds — الرفع في المعاينة بيتحفظ في الذاكرة بس (بيضيع مع الريفريش)
+  TABLES.wh_config = [{ tenant_id:TENANT, sounds:{} }];
+  // (v78) بوليصة J&T مش في سهل: أي JEG تاني غير الـ7 (مثلاً JEG000700000099) = «🚨 مش متسجلة» → «📥 سجّل المنتج اللي رجع»
   var WH_DEMO = [
     { t:'JEG000700000001', uid:'18201', n:'منى',  items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'new' },
     { t:'JEG000700000002', uid:'18202', n:'سارة', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', pid:'prd-0', qty:1, kind:'cancelled' },
@@ -395,7 +398,9 @@
     if(!m) res = { ok:true, code: /^\d{8,10}$/.test(dg) && dg === raw ? 'legacy_code' : (/^\d{12,14}$/.test(dg) && dg === raw ? 'product_barcode' : 'bad_code'), tone:'stop', applied:false };
     else {
       var d = null; for(var i = 0; i < WH_DEMO.length; i++) if(WH_DEMO[i].t === m[1]) d = WH_DEMO[i];
-      if(!d) res = { ok:true, code:'not_found', tone:'stop', applied:false, tracking_no:m[1] };
+      if(!d && WH.unk[m[1]] && !WH.unk[m[1]].reversed){ var u0 = WH.unk[m[1]];
+        res = { ok:true, code:'unknown_already_in', tone:'dup', applied:false, tracking_no:m[1], prev:{ scan_id:u0.id, at:u0.at, by:u0.by }, lines:u0.lines }; }
+      else if(!d) res = { ok:true, code:'not_found', tone:'stop', applied:false, tracking_no:m[1] };
       else {
         var st = WH.st[d.t] || (WH.st[d.t] = {}), f = a.p_force;
         var base = { ok:true, order:whBrief(d), lines:[], warnings:[], options:[], applied:false, dir:null };
@@ -482,6 +487,36 @@
       return { ok:true, code:'undone', tone:'warn', applied:true, scan_id:++WH.seq };
     }
     if(name === 'wh_scan_order') return { ok:true, code:'leak_dismissed', tone:'ok', applied:true, dry:!WH.enabled };
+    if(name === 'wh_unknown_in'){
+      var uc = String((a && a.p_code) || '').toUpperCase(), items = (a && a.p_items) || [];
+      if(WH.unk[uc] && !WH.unk[uc].reversed){ var ux = WH.unk[uc]; return { ok:true, code:'unknown_already_in', tone:'dup', applied:false, tracking_no:uc, prev:{ scan_id:ux.id, at:ux.at, by:ux.by }, lines:ux.lines }; }
+      var ul = items.map(function(it){ var p = whStock(it.product_id), after = p ? (p.current_qty || 0) + it.qty : null; if(p && WH.enabled) p.current_qty = after;
+        return { text:p ? p.name : '', qty:it.qty, dir:'in', state:'posted', matched_by: p && p.parent_id == null && STOCK.some(function(k){ return k.parent_id === p.id; }) ? 'unallocated' : 'manual', product_id:it.product_id, product_name:p ? p.name : '', qty_after:after }; });
+      var uid0 = ++WH.seq, uat = new Date().toISOString();
+      if(WH.enabled){
+        WH.unk[uc] = { id:uid0, t:uc, at:uat, by:'أدمن المعاينة', note:null, lines:ul, reversed:false, mine:true, items:items };
+        WH.scans.unshift({ id:uid0, code:'unknown_in', dir:'in', at:uat, by:'أدمن المعاينة', t:uc, applied:true, reversed:false, tone:'in', mine:true });
+      }
+      return { ok:true, code:'unknown_in', tone:'in', applied:true, dir:'in', scan_id:uid0, tracking_no:uc, lines:ul, warnings:[], by:'أدمن المعاينة', dry:!WH.enabled };
+    }
+    if(name === 'wh_unknown_list'){
+      return { ok:true, rows:Object.keys(WH.unk).map(function(k){ var x = WH.unk[k]; return { id:x.id, t:x.t, at:x.at, by:x.by, note:x.note, lines:x.lines, reversed:x.reversed, reversed_by:x.reversed_by || null, mine:true }; })
+        .sort(function(x, y){ return y.id - x.id; }) };
+    }
+    if(name === 'wh_unknown_undo'){
+      var uu = null; Object.keys(WH.unk).forEach(function(k){ if(WH.unk[k].id === (a && a.p_scan_id)) uu = WH.unk[k]; });
+      if(!uu) return { ok:false, code:'not_found', tone:'stop' };
+      if(uu.reversed) return { ok:false, code:'already_reversed', tone:'dup' };
+      uu.reversed = true; uu.reversed_by = 'أدمن المعاينة';
+      uu.items.forEach(function(it){ var p = whStock(it.product_id); if(p) p.current_qty -= it.qty; });
+      WH.scans.forEach(function(x){ if(x.id === uu.id) x.reversed = true; });
+      return { ok:true, code:'undone', tone:'warn', applied:true, scan_id:++WH.seq };
+    }
+    if(name === 'wh_sounds_set'){
+      var cur = TABLES.wh_config[0].sounds, pp2 = (a && a.p) || {};
+      Object.keys(pp2).forEach(function(k){ if(pp2[k] == null) delete cur[k]; else cur[k] = Object.assign({}, pp2[k], { at:new Date().toISOString(), by:'أدمن المعاينة' }); });
+      return { ok:true, sounds:JSON.parse(JSON.stringify(cur)) };
+    }
     if(name === 'wh_items_unmapped'){
       var prods = STOCK.map(function(p){ return { id:p.id, name:p.name, parent_id:p.parent_id, label:p.variant_label, qty:p.current_qty, active:true }; });
       var row = function(sample, props, st, mb, pid, n){ var pr = pid ? whStock(pid) : null;
@@ -1038,7 +1073,9 @@
         }
         return Promise.resolve({ data: out, error:null });
       },
-      upload: function(){ return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }
+      // أصوات السكانر (v78): الرفع بينجح في الذاكرة (الصوت جاهز على الجهاز ده من غير ما يتجاب تاني) — غيره زي ما كان
+      upload: function(path){ if(/\/wh-sounds\//.test(String(path || ''))) return Promise.resolve({ data:{ path:path }, error:null });
+        return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }
     }; } },
     functions: { invoke: function(slug, opts){
       // قالب متابعة الأوردر: بنحاكي النجاح عشان المالك يشوف المسار كامل في

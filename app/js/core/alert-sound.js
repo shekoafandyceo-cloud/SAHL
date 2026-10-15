@@ -78,7 +78,7 @@ function ring(c){
 }
 
 // ── أصوات سكانر المخزن (14 أكتوبر) ─────────────────────────────────────
-// الموظف قدام الكومة مش قدام الشاشة — الصوت هو اللي بيقوله «تمام» أو «وقّف». كل نبرة شكل مختلف:
+// الموظف قدام الطرود مش قدام الشاشة — الصوت هو اللي بيقوله «تمام» أو «وقّف». كل نبرة شكل مختلف:
 //   ok   = بيب واحدة عالية قصيرة (اتخصم)        in   = نغمتين طالعين (مرتجع رجع)
 //   dup  = بيبتين واطيين (اتضرب قبل كده)       warn = 3 نبضات متوسطة (محتاج قرار)
 //   stop = بزّ واطي طويل (وقّف — ماتسلّموش)
@@ -127,4 +127,67 @@ export function playScanTone(kind){
   try{ p = c.resume(); }catch(e){ p = null; }
   if(!p || typeof p.then !== 'function') return Promise.resolve(go());
   return p.then(go, function(){ return false; });
+}
+
+// ── مقاطع الأدمن + السرينة (15 أكتوبر مساءً — v78) ────────────────────
+// المقطع بيتفك مرة (decodeAudioData على نفس الـAudioContext) ويتشغّل من الذاكرة — مفيش <audio> ولا media-src.
+export function scanAudioCtx(){ return getCtx(); }
+
+function whenRunning(c, fn){
+  if(!c) return Promise.resolve(false);
+  if(c.state === 'running') return Promise.resolve(fn());
+  var p;
+  try{ p = c.resume(); }catch(e){ p = null; }
+  if(!p || typeof p.then !== 'function') return Promise.resolve(c.state === 'running' ? fn() : false);
+  return p.then(function(){ return c.state === 'running' ? fn() : false; }, function(){ return false; });
+}
+
+// السرينة الافتراضية لـ«بوليصة J&T مش متسجلة في سهل»: صفّارة طالعة نازلة مرتين (~1.6ث) — مختلفة عن أي نبرة تانية
+export var SIREN_SEC = 1.6;
+export function playScanSiren(){
+  var c = getCtx();
+  return whenRunning(c, function(){
+    try{
+      var t0 = c.currentTime + 0.01, o = c.createOscillator(), g = c.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(620, t0);
+      for(var i = 0; i < 2; i++){
+        o.frequency.linearRampToValueAtTime(1350, t0 + i * 0.8 + 0.4);
+        o.frequency.linearRampToValueAtTime(620, t0 + i * 0.8 + 0.8);
+      }
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.04);
+      g.gain.setValueAtTime(0.22, t0 + SIREN_SEC - 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + SIREN_SEC);
+      o.connect(g); g.connect(c.destination);
+      o.start(t0); o.stop(t0 + SIREN_SEC + 0.02);
+    }catch(e){ return false; }
+    try{ window.dispatchEvent(new CustomEvent('sahl:scan-tone', { detail: 'siren' })); }catch(e){ /* قديم */ }
+    return true;
+  });
+}
+
+// تشغيل مقطع متفكوك — بيرجّع {stop()} (العادي بيتقطع لما نتيجة جديدة تيجي) أو null لو المتصفح لسه مانع الصوت
+export function playScanBuffer(buf, maxSec){
+  var c = getCtx();
+  if(!buf) return Promise.resolve(null);
+  return whenRunning(c, function(){
+    var src;
+    try{
+      src = c.createBufferSource();
+      src.buffer = buf;
+      src.connect(c.destination);
+      var d = Math.min(buf.duration, maxSec || buf.duration);
+      src.start(c.currentTime + 0.01, 0, d);
+    }catch(e){ return null; }
+    try{ window.dispatchEvent(new CustomEvent('sahl:scan-tone', { detail: 'clip' })); }catch(e){ /* قديم */ }
+    return { stop: function(){ try{ src.stop(); }catch(e){ /* خلص */ } } };
+  });
+}
+
+// مدة النبرة المتولّدة (للقناة — الصوت اللي بعدها بيستنى)
+export function scanToneSec(kind){
+  var spec = SCAN_TONES[kind] || SCAN_TONES.stop, m = 0;
+  for(var i = 0; i < spec.notes.length; i++) m = Math.max(m, spec.notes[i][1] + spec.notes[i][2]);
+  return m;
 }

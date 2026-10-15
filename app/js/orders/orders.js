@@ -192,7 +192,7 @@ export function loadAll(){
   startRealtime();
   waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
   jtRefreshNavBadge();       // عدّاد «استثناءات الشحن» اللي محتاجة متابعة (وبيفتح الريل-تايم بتاعها)
-  whRefreshNavBadge();       // عدّاد «سكانر المخزن» (اسحب من الكومة · رجع ومااتضربش — والأدمن: خرج من غير سكان)
+  whRefreshNavBadge();       // عدّاد «سكانر المخزن» (اسحب من «جاهز للشحن» · رجع ومااتضربش — والأدمن: خرج من غير سكان)
   loadWalletState();         // للجميع (أدمن + موظف) — للقفل عند نفاد الرصيد
   try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
 }

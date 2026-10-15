@@ -89,7 +89,9 @@
                 // رسايل «المندوب في الطريق» (11 أكتوبر): صفوف wa_ofd_sends للأوردر
                 wa_ofd_sends:'__OFD_SENDS',
                 // سكانر المخزن (14 أكتوبر): الجرد المفتوح/اللي فات
-                stock_counts:'__WH_COUNTS' };
+                stock_counts:'__WH_COUNTS',
+                // أصوات السكانر (15 أكتوبر — v78): wh_config.sounds
+                wh_config:'__WH_CONFIG' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])

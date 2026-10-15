@@ -335,7 +335,7 @@ export function openProductEditor(id){
     +'</div>';
 
   // (15 أكتوبر — مراجعة السكانر) بعد تشغيل السكانر الرقم المكتوب = اللي على الرف بس: الطرود اللي اتضربت خروج ولسه
-  // في الكومة اتخصمت خلاص — لو اتعدّت هنا بترجع تاني ومحدش بيخصمها لما المندوب ياخدها (التعديل رقم مطلق مش جرد)
+  // في «جاهز للشحن» اتخصمت خلاص — لو اتعدّت هنا بترجع تاني ومحدش بيخصمها لما المندوب ياخدها (التعديل رقم مطلق مش جرد)
   var pileNote='';
   if(!isNew&&!tourActive&&sb){
     var pileFor=p.id;
@@ -344,7 +344,7 @@ export function openProductEditor(id){
       var qi=$id('pe-qty');
       if(!d||!d.ok||d.code!=='ok'||!qi||qi.getAttribute('data-pid')!==pileFor)return;
       pileNote='📦 السكانر شغّال: اكتب اللي على الرف بس'
-        +(d.pile?' — منه '+d.pile+' قطعة في طرود اتضربت خروج ولسه في الكومة (اتخصموا خلاص، ماتعدّهمش)':' — مفيش طرود من المنتج ده في الكومة دلوقتي')
+        +(d.pile?' — منه '+d.pile+' قطعة في طرود اتضربت خروج ولسه جاهزة للشحن في المخزن (اتخصموا خلاص، ماتعدّهمش)':' — مفيش طرود من المنتج ده جاهزة للشحن دلوقتي')
         +(d.ret?' · و'+d.ret+' مرتجع J&T قالت سلّمته ومااتضربش (هيتضاف لما يتضرب — ماتعدّوش)':'')+'.';
       var old=$id('pe-pile'); if(old)old.remove();
       var div=document.createElement('div'); div.id='pe-pile'; div.className='pe-var-hint'; div.textContent=pileNote;

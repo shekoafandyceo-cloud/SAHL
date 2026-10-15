@@ -1575,7 +1575,7 @@ const p58c = await printFlow(null, { pileErr: true, board: Object.assign({}, BOA
 const p58d = await printFlow(null, { pileErr: true });
 const a58 = p58.a || {};
 ok(a58.printed === 1 && /#7/.test(a58.title || '') && a58.order === p58.screen && a58.order === ORD_WANT && p58.screen2 === ORD_WANT && a58.nums
-   && a58.red === 'fk1,neg,z1' && /السيستم/.test(a58.th) && /في الكومة/.test(a58.th) && /العدد الفعلي/.test(a58.th)
+   && a58.red === 'fk1,neg,z1' && /السيستم/.test(a58.th) && /جاهز للشحن/.test(a58.th) && /العدد الفعلي/.test(a58.th)
    && a58.sysBig === '41' && /41/.test(p58.screenBig || '') && a58.pileBig === '3' && /-2/.test(a58.negSys)
    && /اعدّها في السطر ده مش تحت لونها/.test(a58.famName) && /24680/.test(a58.famName) && /اعدّها هنا/.test(a58.tips)
    && /على العيلة كلها/.test(a58.tbName) && /مااتوزّعتش على الألوان/.test(a58.famName) && !/على العيلة كلها/.test(a58.famName) && /لحد سطر #/.test(a58.inc) && /متسلّمش طرود للمندوب/.test(a58.inc) && /قدّام نفس الرقم \(#\)/.test(a58.tips)

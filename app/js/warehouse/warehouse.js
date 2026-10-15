@@ -27,6 +27,9 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { veilDone } from '../core/veil.js';
 import { playScanTone, scanSoundOn, setScanSound, unlockAudio } from '../core/alert-sound.js';
+import { whSoundCritical, whSoundSlot } from './scan-sound.js';
+import { whClipFor, whLoadSounds, whSound, whSoundsInit, whSoundsRender } from './wh-sounds.js';
+import { whUnknownCloseIfOther, whUnknownOpen } from './wh-unknown.js';
 import { currentRole, currentTenantId, currentUser } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
 import { createKeyBuffer, isEndKey, looksScanned, parseWaybill, scanToLatin } from './scan-code.js';
@@ -57,7 +60,6 @@ var whList = 'today';      // القايمة المفتوحة تحت
 var whTab = 'scan';        // scan · map · count (الأدمن)
 var whKeys = createKeyBuffer();
 var whNetFails = 0;
-var whLastTone = 0;
 var whDone = {};           // client_ids خلصت في التاب دي — عشان الحفظ مايرجّعهاش من نسخة تاب تانية
 var whQueueFor = '';       // مفتاح الطابور اللي اتحمّل (المستخدم)
 var whAuthOff = false;     // الجلسة خلصت — السكانات بتفضل في الطابور
@@ -66,7 +68,7 @@ var whAttn = [];           // نتايج محتاجة انتباه (قرار · 
 var whAttnSeq = 0;
 var WH_ATTN_MAX = 20;
 var whCardGen = 0;         // بيزيد مع كل رسم للكارت — رد قديم (بحث · تراجع · خصم) مايغطّيش على سكان أحدث
-var whToneQ = [], whToneBusy = false;
+var whUnk = null;          // wh_unknown_list (الأدمن) — بوالص J&T مش في سهل اتسجّل عليها «المنتج اللي رجع»
 var whModalKeys = createKeyBuffer();   // السكانر ضرب والمودال مفتوح (سبب التراجع مثلاً)
 
 // ── أدوات ────────────────────────────────────────────────────────────
@@ -104,13 +106,13 @@ function whPageVisible(){
 // ── نصوص النتايج ─────────────────────────────────────────────────────
 // كل كود من السيرفر ليه عنوان وسطر «تعمل إيه». المصدر الوحيد (الكارت والسجل والهارنس).
 var WH_TEXT = {
-  out_ok:                    ['✅ اتخصم من المخزن', 'حطه في كومة المندوب.'],
+  out_ok:                    ['✅ اتخصم من المخزن', 'حطه مع الطرود الجاهزة للشحن.'],
   out_leak_fix:              ['✅ اتخصم من المخزن', 'الطرد ده J&T كانت استلمته من غير سكان — اتخصم دلوقتي.'],
   already_out:               ['🔁 الطرد ده اتضرب خروج قبل كده', 'مفيش حاجة اتخصمت تاني.'],
   blocked_cancelled:         ['⛔ الأوردر ده ملغي — ماتسلّموش للمندوب', 'حطه على جنب ورجّع البضاعة مكانها.'],
   blocked_cancel_requested:  ['⛔ العميل طالب إلغاء — ماتسلّموش', 'استنى قرار الأدمن على طلب الإلغاء.'],
   blocked_delivered:         ['⛔ الأوردر ده اتسلّم للعميل خلاص', 'غالباً بوليصة قديمة اتطبعت تاني — اسأل الأدمن.'],
-  pulled_back:               ['⛔ اسحبه من الكومة', 'الأوردر اتلغى أو العميل طلب إلغاء — البضاعة رجعت للمخزن.'],
+  pulled_back:               ['⛔ اسحبه من «جاهز للشحن»', 'الأوردر اتلغى أو العميل طلب إلغاء — البضاعة رجعت للمخزن.'],
   with_jt_confirm:           ['⚠️ J&T استلمت الطرد ده قبل كده', 'ده مرتجع رجعلنا؟ ولا طرد خارج دلوقتي؟'],
   confirm_return:            ['⚠️ الطرد ده خرج وJ&T استلمته', 'ده مرتجع رجعلنا؟'],
   in_ok:                     ['↩️ مرتجع — رجع للمخزن', 'رجّع القطع مكانها على الرف.'],
@@ -122,7 +124,13 @@ var WH_TEXT = {
   in_flag_only:              ['⚠️ اتعلّم إنه رجع — من غير إضافة', 'J&T عمرها ما استلمته ومكانش اتخصم.'],
   already_in:                ['🔁 المرتجع ده اتضرب قبل كده', 'مفيش حاجة اتضافت تاني.'],
   not_a_return:              ['⛔ ده مش مرتجع', 'J&T عمرها ما استلمت الطرد ده.'],
-  not_found:                 ['⛔ البوليصة دي مش عندنا', 'اتأكد إنها بوليصة J&T بتاعتنا.'],
+  not_found:                 ['🚨 بوليصة J&T مش متسجلة في سهل', 'غالباً استبدال اتعمل من داشبورد J&T — لو ده المنتج اللي رجعلنا: «📥 سجّل المنتج اللي رجع». لو طرد خارج اتعمل من بوابة J&T: متسجّلوش — قول للأدمن.'],
+  unknown_in:                ['📥 المنتج اللي رجع اتسجّل في المخزن', 'بوليصة J&T مش متسجلة في سهل — اتضاف للمخزن يدوي. لو اتسجّل غلط اتراجع.'],
+  unknown_already_in:        ['🔁 البوليصة دي اتسجّلت قبل كده', 'المنتج اللي رجع عليها اتضاف للمخزن — مفيش حاجة اتضافت تاني.'],
+  unknown_conflict:          ['⛔ البوليصة دي اتسجّلت يدوي وبقى ليها أوردر', 'الأدمن يتراجع عن التسجيل اليدوي (قايمة «📥 مرتجعات من غير أوردر») وبعدين اضربها تاني — وإلا القطعة هتتضاف مرتين.'],
+  scan_first:                ['⛔ اضرب البوليصة بالسكانر الأول', 'التسجيل بيبقى على بوليصة السكانر قال عليها «مش متسجلة».'],
+  has_order:                 ['⛔ البوليصة دي ليها أوردر', 'اضربها عادي بالسكانر.'],
+  bad_product:               ['⛔ المنتج ده مش موجود في المخزون', 'هات القايمة تاني واختار.'],
   ambiguous:                 ['⛔ الرقم ده على أكتر من أوردر', 'اسأل الأدمن.'],
   legacy_code:               ['⛔ ده كود شركة الشحن القديمة', 'السكانر للبوالص J&T بس.'],
   product_barcode:           ['⛔ ده باركود منتج مش بوليصة', 'اضرب الباركود اللي على البوليصة.'],
@@ -263,7 +271,7 @@ function onNetFail(it, err){
   renderQueueState(err);
   if(whNetFails === 1){
     renderCard({ code: 'net', tone: 'warn', _code: it.code });
-    toneOnce('warn');
+    whSound(null, 'warn');
   }
   clearTimeout(whRetryTimer);
   whRetryTimer = setTimeout(function(){ whRetryTimer = null; pumpQueue(); }, whRetryMs);
@@ -305,37 +313,17 @@ function onResult(it, res){
   // نتيجة جديدة لنفس الطرد = اللي قبلها اتحلّت (اتضرب تاني · اختار مرتجع/خارج)
   var pc = resCode(res, it);
   if(pc) whAttn = whAttn.filter(function(a){ return a.code !== pc; });
+  if(it.cid !== 'unk' && whUnknownCloseIfOther(pc)) toast('📥 نافذة التسجيل اتقفلت — اتضرب طرد تاني. اضرب البوليصة المجهولة تاني لو عايز تسجّلها', 'er');
   var a = attnPush(res, it);
   renderCard(res, it, a);
   renderLog();
   // 🔴 الطابور فيه كذا نتيجة ورا بعض (النت رجع): كل «وقّف» و«محتاج قرار» ليه صوته **ورا بعض بمسافة** —
   // كانوا بيتبلعوا لو جم في نفس الثانية، والموظف مش باصص للشاشة. الأخضر صوت واحد في الآخر.
-  var tone = whTone(res);
-  if(tone === 'stop' || tone === 'warn') toneQueue(tone);
-  else if(!whQueue.length) toneOnce(tone);
+  // (v78) الصوت من نوع النتيجة (whSoundSlot): مظبوط · وصل · هبعتهولك · سرينة — مقطع الأدمن لو موجود وإلا النغمة العادية
+  var tone = whTone(res), slot = whSoundSlot(res);
+  if(whSoundCritical(slot, tone, !!whClipFor(slot)) || !whQueue.length) whSound(slot, tone);
   if(res.applied || res.code === 'pulled_back') scheduleBoard(1200);
-  try{ window.dispatchEvent(new CustomEvent('sahl:wh-result', { detail: { code: res.code, tone: tone } })); }catch(e){ /* قديم */ }
-}
-
-function toneOnce(tone){
-  if(whToneBusy){ toneQueue(tone); return; }
-  var now = Date.now();
-  if(tone !== 'stop' && now - whLastTone < 250) return;
-  whLastTone = now;
-  if(scanSoundOn()) playScanTone(tone);
-}
-
-function toneQueue(tone){
-  whToneQ.push(tone);
-  if(!whToneBusy) toneNext();
-}
-function toneNext(){
-  var t = whToneQ.shift();
-  if(!t){ whToneBusy = false; return; }
-  whToneBusy = true;
-  whLastTone = Date.now();
-  if(scanSoundOn()) playScanTone(t);
-  setTimeout(toneNext, 450);
+  try{ window.dispatchEvent(new CustomEvent('sahl:wh-result', { detail: { code: res.code, tone: tone, slot: slot } })); }catch(e){ /* قديم */ }
 }
 
 // ── النتايج اللي محتاجة انتباه ───────────────────────────────────────
@@ -376,6 +364,7 @@ function renderAttn(){
       + '<span class="wh-attn-acts">'
       + (opts.indexOf('in') >= 0 ? '<button type="button" class="wh-btn wh-btn-in wh-btn-sm" data-wh-act="force-in" data-attn="' + a.id + '">↩️ مرتجع</button>' : '')
       + (opts.indexOf('out') >= 0 ? '<button type="button" class="wh-btn wh-btn-out wh-btn-sm" data-wh-act="force-out" data-attn="' + a.id + '">📦 خارج</button>' : '')
+      + (r.code === 'not_found' && r.tracking_no ? '<button type="button" class="wh-btn wh-btn-in wh-btn-sm" data-wh-act="unk-open" data-code="' + esc(r.tracking_no) + '">📥 سجّله</button>' : '')
       + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="attn-ok" data-attn="' + a.id + '">✓ شفته</button>'
       + '</span></div>';
   }
@@ -423,7 +412,8 @@ export function whCardHtml(res, it, attnId){
   if(res.prev && res.prev.src === 'ext'){
     h += '<div class="wh-r-prev">📋 متسجّل قبل كده في صفحة المرتجعات ' + esc(whDayTime(res.prev.at)) + '</div>';
   } else if(res.prev && (res.prev.at || res.prev.by)){
-    h += '<div class="wh-r-prev">اتضرب ' + esc(whDayTime(res.prev.at)) + (res.prev.by ? ' · بإيد ' + esc(res.prev.by) : '') + '</div>';
+    var unkPrev = res.code === 'unknown_already_in' || res.code === 'unknown_conflict';
+    h += '<div class="wh-r-prev">' + (unkPrev ? '📥 اتسجّل يدوي ' : 'اتضرب ') + esc(whDayTime(res.prev.at)) + (res.prev.by ? ' · بإيد ' + esc(res.prev.by) : '') + '</div>';
   }
   var lines = Array.isArray(res.lines) ? res.lines : [];
   if(lines.length){
@@ -462,8 +452,13 @@ export function whCardHtml(res, it, attnId){
   if(opts.indexOf('in') >= 0) acts += '<button type="button" class="wh-btn wh-btn-in" data-wh-act="force-in"' + da + '>↩️ أيوه مرتجع رجع <kbd>F9</kbd></button>';
   if(opts.indexOf('out') >= 0) acts += '<button type="button" class="wh-btn wh-btn-out" data-wh-act="force-out"' + da + '>📦 لا — ده خارج دلوقتي <kbd>F10</kbd></button>';
   if(res.code === 'blocked_cancel_requested' && isAdminUser()) acts += '<button type="button" class="wh-btn" data-wh-act="ship-anyway">🚚 اشحنه برضه (أدمن)</button>';
+  // (v78) بوليصة J&T مش في سهل = «سجّل المنتج اللي رجع» (أي موظف) · والتسجيل نفسه بيتراجع بدالته (مالوش أوردر)
+  if(res.code === 'not_found' && res.tracking_no){
+    acts += '<button type="button" class="wh-btn wh-btn-in" data-wh-act="unk-open" data-code="' + esc(res.tracking_no) + '">📥 سجّل المنتج اللي رجع</button>';
+  }
   if(res.scan_id && res.applied && (res.dir === 'out' || res.dir === 'in') && !res.dry){
-    acts += '<button type="button" class="wh-btn wh-btn-ghost" data-wh-act="undo" data-scan="' + esc(String(res.scan_id)) + '">↶ تراجع</button>';
+    acts += '<button type="button" class="wh-btn wh-btn-ghost" data-wh-act="undo" data-scan="' + esc(String(res.scan_id)) + '"'
+      + (res.code === 'unknown_in' ? ' data-kind="unknown"' : '') + '>↶ تراجع</button>';
   }
   if(attnId && !opts.length) acts += '<button type="button" class="wh-btn wh-btn-ghost" data-wh-act="attn-ok"' + da + '>✓ شفته</button>';
   if(acts) h += '<div class="wh-r-acts">' + acts + '</div>';
@@ -654,7 +649,7 @@ function whLookup(q){
     if(!rows.length){
       el.className = 'wh-result tone-stop';
       el.innerHTML = '<div class="wh-r-title">⛔ مفيش بوليصة بالرقم ده</div><div class="wh-r-sub">اكتب آخر 5 أرقام أو أكتر من البوليصة، أو رقم الأوردر.</div>';
-      toneOnce('stop');
+      whSound(null, 'stop');
       return;
     }
     // نتيجة واحدة وهي مرتجع مستني يتسجل = بيتسجّل على طول (زي صفحة n8n — الموظف على الباب كاتب آخر 5 أرقام)
@@ -722,20 +717,23 @@ function whShipAnyway(){
     onOk: function(reason){ whEnqueue(code, { force: 'ship_anyway', reason: reason, src: 'manual' }); } });
 }
 
-export function whUndo(scanId){
+export function whUndo(scanId, kind){
   if(!scanId || !sb) return;
-  showModal({ icon: '↶', title: 'تراجع عن السكان ده؟', sub: 'المخزون هيرجع زي ما كان قبل السكان — والحالة كمان لو محدش غيّرها بعده. اكتب السبب.',
+  var unk = kind === 'unknown';
+  showModal({ icon: '↶', title: unk ? 'تراجع عن تسجيل المنتج اللي رجع؟' : 'تراجع عن السكان ده؟',
+    sub: unk ? 'القطع اللي اتضافت للمخزن على البوليصة دي هتتشال تاني. اكتب السبب.'
+             : 'المخزون هيرجع زي ما كان قبل السكان — والحالة كمان لو محدش غيّرها بعده. اكتب السبب.',
     okLabel: 'تراجع', okColor: 'var(--red)', input: true, placeholder: 'السبب (مثلاً: اتضرب بالغلط)',
     onOk: function(reason){
       var gen = whCardGen;
-      sb.rpc('wh_scan_undo', { p_scan_id: Number(scanId), p_reason: reason }).then(function(r){
+      sb.rpc(unk ? 'wh_unknown_undo' : 'wh_scan_undo', { p_scan_id: Number(scanId), p_reason: reason }).then(function(r){
         var res = (r && r.data) || { code: 'error', tone: 'stop' };
         if(r && r.error) res = { code: 'error', tone: 'stop' };
         // «مشغول» هنا مش بيتبعت تاني لوحده (مش في الطابور) — الرسالة بتقول جرّب تاني
         if(res.code === 'busy') res = Object.assign({}, res, { code: 'busy_manual' });
         // اتضرب طرد وانت مستني = الكارت بتاعه، والنتيجة دي toast بس
         if(gen === whCardGen) renderCard(res);
-        toneOnce(res.ok ? 'warn' : 'stop');
+        whSound(null, res.ok ? 'warn' : 'stop');
         if(res.ok){ toast('اتلغى السكان ✓', 'ok'); scheduleBoard(300); }
         else toast(whText(res.code)[0], 'er');
       });
@@ -747,17 +745,18 @@ export function whUndo(scanId){
 var WH_LISTS = [
   { k: 'today',            t: '🧾 سكانات النهارده',             n: function(c){ return (c.out_today || 0) + (c.in_today || 0); } },
   { k: 'not_scanned',      t: '🖨️ اتطبعت ولسه ماتضربتش',       n: function(c){ return c.not_scanned || 0; } },
-  { k: 'pile',             t: '📦 في الكومة — مستنية المندوب', n: function(c){ return c.pile || 0; } },
-  { k: 'pull',             t: '⛔ اسحبها من الكومة',            n: function(c){ return c.pull || 0; }, hot: true },
+  { k: 'pile',             t: '📦 جاهز للشحن — مستني المندوب', n: function(c){ return c.pile || 0; } },
+  { k: 'pull',             t: '⛔ اسحبها من «جاهز للشحن»',    n: function(c){ return c.pull || 0; }, hot: true },
   { k: 'ret_courier',      t: '🚚 مرتجعات مع المندوب',          n: function(c, rc){ return rc.courier || 0; } },
   { k: 'ret_missing',      t: '🚨 J&T قالت سلّمتها ومش متسجلة', n: function(c, rc){ return rc.missing || 0; }, hot: true },
   { k: 'ret_scanned',      t: '✅ مرتجعات اتسجلت النهارده',     n: function(c, rc){ return rc.scanned_today || 0; } },
   { k: 'ret_transit',      t: '🔄 مرتجعات لسه في الطريق',       n: function(c, rc){ return rc.transit || 0; } },
   { k: 'leak',             t: '🔴 خرجت من غير سكان',            n: function(c){ return c.leak || 0; }, hot: true, admin: true },
-  { k: 'in_delivered',     t: '↩️ اتضربت مرتجع وJ&T سلّمتها',   n: function(c){ return c.in_delivered || 0; }, hot: true, admin: true }
+  { k: 'in_delivered',     t: '↩️ اتضربت مرتجع وJ&T سلّمتها',   n: function(c){ return c.in_delivered || 0; }, hot: true, admin: true },
+  { k: 'unknown',          t: '📥 مرتجعات من غير أوردر',         n: function(){ return (whUnk || []).filter(function(x){ return !x.reversed; }).length; }, admin: true }
 ];
 
-// الشارة البرتقاني: اسحبها من الكومة + المرتجع اللي J&T قفلته من أكتر من 30 دقيقة ومحدش سجّله (نفس سماح تنبيه
+// الشارة البرتقاني: اسحبها من «جاهز للشحن» + المرتجع اللي J&T قفلته من أكتر من 30 دقيقة ومحدش سجّله (نفس سماح تنبيه
 // n8n — الطرد بيتسلّم والسكان بعده بدقايق) · الحمرا للأدمن: خرج من غير سكان + سطور مش مربوطة + رصيد بالسالب
 export function whCountsBadge(c, rc){
   c = c || {}; rc = rc || {};
@@ -810,6 +809,7 @@ function loadBoard(){
       return;
     }
     whBoard = r.data; whBoardAt = Date.now();
+    if(isAdminUser()) loadUnknown();
     whSetNavBadge(whBoard.counts, retCounts());
     renderMode();
     renderRet();
@@ -817,6 +817,17 @@ function loadBoard(){
     renderList();
     whAdminBoard(whBoard);
   });
+}
+
+// قايمة «📥 مرتجعات من غير أوردر» (الأدمن) — مع كل تحميل للوحة
+function loadUnknown(){
+  Promise.resolve(sb.rpc('wh_unknown_list', { p_days: 30 })).then(function(r){
+    var d = r && !r.error && r.data;
+    if(!d || !d.ok || !Array.isArray(d.rows)) return;
+    whUnk = d.rows;
+    renderChips();
+    if(whList === 'unknown') renderList();
+  }, function(e){ swallow('warehouse/unknown', e); });
 }
 
 function renderMode(){
@@ -886,16 +897,18 @@ var WH_LIST_HINT = {
   today:            'كل السكانات النهارده من كل الأجهزة. تقدر تتراجع عن سكانك خلال ' + WH_UNDO_MIN + ' دقيقة.',
   not_scanned:      'بوالص J&T اتطبعت والمندوب لسه مااستلمهاش — ومحدش ضربها خروج. اضربها قبل ما تسلّمها.',
   pile:             'اتضربت خروج ومستنية المندوب. لو فضلت أكتر من 30 ساعة اسأل J&T.',
-  pull:             'اتضربت خروج وبعدين الأوردر اتلغى أو العميل طلب إلغاء — اسحبها من الكومة واضربها تاني (هترجع للمخزن).',
+  pull:             'اتضربت خروج وبعدين الأوردر اتلغى أو العميل طلب إلغاء — اسحبها من «جاهز للشحن» واضربها تاني (هترجع للمخزن).',
   ret_courier:      'مندوب J&T طالع لكم بالمرتجعات دي — اضرب كل واحد أول ما يوصل، وقبل ما المندوب يمشي اتأكد إنهم كلهم ✅.',
   ret_missing:      'J&T قفلتها إنها اتسلّمت لكم ومحدش ضربها هنا (أو اتسجّلت في صفحة n8n بس بعد التشغيل). لو المرتجع وصل فعلاً اضربه — لو ما وصلش، كلّم المندوب والفرع فوراً.',
   ret_scanned:      'المرتجعات اللي اتسجلت النهارده — بعد التشغيل السكانر بس هو اللي بيسجّل (صفحة n8n بتعلّم من غير ما المخزون يرجع).',
   ret_transit:      'مرتجعات J&T لسه راجعة ومش مع المندوب — مرحلتها جنب كل واحد.',
+  unknown:          'بوالص J&T مش متسجلة في سهل (غالباً استبدال من داشبورد J&T) اتسجّل عليها «المنتج اللي رجع» يدوي — آخر 30 يوم. لو اتسجّلت غلط اتراجع. ولو البوليصة بقى ليها أوردر، السكانر هيوقّف لحد ما تتراجع هنا.',
   in_delivered:     'اتضربت مرتجع في المخزن وبعدها J&T سلّمتها للعميل — يعني السكان كان غلط (F9 على طرد رايح) والقطع اتضافت للمخزن وهي عند العميل. اتراجع عن السكان.',
   leak:             'J&T استلمتها ومحدش ضربها خروج (بعد ما السكان اشتغل). خصمها بإيدك لو خرجت فعلاً — اللي عليها «🧮» اتعمل جرد بعدها، فالمنتج اللي اتعدّ فيه مش هيتخصم تاني (الجرد شاله).'
 };
 
 function rowsFor(k){
+  if(k === 'unknown') return whUnk || [];
   if(k.indexOf('ret_') === 0){
     var R = (whBoard && whBoard.returns) || {};
     var v = R[k.slice(4)];
@@ -958,7 +971,18 @@ function rowHtml(k, x){
     meta = '<span class="wh-row-by">' + esc(x.by || '') + '</span>' + (x.reversed ? '<span class="wh-row-rev">↶ اتلغى</span>' : '');
     var fresh = x.at && (Date.now() - new Date(x.at).getTime()) < WH_UNDO_MIN * 60000;
     if(x.applied && !x.reversed && (x.dir === 'out' || x.dir === 'in') && ((x.mine && fresh) || isAdminUser())){
-      acts = '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="undo" data-scan="' + esc(String(x.id)) + '">↶ تراجع</button>';
+      acts = '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="undo" data-scan="' + esc(String(x.id)) + '"'
+        + (x.code === 'unknown_in' ? ' data-kind="unknown"' : '') + '>↶ تراجع</button>';
+    }
+  } else if(k === 'unknown'){
+    var li = (Array.isArray(x.lines) ? x.lines : []).map(function(l){ return (l.product_name || l.text || '') + (l.qty > 1 ? ' ×' + l.qty : ''); }).join(' · ');
+    cls = x.reversed ? ' is-rev' : '';
+    base = '<span class="wh-row-t">' + wbHtml(x.t) + '</span>' + (li ? '<span class="wh-row-items">' + esc(li) + '</span>' : '');
+    meta = '<span class="wh-row-by">' + esc(whDayTime(x.at)) + (x.by ? ' · ' + esc(x.by) : '') + '</span>'
+      + (x.reversed ? '<span class="wh-row-rev">↶ اتلغى' + (x.reversed_by ? ' · ' + esc(x.reversed_by) : '') + '</span>' : '');
+    var fr = x.at && (Date.now() - new Date(x.at).getTime()) < WH_UNDO_MIN * 60000;
+    if(!x.reversed && ((x.mine && fr) || isAdminUser())){
+      acts = '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="undo" data-kind="unknown" data-scan="' + esc(String(x.id)) + '">↶ تراجع</button>';
     }
   } else if(k === 'in_delivered'){
     meta = '<span class="wh-row-by">اتضرب مرتجع ' + esc(whDayTime(x.at)) + '</span><span class="wh-row-old">J&amp;T سلّمته ' + esc(whDayTime(x.del_at)) + '</span>';
@@ -995,7 +1019,7 @@ function whLeakAct(oid, dir){
         if(res.code === 'busy') res = Object.assign({}, res, { code: 'busy_manual' });
         if(gen === whCardGen) renderCard(res);
         else toast(whText(res.code)[0], res.ok ? 'ok' : 'er');
-        toneOnce(whTone(res));
+        whSound(null, whTone(res));
         if(res.ok && res.applied) scheduleBoard(300);
         else if(!res.ok && gen === whCardGen) toast(whText(res.code)[0], 'er');
       });
@@ -1020,7 +1044,7 @@ function setTab(t){
     b.classList.toggle('on', b.getAttribute('data-wh-tab') === t);
   });
   if(t === 'scan') setTimeout(focusInput, 30);
-  else whAdminRender(whBoard, t);
+  else { whAdminRender(whBoard, t); if(t === 'count') whSoundsRender(); }
 }
 
 // ── سكانات جلسة تانية على نفس الجهاز ─────────────────────────────────
@@ -1103,7 +1127,7 @@ function camRead(f){
     return det.detect(img);
   }).then(function(found){
     var codes = whCamCodes(found);
-    if(!codes.length){ toast('مالقيتش بوليصة J&T في الصورة — قرّب الموبايل أو اكتب آخر 5 أرقام', 'er'); toneOnce('stop'); return; }
+    if(!codes.length){ toast('مالقيتش بوليصة J&T في الصورة — قرّب الموبايل أو اكتب آخر 5 أرقام', 'er'); whSound(null, 'stop'); return; }
     unlockAudio();
     codes.forEach(function(c){ whEnqueue(c, { src: 'manual', raw: 'photo' }); });
     if(codes.length > 1) toast('📷 لقيت ' + codes.length + ' بوالص في الصورة — بيتسجّلوا ورا بعض', 'ok');
@@ -1123,6 +1147,7 @@ export function loadWarehouse(){
   renderAttn();
   setTab(whTab === 'scan' || isAdminUser() ? whTab : 'scan');
   loadBoard();
+  whLoadSounds(false);
   if(whQueue.length) pumpQueue();
   setTimeout(focusInput, 60);
 }
@@ -1137,14 +1162,15 @@ function onClick(e){
   var a = t.getAttribute('data-wh-act');
   // 🔴 دبل كليك: الضغطة الأولى بتشيل الصف والقايمة بتطلع لفوق — التانية كانت بتقع على الصف اللي بعده
   // (تقفل تحذير «ملغي» أو تفرض طرد تاني). الضغطة التانية من نفس الدبل كليك بتترمي.
-  if(e.detail > 1 && /^(force-in|force-out|attn-ok|attn-clear|ship-anyway|undo|leak-out|leak-dismiss|pick|orphans-send)$/.test(a)) return;
+  if(e.detail > 1 && /^(force-in|force-out|attn-ok|attn-clear|ship-anyway|undo|leak-out|leak-dismiss|pick|orphans-send|unk-open)$/.test(a)) return;
   if(a === 'force-in') whForce('in', t.getAttribute('data-attn'));
   else if(a === 'force-out') whForce('out', t.getAttribute('data-attn'));
   else if(a === 'attn-ok') attnOk(t.getAttribute('data-attn'));
   else if(a === 'attn-clear'){ var keep = whCard && whCard.attnId; whAttn = whAttn.filter(function(x){ return x.id === keep; }); renderAttn(); }
   else if(a === 'orphans-send') sendOrphans();
   else if(a === 'ship-anyway') whShipAnyway();
-  else if(a === 'undo') whUndo(t.getAttribute('data-scan'));
+  else if(a === 'undo') whUndo(t.getAttribute('data-scan'), t.getAttribute('data-kind'));
+  else if(a === 'unk-open'){ unlockAudio(); unkOpen(t.getAttribute('data-code')); return; }
   else if(a === 'pick'){ var c = t.getAttribute('data-code'); if(c){ unlockAudio(); whEnqueue(c, { src: 'manual' }); } }
   else if(a === 'leak-out') whLeakAct(t.getAttribute('data-oid'), 'out');
   else if(a === 'leak-dismiss') whLeakAct(t.getAttribute('data-oid'), 'dismiss');
@@ -1153,6 +1179,14 @@ function onClick(e){
   else if(a === 'focus') focusInput(true);
   else if(a === 'cam'){ var ci = $id('wh-cam-in'); if(ci) ci.click(); return; }
   if(whTab === 'scan' && a !== 'undo' && a !== 'ship-anyway' && a !== 'leak-out' && a !== 'leak-dismiss') focusInput();
+}
+
+// نتيجة التسجيل بتمشي زي أي سكان (الكارت · السجل · «وصل» · القوايم)
+function unkOpen(code){
+  whUnknownOpen(code, function(res){
+    onResult({ cid: 'unk', code: code }, res);
+    if(res && res.applied) setTimeout(loadUnknown, 400);
+  });
 }
 
 function renderFocus(){
@@ -1184,6 +1218,7 @@ export function initWarehouse(){
   document.addEventListener('visibilitychange', function(){
     if(!document.hidden && whPageVisible()){
       if(Date.now() - whBoardAt > WH_BOARD_MS) loadBoard();
+      whLoadSounds(false);
       setTimeout(focusInput, 30);
     }
   });
@@ -1193,6 +1228,7 @@ export function initWarehouse(){
   whAdminInit({ reloadBoard: loadBoard, setTab: setTab, enqueue: whEnqueue,
                 pending: function(){ return whQueue.length + orphanQueues().reduce(function(n, x){ return n + x.q.length; }, 0); } });
   camInit();
+  whSoundsInit();
   renderSoundBtn();
   renderFocus();
 }
