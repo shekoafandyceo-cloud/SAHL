@@ -1,10 +1,13 @@
 // سكانر المخزن v78 (15 أكتوبر مساءً — طلب المالك): أصوات بالحالة + «📥 سجّل المنتج اللي رجع» لبوليصة J&T مش في سهل
 //
-// 1) الخانة من نوع النتيجة على الصفحة (sahl:wh-result + sahl:whsound): خروج = out · مرتجع warn «قبل التشغيل» = in ·
-//    اتضرب قبل كده = dup · مش في سهل = سرينة · «J&T ماقالتش» / خروج warn = النغمة العادية — من غير مقاطع = النغمات القديمة
+// 1) الخانة من نوع النتيجة على الصفحة (sahl:wh-result + sahl:whsound): خروج = out (حتى لو المخزون بقى بالسالب) · مرتجع warn
+//    «قبل التشغيل» = in **بنغمة «وصل»** مش «قرار» · اتضرب قبل كده = dup · مش في سهل = سرينة · «J&T ماقالتش» / خروج فيه منتج مش
+//    مربوط = النغمة العادية — من غير مقاطع = النغمات القديمة
 // 2) المقاطع من wh_config.sounds: بتتفك مرة وبتشتغل (src = clip) · المقطع اللي مااتفكّش = السرينة/النغمة (وعلامة ⚠️ للأدمن) ·
-//    أطول من 4.5ث بيتقص
-// 3) القناة: العادي بيقطع العادي (cut) · العادي بيستنى ورا السرينة ومابيقطعهاش · اتنين ورا السرينة = الأخير بس (replaced)
+//    أطول من 5ث بيتقص
+// 3) القناة: العادي بيقطع العادي (cut) · العادي بيستنى ورا السرينة ومابيقطعهاش · اتنين ورا السرينة = الأخير بس (replaced) ·
+//    (المراجعة) «وقّف» بيقطع «مظبوط» الشغّال على طول (كان بيستنى) · «هبعتهولك» بيتسمع والطابور فيه حاجة · والعادي اللي بعده
+//    مابيقطعهوش قبل ~1.2ث
 // 4) الكتم على الجهاز بيكتم المقاطع · «▶️ اسمع» في الكارت بيشتغل حتى مع الكتم
 // 5) «📥 سجّل المنتج اللي رجع» (موظف): الزرار على الكارت (hit-test) · العيلة بألوانها + «غير موزع» · المش نشط مش ظاهر ·
 //    الضغطة على نفس المنتج = +1 · wh_unknown_in بالمنتجات والعدد · مشغول = النافذة فاضلة ونفس client_id · الكارت بعدها
@@ -14,9 +17,16 @@
 // 7) كارت «🔊 أصوات السكانر» (الأدمن — ⚙️ التشغيل): رفع ملف → المحرر بالموجة · أطول من 5ث = رسالة والحفظ مقفول · الحفظ =
 //    رفع WAV أحادي 22050 بمسار <tenant>/wh-sounds/<slot>-<uuid>.wav + wh_sounds_set بالمدة · بعدها السكان بيشغّل المقطع ·
 //    ↺ رجّع العادي = null · الرفع وقع = مفيش wh_sounds_set · ملف بايظ = رسالة · الموظف: الكارت فاضي
-// المعايرات (مرساة + حارس — درس 47): الخانة null → 1 · الكتم متجاهَل → 4 · العادي بيقطع السرينة → 3 · المقطع البايظ بيتشغّل → 2 ·
-// client_id جديد مع كل ضغطة → 5 · التراجع بـwh_scan_undo → 5 · النافذة مابتتقفلش → 5 · زرار الكارت اتشال → 5 · زرار الانتباه
-// اتشال → 5 · القايمة للموظف → 6 · مسار من غير uuid → 7 · الحفظ مفتوح فوق 5ث → 7
+// 8) (المراجعة) نافذة التسجيل: دبل كليك على «📥 سجّل» = النافذة مفتوحة وفاضية · الزرار مابيتحركش تحت الصباع بعد الاختيار ·
+//    bad_product = النافذة فاضلة + رسالة · الرد وصل بعد طرد تاني = الكارت بتاع الطرد التاني + toast · conflict مابيقولش «اتراجع»
+// 9) (المراجعة) الكتابة بالإيد: 12 رقم مالقيناش = زرار «📥 دي بوليصة J&T مش في سهل؟» بيضرب JEG+الرقم · 5 أرقام = مفيش زرار
+// 10) (المراجعة) جهاز السكانر المفتوح بيقرا الإعداد تاني كل 5 دقايق (المقطع الجديد بيوصله) · المقطع اللي وقع بيتجرّب تاني
+// المعايرات (مرساة + حارس — درس 47 · المرساة المفقودة = فشل مش نجاح): الخانة null → 1 · الكتم متجاهَل → 4 · العادي بيقطع السرينة → 3 ·
+// المقطع البايظ بيتشغّل → 2 · client_id جديد مع كل ضغطة → 5 · التراجع بـwh_scan_undo → 5 · النافذة مابتتقفلش → 5 · زرار الكارت
+// اتشال → 5 · زرار الانتباه اتشال → 5 · القايمة للموظف → 6 · مسار من غير uuid → 7 · الحفظ مفتوح فوق 5ث → 7 · نغمة النتيجة بدل
+// نغمة الخانة → 1 · الحرج بيستنى ورا العادي → 3 · «هبعتهولك» ساكت مع الطابور → 3 · من غير مهلة «هبعتهولك» → 3 · من غير حارس
+// الفتح → 8 · رسم النافذة كلها مع الاختيار → 8 · bad_product بيقفل → 8 · الرد المتأخر فوق الكارت → 8 · من غير زرار الـ12 رقم → 9 ·
+// من غير قراية الإعداد في التحديث الدوري → 10
 // تشغيل:  python3 tools/spa-server.py 8899 app &   ثم   cd tools && node --import ./clock-preload.mjs test-wh-sound.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -71,7 +81,10 @@ const RES = `window.__RES = {
   '${C(5)}': { ok:true, code:'in_ok', tone:'warn', dir:'in', applied:true, scan_id:505, order:${JSON.stringify(order(5))}, lines:[], warnings:['no_return_signal'], options:[], dry:false },
   '${C(6)}': { ok:true, code:'out_ok', tone:'warn', dir:'out', applied:true, scan_id:506, order:${JSON.stringify(order(6))}, lines:[], warnings:['short'], options:[], dry:false },
   '${C(7)}': { ok:true, code:'not_found', tone:'stop', applied:false, scan_id:507, tracking_no:'${C(7)}', dry:false },
-  '${C(8)}': { ok:true, code:'out_ok', tone:'ok', dir:'out', applied:true, scan_id:508, order:${JSON.stringify(order(8))}, lines:[], warnings:[], options:[], dry:false }
+  '${C(8)}': { ok:true, code:'out_ok', tone:'ok', dir:'out', applied:true, scan_id:508, order:${JSON.stringify(order(8))}, lines:[], warnings:[], options:[], dry:false },
+  '${C(9)}': { ok:true, code:'out_ok', tone:'warn', dir:'out', applied:true, scan_id:509, order:${JSON.stringify(order(9))}, lines:[], warnings:['unmatched'], options:[], dry:false },
+  '${C(10)}': { ok:true, code:'blocked_cancelled', tone:'stop', applied:false, scan_id:510, order:${JSON.stringify(order(10))}, dry:false },
+  '${C(11)}': { ok:true, code:'unknown_conflict', tone:'stop', applied:false, scan_id:511, tracking_no:'${C(11)}', prev:{ scan_id:700, at:'${NOW()}', by:'ebrahim' }, dry:false }
 };`;
 const HOOK = `
 window.__WHC = []; window.__SND = []; window.__WHRES = [];
@@ -85,6 +98,12 @@ window.__RPC_HOOK = function(name, args){
   var r = window.__WHR ? window.__WHR(name, args || {}) : null;
   if(r && typeof r.then === 'function') return r.then(function(d){ return { data: d, error:null }; });
   if(r) return { data: r, error:null };
+  // رد بطيء لكود بعينه (الطابور فيه طرد تاني وقت ما النتيجة توصل) — __QLEN = طول الطابور لحظة الرد (قبل ما يتشال منه)
+  if(name === 'wh_scan' && window.__SLOW && window.__SLOW === args.p_code){
+    var d0 = window.__RES[args.p_code];
+    return new Promise(function(res){ setTimeout(function(){ import('/js/warehouse/warehouse.js').then(function(m){
+      window.__QLEN = m.whDebugState().queue.length; res({ data: d0, error:null }); }); }, 500); });
+  }
   if(name === 'wh_scan') return { data: window.__RES[args.p_code] || { ok:true, code:'bad_code', tone:'stop' }, error:null };
   if(name === 'wh_unknown_list') return { data: { ok:true, rows: window.__UNK || [] }, error:null };
   return { data:{ ok:true, code:'ok' }, error:null };
@@ -143,23 +162,24 @@ const hit = (p, sel) => p.evaluate((sel) => {
 async function slots(patch){
   const p = await open({ patch });
   await p.click('#wh-input');
-  for(const n of [1, 2, 3, 4, 5, 6]){ await scan(p, C(n)); await wait(n === 4 ? 2100 : 900); }
+  for(const n of [1, 2, 3, 4, 5, 6, 9]){ await scan(p, C(n)); await wait(n === 4 ? 2100 : 900); }
   const R = { res: await p.evaluate(() => window.__WHRES.map(x => x.slot === undefined ? 'u' : x.slot)), snd: await snd(p) };
   await p.context().close();
   return R;
 }
 const s1 = await slots();
 const s1src = s1.snd.filter(x => x.src !== 'cut').map(x => (x.slot || '-') + ':' + x.src + (x.src === 'tone' ? ':' + x.tone : '')).join(' ');
-ok(JSON.stringify(s1.res) === JSON.stringify(['out', 'in', 'dup', 'unknown', null, null])
-   && s1src === 'out:tone:ok in:tone:warn dup:tone:dup unknown:siren -:tone:warn -:tone:warn' && !s1.snd.some(x => x.src === 'cut'),
-  '1) الخانة من نوع النتيجة: خروج · مرتجع warn «قبل التشغيل» = in · اتضرب قبل كده = dup · مش في سهل = سرينة · «J&T ماقالتش» وخروج warn = عادي · من غير مقاطع = النغمات (' + JSON.stringify(s1.res) + ' · ' + s1src + ')');
+const S1_RES = JSON.stringify(['out', 'in', 'dup', 'unknown', null, 'out', null]);
+const S1_SRC = 'out:tone:ok in:tone:in dup:tone:dup unknown:siren -:tone:warn out:tone:ok -:tone:warn';
+ok(JSON.stringify(s1.res) === S1_RES && s1src === S1_SRC && !s1.snd.some(x => x.src === 'cut'),
+  '1) الخانة من نوع النتيجة: خروج (والمخزون بالسالب برضه) · مرتجع warn «قبل التشغيل» = in بنغمة «وصل» · اتضرب قبل كده = dup · مش في سهل = سرينة · «J&T ماقالتش» وخروج فيه مش مربوط = عادي · من غير مقاطع = النغمات (' + JSON.stringify(s1.res) + ' · ' + s1src + ')');
 
 // ── 2 · المقاطع ──
 async function clips(patch){
   const p = await open({ patch, clips: true });
   const R = { dbg: await p.evaluate(() => import('/js/warehouse/wh-sounds.js').then(m => m.whSoundsDebug().bufs)) };
   await p.click('#wh-input');
-  for(const n of [1, 2, 3, 4]){ await scan(p, C(n)); await wait(n === 3 ? 4900 : n === 4 ? 2100 : 1500); }
+  for(const n of [1, 2, 3, 4]){ await scan(p, C(n)); await wait(n === 3 ? 5400 : n === 4 ? 2100 : 1500); }
   R.snd = await snd(p);
   await p.click('.wh-tab[data-wh-tab="count"]');
   await p.waitForSelector('#wh-snd .wh-snd-row', { state: 'attached', timeout: 4000 });
@@ -170,30 +190,48 @@ async function clips(patch){
 const s2 = await clips();
 const s2src = s2.snd.filter(x => x.src !== 'cut').map(x => (x.slot || '-') + ':' + x.src).join(' ');
 const dupSec = (s2.snd.find(x => x.slot === 'dup' && x.src === 'clip') || {}).sec;
-ok(s2.dbg[P('out')] === 'ok' && s2.dbg[P('unknown')] === 'fail' && s2src === 'out:clip in:clip dup:clip unknown:siren' && dupSec === 4.5
+ok(s2.dbg[P('out')] === 'ok' && s2.dbg[P('unknown')] === 'fail' && s2src === 'out:clip in:clip dup:clip unknown:siren' && dupSec === 5
    && /مظبوط\.mp3/.test(s2.card[0] || '') && /⚠️ مقدرناش نشغّله/.test(s2.card[3] || '') && !/⚠️/.test(s2.card[0] || ''),
-  '2) المقاطع: بتتفك وبتشتغل (out · in حتى لو النبرة warn · dup) · المقطع اللي مااتفكّش = السرينة + ⚠️ للأدمن · 6ث بيتقص لـ4.5 (' + s2src + ' · ' + dupSec + ' · ' + JSON.stringify(s2.dbg) + ')');
+  '2) المقاطع: بتتفك وبتشتغل (out · in حتى لو النبرة warn · dup) · المقطع اللي مااتفكّش = السرينة + ⚠️ للأدمن · 6ث بيتقص لـ5 (' + s2src + ' · ' + dupSec + ' · ' + JSON.stringify(s2.dbg) + ')');
 
 // ── 3 · القناة ──
 async function channel(patch){
   const p = await open({ patch, clips: true });
   await p.click('#wh-input');
   // عادي بعد عادي = قطع
-  await scan(p, C(1)); await wait(150); await scan(p, C(3)); await wait(5000);
+  await scan(p, C(1)); await wait(150); await scan(p, C(3)); await wait(5600);
   const a = await snd(p);
   await p.evaluate(() => { window.__SND.length = 0; });
   // سرينة (المقطع وقع = سرينة) وبعدها عادي = بيستنى · وتاني عادي = الأخير بس
   await scan(p, C(4)); await wait(150); await scan(p, C(1)); await wait(150); await scan(p, C(8)); await wait(3500);
   const c = await snd(p);
+  // (المراجعة) «وقّف» بعد «مظبوط» بـ300ms = بيقطعه على طول (كان بيستنى لحد ما المقطع يخلص)
+  await p.evaluate(() => { window.__SND.length = 0; window.__WHRES.length = 0; });
+  await scan(p, C(1)); await wait(300); await scan(p, C(10)); await wait(2600);
+  const d = await snd(p);
+  const dRes = await p.evaluate(() => window.__WHRES.map(x => x.code));
+  // (المراجعة) «هبعتهولك» والطابور فيه طرد = بيتسمع · والعادي اللي بعده بيستنى المهلة (~1.2ث) مش لحد آخر المقطع (5ث)
+  await p.evaluate((c) => { window.__SND.length = 0; window.__SLOW = c; }, C(3));
+  await scan(p, C(3)); await wait(80); await scan(p, C(8)); await wait(2600);
+  const e = await snd(p);
+  const q = await p.evaluate(() => window.__QLEN);
   await p.context().close();
-  return { a, c };
+  return { a, c, d, dRes, e, q };
 }
 const s3 = await channel();
 const a3 = s3.a.map(x => (x.slot || '-') + ':' + x.src).join(' ');
 const sir = s3.c.find(x => x.src === 'siren'), outAfter = s3.c.find(x => x.slot === 'out' && x.src === 'clip');
+const d3o = s3.d.find(x => x.slot === 'out' && x.src === 'clip'), d3s = s3.d.find(x => x.slot === null && x.src === 'tone');
+const d3 = s3.d.map(x => (x.slot || '-') + ':' + x.src).join(' ');
+const e3d = s3.e.find(x => x.slot === 'dup' && x.src === 'clip'), e3o = s3.e.find(x => x.slot === 'out' && x.src === 'clip');
+const e3 = s3.e.map(x => (x.slot || '-') + ':' + x.src + (x.reason ? ':' + x.reason : '')).join(' ');
 const c3 = s3.c.map(x => (x.slot || '-') + ':' + x.src + (x.reason ? ':' + x.reason : '')).join(' ');
 ok(a3 === 'out:clip out:cut dup:clip' && c3 === 'unknown:siren out:none:replaced out:clip' && !!sir && !!outAfter && outAfter.t - sir.t >= 1500,
   '3) القناة: العادي بيقطع العادي · العادي بيستنى السرينة (' + (outAfter && sir ? outAfter.t - sir.t : '?') + 'ms) ومابيقطعهاش · اتنين ورا السرينة = الأخير بس (' + a3 + ' | ' + c3 + ')');
+ok(JSON.stringify(s3.dRes) === JSON.stringify(['out_ok', 'blocked_cancelled']) && d3 === 'out:clip out:cut -:tone' && !!d3o && !!d3s && d3s.t - d3o.t < 600,
+  '3ب) «وقّف» بيقطع «مظبوط» الشغّال على طول (' + (d3o && d3s ? d3s.t - d3o.t : '?') + 'ms · ' + d3 + ')');
+ok(s3.q >= 2 && !!e3d && !!e3o && e3o.t - e3d.t >= 1050 && e3o.t - e3d.t <= 2000 && e3.indexOf('dup:clip') >= 0 && e3.indexOf('dup:clip') < e3.indexOf('out:clip'),
+  '3ج) «هبعتهولك» بيتسمع والطابور فيه طرد (' + s3.q + ') · «مظبوط» اللي بعده بيستنى المهلة مش آخر المقطع (' + (e3d && e3o ? e3o.t - e3d.t : '?') + 'ms · ' + e3 + ')');
 
 // ── 4 · الكتم ──
 async function mute(patch){
@@ -231,6 +269,7 @@ async function unknown(patch){
   R.chip = await p.evaluate(() => !!document.querySelector('#wh-chips [data-wh-list="unknown"]'));
   await p.click('#wh-result [data-wh-act="unk-open"]');
   await p.waitForSelector('#wh-unk .wh-unk-p', { timeout: 4000 });
+  await wait(500);   // حارس الفتح (الضغطة التانية من دبل كليك بتتطنّش أول 450ms)
   R.prods = await p.evaluate(() => ({
     fam: Array.from(document.querySelectorAll('#wh-unk .wh-unk-fam')).map(f => f.querySelector('.wh-unk-fam-h').textContent + ':' + Array.from(f.querySelectorAll('.wh-unk-p')).map(x => x.textContent).join('/')),
     all: Array.from(document.querySelectorAll('#wh-unk .wh-unk-p')).map(x => x.getAttribute('data-pid')).join(','),
@@ -269,6 +308,7 @@ async function unknown(patch){
   await scan(p, C(7)); await wait(300);
   await p.click('#wh-result [data-wh-act="unk-open"]');
   await p.waitForSelector('#wh-unk', { timeout: 3000 });
+  await wait(500);
   await p.click('#wh-unk [data-whu="pick"][data-pid="p1"]').catch(() => {});
   await scan(p, C(1)); await wait(400);
   R.closedOther = await p.evaluate(() => !document.getElementById('wh-unk'));
@@ -400,55 +440,211 @@ ok(s7.rows === 'out,in,dup,unknown' && s7.def === '0.0-2.5' && s7.long.dis && !s
   '7) كارت الأصوات: المحرر بالموجة · 5ث+ = رسالة والحفظ مقفول · WAV أحادي 22050 بمسار <tenant>/wh-sounds/out-<uuid>.wav · wh_sounds_set بالمدة · السكان بيشغّل المقطع · ↺ = null · الرفع وقع = مفيش حفظ · ملف بايظ = رسالة · الموظف فاضي ('
     + JSON.stringify({ def: s7.def, long: s7.long, up: u7, set: set7, play: s7.play, reset: s7.reset, fail: [s7f.set.length, s7f.toast], badf: [s7b.toast, s7b.ed], emp: s7e.html }) + ')');
 
+
+// ── 8 · نافذة التسجيل (المراجعة) ──
+async function unknown2(patch){
+  const p = await open({ patch, role: 'employee', init: `var __n = 0; window.__WHR = function(n, a){
+    if(n === 'wh_unknown_in'){ __n++; if(__n === 1) return { ok:false, code:'bad_product', tone:'stop' };
+      return new Promise(function(r){ setTimeout(function(){ r(${UNK_OK(C(4))}); }, 900); }); }
+    return null; };` });
+  const R = {};
+  await p.click('#wh-input');
+  await scan(p, C(4)); await wait(300);
+  await p.dblclick('#wh-result [data-wh-act="unk-open"]');
+  await p.waitForSelector('#wh-unk .wh-unk-p', { timeout: 4000 }).catch(() => {});
+  await wait(700);
+  R.dbl = await p.evaluate(() => ({ open: !!document.getElementById('wh-unk'), items: document.querySelectorAll('#wh-unk .wh-unk-it').length }));
+  if(!R.dbl.open){ await p.click('#wh-result [data-wh-act="unk-open"]'); await p.waitForSelector('#wh-unk .wh-unk-p', { timeout: 4000 }); await wait(500); }
+  const rect = () => p.evaluate(() => { const r = document.querySelector('#wh-unk [data-whu="pick"][data-pid="tr1"]').getBoundingClientRect(); return Math.round(r.top) + ',' + Math.round(r.left); });
+  const r0 = await rect();
+  await p.click('#wh-unk [data-whu="pick"][data-pid="p1"]');
+  const r1 = await rect();
+  await p.click('#wh-unk [data-whu="pick"][data-pid="tr1"]');
+  const r2 = await rect();
+  R.pos = [r0, r1, r2];
+  R.sel = await p.evaluate(() => Array.from(document.querySelectorAll('#wh-unk .wh-unk-it')).map(x => x.querySelector('.wh-unk-it-n').textContent + '×' + x.querySelector('.wh-unk-q').textContent).join(','));
+  R.on = await p.evaluate(() => Array.from(document.querySelectorAll('#wh-unk .wh-unk-p.on')).map(x => x.getAttribute('data-pid')).sort().join(','));
+  // bad_product = النافذة فاضلة + رسالة
+  await p.click('#wh-unk [data-whu="save"]'); await wait(500);
+  R.bad = await p.evaluate(() => ({ open: !!document.getElementById('wh-unk'), toast: document.body.textContent.indexOf('اتشال من المخزون') >= 0,
+    cls: document.getElementById('wh-result').getAttribute('data-code') }));
+  if(!R.bad.open){ R.stale = {}; R.log = []; R.conf = ''; await p.context().close(); return R; }   // المعايرة (ق) — مفيش نافذة نكمّل عليها
+  // الرد متأخر وطرد تاني اتضرب = الكارت بتاع الطرد التاني
+  await p.click('#wh-unk [data-whu="save"]'); await wait(150);
+  R.busyOpen = await p.evaluate(() => !!document.getElementById('wh-unk'));
+  await p.keyboard.press('Escape');   // مشغول = Escape مابيقفلش
+  await p.evaluate(() => { const b = document.getElementById('wh-unk'); if(b) b.remove(); document.getElementById('wh-input').focus(); });
+  await scan(p, C(1)); await wait(1400);
+  R.stale = await p.evaluate(() => ({ card: document.getElementById('wh-result').getAttribute('data-code'),
+    toast: document.body.textContent.indexOf('اتم — النتيجة في') >= 0 }));
+  R.log = await p.evaluate(() => import('/js/warehouse/warehouse.js').then(m => m.whDebugState().log.map(x => (x.res || {}).code)));
+  // conflict: مابيقولش «اتراجع»
+  await scan(p, C(11)); await wait(400);
+  R.conf = await p.evaluate(() => document.getElementById('wh-result').textContent);
+  await p.context().close();
+  return R;
+}
+const s8 = await unknown2();
+ok(s8.dbl.open && s8.dbl.items === 0 && s8.pos[0] === s8.pos[1] && s8.pos[1] === s8.pos[2]
+   && s8.sel === 'منظم المطبخ المتكامل×1,ترولي 3 دور — أسود×1' && s8.on === 'p1,tr1'
+   && s8.bad.open && s8.bad.toast && s8.bad.cls === 'not_found' && s8.busyOpen
+   && s8.stale.card === 'out_ok' && s8.stale.toast && s8.log.indexOf('unknown_in') >= 0
+   && /متتراجعش/.test(s8.conf) && !/يتراجع عن التسجيل/.test(s8.conf),
+  '8) النافذة: دبل كليك = مفتوحة وفاضية · الزرار مابيتحركش بعد الاختيار (' + s8.pos.join(' | ') + ') · bad_product = فاضلة + رسالة · الرد المتأخر = الكارت للطرد التاني + toast · conflict «متتراجعش» ('
+    + JSON.stringify({ dbl: s8.dbl, sel: s8.sel, on: s8.on, bad: s8.bad, stale: s8.stale, log: s8.log }) + ')');
+
+// ── 9 · الكتابة بالإيد: 12 رقم ──
+async function typed(patch){
+  const p = await open({ patch, role: 'employee', init: `window.__WHR = function(n, a){ if(n === 'wh_lookup') return { ok:true, rows:[] }; return null; };` });
+  const R = {};
+  const typeIn = async (q) => { await p.fill('#wh-input', q); await p.press('#wh-input', 'Enter'); await wait(400); };
+  await typeIn('000700000004');
+  R.lk = (await calls(p, 'wh_lookup')).map(c => c.args.p_q);
+  R.btn = await p.evaluate(() => { const x = document.querySelector('#wh-result [data-wh-act="pick"]'); return x ? x.getAttribute('data-code') : null; });
+  R.hint = await p.evaluate(() => document.getElementById('wh-result').textContent.indexOf('الـ12 رقم') >= 0);
+  R.scans0 = (await calls(p, 'wh_scan')).length;
+  if(R.btn){ await p.click('#wh-result [data-wh-act="pick"]'); await wait(400); }
+  R.scan = (await calls(p, 'wh_scan')).map(c => c.args.p_code);
+  R.card = await p.evaluate(() => document.getElementById('wh-result').getAttribute('data-code'));
+  await typeIn('12345');
+  R.btn5 = await p.evaluate(() => !!document.querySelector('#wh-result [data-wh-act="pick"]'));
+  await p.context().close();
+  return R;
+}
+const s9 = await typed();
+ok(JSON.stringify(s9.lk.slice(0, 1)) === JSON.stringify(['000700000004']) && s9.btn === C(4) && s9.hint && s9.scans0 === 0
+   && JSON.stringify(s9.scan) === JSON.stringify([C(4)]) && s9.card === 'not_found' && !s9.btn5,
+  '9) 12 رقم مالقيناش = زرار صريح بيضرب JEG+الرقم (مش أوتوماتيك) → سرينة · 5 أرقام = مفيش زرار (' + JSON.stringify(s9) + ')');
+
+// ── 10 · الإعداد بيتقري تاني والصفحة مفتوحة (المقطع الجديد + اللي وقع) ──
+const FAST = { wh: s => s.replace('var WH_BOARD_MS = 30000;', 'var WH_BOARD_MS = 800;'),
+               snd: s => s.replace('var CFG_MS = 5 * 60000,', 'var CFG_MS = 1500,') };
+async function refresh(patch){
+  const pt = { wh: (s) => (patch && patch.wh ? patch.wh(FAST.wh(s)) : FAST.wh(s)), snd: (s) => (patch && patch.snd ? patch.snd(FAST.snd(s)) : FAST.snd(s)) };
+  const p = await open({ patch: pt, clips: true });
+  const R = { before: await p.evaluate(() => import('/js/warehouse/wh-sounds.js').then(m => m.whSoundsDebug().bufs)) };
+  const NEWP = 't-test-1/wh-sounds/out-22222222-2222-4222-8222-222222222222.wav';
+  CLIPS.unknown = wavOf(1.5, 22050, 880);   // الملف بقى سليم (الجهاز لازم يجرّبه تاني)
+  await p.evaluate(({ NEWP, ORIGIN }) => {
+    const s = JSON.parse(JSON.stringify(window.__WH_CONFIG[0].sounds));
+    s.out = { path: NEWP, name: 'مظبوط-جديد.mp3', dur: 1 };
+    window.__WH_CONFIG = [{ tenant_id: 't-test-1', sounds: s }];
+    window.__MEDIA[NEWP] = ORIGIN + '/__clip/in.wav';
+  }, { NEWP, ORIGIN });
+  await wait(4500);
+  R.after = await p.evaluate(() => import('/js/warehouse/wh-sounds.js').then(m => { const d = m.whSoundsDebug(); return { bufs: d.bufs, out: (d.cfg.out || {}).path }; }));
+  R.NEWP = NEWP;
+  CLIPS.unknown = Buffer.from('not a wav file at all');
+  await p.context().close();
+  return R;
+}
+const s10 = await refresh();
+ok(s10.before[P('unknown')] === 'fail' && s10.after.out === s10.NEWP && s10.after.bufs[s10.NEWP] === 'ok' && s10.after.bufs[P('unknown')] === 'ok',
+  '10) جهاز مفتوح: المقطع الجديد بيوصله من غير ريفريش · المقطع اللي وقع بيتجرّب تاني (' + JSON.stringify(s10) + ')');
+
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
+// 🔴 المرساة المفقودة = المعايرة وقعت (كانت `r.err ||` بتعدّيها — درس 47): أي خطأ تاني (timeout …) = الفحص اتكسر = عدّى
+const cal = (r, cond, msg) => {
+  const anchorMiss = /المرساة/.test((r && r.err) || '');
+  let hit = false;
+  try{ hit = !!((r && r.err) || cond()); }catch(e){ hit = true; }   // الفحص نفسه اتكسر = المعايرة وصلت
+  ok(!anchorMiss && hit, msg + (anchorMiss ? ' ⚠ ' + r.err : ''));
+};
 {
   const r = await slots({ wh: s => s.replace('  var tone = whTone(res), slot = whSoundSlot(res);', '  var tone = whTone(res), slot = null;') }).catch(e => ({ err: String(e) }));
-  ok(r.err || JSON.stringify(r.res) !== JSON.stringify(['out', 'in', 'dup', 'unknown', null, null]), 'معايرة (أ) الخانة null → 1 وقع');
+  cal(r, () => JSON.stringify(r.res) !== S1_RES, 'معايرة (أ) الخانة null → 1 وقع');
 }
 {
   const r = await mute({ snd: s => s.replace("  if(!item.force && !scanSoundOn()){", "  if(false){") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !(r.a.length === 1 && r.a[0].reason === 'muted'), 'معايرة (ب) الكتم متجاهَل → 4 وقع');
+  cal(r, () => !(r.a.length === 1 && r.a[0].reason === 'muted'), 'معايرة (ب) الكتم متجاهَل → 4 وقع');
 }
 {
-  const r = await channel({ snd: s => s.replace("    if(ch.cur.crit){\n", "    if(false){\n") }).catch(e => ({ err: String(e) }));
-  ok(r.err || r.c.some(x => x.src === 'cut'), 'معايرة (ج) العادي بيقطع السرينة → 3 وقع');
+  const r = await channel({ snd: s => s.replace("    } else if(ch.cur.crit || ch.q.length){ setPend(item); return; }", "    } else if(ch.q.length){ setPend(item); return; }") }).catch(e => ({ err: String(e) }));
+  cal(r, () => r.c.some(x => x.src === 'cut'), 'معايرة (ج) العادي بيقطع السرينة → 3 وقع');
 }
 {
   const r = await clips({ snd: s => s.replace("  return b && typeof b === 'object' ? b : null;", "  return b || null;") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !r.snd.some(x => x.slot === 'unknown' && x.src === 'siren'), 'معايرة (د) المقطع البايظ بيتشغّل بدل السرينة → 2 وقع');
+  cal(r, () => !r.snd.some(x => x.slot === 'unknown' && x.src === 'siren'), 'معايرة (د) المقطع البايظ بيتشغّل بدل السرينة → 2 وقع');
 }
 {
   const r = await unknown({ unk: s => s.replace('p_client_id: s.cid,', 'p_client_id: uuid(),') }).catch(e => ({ err: String(e) }));
-  ok(r.err || !(r.ins && r.ins.length === 2 && r.ins[0].p_client_id === r.ins[1].p_client_id), 'معايرة (هـ) client_id جديد مع كل ضغطة → 5 وقع');
+  cal(r, () => !(r.ins && r.ins.length === 2 && r.ins[0].p_client_id === r.ins[1].p_client_id), 'معايرة (هـ) client_id جديد مع كل ضغطة → 5 وقع');
 }
 {
   const r = await unknown({ wh: s => s.replace("sb.rpc(unk ? 'wh_unknown_undo' : 'wh_scan_undo',", "sb.rpc('wh_scan_undo',") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !(r.undo && r.undo.unk.length === 1 && r.undo.scan === 0), 'معايرة (و) التراجع بـwh_scan_undo → 5 وقع');
+  cal(r, () => !(r.undo && r.undo.unk.length === 1 && r.undo.scan === 0), 'معايرة (و) التراجع بـwh_scan_undo → 5 وقع');
 }
 {
   const r = await unknown({ wh: s => s.replace("  if(it.cid !== 'unk' && whUnknownCloseIfOther(pc))", "  if(false)") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !r.closedOther, 'معايرة (ز) النافذة مابتتقفلش مع طرد تاني → 5 وقع');
+  cal(r, () => !r.closedOther, 'معايرة (ز) النافذة مابتتقفلش مع طرد تاني → 5 وقع');
 }
 {
   const r = await unknown({ wh: s => s.replace("  if(res.code === 'not_found' && res.tracking_no){\n    acts +=", "  if(false){\n    acts +=") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !r.btn, 'معايرة (ح) زرار الكارت اتشال → 5 وقع');
+  cal(r, () => !r.btn, 'معايرة (ح) زرار الكارت اتشال → 5 وقع');
 }
 {
   const r = await unknown({ wh: s => s.replace("      + (r.code === 'not_found' && r.tracking_no ? '<button", "      + (false ? '<button") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !r.attnBtn, 'معايرة (ط) زرار «محتاجة انتباهك» اتشال → 5 وقع');
+  cal(r, () => !r.attnBtn, 'معايرة (ط) زرار «محتاجة انتباهك» اتشال → 5 وقع');
 }
 {
   const r = await adminList({ wh: s => s.replace("return (whUnk || []).filter(function(x){ return !x.reversed; }).length; }, admin: true }", "return (whUnk || []).filter(function(x){ return !x.reversed; }).length; } }") }, 'employee').catch(e => ({ err: String(e) }));
-  ok(r.err || r.chip !== null, 'معايرة (ي) القايمة للموظف → 6 وقع');
+  cal(r, () => r.chip !== null, 'معايرة (ي) القايمة للموظف → 6 وقع');
 }
 {
   const r = await upload({ snd: s => s.replace("var path = currentTenantId + '/wh-sounds/' + slot + '-' + uuid() + '.wav';", "var path = currentTenantId + '/wh-sounds/' + slot + '.wav';") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !/-[0-9a-f]{8}-/.test((r.up || {}).path || ''), 'معايرة (ك) مسار من غير uuid → 7 وقع');
+  cal(r, () => !/-[0-9a-f]{8}-/.test((r.up || {}).path || ''), 'معايرة (ك) مسار من غير uuid → 7 وقع');
 }
 {
   const r = await upload({ snd: s => s.replace("  if(sv){ sv.disabled = !!(chk || ed.busy);", "  if(sv){ sv.disabled = !!ed.busy;") }).catch(e => ({ err: String(e) }));
-  ok(r.err || !r.long.dis, 'معايرة (ل) الحفظ مفتوح فوق 5ث → 7 وقع');
+  cal(r, () => !r.long.dis, 'معايرة (ل) الحفظ مفتوح فوق 5ث → 7 وقع');
+}
+{
+  const r = await slots({ snd: s => s.replace("  var tn = (slot && !clip && DEF_TONE[slot]) || tone || 'stop';", "  var tn = tone || 'stop';") }).catch(e => ({ err: String(e) }));
+  const src = r.snd ? r.snd.filter(x => x.src !== 'cut').map(x => (x.slot || '-') + ':' + x.src + (x.src === 'tone' ? ':' + x.tone : '')).join(' ') : '';
+  cal(r, () => src !== S1_SRC, 'معايرة (م) نغمة النتيجة بدل نغمة الخانة («وصل» بقت «قرار») → 1 وقع');
+}
+{
+  const r = await channel({ snd: s => s.replace("    if(item.crit){\n      if(ch.cur.crit){ ch.q.push(item); return; }\n      stopCur();\n    }", "    if(item.crit){ ch.q.push(item); return; }") }).catch(e => ({ err: String(e) }));
+  cal(r, () => { const o = r.d.find(x => x.slot === 'out' && x.src === 'clip'), t = r.d.find(x => x.slot === null && x.src === 'tone'); return !(o && t && t.t - o.t < 600); }, 'معايرة (ن) الحرج بيستنى ورا «مظبوط» → 3ب وقع');
+}
+{
+  const r = await channel({ wh: s => s.replace(" || !whQueue.length || slot === 'dup') whSound(slot, tone);", " || !whQueue.length) whSound(slot, tone);") }).catch(e => ({ err: String(e) }));
+  cal(r, () => !r.e.some(x => x.slot === 'dup' && x.src === 'clip'), 'معايرة (س) «هبعتهولك» ساكت والطابور فيه طرد → 3ج وقع');
+}
+{
+  const r = await channel({ snd: s => s.replace("    else if(ch.cur.slot === 'dup' && Date.now() - ch.cur.at < DUP_HOLD_MS){", "    else if(false){") }).catch(e => ({ err: String(e) }));
+  cal(r, () => { const d = r.e.find(x => x.slot === 'dup' && x.src === 'clip'), o = r.e.find(x => x.slot === 'out' && x.src === 'clip'); return !(d && o && o.t - d.t >= 1050); }, 'معايرة (ع) «مظبوط» بيقطع «هبعتهولك» على طول → 3ج وقع');
+}
+{
+  // الحارسين مع بعض: وقت الفتح + الضغطة المكررة (detail > 1) — أي واحد فيهم لوحده بيمسك الدبل كليك
+  const r = await unknown2({ unk: s => s.replace("  if(Date.now() - (st.openedAt || 0) < OPEN_GUARD_MS) return;", "").replace("  if(e.detail > 1 && a !== 'inc' && a !== 'dec') return;", "") }).catch(e => ({ err: String(e) }));
+  cal(r, () => !(r.dbl.open && r.dbl.items === 0), 'معايرة (ف) من غير حارس الفتح والضغطة المكررة (دبل كليك) → 8 وقع');
+}
+{
+  const r = await unknown2({ unk: s => s.replace("  else if(a === 'save'){ save(); return; }\n  renderSel();", "  else if(a === 'save'){ save(); return; }\n  render();")
+    .replace("    + '<div class=\"wh-unk-list\">' + prodButtons() + '</div>'\n    + '<div class=\"wh-unk-sel\">' + selHtml() + '</div>'", "    + '<div class=\"wh-unk-sel\">' + selHtml() + '</div>'\n    + '<div class=\"wh-unk-list\">' + prodButtons() + '</div>'") }).catch(e => ({ err: String(e) }));
+  cal(r, () => r.pos[0] !== r.pos[1] || r.pos[1] !== r.pos[2], 'معايرة (ص) الاختيار فوق القايمة والرسم كامل → 8 وقع');
+}
+{
+  const r = await unknown2({ unk: s => s.replace("    if(KEEP_OPEN[res.code]){", "    if(false){") }).catch(e => ({ err: String(e) }));
+  cal(r, () => !r.bad.open, 'معايرة (ق) bad_product بيقفل النافذة → 8 وقع');
+}
+{
+  const r = await unknown2({ wh: s => s.replace("    if((whCard && whCard.code && whCard.code !== code) || whQueue.length){", "    if(false){") }).catch(e => ({ err: String(e) }));
+  cal(r, () => r.stale.card !== 'out_ok', 'معايرة (ر) الرد المتأخر فوق كارت الطرد التاني → 8 وقع');
+}
+{
+  const r = await typed({ wh: s => s.replace("      var full = /^\\d{12}$/.test(String(q)) ? 'JEG' + q : '';", "      var full = '';") }).catch(e => ({ err: String(e) }));
+  cal(r, () => r.btn !== C(4), 'معايرة (ش) من غير زرار الـ12 رقم → 9 وقع');
+}
+{
+  const r = await refresh({ wh: s => s.replace("    if(whPageVisible()) whLoadSounds(false);\n", "") }).catch(e => ({ err: String(e) }));
+  cal(r, () => r.after.out !== r.NEWP, 'معايرة (ت) من غير قراية الإعداد في التحديث الدوري → 10 وقع');
+}
+{
+  const r = await refresh({ snd: s => s.replace("    Object.keys(bufs).forEach(function(p){ if(bufs[p] === 'fail') delete bufs[p]; });", "    if(force) Object.keys(bufs).forEach(function(p){ if(bufs[p] === 'fail') delete bufs[p]; });") }).catch(e => ({ err: String(e) }));
+  cal(r, () => r.after.bufs[P('unknown')] !== 'ok', 'معايرة (ث) المقطع اللي وقع مابيتجرّبش تاني → 10 وقع');
 }
 
 await b.close();

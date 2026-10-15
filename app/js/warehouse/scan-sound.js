@@ -7,14 +7,16 @@
 // 🔴 الخانة من **نوع النتيجة** (code) مش من النبرة (tone): 14 من أول 19 مرتجع حقيقي (15 أكتوبر) رجعوا نبرة «warn» بسبب
 //    تحذير «J&T قفلته قبل التشغيل ومحدش سجّله» — والمرتجع نفسه اتسجّل صح. الكارت بيفضل برتقاني (للأدمن) والصوت «وصل».
 //    الاستثناء: «J&T ماقالتش إنه مرتجع» (no_return_signal — F9 ممكن يكون على طرد رايح للعميل) = صوت التنبيه مش «وصل» ·
-//    والخروج اللي فيه منتج مش مربوط أو المخزون بقى بالسالب (النبرة warn) = صوت التنبيه مش «مظبوط».
+//    والخروج اللي فيه منتج **مش مربوط** (السطر ده مااتخصمش فعلاً) = صوت التنبيه مش «مظبوط». (المراجعة) المخزون بقى بالسالب
+//    (short) = «مظبوط» برضه: الطرد خرج صح والسالب شغل الأدمن (الكارت برتقاني + الشارة الحمرا) — ربع خروج النهارده كان
+//    هيبقى من غير «مظبوط» بسبب أرقام المخزون مش بسبب الطرد.
 // 🔴 «هبعتهولك برضو» = السيرفر قال «اتضرب قبل كده» (already_out · already_in · unknown_already_in) — مش القراية
 //    المزدوجة من السكانر (نفس الكود خلال 3ث بيتطنّش من غير صوت) ولا رد اتعاد بعد ما النت رجع (replay = نفس السكان).
 // ⚠️ مفيش DOM ولا Supabase هنا — الهارنس بيشغّله في node (tools/test-scan-sound.mjs).
 
 export var WH_SOUND_SLOTS = ['out', 'in', 'dup', 'unknown'];
 export var WH_SOUND_MAX_SEC = 5;          // أطول مقطع بيتحفظ (المتصفح بيقصّ)
-export var WH_SOUND_PLAY_MAX = 4.5;       // وأطول مدة بتتشغّل (حتى لو حد رفع أطول من بره)
+export var WH_SOUND_PLAY_MAX = 5;         // وأطول مدة بتتشغّل = نفس اللي بيتحفظ (المراجعة: كان 4.5 والمعاينة بتسمّع 5) — حتى لو حد رفع أطول من بره
 export var WH_SOUND_RATE = 22050;         // WAV أحادي 16-bit — ثانيتين ≈ 88KB
 export var WH_SOUND_META = {
   out:     { t: '✅ طرد خارج اتضرب مظبوط',            q: '«مظبوووط»' },
@@ -31,17 +33,18 @@ var DUP_CODES = { already_out: 1, already_in: 1, unknown_already_in: 1 };
 export function whSoundSlot(res){
   if(!res || typeof res !== 'object') return null;
   var c = res.code, w = Array.isArray(res.warnings) ? res.warnings : [];
-  if(OUT_CODES[c]) return res.tone === 'warn' ? null : 'out';
+  if(OUT_CODES[c]) return w.indexOf('unmatched') >= 0 ? null : 'out';
   if(IN_CODES[c]) return w.indexOf('no_return_signal') >= 0 ? null : 'in';
   if(DUP_CODES[c]) return 'dup';
   if(c === 'not_found') return 'unknown';
   return null;
 }
 
-// الصوت حرج = بيستنى دوره ومايتقطعش (وقّف · قرار · السرينة) — العادي (مظبوط · وصل · هبعتهولك) بيقطع العادي اللي قبله
+// الصوت حرج = بيقطع العادي وبيستنى دوره ورا الحرج (وقّف · قرار · السرينة) — العادي (مظبوط · وصل · هبعتهولك) بيقطع العادي
+// اللي قبله. (المراجعة) الخانة ليها صوتها حتى من غير مقطع (wh-sounds.js بيشغّل نبرتها الافتراضية: مظبوط ok · وصل in ·
+// هبعتهولك dup) — فالخانة مش حرجة إلا السرينة، مهما كانت نبرة النتيجة (مرتجع warn «قبل التشغيل» = «وصل» مش «قرار»)
 export function whSoundCritical(slot, tone, hasClip){
-  if(slot === 'unknown') return true;
-  if(slot && hasClip) return false;
+  if(slot) return slot === 'unknown';
   return tone === 'stop' || tone === 'warn';
 }
 

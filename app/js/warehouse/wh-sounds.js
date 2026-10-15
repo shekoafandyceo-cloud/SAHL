@@ -5,8 +5,14 @@
 // الأجهزة بتقرا نفس الصيغة). كل جهاز بيجيب الإعداد مع دخول الصفحة وكل 5 دقايق، ويفك المقطع **مرة** في الذاكرة
 // (decodeAudioData — مفيش <audio> ولا رابط بيخلص بعد ساعة). المقطع وقع أو مااتفكّش = النغمة العادية.
 //
-// 🔴 القناة: صوت واحد في المرة. الحرج (وقّف · قرار · السرينة) بيستنى دوره ومايتقطعش — العادي (مظبوط · وصل · هبعتهولك)
-//    بيقطع العادي اللي شغّال (الموظف بيضرب كل ثانية ونص — آخر نتيجة هي المهمة) وبيستنى ورا الحرج (آخر واحد بس).
+// 🔴 القناة: صوت واحد في المرة. الحرج (وقّف · قرار · السرينة) **بيقطع العادي** ومايتقطعش — حرج ورا حرج بيستنى دوره ·
+//    العادي (مظبوط · وصل · هبعتهولك) بيقطع العادي اللي شغّال (الموظف بيضرب كل ثانية ونص — آخر نتيجة هي المهمة) وبيستنى
+//    ورا الحرج (آخر واحد بس). (المراجعة) الحرج كان بيستنى ورا «مظبوط» وكل «مظبوط» جديد كان بيأجّله لحد ما الضرب يقف —
+//    «وقّف» كان بيتسمع بعد الطرد اللي بعده. و«هبعتهولك» مابيتقطعش قبل DUP_HOLD_MS (العادي اللي بعده بيستنى لحد كده).
+// 🔴 الخانة من غير مقطع = نبرتها الافتراضية (مظبوط ok · وصل in · هبعتهولك dup) مش نبرة النتيجة — مرتجع «قبل التشغيل»
+//    نبرته warn وكان بيرنّ رنّة «محتاج قرار».
+// الإعداد بيتجاب مع دخول الصفحة وكل 5 دقايق والصفحة مفتوحة (warehouse.js — مع تحديث القوايم): الأدمن غيّر المقطع = كل
+// الأجهزة المفتوحة بتاخده خلال 5 دقايق · المقطع اللي وقع بيتجرّب تاني مع كل قراية.
 // 🔴 الكتم على الجهاز (🔔 · sahl_wh_sound) بيكتم المقاطع كمان — و«▶️ اسمع» في الكارت بيشتغل حتى لو مكتوم (تجربة).
 
 import { $id, esc } from '../core/dom.js';
@@ -21,8 +27,10 @@ import { WH_SOUND_MAX_SEC, WH_SOUND_META, WH_SOUND_PLAY_MAX, WH_SOUND_RATE, WH_S
 
 var cfg = {};                 // wh_config.sounds
 var bufs = {};                // path → AudioBuffer | 'loading' | 'fail'
+var loadAt = {};              // path → وقت ما بدأ التحميل ('loading' معلّق أكتر من LOAD_STALE_MS = يتجرّب تاني)
 var cfgAt = 0, cfgLoading = null, cfgFor = '';
-var CFG_MS = 5 * 60000;
+var CFG_MS = 5 * 60000, LOAD_STALE_MS = 20000, DUP_HOLD_MS = 1200;
+var DEF_TONE = { out: 'ok', in: 'in', dup: 'dup', unknown: 'stop' };
 
 function uuid(){
   try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){ /* قديم */ }
@@ -51,7 +59,7 @@ export function whClipFor(slot){
 // الإعداد + المقاطع — force = بعد حفظ الأدمن أو دخول الصفحة بعد غياب (المقطع اللي وقع بيتجرّب تاني)
 export function whLoadSounds(force){
   if(!sb || !currentTenantId) return Promise.resolve();
-  if(cfgFor !== currentTenantId){ cfg = {}; bufs = {}; cfgAt = 0; cfgFor = currentTenantId; }
+  if(cfgFor !== currentTenantId){ cfg = {}; bufs = {}; loadAt = {}; cfgAt = 0; cfgFor = currentTenantId; }
   if(cfgLoading) return cfgLoading;
   if(!force && cfgAt && Date.now() - cfgAt < CFG_MS) return Promise.resolve();
   cfgLoading = Promise.resolve(sb.from('wh_config').select('sounds').eq('tenant_id', currentTenantId).maybeSingle()).then(function(r){
@@ -60,8 +68,9 @@ export function whLoadSounds(force){
     cfgAt = Date.now();
     var s = r.data && r.data.sounds;
     cfg = s && typeof s === 'object' && !Array.isArray(s) ? s : {};
-    if(force) Object.keys(bufs).forEach(function(p){ if(bufs[p] === 'fail') delete bufs[p]; });
-    renderSnd();
+    // المقطع اللي وقع بيتجرّب تاني مع كل قراية (كانت مع force بس = جهاز السكانر المفتوح طول اليوم عمره ما يجرّب تاني)
+    Object.keys(bufs).forEach(function(p){ if(bufs[p] === 'fail') delete bufs[p]; });
+    renderSndSoft();
     return fetchClips();
   }, function(e){ cfgLoading = null; swallow('wh-sounds/cfg', e); });
   return cfgLoading;
@@ -71,9 +80,14 @@ function fetchClips(){
   var c = scanAudioCtx();
   if(!c || !sb) return Promise.resolve();
   var paths = [];
-  WH_SOUND_SLOTS.forEach(function(s){ var v = cfg[s]; if(v && v.path && !bufs[v.path] && paths.indexOf(v.path) < 0) paths.push(v.path); });
+  var now = Date.now();
+  WH_SOUND_SLOTS.forEach(function(s){
+    var v = cfg[s];
+    if(!v || !v.path || paths.indexOf(v.path) >= 0) return;
+    if(!bufs[v.path] || (bufs[v.path] === 'loading' && now - (loadAt[v.path] || 0) > LOAD_STALE_MS)) paths.push(v.path);
+  });
   if(!paths.length) return Promise.resolve();
-  paths.forEach(function(p){ bufs[p] = 'loading'; });
+  paths.forEach(function(p){ bufs[p] = 'loading'; loadAt[p] = now; });
   return Promise.resolve(sb.storage.from('wa-media').createSignedUrls(paths, 600)).then(function(r){
     var list = (r && !r.error && r.data) || [];
     return Promise.all(paths.map(function(p){
@@ -86,11 +100,11 @@ function fetchClips(){
         bufs[p] = 'fail'; swallow('wh-sounds/clip', e);
       });
     }));
-  }, function(e){ paths.forEach(function(p){ bufs[p] = 'fail'; }); swallow('wh-sounds/sign', e); }).then(function(){ renderSnd(); });
+  }, function(e){ paths.forEach(function(p){ bufs[p] = 'fail'; }); swallow('wh-sounds/sign', e); }).then(function(){ renderSndSoft(); });
 }
 
 // ── القناة ───────────────────────────────────────────────────────────
-var ch = { cur: null, q: [], pend: null, timer: null };
+var ch = { cur: null, q: [], pend: null, timer: null, hold: null };
 
 function emit(d){ try{ window.dispatchEvent(new CustomEvent('sahl:whsound', { detail: d })); }catch(e){ /* قديم */ } }
 
@@ -98,17 +112,30 @@ function emit(d){ try{ window.dispatchEvent(new CustomEvent('sahl:whsound', { de
 export function whSound(slot, tone, opt){
   opt = opt || {};
   var clip = slot ? whClipFor(slot) : null;
-  var item = { slot: slot || null, tone: tone || 'stop', clip: clip, crit: whSoundCritical(slot, tone, !!clip), force: !!opt.force };
+  var tn = (slot && !clip && DEF_TONE[slot]) || tone || 'stop';
+  var item = { slot: slot || null, tone: tn, clip: clip, crit: whSoundCritical(slot, tn, !!clip), force: !!opt.force };
   if(!item.force && !scanSoundOn()){ emit({ slot: item.slot, tone: item.tone, src: 'none', reason: 'muted' }); return; }
   if(ch.cur){
-    if(item.crit){ ch.q.push(item); return; }
-    if(ch.cur.crit){
-      if(ch.pend) emit({ slot: ch.pend.slot, tone: ch.pend.tone, src: 'none', reason: 'replaced' });
-      ch.pend = item; return;
+    if(item.crit){
+      if(ch.cur.crit){ ch.q.push(item); return; }
+      stopCur();
+    } else if(ch.cur.crit || ch.q.length){ setPend(item); return; }
+    else if(ch.cur.slot === 'dup' && Date.now() - ch.cur.at < DUP_HOLD_MS){
+      // «هبعتهولك برضو» يكمّل ثانية على الأقل — العادي اللي بعده بيبدأ بعدها (أو لما يخلص لو أقصر)
+      setPend(item);
+      clearTimeout(ch.hold);
+      ch.hold = setTimeout(function(){
+        if(ch.pend && ch.cur && !ch.cur.crit && !ch.q.length){ var n = ch.pend; ch.pend = null; stopCur(); startItem(n); }
+      }, Math.max(0, DUP_HOLD_MS - (Date.now() - ch.cur.at)));
+      return;
     }
-    stopCur();
+    else stopCur();
   }
   startItem(item);
+}
+function setPend(item){
+  if(ch.pend) emit({ slot: ch.pend.slot, tone: ch.pend.tone, src: 'none', reason: 'replaced' });
+  ch.pend = item;
 }
 
 function startItem(item){
@@ -116,11 +143,11 @@ function startItem(item){
   if(item.clip){ src = 'clip'; sec = Math.min(item.clip.duration, WH_SOUND_PLAY_MAX); p = playScanBuffer(item.clip, WH_SOUND_PLAY_MAX); }
   else if(item.slot === 'unknown'){ src = 'siren'; sec = SIREN_SEC; p = playScanSiren(); }
   else { src = 'tone'; sec = scanToneSec(item.tone); p = playScanTone(item.tone); }
-  var cur = { crit: item.crit, h: null, stopped: false, slot: item.slot };
+  var cur = { crit: item.crit, h: null, stopped: false, slot: item.slot, at: Date.now() };
   ch.cur = cur;
   Promise.resolve(p).then(function(h){ if(h && typeof h === 'object'){ cur.h = h; if(cur.stopped) h.stop(); } }, function(){ /* مفيش صوت */ });
   emit({ slot: item.slot, tone: item.tone, src: src, crit: item.crit, sec: sec, at: Date.now() });
-  clearTimeout(ch.timer);
+  clearTimeout(ch.timer); clearTimeout(ch.hold);
   ch.timer = setTimeout(next, Math.round(sec * 1000) + (item.crit ? 250 : 80));
 }
 function stopCur(){
@@ -145,6 +172,8 @@ var SET_MSG = { not_allowed: 'الأدمن بس', bad_path: 'مسار الملف
                 bad_dur: 'المدة مش مظبوطة', bad_slot: 'خانة مش معروفة' };
 
 export function whSoundsRender(){ renderSnd(); }
+// رسم من التحميل في الخلفية: المحرر مفتوح = مايترسمش (الأدمن بيكتب البداية/النهاية — الرسم كان هيشيل الفوكس ويرجّع الأرقام)
+function renderSndSoft(){ if(!ed) renderSnd(); }
 
 function renderSnd(){
   var el = $id('wh-snd'); if(!el) return;
@@ -268,6 +297,7 @@ function edSave(){
     if(b) bufs[path] = b;           // المقطع جاهز على الجهاز ده — مش محتاجين نجيبه تاني
     if(ed === e0) ed = null;
     renderSnd();
+    fetchClips();
     toast('اتحفظ ✓ — هيشتغل على كل أجهزة السكانر (الأجهزة المفتوحة خلال 5 دقايق)', 'ok');
   }).catch(function(e){
     e0.busy = false;
@@ -287,12 +317,12 @@ function resetSlot(slot){
         cfg = d.sounds && typeof d.sounds === 'object' ? d.sounds : {};
         cfgAt = Date.now();
         renderSnd();
+        fetchClips();
         toast('رجع الصوت العادي ✓', 'ok');
       });
     } });
 }
 
-var DEF_TONE = { out: 'ok', in: 'in', dup: 'dup', unknown: 'stop' };
 function playSlot(slot){
   unlockAudio();
   whSound(slot, DEF_TONE[slot] || 'ok', { force: true });

@@ -127,7 +127,9 @@ var WH_TEXT = {
   not_found:                 ['🚨 بوليصة J&T مش متسجلة في سهل', 'غالباً استبدال اتعمل من داشبورد J&T — لو ده المنتج اللي رجعلنا: «📥 سجّل المنتج اللي رجع». لو طرد خارج اتعمل من بوابة J&T: متسجّلوش — قول للأدمن.'],
   unknown_in:                ['📥 المنتج اللي رجع اتسجّل في المخزن', 'بوليصة J&T مش متسجلة في سهل — اتضاف للمخزن يدوي. لو اتسجّل غلط اتراجع.'],
   unknown_already_in:        ['🔁 البوليصة دي اتسجّلت قبل كده', 'المنتج اللي رجع عليها اتضاف للمخزن — مفيش حاجة اتضافت تاني.'],
-  unknown_conflict:          ['⛔ البوليصة دي اتسجّلت يدوي وبقى ليها أوردر', 'الأدمن يتراجع عن التسجيل اليدوي (قايمة «📥 مرتجعات من غير أوردر») وبعدين اضربها تاني — وإلا القطعة هتتضاف مرتين.'],
+  // (المراجعة) كانت بتقول «اتراجع عن التسجيل واضربها تاني» — والضربة دي بتعدّي خروج على أوردر يدوي (مالوش مسحات J&T):
+  // المرتجع بيتشال من المخزن ومنتج تاني بيتخصم والأوردر يتعلّم «اتضرب». القطعة اتضافت خلاص = مفيش حاجة تتعمل في السكانر
+  unknown_conflict:          ['⛔ البوليصة دي اتسجّلت يدوي وبقى ليها أوردر', 'القطعة اتضافت للمخزن خلاص — متتراجعش عن التسجيل ومتضربهاش تاني. قول للأدمن يراجع الأوردر.'],
   scan_first:                ['⛔ اضرب البوليصة بالسكانر الأول', 'التسجيل بيبقى على بوليصة السكانر قال عليها «مش متسجلة».'],
   has_order:                 ['⛔ البوليصة دي ليها أوردر', 'اضربها عادي بالسكانر.'],
   bad_product:               ['⛔ المنتج ده مش موجود في المخزون', 'هات القايمة تاني واختار.'],
@@ -305,7 +307,7 @@ function renderQueueState(err){
 }
 
 // ── النتيجة ──────────────────────────────────────────────────────────
-function onResult(it, res){
+function onResult(it, res, opt){
   res = res || {};
   var entry = { cid: it.cid, code: it.code, at: new Date().toISOString(), res: res };
   whLog.unshift(entry);
@@ -315,13 +317,14 @@ function onResult(it, res){
   if(pc) whAttn = whAttn.filter(function(a){ return a.code !== pc; });
   if(it.cid !== 'unk' && whUnknownCloseIfOther(pc)) toast('📥 نافذة التسجيل اتقفلت — اتضرب طرد تاني. اضرب البوليصة المجهولة تاني لو عايز تسجّلها', 'er');
   var a = attnPush(res, it);
-  renderCard(res, it, a);
+  if(opt && opt.noCard) renderAttn(); else renderCard(res, it, a);
   renderLog();
   // 🔴 الطابور فيه كذا نتيجة ورا بعض (النت رجع): كل «وقّف» و«محتاج قرار» ليه صوته **ورا بعض بمسافة** —
   // كانوا بيتبلعوا لو جم في نفس الثانية، والموظف مش باصص للشاشة. الأخضر صوت واحد في الآخر.
   // (v78) الصوت من نوع النتيجة (whSoundSlot): مظبوط · وصل · هبعتهولك · سرينة — مقطع الأدمن لو موجود وإلا النغمة العادية
   var tone = whTone(res), slot = whSoundSlot(res);
-  if(whSoundCritical(slot, tone, !!whClipFor(slot)) || !whQueue.length) whSound(slot, tone);
+  // «هبعتهولك برضو» بيتسمع حتى والطابور فيه حاجة (المراجعة: كان بيسكت — والموظف بيضرب نفس الطرد تاني عشان مسمعش)
+  if(whSoundCritical(slot, tone, !!whClipFor(slot)) || !whQueue.length || slot === 'dup') whSound(slot, tone);
   if(res.applied || res.code === 'pulled_back') scheduleBoard(1200);
   try{ window.dispatchEvent(new CustomEvent('sahl:wh-result', { detail: { code: res.code, tone: tone, slot: slot } })); }catch(e){ /* قديم */ }
 }
@@ -647,8 +650,14 @@ function whLookup(q){
     }
     var rows = r.data.rows || [];
     if(!rows.length){
+      // (المراجعة) بوليصة J&T مش متسجلة في سهل (استبدال من داشبورد J&T) مالهاش أوردر نلاقيه بالأرقام — الكاميرا على الآيفون
+      // مش موجودة فالطريق الوحيد كان يكتبها كاملة. 12 رقم = زرار صريح (مش أوتوماتيك: رقم غلط في بوليصة حقيقية كان هيبقى
+      // سرينة وتسجيل على بوليصة غلط)
+      var full = /^\d{12}$/.test(String(q)) ? 'JEG' + q : '';
       el.className = 'wh-result tone-stop';
-      el.innerHTML = '<div class="wh-r-title">⛔ مفيش بوليصة بالرقم ده</div><div class="wh-r-sub">اكتب آخر 5 أرقام أو أكتر من البوليصة، أو رقم الأوردر.</div>';
+      el.innerHTML = '<div class="wh-r-title">⛔ مفيش بوليصة بالرقم ده</div><div class="wh-r-sub">اكتب آخر 5 أرقام أو أكتر من البوليصة، أو رقم الأوردر. '
+        + 'لو البوليصة مش متسجلة في سهل (استبدال من داشبورد J&amp;T): اكتب الـ12 رقم اللي بعد JEG كاملين.</div>'
+        + (full ? '<div class="wh-r-acts"><button type="button" class="wh-btn wh-btn-in" data-wh-act="pick" data-code="' + esc(full) + '">📥 دي بوليصة J&amp;T مش في سهل؟ اضرب ' + ltr(full) + '</button></div>' : '');
       whSound(null, 'stop');
       return;
     }
@@ -1182,9 +1191,13 @@ function onClick(e){
 }
 
 // نتيجة التسجيل بتمشي زي أي سكان (الكارت · السجل · «وصل» · القوايم)
+// (المراجعة) الرد وصل بعد ما طرد تاني اتضرب = الكارت بتاع الطرد التاني (F9/F10 على قراره) — النتيجة في السجل والصوت بس
 function unkOpen(code){
   whUnknownOpen(code, function(res){
-    onResult({ cid: 'unk', code: code }, res);
+    if((whCard && whCard.code && whCard.code !== code) || whQueue.length){
+      onResult({ cid: 'unk', code: code }, res, { noCard: true });
+      toast('📥 تسجيل ' + code + ' اتم — النتيجة في «سكانات النهارده»', res && res.applied ? 'ok' : 'er');
+    } else onResult({ cid: 'unk', code: code }, res);
     if(res && res.applied) setTimeout(loadUnknown, 400);
   });
 }
@@ -1224,6 +1237,8 @@ export function initWarehouse(){
   });
   setInterval(function(){
     if(whPageVisible() && Date.now() - whBoardAt >= WH_BOARD_MS - 500) loadBoard();
+    // (المراجعة) جهاز السكانر مفتوح طول اليوم: مقطع الأدمن الجديد كان مابيوصلوش أبداً — القراية كل 5 دقايق بس (CFG_MS)
+    if(whPageVisible()) whLoadSounds(false);
   }, WH_BOARD_MS);
   whAdminInit({ reloadBoard: loadBoard, setTab: setTab, enqueue: whEnqueue,
                 pending: function(){ return whQueue.length + orphanQueues().reduce(function(n, x){ return n + x.q.length; }, 0); } });

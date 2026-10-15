@@ -8,6 +8,10 @@
 // ومش هتتضاف تاني. التراجع: صاحبه خلال 15 دقيقة أو الأدمن (wh_unknown_undo).
 // 🔴 مفيش خانة كتابة في النافذة (زراير بس): السكانر لو ضرب وهي مفتوحة الحروف بتروح للسكان مش لخانة هنا.
 // 🔴 client_id ثابت للنافذة دي — ضغطتين أو رد ضاع = نفس النتيجة من السيرفر (مش تسجيلين).
+// 🔴 (المراجعة) الضغطة التانية من دبل كليك على «📥 سجّل» كانت بتقع جوّه النافذة اللي لسه فاتحة (منتج اتختار لوحده أو
+//    النافذة اتقفلت) — أي ضغطة في أول OPEN_GUARD_MS بتتطنّش، والضغطة المكررة (detail > 1) بتتطنّش إلا على − و+.
+// 🔴 (المراجعة) الاختيار كان فوق قايمة المنتجات وكل ضغطة بتعيد رسم النافذة كلها = القايمة بتنزل تحت والضغطة الجاية على
+//    نفس المكان بتختار منتج تاني. دلوقتي القايمة الأول وثابتة (الضغطة بتغيّر علامة الزرار بس) والاختيار والحفظ تحتها.
 
 import { $id, esc } from '../core/dom.js';
 import { swallow } from '../core/log.js';
@@ -17,7 +21,10 @@ import { currentTenantId } from '../auth/auth.js';
 
 var st = null;        // {code, cid, items: [{pid, name, qty}], busy, onRes}
 var prods = null, prodsAt = 0, prodsErr = false;
-var MAX_ITEMS = 5, MAX_QTY = 5;
+var MAX_ITEMS = 5, MAX_QTY = 5, OPEN_GUARD_MS = 450;
+// الردود دي معناها «اختار تاني» — النافذة بتفضل مفتوحة بالاختيار (كانت بتتقفل والكارت يقول «هات القايمة تاني» ومفيش زرار)
+var KEEP_OPEN = { bad_product: 'المنتج ده اتشال من المخزون — اختار من القايمة تاني', bad_args: 'الاختيار مش مظبوط — اختار تاني',
+                  not_authenticated: 'الجلسة خلصت — سجّل دخول تاني ودوس «سجّله»', not_allowed: 'حسابك مالوش صلاحية على المخزن' };
 
 function uuid(){
   try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){ /* قديم */ }
@@ -36,7 +43,7 @@ export function whUnknownOpen(code, onRes){
   if(!code) return;
   wireEsc();
   if(st && st.code === code){ render(); return; }
-  st = { code: code, cid: uuid(), items: [], busy: false, onRes: onRes };
+  st = { code: code, cid: uuid(), items: [], busy: false, onRes: onRes, openedAt: Date.now() };
   render();
   loadProducts();
 }
@@ -62,6 +69,8 @@ function loadProducts(){
     if(r.error){ prodsErr = true; render(); return; }
     prods = (r.data || []).filter(function(p){ return p.active !== false; });
     prodsAt = Date.now();
+    // منتج اتشال وهو مختار (bad_product) = بيتشال من الاختيار
+    if(st) st.items = st.items.filter(function(it){ return prods.some(function(x){ return x.id === it.pid; }); });
     render();
   }, function(e){ prodsErr = true; swallow('wh-unknown/products', e); render(); });
 }
@@ -92,6 +101,20 @@ function prodButtons(){
   return h || '<div class="wh-empty">مفيش منتجات في المخزون.</div>';
 }
 
+function selHtml(){
+  var h = '';
+  if(!st.items.length) h += '<div class="wh-empty">اختار المنتج من القايمة ⬆️</div>';
+  st.items.forEach(function(it, i){
+    h += '<div class="wh-unk-it"><span class="wh-unk-it-n">' + esc(it.name) + '</span>'
+      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="dec" data-i="' + i + '"' + (it.qty <= 1 ? ' disabled' : '') + '>−</button>'
+      + '<b class="wh-unk-q" dir="ltr">' + it.qty + '</b>'
+      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="inc" data-i="' + i + '"' + (it.qty >= MAX_QTY ? ' disabled' : '') + '>+</button>'
+      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="rm" data-i="' + i + '" aria-label="شيل">🗑</button></div>';
+  });
+  return h;
+}
+function saveLabel(){ return st.busy ? '⏳ بيتسجّل…' : '✅ سجّله رجع للمخزن'; }
+
 function render(){
   if(!st) return;
   var el = $id('wh-unk');
@@ -103,34 +126,42 @@ function render(){
     var page = $id('page-warehouse') || document.body;
     page.appendChild(el);
   }
-  var n = st.items.length;
+  var old = el.querySelector('.wh-unk-list'), top = old ? old.scrollTop : 0;
   var h = '<div class="wh-unk-box" role="dialog" aria-label="سجّل المنتج اللي رجع">'
     + '<div class="wh-unk-h"><b>📥 سجّل المنتج اللي رجع</b><button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="close" aria-label="اقفل">✖</button></div>'
     + '<div class="wh-unk-code">بوليصة J&amp;T مش متسجلة في سهل: <span class="wh-ltr" dir="ltr">' + esc(st.code) + '</span></div>'
     + '<div class="wh-hint">غالباً استبدال اتعمل من داشبورد J&amp;T — ده المنتج اللي رجعلنا. اختار المنتج اللي في الطرد (واللون) والعدد، وهيتضاف للمخزن. '
     + '<b>لو ده طرد خارج</b> اتعمل من بوابة J&amp;T: متسجّلوش — قول للأدمن.</div>'
-    + '<div class="wh-unk-sel">';
-  if(!n) h += '<div class="wh-empty">اختار المنتج من تحت ⬇️</div>';
-  st.items.forEach(function(it, i){
-    h += '<div class="wh-unk-it"><span class="wh-unk-it-n">' + esc(it.name) + '</span>'
-      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="dec" data-i="' + i + '"' + (it.qty <= 1 ? ' disabled' : '') + '>−</button>'
-      + '<b class="wh-unk-q" dir="ltr">' + it.qty + '</b>'
-      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="inc" data-i="' + i + '"' + (it.qty >= MAX_QTY ? ' disabled' : '') + '>+</button>'
-      + '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-whu="rm" data-i="' + i + '" aria-label="شيل">🗑</button></div>';
-  });
-  h += '</div><div class="wh-unk-acts">'
-    + '<button type="button" class="wh-btn wh-btn-in" data-whu="save"' + (n ? '' : ' disabled') + '>' + (st.busy ? '⏳ بيتسجّل…' : '✅ سجّله رجع للمخزن') + '</button>'
-    + '<button type="button" class="wh-btn wh-btn-ghost" data-whu="close">إلغاء</button></div>'
-    + '<div class="wh-unk-list">' + prodButtons() + '</div></div>';
+    + '<div class="wh-unk-list">' + prodButtons() + '</div>'
+    + '<div class="wh-unk-sel">' + selHtml() + '</div>'
+    + '<div class="wh-unk-acts">'
+    + '<button type="button" class="wh-btn wh-btn-in" data-whu="save"' + (st.items.length && !st.busy ? '' : ' disabled') + '>' + saveLabel() + '</button>'
+    + '<button type="button" class="wh-btn wh-btn-ghost" data-whu="close">إلغاء</button></div></div>';
   el.innerHTML = h;
+  var nl = el.querySelector('.wh-unk-list'); if(nl && top) nl.scrollTop = top;
+}
+// الاختيار اتغيّر: القايمة مابتترسمش (الزرار اللي تحت الصباع مابيتحركش) — العلامة بس + الاختيار + زرار الحفظ
+function renderSel(){
+  var el = $id('wh-unk'); if(!el || !st) return;
+  var sel = el.querySelector('.wh-unk-sel'), sv = el.querySelector('[data-whu="save"]');
+  if(!sel || !sv){ render(); return; }
+  var chosen = {};
+  st.items.forEach(function(it){ chosen[it.pid] = 1; });
+  el.querySelectorAll('.wh-unk-p').forEach(function(b){ b.classList.toggle('on', !!chosen[b.getAttribute('data-pid')]); });
+  sel.innerHTML = selHtml();
+  sv.disabled = !st.items.length || st.busy;
+  sv.textContent = saveLabel();
 }
 
 function onClick(e){
-  if(e.target === e.currentTarget){ close(); return; }   // الضغط برّه الصندوق
+  if(!st) return;
+  if(Date.now() - (st.openedAt || 0) < OPEN_GUARD_MS) return;   // الضغطة التانية من دبل كليك اللي فتح النافذة
   var t = e.target.closest ? e.target.closest('[data-whu]') : null;
-  if(!t || !st) return;
-  var a = t.getAttribute('data-whu'), i = Number(t.getAttribute('data-i'));
-  if(a === 'close'){ close(); return; }
+  var a = t ? t.getAttribute('data-whu') : (e.target === e.currentTarget ? 'backdrop' : '');
+  if(!a) return;
+  if(e.detail > 1 && a !== 'inc' && a !== 'dec') return;     // ضغطة مكررة = مرة واحدة (إلا − و+)
+  if(a === 'backdrop' || a === 'close'){ close(); return; }   // الضغط برّه الصندوق
+  var i = Number(t.getAttribute('data-i'));
   if(a === 'reload'){ prods = null; loadProducts(); return; }
   if(st.busy) return;
   if(a === 'pick'){
@@ -148,27 +179,34 @@ function onClick(e){
   else if(a === 'dec' && st.items[i]){ if(st.items[i].qty > 1) st.items[i].qty--; }
   else if(a === 'rm' && st.items[i]) st.items.splice(i, 1);
   else if(a === 'save'){ save(); return; }
-  render();
+  renderSel();
 }
 
 function save(){
   if(!st || st.busy || !st.items.length || !sb) return;
   var s = st;
-  s.busy = true; render();
+  s.busy = true; renderSel();
   var items = s.items.map(function(it){ return { product_id: it.pid, qty: it.qty }; });
   Promise.resolve(sb.rpc('wh_unknown_in', { p_code: s.code, p_items: items, p_client_id: s.cid, p_note: null })).then(function(r){
     var res = (r && !r.error && r.data) || null;
     s.busy = false;
     if(!res || res.code === 'busy' || res.code === 'error'){
-      if(st === s) render();
+      if(st === s) renderSel();
       toast(res && res.code === 'busy' ? 'السيرفر مشغول — دوس «سجّله» تاني' : 'مقدرناش نسجّل — دوس «سجّله» تاني', 'er');
+      return;
+    }
+    if(KEEP_OPEN[res.code]){
+      if(st === s){
+        if(res.code === 'bad_product'){ prods = null; loadProducts(); } else renderSel();
+      }
+      toast(KEEP_OPEN[res.code], 'er');
       return;
     }
     if(st === s) close();
     if(typeof s.onRes === 'function') s.onRes(res, s);
   }, function(e){
     s.busy = false;
-    if(st === s) render();
+    if(st === s) renderSel();
     swallow('wh-unknown/save', e);
     toast('مقدرناش نسجّل (النت؟) — دوس «سجّله» تاني', 'er');
   });
