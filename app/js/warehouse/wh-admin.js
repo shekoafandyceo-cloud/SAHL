@@ -222,6 +222,7 @@ var cntAgain = false;      // نفس فكرة mapAgain
 //   🔴 الإجابة **لكل منتج** وعلى **الطرود اللي اتعرضت** (ids): منتج اتعدّ قبل المندوب وتاني بعده = إجابتين · طرد ظهر
 //   بعد ما الشاشة اترسمت = السيرفر مابيحطّلوش إجابة (code=changed) والسؤال بيرجع عليه
 var cntPile = null;
+var cntPileErr = false;    // wh_count_pile وقع — من غيره الصفحة كانت بتتعرض كأن مفيش كومة ولا أسئلة (والتأكيد بيكدب)
 var cntOptBusy = false;
 var cntGoLive = null, cntGoLiveFor = null;   // اختيار «ده جرد التشغيل» — كان بيرجع لافتراضه مع كل رسم
 var cfgBusy = false;
@@ -257,6 +258,7 @@ function loadCount(){
     if(res[0].error || res[1].error){ cntErr = true; renderCount(); return; }
     var pd = res[2] && !res[2].error && res[2].data;
     cntPile = null;
+    cntPileErr = !(pd && pd.ok && Array.isArray(pd.pile));
     if(pd && pd.ok && Array.isArray(pd.pile)){
       var rw = {}, arr = function(v){ return Array.isArray(v) ? v : []; };
       pd.pile.forEach(function(x){
@@ -264,7 +266,8 @@ function loadCount(){
         rw[x.product_id] = { pile: Number(x.pile != null ? x.pile : x.qty) || 0, moved: Number(x.moved) || 0, moved_leak: Number(x.moved_leak) || 0,
                              ret: Number(x.ret) || 0, moved_ids: arr(x.moved_ids), ret_ids: arr(x.ret_ids),
                              moved_ans: x.moved_ans || null, ret_ans: x.ret_ans || null, moved_by: x.moved_by || '', ret_by: x.ret_by || '',
-                             moved_need: !!x.moved_need, ret_need: !!x.ret_need, moved_list: arr(x.moved_list), ret_list: arr(x.ret_list) };
+                             moved_need: !!x.moved_need, ret_need: !!x.ret_need, moved_list: arr(x.moved_list), ret_list: arr(x.ret_list),
+                             pile_list: arr(x.pile_list) };
       });
       cntPile = { count_id: pd.count_id, rows: rw,
                   pile_orders: Number(pd.pile_orders) || 0, moved_orders: Number(pd.moved_orders) || 0, ret_orders: Number(pd.ret_orders) || 0 };
@@ -318,8 +321,10 @@ function qListHtml(list, n){
 var Q_TXT = {
   moved: { yes: ['counted', '✅ كانوا هنا واتعدّوا'], no: ['left', '🚚 خرجوا قبل ما أعدّه'],
            all: ['✅ كلهم كانوا هنا واتعدّوا', '🚚 كلهم خرجوا قبل ما أعدّ منتجاتهم'] },
-  ret:   { yes: ['counted', '✅ هنا واتعدّوا'], no: ['absent', '🚫 مش في المخزن'],
-           all: ['✅ كلهم هنا واتعدّوا', '🚫 كلهم مش في المخزن'] }
+  // 🔴 المرتجع بيوصل الضهر — ممكن يوصل **بعد** ما المنتج اتعدّ: موجود في المخزن بس مش في العدد، و«مش في المخزن»
+  // كانت بتبان كذب فالأدمن يدوس «هنا» = قطعة ناقصة. السؤال بقى بالتوقيت زي «المندوب استلم»
+  ret:   { yes: ['counted', '✅ كانوا هنا لما عدّيت المنتج'], no: ['absent', '🚫 ماتعدّوش (وصلوا بعد ما عدّيته — أو مش موجودين)'],
+           all: ['✅ كلهم وصلوا قبل ما أعدّ منتجاتهم', '🚫 كلهم ماتعدّوش'] }
 };
 function qBtn(k, v, pid, label, on){
   return '<button type="button" class="wh-btn wh-btn-sm' + (on ? ' on' : ' wh-btn-ghost') + '" data-wha="count-opt" data-k="' + k
@@ -332,7 +337,7 @@ function qRowHtml(k, pid, r){
   var n = ids.length;
   var h = '<div class="wh-cq' + (need ? ' need' : '') + '" data-k="' + k + '" data-pid="' + esc(pid) + '"><span class="wh-cq-t">'
     + (k === 'moved' ? '🚚 <b>' + n + '</b> طرد منه المندوب استلمهم وانت بتعدّ — كانوا لسه هنا لما عدّيته؟'
-                     : '↩️ <b>' + n + '</b> مرتجع منه J&amp;T سلّمته لنا ومحدش ضربه — هنا واتعدّ معاه؟') + '</span>'
+                     : '↩️ <b>' + n + '</b> مرتجع منه J&amp;T سلّمته لنا ومحدش ضربه — كان وصل المخزن لما عدّيت المنتج؟') + '</span>'
     + qListHtml(r[k + '_list'], n)
     + '<span class="wh-q-acts">' + qBtn(k, tx.yes[0], pid, tx.yes[1], ans === tx.yes[0] && !need) + qBtn(k, tx.no[0], pid, tx.no[1], ans === tx.no[0] && !need) + '</span>';
   if(ans && need) h += '<span class="wh-q-a bad">⚠️ طرد جديد ظهر بعد آخر إجابة' + (by ? ' (' + esc(by) + ')' : '') + ' — جاوب تاني</span>';
@@ -340,24 +345,49 @@ function qRowHtml(k, pid, r){
   return h + '</div>';
 }
 // الشرح فوق + «جاوب للكل» (لو عدّيت كل المنتجات قبل المندوب أو بعده)
+// 🔴 المنتجات اللي في القايمة بس (cntActive): منتج مش نشط مالوش صف ولا سؤال — كان بيتعدّ «فاضل 1» للأبد و«للكل»
+// بتاعته كانت بتدوس الإجابات اللي اتجاوبت لكل منتج · الأحمر = منتج مكتوب عدده (هيتطبّق) لسه محتاج إجابة —
+// زي wh_count_apply بالظبط (بيسأل على المنتجات اللي في العدّ بس)
+function cntActive(){
+  var m = {};
+  (cntProducts || []).forEach(function(p){ m[p.id] = true; });
+  return m;
+}
+function typedCount(pid){
+  var v = cntDraft[pid];
+  return v != null && /^\s*\d+\s*$/.test(String(v));
+}
 function qTopHtml(k, cp){
-  var n = k === 'moved' ? cp.moved_orders : cp.ret_orders, tx = Q_TXT[k], left = 0, all = null, same = true;
+  var n = k === 'moved' ? cp.moved_orders : cp.ret_orders, tx = Q_TXT[k], left = 0, block = 0, all = null, same = true, act = cntActive();
   Object.keys(cp.rows).forEach(function(pid){
     var r = cp.rows[pid];
-    if(!r[k + '_ids'].length) return;
-    if(r[k + '_need']) left++;
+    if(!act[pid] || !r[k + '_ids'].length) return;
+    if(r[k + '_need']){ left++; if(typedCount(pid)) block++; }
     var a = r[k + '_need'] ? null : r[k + '_ans'];
     if(all === null) all = a; else if(all !== a) same = false;
   });
-  var h = '<div class="wh-count-q' + (left ? ' need' : '') + '" data-k="' + k + '"><div class="wh-q-t">'
+  if(all === null && !left) return '';
+  var h = '<div class="wh-count-q' + (block ? ' need' : '') + '" data-k="' + k + '"><div class="wh-q-t">'
     + (k === 'moved' ? '🚚 <b>' + n + '</b> طرد المندوب استلمهم <b>بعد ما فتحت الجرد</b> (وانت بتعدّ):'
                      : '↩️ <b>' + n + '</b> مرتجع J&amp;T سلّمته لنا (قبل الجرد أو وانت بتعدّ) <b>ومحدش ضربه مرتجع</b>:') + '</div>'
     + '<div class="wh-q-s">' + (k === 'moved'
         ? 'السؤال جنب كل منتج تحت: لما عدّيت المنتج، الطرد كان لسه هنا؟ — منتج عدّيته قبل ما المندوب ييجي = «كانوا هنا»، وبعده = «خرجوا». لو كل المنتجات زي بعض جاوب مرة واحدة:'
-        : 'السؤال جنب كل منتج تحت: الطرد ده في المخزن واتعدّ مع منتجه؟ لو هتضربهم مرتجع وانت بتعدّ، قطعهم لازم تبقى في العدد اللي كتبته — أو جاوب هنا واضربهم بعد ما تطبّق. للكل مرة واحدة:')
+        : 'السؤال جنب كل منتج تحت: لما عدّيت المنتج، المرتجع كان وصل المخزن؟ — وصل قبل ما تعدّه = «كانوا هنا» (اتعدّ معاه)، وصل بعد ما عدّيته أو مش موجود = «ماتعدّوش». متضربهمش مرتجع وانت بتعدّ — اضربهم بعد ما تطبّق. لو كل المنتجات زي بعض جاوب مرة واحدة:')
     + '</div><div class="wh-q-acts">' + qBtn(k, tx.yes[0], '', tx.all[0], same && all === tx.yes[0]) + qBtn(k, tx.no[0], '', tx.all[1], same && all === tx.no[0]) + '</div>';
-  h += left ? '<div class="wh-q-a bad">❓ فاضل ' + left + ' منتج من غير إجابة</div>' : '<div class="wh-q-a">✓ كل المنتجات اتجاوب عليها</div>';
+  h += left ? '<div class="wh-q-a' + (block ? ' bad' : ' wait') + '">❓ فاضل ' + left + ' منتج من غير إجابة'
+               + (block < left ? (block ? ' (' + block + ' منهم عدده مكتوب)' : ' — مش هيوقف التطبيق غير لما تكتب عدده') : '') + '</div>'
+             : '<div class="wh-q-a">✓ كل المنتجات اتجاوب عليها</div>';
   return h + '</div>';
+}
+
+// «غير موزع» = قطع متسجّلة على الأم (خاصيتها مش معروفة — لون مش في الخصائص زي «روز»). 🔴 لو فيه طرود متسجّلة
+// عليه (كومة · المندوب أخدها · مرتجع) القطع دي لازم تتعدّ **هنا** مش تحت لونها — الطرح بيتعمل من المنتج اللي في
+// السطر بس، فـ«اكتب 0» + القطعة تحت لونها = قطعة زيادة على اللون (والكومة بترفض الـ0 أصلاً)
+function unallocHint(rq){
+  var n = rq ? rq.pile + rq.moved + rq.moved_leak + rq.ret : 0;
+  if(!n) return '(غير موزع — اكتب 0 لو كل القطع على الخصائص)';
+  return '(غير موزع — فيه <b dir="ltr">' + n + '</b> قطعة في طرود متسجّلة هنا (خاصيتها مش معروفة): اللي منها كان في المخزن وانت بتعدّ <b>اعدّها هنا مش تحت لونها</b>'
+    + (rq.pile_list && rq.pile_list.length ? ' · الكومة: ' + qListHtml(rq.pile_list, rq.pile_list.length) : '') + ')';
 }
 
 // المنتجات بالعيلة: الأم الأول (لو ليها خصائص = «غير موزع») وبعدها بناتها
@@ -440,7 +470,7 @@ function renderCountBody(el){
         ? '<ol class="wh-steps">'
           + '<li>اضرب كل المرتجعات اللي وصلت <b>الأول</b> — قايمة «↩️ رجعت ومااتضربتش» لازم تبقى فاضية.</li>'
           + '<li>افتح الجرد وعدّ <b>كل القطع اللي في المخزن فعلاً — بما فيها الطرود المتغلّفة في الكومة</b> (اللي اتضربت خروج السيستم بيطرحها من العدّ لوحده).</li>'
-          + '<li>وانت بتعدّ: <b>متسلّمش طرود للمندوب ولا تستلم مرتجعات ولا تضرب طرود</b> — ولو حصل، السيستم هيسألك جنب كل منتج قبل ما يطبّق.</li>'
+          + '<li>وانت بتعدّ: الأحسن <b>متسلّمش طرود للمندوب ولا تستلم مرتجعات</b> — ولو حصل، السيستم هيسألك جنب كل منتج «كانوا هنا لما عدّيته؟». الطرد اللي تضربه خروج وانت بتعدّ عادي (بيتحسب مع الكومة) · <b>المرتجع اضربه بعد ما تطبّق</b>.</li>'
           + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد».</li></ol>'
         : '<ol class="wh-steps">'
           + '<li>اربط المنتجات الأول (تاب «🔗 ربط المنتجات») — لحد ما «مش مربوط» تبقى صفر أو قريبة منه.</li>'
@@ -462,12 +492,16 @@ function renderCountBody(el){
     + '<div class="wh-count-prog"><b>' + (cntProducts.length - pay.missing) + '</b> من ' + cntProducts.length + ' اتعدّوا'
     + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload" title="هات أرقام السيستم من جديد ومنتجات اتضافت — اللي كتبته بيفضل">↻</button></div></div>';
   var cp = cntPile && cntPile.count_id === cnt.id ? cntPile : null;
+  if(cntPileErr){
+    h += '<div class="wh-count-warn bad">⚠️ مقدرناش نجيب الطرود اللي في الكومة والأسئلة — الأرقام والفرق هنا ناقصين، و«طبّق» مقفول لحد ما تتحمّل.'
+      + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload">↻ حاول تاني</button></div>';
+  }
   if(cp && (cp.pile_orders || cp.moved_orders || cp.ret_orders)){
-    h += '<div class="wh-count-warn">'
-      + (cp.pile_orders ? '<div>📦 فيه <b>' + cp.pile_orders + '</b> طرد اتضربوا خروج ولسه في المخزن (الكومة) — <b>اعدّهم مع الباقي</b>، والسيستم بيطرحهم من العدّ لوحده (الرقم جنب كل منتج).</div>' : '')
+    // الأسئلة على منتجات مش في القايمة بس = qTopHtml فاضي — من غير الشرط ده كان صندوق برتقاني فاضي
+    var wq = (cp.pile_orders ? '<div>📦 فيه <b>' + cp.pile_orders + '</b> طرد اتضربوا خروج ولسه في المخزن (الكومة) — <b>اعدّهم مع الباقي</b>، والسيستم بيطرحهم من العدّ لوحده (الرقم جنب كل منتج).</div>' : '')
       + (cp.moved_orders ? qTopHtml('moved', cp) : '')
-      + (cp.ret_orders ? qTopHtml('ret', cp) : '')
-      + '</div>';
+      + (cp.ret_orders ? qTopHtml('ret', cp) : '');
+    if(wq) h += '<div class="wh-count-warn">' + wq + '</div>';
   }
   h += '<div class="wh-count-list">';
   fam.forEach(function(f){
@@ -481,7 +515,7 @@ function renderCountBody(el){
       diff = d === 0 ? '<span class="wh-cd zero">=</span>' : '<span class="wh-cd ' + (d > 0 ? 'up' : 'down') + '" dir="ltr">' + (d > 0 ? '+' : '') + d + '</span>';
     }
     h += '<div class="wh-count-row' + (f.child ? ' child' : '') + '">'
-      + '<span class="wh-cn">' + (f.child ? '↳ ' : '') + esc(p.name) + (f.unalloc ? ' <small>(غير موزع — اكتب 0 لو كل القطع على الخصائص)</small>' : '') + '</span>'
+      + '<span class="wh-cn">' + (f.child ? '↳ ' : '') + esc(p.name) + (f.unalloc ? ' <small>' + unallocHint(rq) + '</small>' : '') + '</span>'
       + '<span class="wh-cs" title="الرقم في السيستم دلوقتي">السيستم ' + '<span dir="ltr">' + esc(String(p.current_qty || 0)) + '</span></span>'
       + '<input class="wh-ci" type="text" inputmode="numeric" data-pid="' + esc(p.id) + '" value="' + esc(s) + '" placeholder="العدد" autocomplete="off">'
       + (pq ? '<span class="wh-cpile" title="قطع في طرود اتضربت خروج ولسه هنا — اعدّها مع الباقي، وبتتطرح من العدّ">📦 منهم <span dir="ltr">' + pq + '</span> في الكومة</span>' : '')
@@ -543,9 +577,10 @@ function countOpen(){
 // 🔴 بيبعت **الطرود اللي اتعرضت** (ids) — طرد ظهر بعد ما الشاشة اترسمت مايتجاوبش عليه في صمت (السيرفر بيرجّع changed)
 function countOpt(k, v, pid){
   if(cntOptBusy || !cnt || !cntPile || cntPile.count_id !== cnt.id || (k !== 'moved' && k !== 'ret') || !v) return;
-  var rows = cntPile.rows || {}, m = {}, n = 0;
+  var rows = cntPile.rows || {}, m = {}, n = 0, act = cntActive();
   Object.keys(rows).forEach(function(id){
     if(pid && id !== pid) return;
+    if(!pid && !act[id]) return;   // «للكل» = المنتجات اللي قدامك بس
     var ids = rows[id][k + '_ids'];
     if(!ids || !ids.length) return;
     m[id] = { v: v, ids: ids.slice() }; n++;
@@ -575,6 +610,9 @@ function prodName(id){
 
 function countApply(force){
   if(cntBusy || !cnt) return;
+  // 🔴 إجابة في السكة: الصف المحلي لسه على الإجابة القديمة، فالتأكيد كان هيتبني عليها
+  if(cntOptBusy){ toast('استنى ثانية — الإجابة لسه بتتحفظ', 'er'); return; }
+  if(cntPileErr){ toast('مقدرناش نجيب الطرود اللي في الكومة — دوس ↻ الأول', 'er'); return; }
   var pmap = pileMap();
   var pay = whCountPayload(cntProducts, cntDraft, pmap);
   var gl = $id('wh-golive');
@@ -589,7 +627,10 @@ function countApply(force){
   if(nq.moved || nq.ret){
     toast('جاوب على السؤال جنب ' + (nq.pids.length === 1 ? '«' + prodName(nq.pids[0]) + '»' : nq.pids.length + ' منتجات') + ' الأول ('
       + (nq.moved ? 'الطرود اللي اتسلّمت وانت بتعدّ' : 'المرتجع اللي ماتضربش') + ') — الإجابة بتغيّر الرقم', 'er');
-    var qe = document.querySelector('#wh-count .wh-cq.need') || document.querySelector('#wh-count .wh-count-q.need');
+    // السؤال بتاع المنتج اللي اتقال اسمه — مش أول سؤال في الصفحة (ممكن يكون لمنتج مش مكتوب عدده)
+    var qe = null, qs = document.querySelectorAll('#wh-count .wh-cq.need');
+    for(var qi = 0; qi < qs.length && !qe; qi++) if(qs[qi].getAttribute('data-pid') === nq.pids[0]) qe = qs[qi];
+    qe = qe || document.querySelector('#wh-count .wh-count-q.need');
     if(qe && qe.scrollIntoView) qe.scrollIntoView({ behavior: 'instant', block: 'center' });
     return;
   }
@@ -605,12 +646,12 @@ function countApply(force){
       var d = (r && !r.error && r.data) || { ok: false, code: 'error' };
       if(d.code === 'scans_during_count'){
         renderCount();
-        // 🔴 المرتجع اللي اتضرب وانت بتعدّ «اتضاف» مش «اتخصم» — الرسالة القديمة كانت بتتكلم عن طرود خارجة بس
-        var pin = Number(d.posted_in) || 0, pout = Math.max(0, (Number(d.posted) || 0) - pin);
+        // الخروج وانت بتعدّ بقى محسوب (الكومة · أو سؤال المندوب) — فاضل المرتجع اللي اتضرب (اتضاف) والسطور المش مربوطة
+        var pin = Number(d.posted_in != null ? d.posted_in : d.posted) || 0, unm = Number(d.unmatched) || 0;
         showModal({ icon: '⚠️', title: 'فيه طرود اتضربت بعد ما الجرد اتفتح',
-          sub: (pout ? 'فيه ' + pout + ' سطر خروج اتخصم بعد ما بدأت تعدّ: لو العدد اللي كتبته بعد ما الطرود خرجت، تمام — لو قبلها، الغي واعدّ تاني. ' : '')
-            + (pin ? 'وفيه ' + pin + ' مرتجع اتضرب (اتضاف) وانت بتعدّ: قطعه لازم تكون في العدد اللي كتبته — لو ماعدّيتهاش زوّدها قبل ما تطبّق.' : '')
-            + ((!pout && !pin) ? 'فيه سكانات اتعملت وانت بتعدّ. لو العدد اللي كتبته بعدها، طبّق عادي. لو قبلها، الغي واعدّ تاني.' : ''),
+          sub: (pin ? 'فيه ' + pin + ' مرتجع اتضرب (اتضاف) وانت بتعدّ: قطعه لازم تكون في العدد اللي كتبته — لو عدّيت منتجه قبل ما يوصل، زوّده قبل ما تطبّق. ' : '')
+            + (unm ? 'وفيه ' + unm + ' سطر في سكانات وانت بتعدّ منتجه مش مربوط — السيستم مش هيقدر يحسبه مع الكومة؛ الأحسن تربطه الأول (تاب «🔗 ربط المنتجات») وبعدين تطبّق.' : '')
+            + ((!pin && !unm) ? 'فيه سكانات اتعملت وانت بتعدّ. لو العدد اللي كتبته بعدها، طبّق عادي. لو قبلها، الغي واعدّ تاني.' : ''),
           okLabel: 'طبّق برضه', onOk: function(){ go(true); } });
         return;
       }
@@ -751,7 +792,23 @@ function onInput(e){
     if(v !== t.value) t.value = v;
     if(v === '') delete cntDraft[pid]; else cntDraft[pid] = v;
     draftSave();
+    qTopRefresh();
   }
+}
+
+// الملخص فوق بيتحدّث وانت بتكتب (الأحمر = منتج مكتوب عدده لسه محتاج إجابة) — من غير رسم كامل: الخانة اللي في إيدك
+// مابتتلمسش (الملخص زراير بس)
+function qTopRefresh(){
+  var cp = cnt && cntPile && cntPile.count_id === cnt.id ? cntPile : null;
+  if(!cp) return;
+  ['moved', 'ret'].forEach(function(k){
+    var el = document.querySelector('#wh-count .wh-count-q[data-k="' + k + '"]');
+    if(!el) return;
+    var h = qTopHtml(k, cp);
+    if(!h){ el.remove(); return; }
+    var tmp = document.createElement('div'); tmp.innerHTML = h;
+    if(tmp.firstChild) el.replaceWith(tmp.firstChild);
+  });
 }
 
 function onChange(e){

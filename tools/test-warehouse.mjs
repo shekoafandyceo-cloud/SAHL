@@ -52,6 +52,13 @@
 //     والسؤال بيرجع على المنتج ده بس · زرار الإجابة بالكيبورد الفوكس بيفضل عليه · pile_questions = تحميل تاني
 // 40) «خرجت من غير سكان»: جرد عدّ جزء من منتجاتها = «🧮 جزء من منتجاتها اتعدّ» وبتتعدّ في الشارة
 // 41) خانة العدّ: رقم متداس (e.repeat) + Enter = الرقم بيفضل (كان بيترجّع ويقول «اتضرب كود»)
+// ── المراجعة العدائية الخامسة ──
+// 42) الجرد: سؤال المرتجع بالتوقيت («كانوا هنا لما عدّيت المنتج» / «ماتعدّوش — وصلوا بعد ما عدّيته») · الملخص فوق بيعدّ
+//     المنتجات اللي في القايمة بس (منتج مش نشط مالوش سؤال) و«للكل» مابيبعتهوش · الأحمر فوق = منتج مكتوب عدده لسه
+//     محتاج إجابة · «غير موزع» عليه طرود = «اعدّها هنا مش تحت لونها» + الكومة بأرقامها (والفاضي = «اكتب 0») · السكرول على
+//     سؤال المنتج اللي اتقال اسمه (مش أول سؤال في الصفحة) · «طبّق» والإجابة لسه بتتحفظ = ولا حاجة · مودال «سكانات وانت
+//     بتعدّ» بيتكلم عن المرتجع اللي اتضرب والسطور المش مربوطة (مش «سطر خروج»)
+// 43) wh_count_pile وقع = بانر أحمر بـ↻ و«طبّق» مقفول (كانت الصفحة بتتعرض كأن مفيش كومة والتأكيد بيكدب)
 //
 // المعايرات (مرساة + حارس — درس 47): codeChar مابيقراش الزرار → 2 · شيل ت→J → 3 · WH_DEDUPE_MS = 0 → 5 ·
 // client_id جديد مع كل محاولة → 6 · شيل !scanned → 12 · شيل esc من المنتجات في القايمة → 15 · شيل أعمدة المخزن من
@@ -60,6 +67,8 @@
 // «اتعدّوا» مابيطرحش → 39 · «جزء من منتجاتها» → 40 · الرقم المتداس بيترجّع → 41
 // + الرابعة: حد السرعة الضيق على كود J&T في المودال → 38 · الإجابة لكل المنتجات → 39 · من غير الطرود اللي اتعرضت → 39 ·
 // الفوكس مابيرجعش للزرار → 39 · «طرود جديدة ظهرت» مابتتقالش → 39
+// + الخامسة: كلام المرتجع القديم → 42 · «طبّق» مابيستناش الإجابة → 42 · السكرول لأول سؤال → 42 · الملخص بيعدّ المش نشط → 42 ·
+// «اكتب 0» على «غير موزع» عليه طرود → 42 · السطور المش مربوطة مش في المودال → 42 · وقوع الكومة صامت → 43
 // تشغيل:  python3 tools/spa-server.py 8899 app &   ثم   cd tools && node --import ./clock-preload.mjs test-warehouse.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -114,6 +123,9 @@ window.__RPC_HOOK = function(name, args){
   if(r && typeof r.then === 'function') return r.then(function(d){ return { data: d, error:null }; });
   if(r) return { data: r, error:null };
   if(name === 'wh_scan') return { data: window.__OUT_OK, error:null };
+  // نفس شكل السيرفر: ok دايماً معاه pile (فاضي لو مفيش كومة) — الواجهة بتعتبر الرد الناقص وقوع
+  if(name === 'wh_count_pile'){ var oc = (window.__WH_COUNTS || []).filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
+    return { data:{ ok:true, count_id: oc ? oc.id : null, opts:{}, pile:[], pile_orders:0, moved_orders:0, ret_orders:0, moved_need:0, ret_need:0 }, error:null }; }
   return { data:{ ok:true, code:'ok' }, error:null };
 };`;
 
@@ -861,10 +873,15 @@ async function modalKeys(patch, seq, gap){
   await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
   const m = await p.evaluate(async ({ seq, gap }) => {
     const mi = document.getElementById('cmodal-input'); mi.focus(); mi.value = 'سبب '; mi.setSelectionRange(4, 4);
+    // 🔴 الحارس بيقيس السرعة من e.timeStamp — الحدث المصطنع بياخد وقت إنشاءه، و setTimeout(36) تحت حمل الجهاز بيطلع 50+
+    // (الفحص وقع مرة كده والكود ماتغيّرش). الوقت بيتثبّت على الفجوة المقصودة بالظبط زي السكانر الحقيقي (وقت الجهاز)
+    let ts = performance.now();
     for(const k of seq){
       const ev = new KeyboardEvent('keydown', { code: /\d/.test(k.ch) ? 'Digit' + k.ch : 'Key' + k.ch, key: k.ch, repeat: !!k.rep, bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'timeStamp', { value: ts });
       mi.dispatchEvent(ev); if(!ev.defaultPrevented) mi.setRangeText(k.ch, mi.selectionStart, mi.selectionEnd, 'end');
       const g = k.gap != null ? k.gap : gap;
+      ts += g;
       if(g) await new Promise(r => setTimeout(r, g));
     }
     const v = mi.value;
@@ -931,6 +948,7 @@ async function countQ(patch){
   await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
   await p.fill('#wh-count .wh-ci[data-pid="p2"]', '5');
   await p.fill('#wh-count .wh-ci[data-pid="p3"]', '3');
+  R.topT = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
   await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(200);
   R.block = (await calls(p, 'wh_count_apply')).length + (await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex' ? 1 : 0));
   // المنتج ده اتعدّ قبل المندوب (اتعدّوا) والتاني بعده (خرجوا) = إجابتين مختلفتين
@@ -968,7 +986,7 @@ async function countQ(patch){
 }
 const cq = await countQ();
 const o0 = (cq.opts || [])[0] || {}, o1 = (cq.opts || [])[1] || {}, o2 = (cq.opts || [])[2] || {};
-ok(cq.need0 === 3 && cq.top0 === 2 && /1/.test(cq.r1.pile) && /1/.test(cq.r1.q) && /2/.test(cq.r2.q) && /1/.test(cq.r3.q) && cq.block === 0
+ok(cq.need0 === 3 && cq.top0 === 0 && cq.topT === 2 && /1/.test(cq.r1.pile) && /1/.test(cq.r1.q) && /2/.test(cq.r2.q) && /1/.test(cq.r3.q) && cq.block === 0
    && JSON.stringify(o0) === JSON.stringify({ moved:{ p1:{ v:'counted', ids:['o1'] } } })
    && JSON.stringify(o1) === JSON.stringify({ moved:{ p3:{ v:'left', ids:['o4'] } } })
    && JSON.stringify(o2) === JSON.stringify({ ret:{ p2:{ v:'absent', ids:['o2', 'o3'] } } })
@@ -1005,6 +1023,105 @@ async function ciHeld(patch){
 }
 const ch = await ciHeld();
 ok(ch === '5555555555', '41) خانة العدّ: رقم متداس + Enter = الرقم فاضل (' + ch + ')');
+
+// ── المراجعة العدائية الخامسة ──
+const R5_INIT = `window.__STOCK = [{ id:'p3', tenant_id:'t-test-1', name:'ستاند', current_qty:4, active:true, parent_id:null },
+      { id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null },
+      { id:'p2', tenant_id:'t-test-1', name:'رف', current_qty:6, active:true, parent_id:null },
+      { id:'pf', tenant_id:'t-test-1', name:'ترولي', current_qty:-1, active:true, parent_id:null },
+      { id:'pfc', tenant_id:'t-test-1', name:'ترولي — أسود', current_qty:3, active:true, parent_id:'pf', variant_label:'أسود' },
+      { id:'pg', tenant_id:'t-test-1', name:'كرسي', current_qty:0, active:true, parent_id:null },
+      { id:'pgc', tenant_id:'t-test-1', name:'كرسي — أبيض', current_qty:2, active:true, parent_id:'pg', variant_label:'أبيض' },
+      { id:'p9', tenant_id:'t-test-1', name:'قديم', current_qty:0, active:false, parent_id:null }];
+    window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];
+    window.__OPTS = { moved:{}, ret:{} }; window.__OPT_DELAY = 0; window.__APPLY_SDC = 1; window.__SCROLLED = [];
+    var siv = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function(o){ window.__SCROLLED.push((this.getAttribute && this.getAttribute('data-pid')) || (this.className || '')); return siv.call(this, o); };
+    window.__WHR = function(n, a){
+      var O = window.__OPTS, cur = { moved:{ p1:['o1'], p3:['o4'], p9:['o9'] }, ret:{ p2:['o2'] } };
+      var need = function(k, pid){ var x = O[k][pid]; return !x || cur[k][pid].some(function(id){ return x.ids.indexOf(id) < 0; }); };
+      var ans = function(k, pid){ return O[k][pid] ? O[k][pid].v : null; };
+      var mv = function(pid){ return { product_id: pid, pile:0, moved:1, moved_leak:0, ret:0, moved_ids: cur.moved[pid], ret_ids:[], moved_ans: ans('moved', pid),
+        moved_by:'أدمن', moved_need: need('moved', pid), ret_need:false, moved_list:[{ uid:'18' + pid, t:'0000000' + pid.length }], ret_list:[], pile_list:[] }; };
+      if(n === 'wh_count_pile') return { ok:true, count_id:7, pile_orders:1, moved_orders:3, ret_orders:1, pile:[
+        mv('p1'), mv('p3'), mv('p9'),
+        { product_id:'p2', pile:0, moved:0, moved_leak:0, ret:1, moved_ids:[], ret_ids: cur.ret.p2, ret_ans: ans('ret', 'p2'), ret_by:'أدمن',
+          moved_need:false, ret_need: need('ret', 'p2'), moved_list:[], ret_list:[{ uid:'18402', t:'00000402' }], pile_list:[] },
+        { product_id:'pf', pile:1, moved:0, moved_leak:0, ret:0, moved_ids:[], ret_ids:[], moved_need:false, ret_need:false,
+          moved_list:[], ret_list:[], pile_list:[{ uid:'18400', t:'00000400' }] }] };
+      if(n === 'wh_count_opts'){ var o = a.p_opts || {};
+        ['moved', 'ret'].forEach(function(k){ Object.keys(o[k] || {}).forEach(function(pid){ O[k][pid] = { v: o[k][pid].v, ids: (o[k][pid].ids || []).slice() }; }); });
+        var res = { ok:true, code:'ok' };
+        return window.__OPT_DELAY ? new Promise(function(r){ setTimeout(function(){ r(res); }, window.__OPT_DELAY); }) : res; }
+      if(n === 'wh_count_apply'){ if(window.__APPLY_SDC && !a.p_force){ return { ok:false, code:'scans_during_count', posted:1, unmatched:2, posted_in:1 }; }
+        return { ok:true, code:'ok', changed:1, pile:0 }; }
+      return null; };`;
+async function countR5(patch){
+  // جرد دوري (السكان شغّال) — من غير كده «ده جرد التشغيل» متعلّم ويطلب كل المنتجات
+  const p = await open({ patch, init: R5_INIT, board: Object.assign({}, BOARD, { enabled: true, baseline_at: NOW() }) });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count .wh-cq[data-k="ret"][data-pid="p2"]', { timeout: 5000 });
+  const R = {};
+  const btn = (k, v, pid) => '#wh-count [data-wha="count-opt"][data-k="' + k + '"][data-v="' + v + '"][data-pid="' + pid + '"]';
+  const cn = (pid) => p.evaluate(pid => { const i = document.querySelector('#wh-count .wh-ci[data-pid="' + pid + '"]'); return i ? i.closest('.wh-count-row').querySelector('.wh-cn').textContent : ''; }, pid);
+  R.labY = await p.textContent(btn('ret', 'counted', 'p2'));
+  R.labN = await p.textContent(btn('ret', 'absent', 'p2'));
+  R.retQ = await p.evaluate(() => document.querySelector('#wh-count .wh-cq[data-k="ret"][data-pid="p2"] .wh-cq-t').textContent);
+  R.left = await p.evaluate(() => (document.querySelector('#wh-count .wh-count-q[data-k="moved"] .wh-q-a') || {}).textContent || '');
+  R.top0 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
+  R.pf = await cn('pf'); R.pg = await cn('pg');
+  await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
+  R.top1 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need[data-k="moved"]').length);
+  // «طبّق» والسؤال على «منظم» (مكتوب) و«ستاند» (مش مكتوب — قبله في الصفحة): السكرول على «منظم»
+  await p.evaluate(() => { window.__SCROLLED = []; });
+  await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(250);
+  R.scroll = await p.evaluate(() => window.__SCROLLED.join(','));
+  // «للكل» = المنتجات اللي في القايمة بس
+  await p.click(btn('moved', 'counted', '')); await p.waitForTimeout(300);
+  R.allKeys = Object.keys(((await calls(p, 'wh_count_opts')).pop() || { args: { p_opts: { moved: {} } } }).args.p_opts.moved || {}).sort().join(',');
+  // الإجابة بتتغيّر والحفظ في السكة + «طبّق» على طول = ولا حاجة (الصف المحلي لسه على الإجابة القديمة)
+  await p.evaluate(() => { window.__OPT_DELAY = 700; });
+  await p.click(btn('moved', 'left', 'p1'));
+  await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(150);
+  R.busyModal = await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex');
+  R.busyToast = await p.evaluate(() => /لسه بتتحفظ/.test(document.body.textContent));
+  if(R.busyModal) await p.click('#cmodal-cancel');
+  await p.waitForTimeout(900);
+  R.busyAp = (await calls(p, 'wh_count_apply')).length;
+  // مودال «سكانات وانت بتعدّ»
+  await p.evaluate(() => { window.__OPT_DELAY = 0; });
+  await p.click('[data-wha="count-apply"]'); await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  await p.click('#cmodal-ok'); await p.waitForTimeout(400);
+  R.sdc = await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex' ? document.getElementById('cmodal-sub').textContent : '');
+  await p.context().close();
+  return R;
+}
+const r5 = await countR5();
+ok(/كانوا هنا لما عدّيت المنتج/.test(r5.labY || '') && /ماتعدّوش/.test(r5.labN || '') && /لما عدّيت المنتج/.test(r5.retQ || '')
+   && /فاضل 2 منتج/.test(r5.left || '') && r5.top0 === 0 && r5.top1 === 1
+   && /اعدّها هنا مش تحت لونها/.test(r5.pf || '') && /18400/.test(r5.pf || '') && !/اكتب 0/.test(r5.pf || '') && /اكتب 0/.test(r5.pg || '')
+   && r5.scroll === 'p1' && r5.allKeys === 'p1,p3'
+   && !r5.busyModal && r5.busyToast && r5.busyAp === 0
+   && /مرتجع اتضرب/.test(r5.sdc || '') && /مش مربوط/.test(r5.sdc || '') && !/سطر خروج/.test(r5.sdc || ''),
+  '42) الجرد: المرتجع بالتوقيت · الملخص والـ«للكل» للمنتجات اللي في القايمة · الأحمر للمكتوب · «غير موزع» عليه طرود · السكرول على المنتج اللي اتقال · «طبّق» والإجابة بتتحفظ · مودال السكانات (' + JSON.stringify(r5) + ')');
+
+async function pileErr(patch){
+  const p = await open({ patch, init: `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null }];
+    window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];
+    window.__WHR = function(n){ if(n === 'wh_count_pile') return { ok:false, code:'error' }; return null; };` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count .wh-ci[data-pid="p1"]', { timeout: 5000 });
+  const R = {};
+  R.banner = await p.evaluate(() => { const w = document.querySelector('#wh-count .wh-count-warn.bad'); return w ? !!w.querySelector('[data-wha="count-reload"]') : false; });
+  await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
+  await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(250);
+  R.modal = await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex');
+  R.ap = (await calls(p, 'wh_count_apply')).length;
+  await p.context().close();
+  return R;
+}
+const pe = await pileErr();
+ok(pe.banner && !pe.modal && pe.ap === 0, '43) wh_count_pile وقع = بانر أحمر بـ↻ و«طبّق» مقفول (' + JSON.stringify(pe) + ')');
 
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
@@ -1195,6 +1312,35 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
 {
   const r = await countQ({ adm: s => s.replace("    if(d.code === 'changed') toast(", "    if(false) toast(") }).catch(e => ({ err: String(e) }));
   ok(r.err || !r.chg, 'معايرة (صص) «طرود جديدة ظهرت» مابتتقالش → 39 وقع');
+}
+
+{
+  const r = await countR5({ adm: s => s.replace("yes: ['counted', '✅ كانوا هنا لما عدّيت المنتج'], no: ['absent', '🚫 ماتعدّوش (وصلوا بعد ما عدّيته — أو مش موجودين)']", "yes: ['counted', '✅ هنا واتعدّوا'], no: ['absent', '🚫 مش في المخزن']") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/كانوا هنا لما عدّيت المنتج/.test(r.labY || ''), 'معايرة (ضض) كلام المرتجع القديم → 42 وقع (' + (r.labY || r.err) + ')');
+}
+{
+  const r = await countR5({ adm: s => s.replace("  if(cntOptBusy){ toast('استنى ثانية — الإجابة لسه بتتحفظ', 'er'); return; }\n", '') }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.busyModal || !r.busyToast, 'معايرة (طط) «طبّق» مابيستناش الإجابة اللي في السكة → 42 وقع (' + JSON.stringify({ m: r.busyModal, t: r.busyToast }) + ')');
+}
+{
+  const r = await countR5({ adm: s => s.replace("if(qs[qi].getAttribute('data-pid') === nq.pids[0]) qe = qs[qi];", "qe = qs[qi];") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.scroll !== 'p1', 'معايرة (ظظ) السكرول لأول سؤال في الصفحة → 42 وقع (' + (r.scroll || r.err) + ')');
+}
+{
+  const r = await countR5({ adm: s => s.replace("    if(!act[pid] || !r[k + '_ids'].length) return;", "    if(!r[k + '_ids'].length) return;") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/فاضل 2 منتج/.test(r.left || ''), 'معايرة (عع) الملخص بيعدّ المنتج المش نشط → 42 وقع (' + (r.left || r.err) + ')');
+}
+{
+  const r = await countR5({ adm: s => s.replace("  if(!n) return '(غير موزع — اكتب 0 لو كل القطع على الخصائص)';", "  return '(غير موزع — اكتب 0 لو كل القطع على الخصائص)';") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/اعدّها هنا/.test(r.pf || ''), 'معايرة (غغ) «اكتب 0» على «غير موزع» عليه طرود → 42 وقع (' + (r.pf || r.err) + ')');
+}
+{
+  const r = await countR5({ adm: s => s.replace("            + (unm ? 'وفيه ' + unm + ' سطر", "            + (false ? 'وفيه ' + unm + ' سطر") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/مش مربوط/.test(r.sdc || ''), 'معايرة (فف) السطور المش مربوطة مش في مودال السكانات → 42 وقع');
+}
+{
+  const r = await pileErr({ adm: s => s.replace("    cntPileErr = !(pd && pd.ok && Array.isArray(pd.pile));", "    cntPileErr = false;") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.banner || r.modal || r.ap > 0, 'معايرة (قق) وقوع الكومة صامت → 43 وقع (' + JSON.stringify(r) + ')');
 }
 
 await b.close();

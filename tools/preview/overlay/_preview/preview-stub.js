@@ -491,10 +491,10 @@
       return { ok:true, count_id:op.id, opts:oo, pile_orders:1, moved_orders:1, ret_orders:1, pile:[
         { product_id:'prd-1', pile:1, moved:1, moved_leak:0, ret:0, moved_ids:['o-prev-m1'], ret_ids:[],
           moved_ans:ans('moved', 'prd-1', 'o-prev-m1'), moved_by:'أدمن المعاينة', moved_need:!ans('moved', 'prd-1', 'o-prev-m1'),
-          ret_ans:null, ret_need:false, moved_list:[{ uid:'17990', t:'00000990', leak:false }], ret_list:[] },
+          ret_ans:null, ret_need:false, moved_list:[{ uid:'17990', t:'00000990', leak:false }], ret_list:[], pile_list:[{ uid:'17989', t:'00000989' }] },
         { product_id:'prd-0-v0', pile:0, moved:0, moved_leak:0, ret:1, moved_ids:[], ret_ids:['o-prev-r1'],
           moved_ans:null, moved_need:false, ret_ans:ans('ret', 'prd-0-v0', 'o-prev-r1'), ret_by:'أدمن المعاينة',
-          ret_need:!ans('ret', 'prd-0-v0', 'o-prev-r1'), moved_list:[], ret_list:[{ uid:'17991', t:'00000991' }] }] };
+          ret_need:!ans('ret', 'prd-0-v0', 'o-prev-r1'), moved_list:[], ret_list:[{ uid:'17991', t:'00000991' }], pile_list:[] }] };
     }
     if(name === 'wh_count_opts'){
       WH.cntOpts = WH.cntOpts || { moved:{}, ret:{} };
