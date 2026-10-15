@@ -193,6 +193,14 @@
 .wh-count-list{display:flex;flex-direction:column;gap:4px;}
 .wh-count-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:7px 12px;border:1px solid var(--brd);border-radius:12px;background:var(--card);}
 .wh-count-row.child{margin-inline-start:22px;}
+/* صفر/بالسالب في السيستم = بينور أحمر (طلب المالك 15 أكتوبر) — مع ⚠ في النص عشان مايعتمدش على اللون بس */
+.wh-count-row.zero{border-color:#f87171;background:#fef2f2;box-shadow:0 0 0 2px rgba(239,68,68,.22),0 0 12px rgba(239,68,68,.18);}
+.wh-count-row.zero .wh-cs{color:#b91c1c;font-weight:800 !important;}
+.wh-count-order{margin-top:2px !important;}
+.wh-zero-key{color:#b91c1c;font-weight:800 !important;}
+.wh-count-print{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:10px;}
+.wh-count-print .wh-hint{margin:0;}
+.wh-cno{flex:0 0 auto;min-width:30px;font:700 .74rem/1 "Liberation Sans",Arial,sans-serif;color:var(--muted);text-align:center;}
 .wh-cn{flex:1 1 240px;font-size:.88rem;}
 .wh-cn small{color:var(--muted);font-size:.74rem;}
 .wh-cs{font-size:.78rem;color:var(--muted);}
@@ -260,6 +268,8 @@ html.dark .wh-q-a.bad{color:#fca5a5;}
 html.dark .wh-q-a.wait{color:var(--muted);}
 html.dark .wh-cpile.q{background:#2a2306;border-color:#a16207;color:#fde68a;}
 html.dark .wh-cq{background:#1f1206;border-color:#9a3412;color:#fdba74;}
+html.dark .wh-count-row.zero{background:#2a0b0b;border-color:#ef4444;box-shadow:0 0 0 2px rgba(239,68,68,.3),0 0 14px rgba(239,68,68,.25);}
+html.dark .wh-count-row.zero .wh-cs,html.dark .wh-zero-key{color:#fca5a5;}
 html.dark .wh-attn-head{color:#fdba74;}
 html.dark .wh-attn-row{background:#111827;}
 html.dark .wh-orphan{background:#0b2235;border-color:#0369a1;color:#bae6fd;}

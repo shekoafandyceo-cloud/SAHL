@@ -67,6 +67,15 @@
 // 47) ⚙️ التشغيل: «▶️ شغّل السكانر» = مودال بالأثر (الحالة + المخزون) → wh_config_set {enabled, start} · بعدها «⏸️ وقّفه» ·
 //     الجرد الكامل مطوي («افتح جرد» مش ظاهر لحد ما الأدمن يفتحه)
 // 48) 📷 الكاميرا: BarcodeDetector لقى 3 أكواد (واحد متكرر + بادئة AIM) = 2 سكان يدوي · المتصفح مابيقراش Code128 (كروم الديسكتوب) = الزرار مخفي
+// 49–56) إصلاحات مراجعة v76: فحص ما قبل التشغيل · «⚠️ راجع» · «اتضربت مرتجع وJ&T سلّمتها» · صفحة n8n بس · البحث المباشر ·
+//     ختم الصفحة في الكارت · آيفون · ملاحظة الكومة في محرر المخزون
+// ── v77 (15 أكتوبر — طلب المالك) ──
+// 57) الجرد مترتب من الأكتر للأقل في السيستم بالعيلة (الخصائص جوّه عيلتها · البنت اليتيمة لوحدها) · الأحمر للصفر والسالب
+//     (مش «غير موزع» الصفر ولا خصائص عيلة رصيدها كله على الأم — والأم عليها «على العيلة كلها») · # لكل سطر · اللي بيتكتب
+//     مابيحرّكش الصفوف · 🔴 الترتيب متجمّد للجرد: الأرقام اتحرّكت و↻ = نفس الترتيب والجديد في مكانه
+// 58) «🖨️ اطبع ورقة الجرد»: نافذة جوّه الضغطة · الأرقام بتتجاب من جديد قبل الكتابة · نفس صفوف الشاشة والرقم # · السيستم والكومة ·
+//     الأحمر · «غير موزع» عليه طرود = «اعدّها هنا» · مكان الساعة وآخر سطر · XSS نص · مفيش script · النافذة اتمنعت = رسالة ·
+//     الكومة وقعت والسكان شغّال = رسالة في النافذة ومفيش طباعة
 //
 // المعايرات (مرساة + حارس — درس 47): codeChar مابيقراش الزرار → 2 · شيل ت→J → 3 · WH_DEDUPE_MS = 0 → 5 ·
 // client_id جديد مع كل محاولة → 6 · شيل !scanned → 12 · شيل esc من المنتجات في القايمة → 15 · شيل أعمدة المخزن من
@@ -80,6 +89,9 @@
 // + v76: سطر الحالة مش ظاهر → 44 · الشارة بالحساب القديم (closed_unscanned) → 14 · آخر 5 أرقام مش بارزين → 45 · esc
 // اتشال من اسم المرتجع → 45 · وسم «مرتجع مستني» → 46 · التشغيل من غير start → 47 · الجرد مفتوح افتراضياً → 47 ·
 // الكاميرا من غير منع التكرار → 48 · الزرار ظاهر والمتصفح مابيقراش Code128 → 48
+// + v77: من غير الترتيب → 57 · الخصائص من غير ترتيب → 57 · «غير موزع» الصفر أحمر → 57 · الصفر مش أحمر → 57 · esc في الورقة → 58 ·
+// الترتيب مش متجمّد → 57 · النافذة اتمنعت في صمت → 58 · الورقة من غير الكومة والسكان شغّال → 58 · خصائص عيلة على الأم حمرا → 57 ·
+// الورقة بأرقام لحظة دخول التاب → 58 · طرود «غير موزع» من غير «اعدّها هنا» → 58 · من غير # على الشاشة → 57
 // تشغيل:  python3 tools/spa-server.py 8899 app &   ثم   cd tools && node --import ./clock-preload.mjs test-warehouse.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -1049,7 +1061,9 @@ const ch = await ciHeld();
 ok(ch === '5555555555', '41) خانة العدّ: رقم متداس + Enter = الرقم فاضل (' + ch + ')');
 
 // ── المراجعة العدائية الخامسة ──
-const R5_INIT = `window.__STOCK = [{ id:'p3', tenant_id:'t-test-1', name:'ستاند', current_qty:4, active:true, parent_id:null },
+// ⚠️ «ستاند» (p3) رقمه أكبر من «منظم» (p1) عن قصد: الجرد مترتب بالكمية (v77) — سؤاله لازم يبقى **قبل** «منظم» في الصفحة
+// وإلا معايرة (ظظ) «السكرول لأول سؤال» بتعدّي على الكود الغلط
+const R5_INIT = `window.__STOCK = [{ id:'p3', tenant_id:'t-test-1', name:'ستاند', current_qty:12, active:true, parent_id:null },
       { id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null },
       { id:'p2', tenant_id:'t-test-1', name:'رف', current_qty:6, active:true, parent_id:null },
       { id:'pf', tenant_id:'t-test-1', name:'ترولي', current_qty:-1, active:true, parent_id:null },
@@ -1441,6 +1455,136 @@ const p56 = await stockPile();
 ok(/منه 2 قطعة في طرود اتضربت خروج/.test(p56.note) && /1 مرتجع/.test(p56.note) && /منه 2 قطعة/.test(p56.sub) && !/جرد ·/.test(p56.sub),
   '56) محرر المخزون: «اكتب اللي على الرف بس — منه 2 في الكومة · 1 مرتجع» تحت الكمية وفي مودال السبب (' + JSON.stringify(p56) + ')');
 
+// ── v77 (15 أكتوبر — طلب المالك): الجرد مترتب من الأكتر للأقل + الصفر أحمر + ورقة الجرد للطباعة ──
+// tb = عيلة رصيدها كله على الأم (زي «تيربو بريمو» 43 والخصائص 0 على الحي): خصائصها الصفر مش حمرا والأم عليها «على العيلة كلها»
+const ORD_STOCK = `window.__STOCK = [
+  { id:'z1', tenant_id:'t-test-1', name:'ميزان', current_qty:0, active:true, parent_id:null },
+  { id:'neg', tenant_id:'t-test-1', name:'رف', current_qty:-2, active:true, parent_id:null },
+  { id:'fk1', tenant_id:'t-test-1', name:'ترولي — أسود', current_qty:0, active:true, parent_id:'fam', variant_label:'أسود' },
+  { id:'mid', tenant_id:'t-test-1', name:'ستاند <img src=x id=xss>', current_qty:8, active:true, parent_id:null },
+  { id:'fam', tenant_id:'t-test-1', name:'ترولي', current_qty:5, active:true, parent_id:null },
+  { id:'fk2', tenant_id:'t-test-1', name:'ترولي — أبيض', current_qty:3, active:true, parent_id:'fam', variant_label:'أبيض' },
+  { id:'fz', tenant_id:'t-test-1', name:'كرسي', current_qty:0, active:true, parent_id:null },
+  { id:'fzk', tenant_id:'t-test-1', name:'كرسي — أحمر', current_qty:2, active:true, parent_id:'fz', variant_label:'أحمر' },
+  { id:'ok', tenant_id:'t-test-1', name:'باسكت — بني', current_qty:6, active:true, parent_id:'gone', variant_label:'بني' },
+  { id:'old', tenant_id:'t-test-1', name:'قديم', current_qty:100, active:false, parent_id:null },
+  { id:'tb', tenant_id:'t-test-1', name:'تيربو', current_qty:20, active:true, parent_id:null },
+  { id:'tbk1', tenant_id:'t-test-1', name:'تيربو — أبيض', current_qty:0, active:true, parent_id:'tb', variant_label:'أبيض' },
+  { id:'tbk2', tenant_id:'t-test-1', name:'تيربو — أسود', current_qty:0, active:true, parent_id:'tb', variant_label:'أسود' },
+  { id:'big', tenant_id:'t-test-1', name:'منظم كبير', current_qty:40, active:true, parent_id:null }];
+  window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];`;
+const ORD_WANT = 'big,tb,tbk1,tbk2,fam,fk2,fk1,mid,ok,fz,fzk,z1,neg';
+// بعد ↻: «ستاند» بقى 50 (كان هيطلع فوق) + منتج جديد 1000 + خاصية جديدة للترولي = الترتيب ثابت والجداد في مكانهم
+const ORD_WANT2 = 'big,tb,tbk1,tbk2,fam,fk2,fk1,fk3,mid,ok,fz,fzk,z1,neg,nw';
+// 57 — الشاشة: الأكتر في السيستم فوق بالعيلة · الأحمر للصفر والسالب (مش «غير موزع» ولا عيلة على الأم) · # · الترتيب متجمّد
+async function countOrder(patch){
+  const p = await open({ patch, init: ORD_STOCK });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count .wh-count-row', { timeout: 5000 });
+  const rows = () => p.evaluate(() => Array.from(document.querySelectorAll('#wh-count .wh-count-row')).map(r => ({
+    pid: r.querySelector('.wh-ci').getAttribute('data-pid'), red: r.classList.contains('zero'), cs: r.querySelector('.wh-cs').textContent,
+    no: (r.querySelector('.wh-cno') || {}).textContent || '', cn: r.querySelector('.wh-cn').textContent })));
+  const R = {};
+  const a = await rows();
+  R.order = a.map(x => x.pid).join(',');
+  R.red = a.filter(x => x.red).map(x => x.pid).sort().join(',');
+  R.neg = (a.find(x => x.pid === 'neg') || {}).cs || '';
+  R.nums = a.every((x, i) => x.no === '#' + (i + 1));
+  R.tbHint = /على العيلة كلها/.test((a.find(x => x.pid === 'tb') || {}).cn || '') && !/على العيلة كلها/.test((a.find(x => x.pid === 'fz') || {}).cn || '')
+    && /مااتوزّعتش على الألوان/.test((a.find(x => x.pid === 'fam') || {}).cn || '') && !/على العيلة كلها/.test((a.find(x => x.pid === 'fam') || {}).cn || '');
+  R.head = await p.evaluate(() => (document.querySelector('#wh-count .wh-count-order') || {}).textContent || '');
+  R.rule = await p.evaluate(() => /متسلّمش للمندوب/.test((document.querySelector('#wh-count .wh-count-head') || {}).textContent || ''));
+  // اللي بيتكتب مابيحرّكش الترتيب (الرقم في الخانة مش رقم السيستم) — حتى بعد رسم كامل
+  await p.fill('#wh-count .wh-ci[data-pid="z1"]', '99');
+  await p.click('[data-wha="count-preview"]'); await p.waitForTimeout(150);
+  R.order2 = (await rows()).map(x => x.pid).join(',');
+  // 🔴 الأرقام اتحرّكت (سكان · تعديل) و↻ — الترتيب بيفضل زي الورقة · الجديد: الخاصية جنب عيلتها والباقي في الآخر
+  await p.evaluate(() => {
+    window.__STOCK.find(x => x.id === 'mid').current_qty = 50;
+    window.__STOCK.push({ id:'nw', tenant_id:'t-test-1', name:'جديد', current_qty:1000, active:true, parent_id:null });
+    window.__STOCK.push({ id:'fk3', tenant_id:'t-test-1', name:'ترولي — رمادي', current_qty:9, active:true, parent_id:'fam', variant_label:'رمادي' });
+  });
+  await p.evaluate(() => document.querySelector('#wh-count [data-wha="count-reload"]').click());
+  await p.waitForFunction(() => document.querySelectorAll('#wh-count .wh-count-row').length === 15, null, { timeout: 3000 }).catch(() => {});
+  const c = await rows();
+  R.order3 = c.map(x => x.pid).join(',');
+  R.midCs = (c.find(x => x.pid === 'mid') || {}).cs || '';
+  R.saved = await p.evaluate(() => { try{ return (JSON.parse(localStorage.getItem('sahl_wh_count_order_7')) || []).join(','); }catch(e){ return ''; } });
+  R.xss = await p.evaluate(() => !!document.getElementById('xss'));
+  await p.context().close();
+  return R;
+}
+const o57 = await countOrder();
+ok(o57.order === ORD_WANT && o57.red === 'fk1,neg,z1' && /-2/.test(o57.neg) && /بالسالب/.test(o57.neg) && /⚠/.test(o57.neg) && o57.nums && o57.tbHint
+   && /من الأكتر للأقل/.test(o57.head) && /3 صفر\/بالسالب/.test(o57.head) && o57.rule && o57.order2 === ORD_WANT
+   && o57.order3 === ORD_WANT2 && /50/.test(o57.midCs) && o57.saved === ORD_WANT2 && !o57.xss,
+  '57) الجرد: الأكتر في السيستم فوق بالعيلة · الأحمر للصفر والسالب (مش «غير موزع» ولا عيلة رصيدها على الأم — والأم عليها «على العيلة كلها») · # لكل سطر · قاعدة «وانت بتعدّ» · المكتوب مابيحرّكش الصفوف · ↻ بعد ما الأرقام اتحرّكت = نفس الترتيب والجديد في مكانه (' + JSON.stringify(o57) + ')');
+
+// 58 — ورقة الجرد: نافذة جوّه الضغطة · الأرقام من جديد قبل الكتابة · نفس الصفوف والرقم # · الأحمر · الكومة · «غير موزع» عليه طرود ·
+// العيلة على الأم · مكان الساعة وآخر سطر · XSS · المنع
+const PRINT_HOOK = `(function(){ var ro = window.open; window.__OPENS = 0; window.__PRINTED = 0;
+  window.open = function(){ window.__OPENS++; if(window.__BLOCK_POPUP) return null; var w = ro.apply(window, arguments);
+    if(w){ window.__SW = w; w.print = function(){ window.__PRINTED++; window.__SHEET = w.document.documentElement.outerHTML; }; } return w; }; })();`;
+async function printFlow(patch, opt){
+  opt = opt || {};
+  const pile = opt.pileErr ? `{ ok:false }` : `{ ok:true, count_id:7, pile:[{ product_id:'big', pile:3, moved:0, moved_leak:0, ret:0, moved_ids:[], ret_ids:[], pile_list:[] },
+    { product_id:'fam', pile:2, moved:0, moved_leak:0, ret:0, moved_ids:[], ret_ids:[], pile_list:[{ uid:'W-5', t:'JEG…24680' }, { uid:'18001', t:'JEG…13579' }] }], pile_orders:5, moved_orders:0, ret_orders:0 }`;
+  const p = await open({ patch, board: opt.board || BOARD, init: ORD_STOCK + PRINT_HOOK + (opt.block ? 'window.__BLOCK_POPUP = true;' : '')
+    + `window.__WHR = function(n){ if(n === 'wh_count_pile') return ${pile}; return null; };` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count [data-wha="count-print"]', { timeout: 5000 });
+  const R = {};
+  R.screen = await p.evaluate(() => Array.from(document.querySelectorAll('#wh-count .wh-ci')).map(i => i.getAttribute('data-pid')).join(','));
+  // الرقم اتحرّك بعد ما التاب اتفتح — الورقة لازم تطبع الجديد (من غير ما الترتيب يتغيّر)
+  await p.evaluate(() => { window.__STOCK.find(x => x.id === 'big').current_qty = 41; });
+  await p.click('[data-wha="count-print"]');
+  if(opt.block || opt.pileErr){
+    // الطباعة الاحتياطية بعد 4ث (الخطوط مابتوصلش النافذة في الهارنس) — بيستنى الطباعة أو رسالة النافذة
+    await p.waitForFunction(() => window.__PRINTED > 0 || (window.__SW && /دوس ↻/.test(window.__SW.document.body.textContent)), null, { timeout: opt.block ? 900 : 7000 }).catch(() => {});
+    R.opens = await p.evaluate(() => window.__OPENS);
+    R.printed = await p.evaluate(() => window.__PRINTED);
+    R.win = await p.evaluate(() => window.__SW && !window.__SW.closed ? window.__SW.document.body.textContent : '');
+    R.toast = await p.evaluate(() => document.body.textContent);
+    await p.context().close();
+    return R;
+  }
+  await p.waitForFunction(() => window.__PRINTED > 0, null, { timeout: 7000 }).catch(() => {});
+  R.a = await p.evaluate(() => {
+    if(!window.__SW) return null;
+    const d = window.__SW.document, q = (sel) => (d.querySelector(sel) || {}).textContent || '';
+    return { printed: window.__PRINTED, title: d.title,
+      order: Array.from(d.querySelectorAll('tbody tr')).map(r => r.getAttribute('data-pid')).join(','),
+      nums: Array.from(d.querySelectorAll('tbody tr')).every((r, i) => r.querySelector('.c-n').textContent === String(i + 1)),
+      red: Array.from(d.querySelectorAll('tbody tr.zero')).map(r => r.getAttribute('data-pid')).sort().join(','),
+      th: Array.from(d.querySelectorAll('thead th')).map(t => t.textContent).join('|'),
+      sysBig: q('tr[data-pid="big"] .c-sys'), pileBig: q('tr[data-pid="big"] .c-pile'), negSys: q('tr[data-pid="neg"] .c-sys'),
+      famName: q('tr[data-pid="fam"] .c-name'), tbName: q('tr[data-pid="tb"] .c-name'),
+      xss: !!d.getElementById('xss'), midTxt: q('tr[data-pid="mid"] .c-name'),
+      tips: q('.sh-tips'), inc: q('.sh-inc'), side: q('.sh-side'), fonts: /@font-face/.test(d.querySelector('style').textContent),
+      scripts: d.querySelectorAll('script').length };
+  });
+  // الشاشة رقمها اتحدّث مع الورقة (التحميل قبل الطباعة رسم الجرد تاني)
+  R.screenBig = await p.evaluate(() => { const r = document.querySelector('#wh-count .wh-ci[data-pid="big"]'); return r ? r.closest('.wh-count-row').querySelector('.wh-cs').textContent : ''; });
+  R.screen2 = await p.evaluate(() => Array.from(document.querySelectorAll('#wh-count .wh-ci')).map(i => i.getAttribute('data-pid')).join(','));
+  await p.context().close();
+  return R;
+}
+const p58 = await printFlow();
+const p58b = await printFlow(null, { block: true });
+const p58c = await printFlow(null, { pileErr: true, board: Object.assign({}, BOARD, { enabled: true, baseline_at: NOW() }) });
+const p58d = await printFlow(null, { pileErr: true });
+const a58 = p58.a || {};
+ok(a58.printed === 1 && /#7/.test(a58.title || '') && a58.order === p58.screen && a58.order === ORD_WANT && p58.screen2 === ORD_WANT && a58.nums
+   && a58.red === 'fk1,neg,z1' && /السيستم/.test(a58.th) && /في الكومة/.test(a58.th) && /العدد الفعلي/.test(a58.th)
+   && a58.sysBig === '41' && /41/.test(p58.screenBig || '') && a58.pileBig === '3' && /-2/.test(a58.negSys)
+   && /اعدّها في السطر ده مش تحت لونها/.test(a58.famName) && /24680/.test(a58.famName) && /اعدّها هنا/.test(a58.tips)
+   && /على العيلة كلها/.test(a58.tbName) && /مااتوزّعتش على الألوان/.test(a58.famName) && !/على العيلة كلها/.test(a58.famName) && /لحد سطر #/.test(a58.inc) && /متسلّمش طرود للمندوب/.test(a58.inc) && /قدّام نفس الرقم \(#\)/.test(a58.tips)
+   && /أرقام السيستم/.test(a58.side) && !a58.xss && /<img src=x/.test(a58.midTxt) && a58.fonts && a58.scripts === 0 && /صفر أو بالسالب/.test(a58.tips)
+   && p58b.opens === 1 && /منع نافذة الطباعة/.test(p58b.toast || '')
+   && p58c.opens === 1 && p58c.printed === 0 && /دوس ↻/.test(p58c.win || '') && /دوس ↻ الأول وبعدين اطبع/.test(p58c.toast || '')
+   && p58d.printed === 1,
+  '58) ورقة الجرد: الأرقام من جديد قبل الكتابة (41) · نفس صفوف الشاشة والرقم # · الأحمر · السيستم والكومة · «غير موزع» عليه طرود = «اعدّها هنا» بالبوالص · العيلة على الأم · مكان الساعة وآخر سطر · XSS نص · خطوط ومفيش script · النافذة اتمنعت = رسالة · الكومة وقعت والسكان شغّال = رسالة في النافذة ومفيش طباعة (ومن غير تشغيل مسموح) (' + JSON.stringify({ a: a58, sb: p58.screenBig, block: p58b.opens, pe: [p58c.opens, p58c.printed, p58c.win], pe2: p58d.printed }) + ')');
+
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
 {
@@ -1738,6 +1882,56 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
 {
   const r = await stockPile({ stock: s => s.replace("+(isNew?'':' data-pid=\"'+esc(p.id)+'\"')", "") }).catch(e => ({ err: String(e) }));
   ok(r.err || !/منه 2 قطعة/.test(r.note || ''), 'معايرة (م18) ملاحظة الكومة مش في المحرر → 56 وقع');
+}
+
+// ── معايرات v77 ──
+{
+  const r = await countOrder({ adm: s => s.replace("  groups.sort(function(a, b){ return b.tot - a.tot || String(a.p.name || '').localeCompare(String(b.p.name || ''), 'ar'); });\n", '') }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.order !== ORD_WANT, 'معايرة (م19) من غير الترتيب → 57 وقع (' + (r.order || r.err) + ')');
+}
+{
+  const r = await countOrder({ adm: s => s.replace("    var k = (kids[p.id] || []).slice().sort(cntByQty), tot = cntQty(p);", "    var k = (kids[p.id] || []).slice(), tot = cntQty(p);") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.order !== ORD_WANT, 'معايرة (م20) الخصائص جوّه العيلة من غير ترتيب → 57 وقع (' + (r.order || r.err) + ')');
+}
+{
+  const r = await countOrder({ adm: s => s.replace("out.push({ p: g.p, unalloc: un, child: g.orphan, zero: !un && q === 0, neg: q < 0, undist:", "out.push({ p: g.p, unalloc: un, child: g.orphan, zero: q === 0, neg: q < 0, undist:") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.red !== 'fk1,neg,z1', 'معايرة (م21) «غير موزع» الصفر بيتعلّم أحمر → 57 وقع (' + (r.red || r.err) + ')');
+}
+{
+  const r = await countOrder({ adm: s => s.replace("    h += '<div class=\"wh-count-row' + (f.child ? ' child' : '') + (red ? ' zero' : '') + '\">'", "    h += '<div class=\"wh-count-row' + (f.child ? ' child' : '') + '\">'") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.red !== 'fk1,neg,z1', 'معايرة (م22) الصفر مش أحمر → 57 وقع (' + (r.red || r.err) + ')');
+}
+{
+  const r = await printFlow({ adm: s => s.replace("      + '<td class=\"c-name\">' + esc(p.name || '')", "      + '<td class=\"c-name\">' + (p.name || '')") }).catch(e => ({ err: String(e) }));
+  ok(r.err || (r.a && r.a.xss), 'معايرة (م23) esc اتشال من اسم المنتج في الورقة → 58 وقع');
+}
+{
+  const r = await countOrder({ adm: s => s.replace("  fam = whCountFreeze(fam, cntOrder);\n", '') }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.order3 !== ORD_WANT2, 'معايرة (م24) الترتيب مش متجمّد → 57 وقع (' + (r.order3 || r.err) + ')');
+}
+{
+  const r = await printFlow({ adm: s => s.replace("  if(!win){ toast('المتصفح منع نافذة الطباعة — اسمح بالنوافذ المنبثقة (Pop-ups) للوحة وجرّب تاني', 'er'); return; }", "  if(!win){ return; }") }, { block: true }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/منع نافذة الطباعة/.test(r.toast || ''), 'معايرة (م25) النافذة اتمنعت في صمت → 58 وقع');
+}
+{
+  const r = await printFlow({ adm: s => s.replace("    if(cntPileErr && !(board && board.enabled === false)){\n      printMsg(", "    if(false){\n      printMsg(") }, { pileErr: true, board: Object.assign({}, BOARD, { enabled: true, baseline_at: NOW() }) }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.printed !== 0, 'معايرة (م26) الورقة بتتطبع من غير الكومة والسكان شغّال → 58 وقع');
+}
+{
+  const r = await countOrder({ adm: s => s.replace("zero: cq === 0 && !allOnParent, neg: cq < 0 });", "zero: cq === 0, neg: cq < 0 });") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.red !== 'fk1,neg,z1', 'معايرة (م27) خصائص عيلة رصيدها على الأم حمرا → 57 وقع (' + (r.red || r.err) + ')');
+}
+{
+  const r = await printFlow({ adm: s => s.replace("  cntPrinting = true;\n  loadCount(function(ok){", "  cntPrinting = true;\n  (function(f){ f(true); })(function(ok){") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.a || r.a.sysBig !== '41', 'معايرة (م28) الورقة بأرقام لحظة دخول التاب → 58 وقع (' + ((r.a && r.a.sysBig) || r.err) + ')');
+}
+{
+  const r = await printFlow({ adm: s => s.replace("        + (un ? ' — فيه <b>' + num(un) + '</b> قطعة في طرود متسجّلة هنا: <b>اعدّها في السطر ده مش تحت لونها</b>'", "        + (false ? ''") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.a || !/مش تحت لونها/.test(r.a.famName || ''), 'معايرة (م29) طرود «غير موزع» من غير «اعدّها هنا» في الورقة → 58 وقع');
+}
+{
+  const r = await countOrder({ adm: s => s.replace("      + '<span class=\"wh-cno\" dir=\"ltr\" title=\"نفس الرقم في ورقة الجرد\">#' + (fi + 1) + '</span>'\n", '') }).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.nums, 'معايرة (م30) من غير # على الشاشة → 57 وقع');
 }
 
 await b.close();

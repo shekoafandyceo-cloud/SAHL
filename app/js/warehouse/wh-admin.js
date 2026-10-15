@@ -17,7 +17,8 @@ import { swallow } from '../core/log.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { currentRole, currentTenantId } from '../auth/auth.js';
+import { currentRole, currentTenant, currentTenantId } from '../auth/auth.js';
+import { fontCss } from '../orders/jt-awb.js';
 
 var api = { reloadBoard: function(){}, setTab: function(){}, enqueue: function(){}, pending: function(){ return 0; } };
 var board = null;
@@ -238,6 +239,9 @@ var cntOptBusy = false;
 var cntGoLive = null, cntGoLiveFor = null;   // اختيار «ده جرد التشغيل» — كان بيرجع لافتراضه مع كل رسم
 var cfgBusy = false;
 var cntAdvOpen = false;   // «🧮 جرد كامل (اختياري)» مفتوح — بيفضل زي ما الأدمن سابه مع أي رسم
+var cntOrder = null, cntOrderFor = null;   // ترتيب الجرد المتجمّد (pids) — whCountFreeze
+var cntPrinting = false;   // الطباعة مستنية الأرقام الجديدة — ضغطة تانية مابتفتحش نافذة تانية
+var cntWaiters = [];   // مستنيين التحميل الجاي يخلص (الطباعة بتجيب الأرقام من جديد الأول) — fn(ok)
 
 function draftKey(){ return 'sahl_wh_count_draft_' + (cnt ? cnt.id : 'x'); }
 function draftLoad(){
@@ -247,6 +251,23 @@ function draftLoad(){
 function draftSave(){
   try{ localStorage.setItem(draftKey(), JSON.stringify(cntDraft)); }catch(e){ swallow('wh-admin/draft', e); }
 }
+// الصفوف بالترتيب المتجمّد للجرد المفتوح — مصدر واحد للشاشة والورقة (الرقم # واحد في الاتنين)
+function orderKey(){ return 'sahl_wh_count_order_' + (cnt ? cnt.id : 'x'); }
+function cntRows(){
+  var fam = whCountFamilies(cntProducts);
+  if(!cnt) return fam;
+  if(cntOrderFor !== cnt.id){
+    cntOrderFor = cnt.id; cntOrder = null;
+    try{ var v = JSON.parse(localStorage.getItem(orderKey()) || 'null'); if(Array.isArray(v)) cntOrder = v; }catch(e){ cntOrder = null; }
+  }
+  fam = whCountFreeze(fam, cntOrder);
+  var ids = fam.map(function(f){ return f.p.id; });
+  if(!cntOrder || ids.length !== cntOrder.length || ids.some(function(x, i){ return x !== cntOrder[i]; })){
+    cntOrder = ids;
+    try{ localStorage.setItem(orderKey(), JSON.stringify(ids)); }catch(e){ swallow('wh-admin/order', e); }
+  }
+  return fam;
+}
 
 function whenTxt(iso){
   if(!iso) return '—';
@@ -254,8 +275,14 @@ function whenTxt(iso){
   catch(e){ return '—'; }
 }
 
-function loadCount(){
-  if(!sb || !currentTenantId) return;
+function cntFlush(ok){
+  var w = cntWaiters; cntWaiters = [];
+  w.forEach(function(fn){ try{ fn(ok); }catch(e){ swallow('wh-admin/count.wait', e); } });
+}
+// cb(ok) = بعد ما التحميل الجاي يخلص ويترسم (تحميل في السكة = بيستنى اللي بعده — اللي في السكة ممكن يكون قديم)
+function loadCount(cb){
+  if(cb) cntWaiters.push(cb);
+  if(!sb || !currentTenantId){ cntFlush(false); return; }
   if(cntLoading){ cntAgain = true; return; }
   cntLoading = true; cntErr = false; renderCount();
   Promise.all([
@@ -267,7 +294,7 @@ function loadCount(){
   ]).then(function(res){
     cntLoading = false;
     if(cntAgain){ cntAgain = false; loadCount(); return; }
-    if(res[0].error || res[1].error){ cntErr = true; renderCount(); return; }
+    if(res[0].error || res[1].error){ cntErr = true; renderCount(); cntFlush(false); return; }
     var pd = res[2] && !res[2].error && res[2].data;
     cntPile = null;
     cntPileErr = !(pd && pd.ok && Array.isArray(pd.pile));
@@ -292,6 +319,11 @@ function loadCount(){
     cntProducts = (res[1].data || []).filter(function(p){ return p.active !== false; });
     if(cnt) draftLoad();
     renderCount();
+    cntFlush(true);
+  }, function(e){
+    cntLoading = false; swallow('wh-admin/count.load', e);
+    if(cntAgain){ cntAgain = false; loadCount(); return; }
+    cntErr = true; renderCount(); cntFlush(false);
   });
 }
 
@@ -395,28 +427,143 @@ function qTopHtml(k, cp){
 // «غير موزع» = قطع متسجّلة على الأم (خاصيتها مش معروفة — لون مش في الخصائص زي «روز»). 🔴 لو فيه طرود متسجّلة
 // عليه (كومة · المندوب أخدها · مرتجع) القطع دي لازم تتعدّ **هنا** مش تحت لونها — الطرح بيتعمل من المنتج اللي في
 // السطر بس، فـ«اكتب 0» + القطعة تحت لونها = قطعة زيادة على اللون (والكومة بترفض الـ0 أصلاً)
-function unallocHint(rq){
+function unallocHint(rq, undist){
   var n = rq ? rq.pile + rq.moved + rq.moved_leak + rq.ret : 0;
-  if(!n) return '(غير موزع — اكتب 0 لو كل القطع على الخصائص)';
-  return '(غير موزع — فيه <b dir="ltr">' + n + '</b> قطعة في طرود متسجّلة هنا (خاصيتها مش معروفة): اللي منها كان في المخزن وانت بتعدّ <b>اعدّها هنا مش تحت لونها</b>'
+  // رصيد العيلة لسه على الأم: المخزن كان بيكتب الرقم ده هنا ويعدّ الألوان كمان = مرتين
+  var ud = undistTxt(undist);
+  if(!n) return '(غير موزع' + (ud ? ud + ' (أو 0)' : ' — اكتب 0 لو كل القطع على الخصائص') + ')';
+  return '(غير موزع' + ud + ' — فيه <b dir="ltr">' + n + '</b> قطعة في طرود متسجّلة هنا (خاصيتها مش معروفة): اللي منها كان في المخزن وانت بتعدّ <b>اعدّها هنا مش تحت لونها</b>'
     + (rq.pile_list && rq.pile_list.length ? ' · الكومة: ' + qListHtml(rq.pile_list, rq.pile_list.length) : '') + ')';
 }
 
+// «غير موزع» عليه رصيد: all = رصيد العيلة كله على الأم · part = جزء منه لسه مااتوزّعش — كل لون معروف يتعدّ في سطره
+function undistTxt(u){
+  return u === 'all' ? ' — <b>الرقم ده على العيلة كلها لسه مااتوزّعش</b>: اعدّ كل لون في سطره، واكتب هنا بس اللي لونه مش معروف'
+       : u === 'part' ? ' — <b>فيه قطع لسه مااتوزّعتش على الألوان</b>: اللي لونه معروف اعدّه في سطر لونه، واكتب هنا بس اللي لونه مش معروف'
+       : '';
+}
+
 // المنتجات بالعيلة: الأم الأول (لو ليها خصائص = «غير موزع») وبعدها بناتها
+// 🔴 الترتيب (طلب المالك 15 أكتوبر): **الأكتر في السيستم فوق والأقل تحت** — بالعيلة: العيلة بمجموعها (الأم «غير موزع»
+// + خصائصها) والخصائص جوّاها من الأكتر للأقل، فألوان المنتج الواحد بتفضل جنب بعض (على الرف وفي ورقة الجرد). الترتيب
+// من رقم السيستم بس — مش من اللي بيتكتب (الصف كان هيتنطّ من تحت إيد الأدمن وهو بيكتب) · نفس الترتيب في الشاشة
+// والورقة (مصدر واحد) · zero = صفر في السيستم (بيتعلّم أحمر) — إلا «غير موزع» على أم ليها خصائص: صفرها الطبيعي
+// (كل القطع اتوزّعت) · neg = بالسالب (أحمر دايماً)
+function cntQty(p){ var n = Number(p && p.current_qty); return isFinite(n) ? n : 0; }
+function cntByQty(a, b){ return cntQty(b) - cntQty(a) || String(a.name || '').localeCompare(String(b.name || ''), 'ar'); }
 export function whCountFamilies(products){
   var parents = [], kids = {};
   (products || []).forEach(function(p){ if(p.parent_id) (kids[p.parent_id] = kids[p.parent_id] || []).push(p); else parents.push(p); });
-  var out = [];
-  parents.forEach(function(p){
-    var k = kids[p.id] || [];
-    out.push({ p: p, unalloc: k.length > 0, child: false });
-    k.forEach(function(c){ out.push({ p: c, unalloc: false, child: true }); });
+  var groups = parents.map(function(p){
+    var k = (kids[p.id] || []).slice().sort(cntByQty), tot = cntQty(p);
+    k.forEach(function(c){ tot += cntQty(c); });
+    return { p: p, k: k, tot: tot, orphan: false };
   });
-  // بنت أمها مش نشطة/مش موجودة — تتعرض برضه (الجرد لازم يغطي كل النشط)
+  // بنت أمها مش نشطة/مش موجودة — تتعرض برضه (الجرد لازم يغطي كل النشط) — عيلة لوحدها في مكانها بالرقم
   (products || []).forEach(function(p){
-    if(p.parent_id && !parents.some(function(x){ return x.id === p.parent_id; })) out.push({ p: p, unalloc: false, child: true });
+    if(p.parent_id && !parents.some(function(x){ return x.id === p.parent_id; })) groups.push({ p: p, k: [], tot: cntQty(p), orphan: true });
+  });
+  groups.sort(function(a, b){ return b.tot - a.tot || String(a.p.name || '').localeCompare(String(b.p.name || ''), 'ar'); });
+  var out = [];
+  groups.forEach(function(g){
+    var un = g.k.length > 0, q = cntQty(g.p);
+    // 🔴 رصيد العيلة كله على الأم (لسه مااتوزّعش — «تيربو بريمو» 43 والخصائص 0 على الحي): صفر الخصائص مش «دوّر عليه» —
+    // القطع موجودة بس مسجّلة على الأم. الأم عليها undist = «الرقم ده على العيلة كلها» (من غيره المخزن بيكتب 43 على الأم
+    // ويعدّ الألوان كمان = مرتين)
+    var allOnParent = un && q > 0 && g.k.every(function(c){ return cntQty(c) === 0; });
+    out.push({ p: g.p, unalloc: un, child: g.orphan, zero: !un && q === 0, neg: q < 0, undist: un && q > 0 ? (allOnParent ? 'all' : 'part') : '' });
+    g.k.forEach(function(c){ var cq = cntQty(c); out.push({ p: c, unalloc: false, child: true, zero: cq === 0 && !allOnParent, neg: cq < 0 }); });
   });
   return out;
+}
+
+// 🔴 الترتيب بيتجمّد لكل جرد (أول رسم) — الأرقام بتتحرك (سكان · تعديل من المخزون) و↻ كان بيعيد الترتيب: الورقة المطبوعة
+// والشاشة كانوا هيختلفوا، واللي بيكتب من الورقة بالـEnter كان هيحط عدد منتج في سطر منتج تاني. order = pids بالترتيب
+// المتجمّد · اللي مش فيه (منتج اتضاف بعد ما الجرد اتفتح): الخاصية بعد آخر سطر في عيلتها، والباقي في الآخر بترتيبه
+export function whCountFreeze(fam, order){
+  if(!Array.isArray(order) || !order.length) return fam.slice();
+  var pos = {};
+  order.forEach(function(id, i){ if(pos[id] == null) pos[id] = i; });
+  var known = fam.filter(function(f){ return pos[f.p.id] != null; }).sort(function(a, b){ return pos[a.p.id] - pos[b.p.id]; });
+  fam.forEach(function(f){
+    if(pos[f.p.id] != null) return;
+    var par = f.child && f.p.parent_id, at = -1;
+    if(par) known.forEach(function(k, i){ if(k.p.id === par || (k.p.parent_id && k.p.parent_id === par)) at = i; });
+    if(at >= 0) known.splice(at + 1, 0, f); else known.push(f);
+  });
+  return known;
+}
+
+// ── ورقة الجرد للطباعة (طلب المالك 15 أكتوبر — «يراجعوا بيها وهما واقفين وبعدها يسجلوا») ──
+// نفس صفوف الشاشة بالظبط وبنفس الرقم # (rows = cntRows المتجمّد) · رقم السيستم + الكومة (الطرود اللي اتضربت خروج ولسه
+// هنا — لازم تتعدّ معاهم) + خانة فاضية للعدد وخانة للملاحظات · الصفر/السالب مضلّل وعليه ⚠ (الطابعة الأبيض والأسود
+// مابتفرّقش الأحمر) · كل الأسامي متهرّبة (esc)
+var SHEET_CSS = '@page{size:A4 portrait;margin:11mm 9mm 12mm;@bottom-center{content:"صفحة " counter(page) " من " counter(pages);font:400 8pt "Cairo",Arial,sans-serif}}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#000}'
+  + 'body{direction:rtl;font-family:"Cairo","Liberation Sans",Arial,sans-serif;font-size:10.5pt;line-height:1.35}'
+  + '.sh-bar{display:none}.sh-head{display:flex;justify-content:space-between;align-items:flex-start;gap:6mm;border-bottom:.5mm solid #000;padding-bottom:2.2mm;margin-bottom:2.5mm}'
+  + '.sh-head h1{margin:0 0 .6mm;font-size:16pt;font-weight:800;line-height:1.2}.sh-meta{font-size:9pt;line-height:1.6}.sh-meta b{font-weight:800}.sh-side{text-align:left;font-size:9pt;line-height:1.6;white-space:nowrap}'
+  + '.sh-tips{margin:0 0 2.2mm;padding:0 5mm 0 0;font-size:8.8pt;line-height:1.55}.sh-tips b{font-weight:800}'
+  + '.sh-inc{border:.4mm dashed #000;padding:1.6mm 2.5mm;margin:0 0 2.8mm;font-size:8.8pt;line-height:1.9;break-inside:avoid}.sh-inc b{font-weight:800}'
+  + 'table{width:100%;border-collapse:collapse;table-layout:fixed}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}'
+  + 'th,td{border:.3mm solid #000;padding:1.2mm 1.8mm;vertical-align:middle;height:9.5mm}th{height:auto;background:#e5e7eb;font-size:8.8pt;font-weight:800;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+  + '.c-n{width:8mm;text-align:center;font:700 9pt "Liberation Sans",Arial,sans-serif}.c-sys,.c-pile{width:19mm;text-align:center}.c-cnt{width:27mm}.c-note{width:40mm}'
+  + 'td.c-sys,td.c-pile{font:800 12pt "Liberation Sans",Arial,sans-serif}td.c-name{font-weight:700;overflow-wrap:anywhere}td.c-name small{display:block;font-weight:400;font-size:8pt;line-height:1.4}td.c-name small b{font-weight:800}'
+  + 'tr.kid td.c-name{padding-right:7mm}tr.kid td.c-name::before{content:"↳ ";font-weight:400}'
+  + 'tr.zero td{background:#fde2e2;-webkit-print-color-adjust:exact;print-color-adjust:exact}tr.zero td.c-sys{color:#b91c1c}tr.zero td.c-sys::after{content:" ⚠";font-size:9pt}'
+  + '.sh-foot{margin-top:5mm;display:grid;grid-template-columns:1fr 1fr;gap:5mm 10mm;font-size:10pt;break-inside:avoid}.sh-foot div{border-bottom:.3mm solid #000;padding-bottom:5mm}'
+  + '@media screen{body{background:#9ca3af;padding:6mm}.sheet{max-width:210mm;margin:0 auto;background:#fff;padding:10mm 9mm;box-shadow:0 0 3mm rgba(0,0,0,.35)}'
+  + '.sh-bar{display:block;max-width:210mm;margin:0 auto 4mm;padding:2.5mm 4mm;border-radius:2mm;background:#fff7ed;border:.3mm solid #fdba74;font-size:10pt}}';
+
+// o = {count, rows (cntRows) أو products, pile (cntPile), store, openedTxt, dataTxt (وقت الأرقام), printedTxt, fontCss}
+export function whCountSheetHtml(o){
+  o = o || {};
+  var c = o.count || {}, fam = o.rows || whCountFamilies(o.products || []), cp = o.pile || null;
+  var rowOf = function(pid){ return (cp && cp.rows && cp.rows[pid]) || null; };
+  var pileOf = function(pid){ var r = rowOf(pid); return r ? Number(r.pile) || 0 : 0; };
+  var showPile = fam.some(function(f){ return pileOf(f.p.id) > 0; });
+  var zeros = fam.filter(function(f){ return f.zero || f.neg; }).length;
+  var unPile = fam.some(function(f){ var r = f.unalloc && rowOf(f.p.id); return r && (r.pile + r.moved + r.moved_leak + r.ret) > 0; });
+  var num = function(n){ return '<span dir="ltr">' + esc(String(n)) + '</span>'; };
+  var h = '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>' + esc('ورقة جرد المخزن' + (c.id ? ' #' + c.id : '')) + '</title>'
+    + '<style>' + (o.fontCss || '') + SHEET_CSS + '</style></head><body>'
+    + '<div class="sh-bar">🖨️ ورقة الجرد جاهزة — لو نافذة الطباعة مافتحتش لوحدها دوس <b dir="ltr">Ctrl + P</b> (من الموبايل: قايمة المتصفح ← مشاركة ← طباعة).</div><div class="sheet">'
+    + '<div class="sh-head"><div><h1>📋 ورقة جرد المخزن' + (o.store ? ' — ' + esc(o.store) : '') + '</h1>'
+    + '<div class="sh-meta">جرد رقم <b>' + num(c.id || '—') + '</b> · اتفتح ' + esc(o.openedTxt || '—') + (c.opened_by_name ? ' · ' + esc(c.opened_by_name) : '') + '</div>'
+    + '<div class="sh-meta"><b>' + num(fam.length) + '</b> سطر · مترتبين من الأكتر للأقل في السيستم' + (zeros ? ' · <b>' + num(zeros) + '</b> صفر/بالسالب في السيستم (⚠)' : '') + '</div></div>'
+    + '<div class="sh-side">أرقام السيستم: ' + esc(o.dataTxt || o.printedTxt || '') + '<br>اتطبعت: ' + esc(o.printedTxt || '') + '</div></div>'
+    + '<ol class="sh-tips">'
+    + '<li>اعدّ <b>كل القطع اللي في المخزن فعلاً</b> — بما فيها الطرود المتغلّفة اللي لسه ماخرجتش.</li>'
+    + (showPile ? '<li>عمود <b>«في الكومة»</b> = قطع في طرود اتضربت خروج ولسه هنا — <b>اعدّها مع الباقي</b> (السيستم بيطرحها لوحده).</li>' : '')
+    + '<li>المنتج اللي ليه ألوان/مقاسات: اكتب <b>كل لون في سطره</b> (↳) — «غير موزع» للقطع اللي خاصيتها مش معروفة بس'
+    + (unPile ? '، <b>والطرود المكتوب قدامها «اعدّها هنا»</b> (متسجّلة عليه — حتى لو لونها باين)' : '') + '.</li>'
+    + (zeros ? '<li>السطر المضلّل (⚠) = <b>صفر أو بالسالب في السيستم</b> — دوّر عليه كويس؛ لو لقيت منه حاجة اكتبها.</li>' : '')
+    + '<li>لما تخلص: اكتب كل عدد على السيستم <b>قدّام نفس الرقم (#) والاسم</b> — الترتيب على الشاشة هو نفسه — وبعدين «طبّق الجرد».</li></ol>'
+    // 🔴 السيستم بيسأل لكل منتج «كانوا هنا لما عدّيته؟» لو المندوب استلم أو وصل مرتجع وانت بتعدّ — الإجابة محتاجة الساعة وآخر سطر
+    + '<div class="sh-inc">⏱️ وانت بتعدّ: الأحسن <b>متسلّمش طرود للمندوب ولا تستلم مرتجعات</b> (المرتجع يتضرب بعد ما الجرد يتطبّق). ولو حصل، اكتب هنا:<br>'
+    + '🚚 المندوب استلم الساعة ________ وكنا عدّينا لحد سطر # ______ &nbsp;&nbsp; ↩️ وصل مرتجع الساعة ________ وكنا عدّينا لحد سطر # ______</div>'
+    + '<table><thead><tr><th class="c-n">#</th><th class="c-name">المنتج</th><th class="c-sys">السيستم</th>'
+    + (showPile ? '<th class="c-pile">في الكومة</th>' : '') + '<th class="c-cnt">العدد الفعلي</th><th class="c-note">ملاحظات</th></tr></thead><tbody>';
+  fam.forEach(function(f, i){
+    var p = f.p, q = cntQty(p), pl = pileOf(p.id), rq = rowOf(p.id);
+    var cls = [f.child ? 'kid' : '', f.unalloc ? 'un' : '', (f.zero || f.neg) ? 'zero' : ''].filter(Boolean).join(' ');
+    var note = '';
+    if(f.unalloc){
+      var un = rq ? rq.pile + rq.moved + rq.moved_leak + rq.ret : 0;
+      note = '<small>(غير موزع'
+        + (f.undist ? undistTxt(f.undist) + ' (أو 0)' : '')
+        + (un ? ' — فيه <b>' + num(un) + '</b> قطعة في طرود متسجّلة هنا: <b>اعدّها في السطر ده مش تحت لونها</b>'
+               + (rq.pile_list && rq.pile_list.length ? ' · الكومة: ' + qListHtml(rq.pile_list, rq.pile_list.length) : '') : '') + ')</small>';
+    }
+    h += '<tr' + (cls ? ' class="' + cls + '"' : '') + ' data-pid="' + esc(p.id) + '"><td class="c-n">' + (i + 1) + '</td>'
+      + '<td class="c-name">' + esc(p.name || '') + note + '</td>'
+      + '<td class="c-sys">' + num(q) + '</td>'
+      + (showPile ? '<td class="c-pile">' + (pl ? num(pl) : '') + '</td>' : '')
+      + '<td class="c-cnt"></td><td class="c-note"></td></tr>';
+  });
+  h += '</tbody></table>'
+    + '<div class="sh-foot"><div>اللي عدّ: </div><div>التوقيع: </div><div>اللي راجع: </div><div>اتسجّل على السيستم الساعة: </div></div>'
+    + '</div></body></html>';
+  return h;
 }
 
 // pile = {pid: qty} — القطع اللي في طرود اتضربت خروج ولسه هنا: العدّ بيشملها والسيستم خاصمها، فالرقم
@@ -482,12 +629,12 @@ function renderCountBody(el){
         // ماتضربش كان هيتضاف مرتين (مرة في العدّ ومرة لما يتضرب)
         ? '<ol class="wh-steps">'
           + '<li>اضرب كل المرتجعات اللي وصلت <b>الأول</b> — قايمة «🚨 J&amp;T قالت سلّمتها ومش متسجلة» لازم تبقى فاضية.</li>'
-          + '<li>افتح الجرد وعدّ <b>كل القطع اللي في المخزن فعلاً — بما فيها الطرود المتغلّفة في الكومة</b> (اللي اتضربت خروج السيستم بيطرحها من العدّ لوحده).</li>'
+          + '<li>افتح الجرد وعدّ <b>كل القطع اللي في المخزن فعلاً — بما فيها الطرود المتغلّفة في الكومة</b> (اللي اتضربت خروج السيستم بيطرحها من العدّ لوحده). 🖨️ «اطبع ورقة الجرد» = نفس القايمة على ورق، المخزن يعدّ عليها وهما واقفين.</li>'
           + '<li>وانت بتعدّ: الأحسن <b>متسلّمش طرود للمندوب ولا تستلم مرتجعات</b> — ولو حصل، السيستم هيسألك جنب كل منتج «كانوا هنا لما عدّيته؟». الطرد اللي تضربه خروج وانت بتعدّ عادي (بيتحسب مع الكومة) · <b>المرتجع اضربه بعد ما تطبّق</b>.</li>'
           + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد».</li></ol>'
         : '<ol class="wh-steps">'
           + '<li>اربط المنتجات الأول (تاب «🔗 ربط المنتجات») — لحد ما «مش مربوط» تبقى صفر أو قريبة منه.</li>'
-          + '<li>اختار وقت مفيش فيه تسليم للمندوب (مثلاً الصبح بدري). افتح الجرد، وعدّ <b>كل القطع اللي في المخزن — بما فيها الطرود المتغلّفة اللي المندوب لسه ماستلمهاش</b> (دي هتتخصم لما تتضرب خروج).</li>'
+          + '<li>اختار وقت مفيش فيه تسليم للمندوب (مثلاً الصبح بدري). افتح الجرد، وعدّ <b>كل القطع اللي في المخزن — بما فيها الطرود المتغلّفة اللي المندوب لسه ماستلمهاش</b> (دي هتتخصم لما تتضرب خروج). 🖨️ «اطبع ورقة الجرد» = نفس القايمة على ورق، المخزن يعدّ عليها وهما واقفين.</li>'
           + '<li>اكتب العدد لكل منتج هنا، وبعدين «طبّق الجرد» مع «ده جرد التشغيل».</li>'
           + '<li>من بعدها: كل طرد خارج يتضرب، وكل مرتجع يتضرب أول ما يوصل.</li></ol>')
       + '<button type="button" class="wh-btn wh-btn-main" data-wha="count-open"' + (cntBusy ? ' disabled' : '') + '>🧮 افتح جرد جديد</button>'
@@ -495,14 +642,21 @@ function renderCountBody(el){
     el.innerHTML = h;
     return;
   }
-  var fam = whCountFamilies(cntProducts);
+  var fam = cntRows();
   var pmap = pileMap();
   var pay = whCountPayload(cntProducts, cntDraft, pmap);
   if(cntGoLiveFor !== cnt.id){ cntGoLive = !base; cntGoLiveFor = cnt.id; }
+  var zeroN = fam.filter(function(f){ return f.zero || f.neg; }).length;
   h += '<div class="wh-count-head"><div><h3>🧮 جرد مفتوح</h3><p>اتفتح ' + esc(whenTxt(cnt.opened_at)) + (cnt.opened_by_name ? ' · ' + esc(cnt.opened_by_name) : '')
-    + '. اكتب العدد الحقيقي لكل منتج — الكلام بيتحفظ على الجهاز ده لحد ما تطبّق.</p></div>'
+    + '. اكتب العدد الحقيقي لكل منتج — الكلام بيتحفظ على الجهاز ده لحد ما تطبّق.'
+    // القاعدة دي كانت بتظهر قبل ما الجرد يتفتح بس — والأسئلة «كانوا هنا لما عدّيته؟» بتطلع بعده
+    + ' وانت بتعدّ: متسلّمش للمندوب ولا تستلم مرتجعات (المرتجع اضربه بعد ما تطبّق) — ولو حصل، السيستم هيسألك جنب كل منتج «كانوا هنا لما عدّيته؟» (الورقة فيها مكان للساعة وآخر سطر اتعدّ).</p>'
+    + '<p class="wh-count-order">مترتبين من الأكتر للأقل في السيستم (ألوان المنتج جنب بعض) — الترتيب بيتثبّت أول ما الجرد يظهر على الجهاز ده ومابيتغيّرش لحد ما تطبّق حتى لو الأرقام اتحرّكت، والرقم # هو نفسه في الورقة اللي تطبعها من هنا'
+    + (zeroN ? ' · <span class="wh-zero-key">' + zeroN + ' صفر/بالسالب في السيستم</span> — دوّر عليهم كويس قبل ما تكتب 0' : '') + '.</p></div>'
     + '<div class="wh-count-prog"><b>' + (cntProducts.length - pay.missing) + '</b> من ' + cntProducts.length + ' اتعدّوا'
-    + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload" title="هات أرقام السيستم من جديد ومنتجات اتضافت — اللي كتبته بيفضل">↻</button></div></div>';
+    + ' <button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wha="count-reload" title="هات أرقام السيستم من جديد ومنتجات اتضافت — اللي كتبته بيفضل">↻</button></div>'
+    + '<div class="wh-count-print"><button type="button" class="wh-btn" data-wha="count-print" title="ورقة A4 بنفس الترتيب والرقم # — المخزن يعدّ عليها وهما واقفين وبعدين تكتب الأرقام هنا">🖨️ اطبع ورقة الجرد</button>'
+    + '<span class="wh-hint">بتجيب أرقام السيستم من جديد قبل الطباعة.</span></div></div>';
   var cp = cntPile && cntPile.count_id === cnt.id ? cntPile : null;
   if(cntPileErr){
     h += '<div class="wh-count-warn bad">⚠️ مقدرناش نجيب الطرود اللي في الكومة والأسئلة — الأرقام والفرق هنا ناقصين، و«طبّق» مقفول لحد ما تتحمّل.'
@@ -516,7 +670,7 @@ function renderCountBody(el){
     if(wq) h += '<div class="wh-count-warn">' + wq + '</div>';
   }
   h += '<div class="wh-count-list">';
-  fam.forEach(function(f){
+  fam.forEach(function(f, fi){
     var p = f.p, v = cntDraft[p.id];
     var s = v == null ? '' : String(v);
     var diff = '', pq = pmap[p.id] || 0, rq = cp && cp.rows[p.id];
@@ -526,9 +680,12 @@ function renderCountBody(el){
       var d = parseInt(s, 10) - pq - Number(p.current_qty || 0);
       diff = d === 0 ? '<span class="wh-cd zero">=</span>' : '<span class="wh-cd ' + (d > 0 ? 'up' : 'down') + '" dir="ltr">' + (d > 0 ? '+' : '') + d + '</span>';
     }
-    h += '<div class="wh-count-row' + (f.child ? ' child' : '') + '">'
-      + '<span class="wh-cn">' + (f.child ? '↳ ' : '') + esc(p.name) + (f.unalloc ? ' <small>' + unallocHint(rq) + '</small>' : '') + '</span>'
-      + '<span class="wh-cs" title="الرقم في السيستم دلوقتي">السيستم ' + '<span dir="ltr">' + esc(String(p.current_qty || 0)) + '</span></span>'
+    var red = f.zero || f.neg;
+    h += '<div class="wh-count-row' + (f.child ? ' child' : '') + (red ? ' zero' : '') + '">'
+      + '<span class="wh-cno" dir="ltr" title="نفس الرقم في ورقة الجرد">#' + (fi + 1) + '</span>'
+      + '<span class="wh-cn">' + (f.child ? '↳ ' : '') + esc(p.name) + (f.unalloc ? ' <small>' + unallocHint(rq, f.undist) + '</small>' : '') + '</span>'
+      + '<span class="wh-cs" title="' + (f.neg ? 'بالسالب في السيستم — اتخصم أكتر من اللي اتسجّل' : red ? 'صفر في السيستم — اتأكد إنه مش موجود فعلاً' : 'الرقم في السيستم دلوقتي') + '">'
+      + (red ? '⚠ ' : '') + 'السيستم ' + '<span dir="ltr">' + esc(String(cntQty(p))) + '</span>' + (f.neg ? ' (بالسالب)' : '') + '</span>'
       + '<input class="wh-ci" type="text" inputmode="numeric" data-pid="' + esc(p.id) + '" value="' + esc(s) + '" placeholder="العدد" autocomplete="off">'
       + (pq ? '<span class="wh-cpile" title="قطع في طرود اتضربت خروج ولسه هنا — اعدّها مع الباقي، وبتتطرح من العدّ">📦 منهم <span dir="ltr">' + pq + '</span> في الكومة</span>' : '')
       + (qn ? '<span class="wh-cpile q" title="قطع في طرود عليها سؤال تحت لسه مااتجاوبش">❓ <span dir="ltr">' + qn + '</span> مستنية إجابتك</span>' : '')
@@ -581,6 +738,46 @@ function settingsHtml(enabled, base){
   }
   h += '<label class="wh-check"><input type="checkbox" id="wh-hold"' + (hold ? ' checked' : '') + '> امنع خروج الطرد لو العميل طالب إلغاء ولسه الطلب ماتحسمش</label>';
   return h + '</div>';
+}
+
+// 🔴 النافذة بتتفتح **جوّه الضغطة** (من غير await قبلها) — حاجب النوافذ بيسمح بس لنافذة من ضغطة المستخدم · about:blank
+// بترث CSP اللوحة: مفيش script جوّه الورقة — اللوحة هي اللي بتكتب وبتطبع (نفس بوليصة J&T) · الأرقام بتتجاب من جديد
+// **قبل** ما الورقة تتكتب (الورقة كانت بتطلع بأرقام لحظة دخول التاب ومختومة بوقت الطباعة) · الكومة مااتحمّلتش والسكان
+// شغّال = ممنوع (الورقة كانت هتطلع من غير «في الكومة» والمخزن يعدّ الطرود المتغلّفة من غير ما يعرف إنها هتتطرح)
+var PRINT_WAIT = '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>ورقة الجرد</title></head>'
+  + '<body style="font:16px Arial,sans-serif;direction:rtl;padding:24px">⏳ بنجهّز ورقة الجرد بأحدث أرقام…</body></html>';
+function printMsg(win, txt){
+  try{ var d = win.document; d.open(); d.write(PRINT_WAIT.replace('⏳ بنجهّز ورقة الجرد بأحدث أرقام…', esc(txt))); d.close(); }catch(e){ swallow('wh-admin/print.msg', e); }
+}
+function countPrint(){
+  if(!cnt || !cntProducts || cntPrinting) return;
+  var win = null;
+  try{ win = window.open('', '_blank'); }catch(e){ swallow('wh-admin/print.open', e); }
+  if(!win){ toast('المتصفح منع نافذة الطباعة — اسمح بالنوافذ المنبثقة (Pop-ups) للوحة وجرّب تاني', 'er'); return; }
+  try{ var d0 = win.document; d0.open(); d0.write(PRINT_WAIT); d0.close(); }catch(e){ swallow('wh-admin/print.wait', e); }
+  var cid = cnt.id;
+  cntPrinting = true;
+  loadCount(function(ok){
+    cntPrinting = false;
+    if(win.closed) return;
+    if(!ok || !cnt || !cntProducts){ printMsg(win, 'مقدرناش نجيب أرقام السيستم — اقفل النافذة دي ودوس «🖨️ اطبع ورقة الجرد» تاني.'); toast('مقدرناش نجيب الأرقام — جرّب تاني', 'er'); return; }
+    if(cnt.id !== cid){ printMsg(win, 'الجرد ده اتقفل (اتطبّق أو اتلغى من جهاز تاني) — ارجع للوحة.'); return; }
+    if(cntPileErr && !(board && board.enabled === false)){
+      printMsg(win, 'مقدرناش نجيب الطرود اللي في الكومة — اقفل النافذة دي، دوس ↻ في الجرد وبعدين اطبع.');
+      toast('مقدرناش نجيب الطرود اللي في الكومة — دوس ↻ الأول وبعدين اطبع', 'er'); return;
+    }
+    var now = whenTxt(new Date().toISOString());
+    var html = whCountSheetHtml({ count: cnt, rows: cntRows(), pile: cntPile && cntPile.count_id === cnt.id ? cntPile : null,
+      store: (currentTenant && (currentTenant.store_name || currentTenant.name)) || '', openedTxt: whenTxt(cnt.opened_at),
+      dataTxt: now, printedTxt: now, fontCss: fontCss() });
+    var doc = win.document;
+    doc.open(); doc.write(html); doc.close();
+    var done = false;
+    var go = function(){ if(done) return; done = true; try{ win.focus(); win.print(); }catch(e){ swallow('wh-admin/print', e); } };
+    // الخطوط لازم تكون اتحمّلت قبل الطباعة (Cairo) — وإلا الورقة بتطلع بخط احتياطي · سقف 4ث (فترة الحجب عند المتصفح 3ث)
+    try{ if(doc.fonts && doc.fonts.ready) doc.fonts.ready.then(function(){ setTimeout(go, 120); }, go); else setTimeout(go, 250); }catch(e){ go(); }
+    setTimeout(go, 4000);
+  });
 }
 
 function countOpen(){
@@ -695,7 +892,7 @@ function countApply(force){
           : 'مقدرناش نطبّق — حاول تاني', 'er');
         return;
       }
-      try{ localStorage.removeItem(draftKey()); }catch(e){ /* */ }
+      try{ localStorage.removeItem(draftKey()); localStorage.removeItem(orderKey()); }catch(e){ /* */ }
       toast(d.go_live ? '🟢 السكان اشتغل — كل طرد يتضرب من دلوقتي بيتخصم'
         : 'اتطبّق الجرد ✓ — ' + (d.changed || 0) + ' منتج اتعدّل' + (d.pile ? ' · اتطرح ' + d.pile + ' قطعة في الكومة' : ''), 'ok');
       cntPreview = false;
@@ -708,6 +905,18 @@ function countApply(force){
   var sub = pay.changed.length + ' منتج رقمه هيتغيّر' + (pay.missing ? ' · ' + pay.missing + ' مااتعدّوش (هيفضلوا زي ما هم)' : '') + '.'
     + (pileN ? ' و' + pileN + ' قطعة في الكومة (اتضربت خروج) هتتطرح من العدّ.' : '')
     + (goLive ? ' والسكان هيبدأ يخصم من لحظة فتح الجرد.' : '');
+  if(goLive){
+    // عيلة العدد اللي اتكتب فيها كله على «غير موزع» = السكان بيخصم من الخاصية = بالسالب من أول ساعة (نفس فحص «▶️ شغّل»)
+    var famOn = [];
+    whCountFamilies(cntProducts).forEach(function(f){
+      if(!f.unalloc) return;
+      var kids = cntProducts.filter(function(c){ return c.parent_id === f.p.id; });
+      var pv = parseInt(cntDraft[f.p.id], 10) || 0;
+      if(pv > 0 && kids.length && kids.every(function(c){ return !(parseInt(cntDraft[c.id], 10) > 0); })) famOn.push(f.p.name + ' (' + pv + ')');
+    });
+    if(famOn.length) sub += '\n📦 العدد كله على «غير موزع» في: ' + famOn.join(' · ') + ' — السكان بيخصم من اللون/المقاس، فهتبان بالسالب من أول ساعة. الأحسن تكتب كل لون في سطره.';
+    sub += '\n🔴 في نفس اللحظة وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n — صفحة n8n بتعلّم المرتجع من غير ما المخزون يرجع.';
+  }
   if(force){ go(true); return; }
   showModal({ icon: goLive ? '🟢' : '🧮', title: goLive ? 'طبّق جرد التشغيل وشغّل السكان؟' : 'طبّق الجرد؟', sub: sub,
     okLabel: 'طبّق', onOk: function(){ go(false); } });
@@ -721,7 +930,7 @@ function countCancel(){
       sb.rpc('wh_count_cancel', { p_count_id: cnt.id }).then(function(r){
         cntBusy = false;
         if(r.error){ toast('مقدرناش — حاول تاني', 'er'); renderCount(); return; }
-        try{ localStorage.removeItem(draftKey()); }catch(e){ /* */ }
+        try{ localStorage.removeItem(draftKey()); localStorage.removeItem(orderKey()); }catch(e){ /* */ }
         toast('اتلغى الجرد', 'ok');
         loadCount();
       });
@@ -837,6 +1046,7 @@ function onClick(e){
   else if(a === 'count-cancel') countCancel();
   else if(a === 'count-reload') loadCount();
   else if(a === 'count-preview'){ cntPreview = !cntPreview; renderCount(); }
+  else if(a === 'count-print') countPrint();
   else if(a === 'count-opt') countOpt(t.getAttribute('data-k'), t.getAttribute('data-v'), t.getAttribute('data-pid') || '');
   else if(a === 'cfg-toggle') cfgSet({ enabled: t.getAttribute('data-en') === '1' });
   else if(a === 'cfg-start') cfgStart();

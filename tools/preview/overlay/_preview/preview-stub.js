@@ -147,6 +147,13 @@
                  current_qty:v[1], unit_price:615, wholesale_price:380,
                  parent_id:'prd-0', variant_label:v[0] });
   });
+  // عيلة رصيدها كله على الأم (زي «تيربو بريمو» على الحي) — الجرد بيقول «الرقم ده على العيلة كلها» وخصائصها الصفر مش حمرا
+  STOCK.push({ id:'prd-tb', tenant_id:TENANT, name:'ترولي 3 دور ايكيا', active:true, current_qty:19, unit_price:695, wholesale_price:420,
+               parent_id:null, variant_label:null });
+  [['أبيض'],['أسود']].forEach(function(v, k){
+    STOCK.push({ id:'prd-tb-v'+k, tenant_id:TENANT, name:'ترولي 3 دور ايكيا — '+v[0], active:true, current_qty:0, unit_price:695,
+                 wholesale_price:420, parent_id:'prd-tb', variant_label:v[0] });
+  });
 
   // حركات المخزون — ده اللي عمود التاريخ بيتجرّب عليه
   var MOVES = [];

@@ -65,7 +65,7 @@ export function jtAwbCod(o){
 }
 
 var ARABIC_RANGE = 'U+0600-06FF,U+0750-077F,U+0870-088E,U+0890-0891,U+0898-08E1,U+08E3-08FF,U+200C-200E,U+2010-2011,U+204F,U+2E41,U+FB50-FDFF,U+FE70-FE74,U+FE76-FEFC';
-function fontCss(){
+export function fontCss(){
   var base = location.origin + routeBase() + 'fonts/';
   var files = [['Cairo','cairo-arabic-400-normal.woff2',400,ARABIC_RANGE],['Cairo','cairo-arabic-700-normal.woff2',700,ARABIC_RANGE],['Cairo','cairo-arabic-800-normal.woff2',800,ARABIC_RANGE],
     ['Cairo','cairo-latin-400-normal.woff2',400,null],['Cairo','cairo-latin-700-normal.woff2',700,null],['Cairo','cairo-latin-800-normal.woff2',800,null],
