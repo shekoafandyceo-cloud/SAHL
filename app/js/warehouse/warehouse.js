@@ -12,7 +12,7 @@
 //    لو كان وصله (idempotent) — فمفيش خصم مرتين.
 // 🔴 الكود بيتقرا من الزراير (`e.code`) مش من الحروف: الكيبورد العربي بيحوّل «JEG» لـ«تثل» — وده كان
 //    هيخلّي كل سكان «كود مش مفهوم» على أي جهاز لغته عربي. ونص الخانة احتياطي (`scanToLatin`).
-// 🔴 الحالة بتتغيّر على السيرفر مع المخزون (16 أكتوبر — طلب المالك): خروج = «اوردر اتضرب» · مرتجع = «مرتجع
+// 🔴 الحالة بتتغيّر على السيرفر مع المخزون (15 أكتوبر — طلب المالك): خروج = «اوردر اتضرب» · مرتجع = «مرتجع
 //    مضروب» · الصفحة بتعرض اللي السيرفر رجّعه (`status_to`) بس — عمرها ما بتكتب حالة.
 // ⚠️ وضع التجربة (`wh_config.enabled=false`): السكان بيعدّي على كل المنطق ويرجّع النتيجة الحقيقية
 //    ومابيكتبش حرف (`dry`) — لحد ما الأدمن يدوس «▶️ شغّل السكانر».
@@ -114,10 +114,10 @@ var WH_TEXT = {
   with_jt_confirm:           ['⚠️ J&T استلمت الطرد ده قبل كده', 'ده مرتجع رجعلنا؟ ولا طرد خارج دلوقتي؟'],
   confirm_return:            ['⚠️ الطرد ده خرج وJ&T استلمته', 'ده مرتجع رجعلنا؟'],
   in_ok:                     ['↩️ مرتجع — رجع للمخزن', 'رجّع القطع مكانها على الرف.'],
-  in_ok_precount:            ['↩️ مرتجع — رجع للمخزن', 'الطرد خرج قبل الجرد، فالقطع اتضافت للمخزن.'],
+  in_ok_precount:            ['↩️ مرتجع — رجع للمخزن', 'الطرد خرج قبل تشغيل السكانر (أو قبل الجرد) — القطع اتضافت للمخزن.'],
   in_ok_manual:              ['↩️ رجع للمخزن', 'اتسجّل بإيد الأدمن.'],
   in_ok_leak:                ['↩️ مرتجع — رجع للمخزن', 'الطرد ده كان خرج من غير سكان، والجرد أو الأدمن كان شاله من الحساب — فالقطع اتضافت.'],
-  in_counted:                ['↩️ المرتجع ده اتعدّ في الجرد قبل كده', 'اتعلّم إنه رجع — من غير إضافة للمخزن (الجرد عدّه وهو هنا).'],
+  in_counted:                ['↩️ المرتجع ده محسوب في أرقام المخزون', 'اتعلّم إنه رجع — من غير إضافة (كان هنا قبل التشغيل أو الجرد، فهو محسوب).'],
   in_leak:                   ['⚠️ مرتجع لطرد خرج من غير سكان', 'اتعلّم إنه رجع — من غير إضافة (عمره ما اتخصم).'],
   in_flag_only:              ['⚠️ اتعلّم إنه رجع — من غير إضافة', 'J&T عمرها ما استلمته ومكانش اتخصم.'],
   already_in:                ['🔁 المرتجع ده اتضرب قبل كده', 'مفيش حاجة اتضافت تاني.'],
@@ -134,7 +134,7 @@ var WH_TEXT = {
   not_authenticated:         ['⛔ الجلسة خلصت', 'اخرج وادخل تاني.'],
   reason_required:           ['⛔ اكتب السبب', ''],
   bad_args:                  ['⛔ طلب ناقص', ''],
-  undone:                    ['↶ السكان اتلغى', 'المخزون رجع زي ما كان.'],
+  undone:                    ['↶ السكان اتلغى', 'المخزون رجع زي ما كان — والحالة رجعت لو السكان كان غيّرها ومحدش غيّرها بعده.'],
   leak_dismissed:            ['✓ اتقفل', 'الطرد ده مش هيتخصم.'],
   not_leak:                  ['⛔ ده مش طرد خرج من غير سكان', ''],
   too_old:                   ['⛔ عدّى أكتر من ' + WH_UNDO_MIN + ' دقيقة', 'التراجع بعد كده للأدمن بس.'],
@@ -149,11 +149,15 @@ var WH_WARN = {
   late:             '⏰ J&T كانت استلمته قبل السكان',
   unmatched:        '🔗 فيه منتج مش مربوط بالمخزن — الأدمن يربطه',
   unallocated:      '📦 اتخصم من «غير موزع» — الخاصية مش معروفة',
-  short:            '📉 المخزون بقى بالسالب — راجع الجرد',
+  short:            '📉 المخزون بقى بالسالب — ظبط الرقم من «المخزون» (أو اعمل جرد)',
   multi_piece:      '🔢 الطرد فيه أكتر من قطعة — اتأكد إنهم كلهم جوّه',
   cod_mismatch:     '💰 مبلغ التحصيل عند J&T مختلف عن السيستم',
   cancel_requested: '⚠️ العميل طالب إلغاء',
-  counted:          '🧮 فيه منتج اتعدّ في جرد — مالوش حركة تاني (الجرد صلّح رقمه)'
+  counted:          '🧮 فيه منتج اتعدّ في جرد — مالوش حركة تاني (الجرد صلّح رقمه)',
+  // (15 أكتوبر — المراجعة) نبرتهم برتقاني = بيدخلوا «محتاجة انتباهك»
+  no_return_signal: '⚠️ J&T ماقالتش إنه مرتجع — الحالة ماتغيّرتش. لو الطرد ده لسه رايح للعميل اتراجع عن السكان (المخزون اتحرك)',
+  unregistered_before_start: '⚠️ J&T قفلته قبل التشغيل ومحدش سجّله — اتضاف للمخزن دلوقتي. لو كان على الرف وانت بتظبط الأرقام، اتراجع عن السكان',
+  ext_registered:   '⚠️ كان متسجّل في صفحة المرتجعات (n8n) بس — المخزون رجع دلوقتي. وقّف الصفحة دي'
 };
 
 export function whText(code){ return WH_TEXT[code] || ['⛔ ' + (code || 'نتيجة مش معروفة'), '']; }
@@ -415,7 +419,10 @@ export function whCardHtml(res, it, attnId){
     h += '<div class="wh-r-st">🔄 حالة الأوردر ' + (res.dry ? 'كانت هتبقى' : (res.code === 'undone' ? 'رجعت' : 'بقت'))
       + ': <b>' + esc(statusLabel(res.status_to)) + '</b></div>';
   }
-  if(res.prev && (res.prev.at || res.prev.by)){
+  // prev.src = ext: اتسجّل في صفحة المرتجعات (n8n) قبل السكان ده — مش «اتضرب بإيد صفحة المرتجعات»
+  if(res.prev && res.prev.src === 'ext'){
+    h += '<div class="wh-r-prev">📋 متسجّل قبل كده في صفحة المرتجعات ' + esc(whDayTime(res.prev.at)) + '</div>';
+  } else if(res.prev && (res.prev.at || res.prev.by)){
     h += '<div class="wh-r-prev">اتضرب ' + esc(whDayTime(res.prev.at)) + (res.prev.by ? ' · بإيد ' + esc(res.prev.by) : '') + '</div>';
   }
   var lines = Array.isArray(res.lines) ? res.lines : [];
@@ -650,6 +657,12 @@ function whLookup(q){
       toneOnce('stop');
       return;
     }
+    // نتيجة واحدة وهي مرتجع مستني يتسجل = بيتسجّل على طول (زي صفحة n8n — الموظف على الباب كاتب آخر 5 أرقام)
+    if(rows.length === 1 && rows[0].open_return && rows[0].tracking_no){
+      unlockAudio();
+      whEnqueue(rows[0].tracking_no, { src: 'manual', raw: 'typed:' + String(q).slice(0, 20) });
+      return;
+    }
     var h = '<div class="wh-r-title">🔎 اختار الطرد</div><div class="wh-pick">';
     for(var i = 0; i < rows.length; i++){
       var x = rows[i];
@@ -711,7 +724,7 @@ function whShipAnyway(){
 
 export function whUndo(scanId){
   if(!scanId || !sb) return;
-  showModal({ icon: '↶', title: 'تراجع عن السكان ده؟', sub: 'المخزون هيرجع زي ما كان قبل السكان. اكتب السبب.',
+  showModal({ icon: '↶', title: 'تراجع عن السكان ده؟', sub: 'المخزون هيرجع زي ما كان قبل السكان — والحالة كمان لو محدش غيّرها بعده. اكتب السبب.',
     okLabel: 'تراجع', okColor: 'var(--red)', input: true, placeholder: 'السبب (مثلاً: اتضرب بالغلط)',
     onOk: function(reason){
       var gen = whCardGen;
@@ -740,7 +753,8 @@ var WH_LISTS = [
   { k: 'ret_missing',      t: '🚨 J&T قالت سلّمتها ومش متسجلة', n: function(c, rc){ return rc.missing || 0; }, hot: true },
   { k: 'ret_scanned',      t: '✅ مرتجعات اتسجلت النهارده',     n: function(c, rc){ return rc.scanned_today || 0; } },
   { k: 'ret_transit',      t: '🔄 مرتجعات لسه في الطريق',       n: function(c, rc){ return rc.transit || 0; } },
-  { k: 'leak',             t: '🔴 خرجت من غير سكان',            n: function(c){ return c.leak || 0; }, hot: true, admin: true }
+  { k: 'leak',             t: '🔴 خرجت من غير سكان',            n: function(c){ return c.leak || 0; }, hot: true, admin: true },
+  { k: 'in_delivered',     t: '↩️ اتضربت مرتجع وJ&T سلّمتها',   n: function(c){ return c.in_delivered || 0; }, hot: true, admin: true }
 ];
 
 // الشارة البرتقاني: اسحبها من الكومة + المرتجع اللي J&T قفلته من أكتر من 30 دقيقة ومحدش سجّله (نفس سماح تنبيه
@@ -748,7 +762,8 @@ var WH_LISTS = [
 export function whCountsBadge(c, rc){
   c = c || {}; rc = rc || {};
   return { staff: (c.pull || 0) + (rc.missing_old || 0),
-           admin: Math.max(0, (c.leak || 0) - (c.leak_counted || 0)) + (c.unmatched_lines || 0) + (c.negative_products || 0) };
+           admin: Math.max(0, (c.leak || 0) - (c.leak_counted || 0)) + (c.unmatched_lines || 0) + (c.negative_products || 0)
+                  + (c.in_delivered || 0) };
 }
 
 export function whSetNavBadge(c, rc){
@@ -760,7 +775,7 @@ export function whSetNavBadge(c, rc){
   }
   var b2 = $id('wh-nav-badge2');
   if(b2){
-    if(n.admin > 0 && isAdminUser()){ b2.textContent = n.admin > 99 ? '99+' : String(n.admin); b2.title = n.admin + ' حاجة محتاجة الأدمن (خرج من غير سكان · منتج مش مربوط · رصيد بالسالب)'; b2.style.display = 'inline-flex'; }
+    if(n.admin > 0 && isAdminUser()){ b2.textContent = n.admin > 99 ? '99+' : String(n.admin); b2.title = n.admin + ' حاجة محتاجة الأدمن (خرج من غير سكان · منتج مش مربوط · رصيد بالسالب · اتضرب مرتجع وJ&T سلّمته)'; b2.style.display = 'inline-flex'; }
     else b2.style.display = 'none';
   }
 }
@@ -813,11 +828,14 @@ function renderMode(){
     el.hidden = false;
   } else if(!whBoard.enabled){
     el.className = 'wh-mode is-paused';
-    el.innerHTML = '⏸️ <b>السكان متوقف</b> — مابيخصمش من المخزن' + (isAdminUser() ? ' (شغّله من «الإعدادات» تحت).' : ' — كلّم الأدمن.');
+    el.innerHTML = '⏸️ <b>السكان متوقف</b> — مابيغيّرش الحالة ومابيخصمش من المخزن' + (isAdminUser() ? ' (شغّله من تاب «⚙️ التشغيل»).' : ' — كلّم الأدمن.');
     el.hidden = false;
   } else {
     el.className = 'wh-mode is-on';
-    el.innerHTML = '🟢 شغّال — الخروج «اوردر اتضرب» ويتخصم · المرتجع «مرتجع مضروب» ويرجع المخزن · من ' + esc(whDayTime(whBoard.baseline_at));
+    var n8 = retCounts().n8n_only || 0;
+    el.innerHTML = '🟢 شغّال — الخروج «اوردر اتضرب» ويتخصم · المرتجع «مرتجع مضروب» ويرجع المخزن · من ' + esc(whDayTime(whBoard.baseline_at))
+      // 🔴 صفحة n8n بعد التشغيل بتعلّم المرتجع من غير ما المخزون يرجع — لازم تبان مش تختفي في «ناقص» بس
+      + (n8 ? '<br>⚠️ <b>' + esc(String(n8)) + ' مرتجع اتسجل في صفحة n8n بعد التشغيل</b> — المخزون مارجعلهمش: اضربهم هنا (في «ناقص»)' + (isAdminUser() ? ' ووقّف الصفحة دي.' : ' وقول للأدمن.') : '');
     el.hidden = false;
   }
 }
@@ -870,9 +888,10 @@ var WH_LIST_HINT = {
   pile:             'اتضربت خروج ومستنية المندوب. لو فضلت أكتر من 30 ساعة اسأل J&T.',
   pull:             'اتضربت خروج وبعدين الأوردر اتلغى أو العميل طلب إلغاء — اسحبها من الكومة واضربها تاني (هترجع للمخزن).',
   ret_courier:      'مندوب J&T طالع لكم بالمرتجعات دي — اضرب كل واحد أول ما يوصل، وقبل ما المندوب يمشي اتأكد إنهم كلهم ✅.',
-  ret_missing:      'J&T قفلتها إنها اتسلّمت لكم ومحدش سجّلها. لو المرتجع وصل فعلاً اضربه — لو ما وصلش، كلّم المندوب والفرع فوراً.',
-  ret_scanned:      'المرتجعات اللي اتسجلت النهارده (من السكانر أو من صفحة n8n القديمة).',
+  ret_missing:      'J&T قفلتها إنها اتسلّمت لكم ومحدش ضربها هنا (أو اتسجّلت في صفحة n8n بس بعد التشغيل). لو المرتجع وصل فعلاً اضربه — لو ما وصلش، كلّم المندوب والفرع فوراً.',
+  ret_scanned:      'المرتجعات اللي اتسجلت النهارده — بعد التشغيل السكانر بس هو اللي بيسجّل (صفحة n8n بتعلّم من غير ما المخزون يرجع).',
   ret_transit:      'مرتجعات J&T لسه راجعة ومش مع المندوب — مرحلتها جنب كل واحد.',
+  in_delivered:     'اتضربت مرتجع في المخزن وبعدها J&T سلّمتها للعميل — يعني السكان كان غلط (F9 على طرد رايح) والقطع اتضافت للمخزن وهي عند العميل. اتراجع عن السكان.',
   leak:             'J&T استلمتها ومحدش ضربها خروج (بعد ما السكان اشتغل). خصمها بإيدك لو خرجت فعلاً — اللي عليها «🧮» اتعمل جرد بعدها، فالمنتج اللي اتعدّ فيه مش هيتخصم تاني (الجرد شاله).'
 };
 
@@ -919,14 +938,17 @@ function rowHtml(k, x){
       + (money(x.cod) ? '<span class="wh-row-by">' + ltr(money(x.cod)) + '</span>' : '');
     if(k === 'ret_courier'){
       meta = '<span class="wh-row-by">مع المندوب ' + esc(whDayTime(x.at)) + '</span>'
-        + (x.done ? '<span class="wh-row-ok">✅ اتسجل</span>' : '<span class="wh-row-old">⏳ لسه</span>');
+        + (x.done ? '<span class="wh-row-ok">✅ اتسجل</span>' : '<span class="wh-row-old">⏳ لسه</span>')
+        + (x.n8n ? '<span class="wh-row-old">⚠️ متسجّل في صفحة n8n بس — اضربه هنا عشان يرجع المخزن</span>' : '');
     } else if(k === 'ret_missing'){
       meta = '<span class="wh-row-old">J&amp;T قفلته ' + esc(whDayTime(x.at)) + '</span>'
-        + (x.fresh ? '<span class="wh-row-by">من أقل من نص ساعة</span>' : '');
+        + (x.fresh ? '<span class="wh-row-by">من أقل من نص ساعة</span>' : '')
+        + (x.n8n ? '<span class="wh-row-old">⚠️ متسجّل في صفحة n8n بس — اضربه هنا عشان يرجع المخزن</span>' : '');
     } else if(k === 'ret_scanned'){
       meta = '<span class="wh-row-ok">اتسجل ' + esc(whTime(x.at)) + '</span>' + (x.by ? '<span class="wh-row-by">' + esc(x.by) + '</span>' : '');
     } else if(k === 'ret_transit'){
-      meta = '<span class="wh-row-old">' + esc(x.s || 'في الطريق') + '</span>' + (x.at ? '<span class="wh-row-by">' + esc(whDayTime(x.at)) + '</span>' : '');
+      meta = '<span class="wh-row-old">' + esc(x.s || 'في الطريق') + '</span>' + (x.at ? '<span class="wh-row-by">' + esc(whDayTime(x.at)) + '</span>' : '')
+        + (x.n8n ? '<span class="wh-row-old">⚠️ متسجّل في صفحة n8n بس</span>' : '');
     }
   } else if(k === 'today'){
     var t = whText(x.code);
@@ -937,6 +959,11 @@ function rowHtml(k, x){
     var fresh = x.at && (Date.now() - new Date(x.at).getTime()) < WH_UNDO_MIN * 60000;
     if(x.applied && !x.reversed && (x.dir === 'out' || x.dir === 'in') && ((x.mine && fresh) || isAdminUser())){
       acts = '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="undo" data-scan="' + esc(String(x.id)) + '">↶ تراجع</button>';
+    }
+  } else if(k === 'in_delivered'){
+    meta = '<span class="wh-row-by">اتضرب مرتجع ' + esc(whDayTime(x.at)) + '</span><span class="wh-row-old">J&amp;T سلّمته ' + esc(whDayTime(x.del_at)) + '</span>';
+    if(isAdminUser() && x.scan){
+      acts = '<button type="button" class="wh-btn wh-btn-ghost wh-btn-sm" data-wh-act="undo" data-scan="' + esc(String(x.scan)) + '">↶ تراجع عن السكان</button>';
     }
   } else if(k === 'not_scanned'){
     meta = '<span class="wh-row-by">' + (x.printed ? 'اتطبعت ' + esc(whDayTime(x.printed)) : 'لسه مااتطبعتش') + '</span>' + (x.old ? '<span class="wh-row-old">من قبل النهارده</span>' : '');
@@ -1037,6 +1064,7 @@ function sendOrphans(){
 }
 
 // ── 📷 صوّر الباركود (الموبايل على الباب — زي «صوّر الليبل» في صفحة n8n) ──────────────────────────
+// مش مدعوم (آيفون · كروم ديسكتوب) والجهاز موبايل = سطر «اكتب آخر 5 أرقام» تحت الخانة (كان الزرار بيختفي من غير أي إشارة)
 // من غير أي خدمة بره: `BarcodeDetector` بتاع المتصفح (أندرويد كروم). مش موجود (آيفون) = الزرار مايبانش، والموظف
 // بيكتب آخر 5 أرقام. أكتر من بوليصة في الصورة = كلهم بيتسجّلوا ورا بعض (كل واحدة سكان لوحدها في الطابور).
 export function whCamCodes(found){
@@ -1052,11 +1080,14 @@ function camInit(){
   if(!b || !inp) return;
   // الزرار بيبان بس لو المتصفح بيقرا Code128 فعلاً — كروم الديسكتوب (ويندوز/لينكس) عنده الكلاس من غير أي صيغة
   b.hidden = true;
+  var hint = $id('wh-cam-hint');
+  var touch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  var setOk = function(ok){ b.hidden = !ok; if(hint) hint.hidden = ok || !touch; };
   var BD = window.BarcodeDetector;
-  if(typeof BD !== 'function' || typeof BD.getSupportedFormats !== 'function') return;
-  Promise.resolve(BD.getSupportedFormats()).then(function(f){
-    b.hidden = !(Array.isArray(f) && f.indexOf('code_128') >= 0);
-  }, function(){ b.hidden = true; });
+  if(typeof BD !== 'function' || typeof BD.getSupportedFormats !== 'function'){ setOk(false); }
+  else Promise.resolve(BD.getSupportedFormats()).then(function(f){
+    setOk(Array.isArray(f) && f.indexOf('code_128') >= 0);
+  }, function(){ setOk(false); });
   inp.addEventListener('change', function(){
     var f = inp.files && inp.files[0];
     inp.value = '';

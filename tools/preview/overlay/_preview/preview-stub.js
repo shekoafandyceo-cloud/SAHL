@@ -362,7 +362,7 @@
   // اكتب الكود في الخانة واضغط Enter (أو اضغط على طرد من القايمة): ...001 عادي · ...002 ملغي · ...003 مرتجع
   // · ...004 متسلّم · ...005 طالب إلغاء · ...006 J&T استلمته (بيسأل) · ...007 مرتجع J&T قفلته ومحدش سجّله («ناقص»).
   // وضع التجربة شغّال لحد «▶️ شغّل السكانر» (تاب «⚙️ التشغيل») — بعدها الكارت بيقول «حالة الأوردر بقت …».
-  var WH = { enabled:false, baseline:null, hold:true, scans:[], seq:100, st:{}, aliases:{}, cnt:null };
+  var WH = { enabled:false, baseline:null, hold:true, scans:[], seq:100, st:{}, aliases:{}, aliasProps:{}, cnt:null };
   TABLES.stock_counts = [];
   var WH_DEMO = [
     { t:'JEG000700000001', uid:'18201', n:'منى',  items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'new' },
@@ -396,9 +396,14 @@
         else if(d.kind === 'returned' || f === 'in'){
           if(st.in) res = Object.assign(base, { code:'already_in', tone:'dup', prev:st.in });
           else {
-            res = Object.assign(base, { code: d.kind === 'returned' ? 'in_ok_precount' : 'in_ok', tone:'in', applied:true, dir:'in', lines:whLines(d, 'in'),
-                                        status_from: st.status || WH_ST0[d.kind], status_to:'Returned to business2' });
-            if(WH.enabled){ st.in = { at:new Date().toISOString(), by:'أدمن المعاينة' }; st.status = 'Returned to business2'; }
+            // «مرتجع مضروب» بس لو J&T قالت إنه راجع — F9 على طرد رايح (006) = الحالة زي ما هي وتنبيه (زي السيرفر)
+            var retEv = d.kind === 'returned';
+            res = Object.assign(base, { code: retEv ? 'in_ok_precount' : 'in_ok', tone: retEv ? 'in' : 'warn', applied:true, dir:'in', lines:whLines(d, 'in') });
+            if(retEv){ res.status_from = st.status || WH_ST0[d.kind]; res.status_to = 'Returned to business2'; }
+            else res.warnings = ['no_return_signal'];
+            // 007 = J&T قفلته قبل التشغيل ومحدش سجّله («ناقص») — بيتضاف وبينبّه
+            if(d.t === 'JEG000700000007'){ res.warnings = ['unregistered_before_start']; res.tone = 'warn'; }
+            if(WH.enabled){ st.in = { at:new Date().toISOString(), by:'أدمن المعاينة' }; if(res.status_to) st.status = 'Returned to business2'; }
           }
         }
         else if(d.kind === 'with_jt' && f !== 'out') res = Object.assign(base, { code:'with_jt_confirm', tone:'warn', options:['in','out'] });
@@ -439,15 +444,15 @@
     var rTransit = [{ t:'JEG000553100150', uid:'18150', items:'تيربو بريمو', q:1, at:iso(1, 16, 0), s:'بين الفروع' },
                     { t:'JEG000553100151', uid:'18151', items:'استاند امريكانا', q:1, at:iso(0, 8, 20), s:'بدأ المرتجع' }];
     var returns = { counts:{ courier:rCourier.length, courier_done:rCourier.filter(function(x){ return x.done; }).length, closed_today:1 + (s7.in ? 0 : 0),
-                             scanned_today:rScanned.length, missing:rMissing.length, missing_old:rMissing.length, transit:rTransit.length },
+                             scanned_today:rScanned.length, missing:rMissing.length, missing_old:rMissing.length, transit:rTransit.length, n8n_only:0 },
                     courier:rCourier, missing:rMissing, scanned:rScanned, transit:rTransit };
     return { ok:true, enabled:WH.enabled, baseline_at:WH.baseline, hold_cancel_requested:WH.hold, is_admin:true, returns:returns,
       counts:{ not_scanned:notScanned.length, not_scanned_old:0, pile:pile.length, pull:0, leak:0, leak_cancelled:0, stale_pile:0,
-        courier:courier.length, courier_scanned: courier[0].done ? 1 : 0, closed_unscanned:0,
+        courier:courier.length, courier_scanned: courier[0].done ? 1 : 0, closed_unscanned:0, in_delivered:0,
         out_today: WH.scans.filter(function(x){ return x.applied && x.dir === 'out' && !x.reversed; }).length,
         in_today: WH.scans.filter(function(x){ return x.applied && x.dir === 'in' && !x.reversed; }).length,
         unmatched_lines:unm, negative_products:0 },
-      lists:{ not_scanned:notScanned, pile:pile, pull:[], leak:[], courier:courier, closed_unscanned:[], today:WH.scans.slice(0, 200) } };
+      lists:{ not_scanned:notScanned, pile:pile, pull:[], leak:[], in_delivered:[], courier:courier, closed_unscanned:[], today:WH.scans.slice(0, 200) } };
   }
   function whRpc(name, a){
     if(name === 'wh_scan') return whScan(a || {});
@@ -480,10 +485,32 @@
         row('ترولي 2 دور ب ترابيزة خشب ايكيا', 'اسود', 'posted', 'child_label', 'prd-0-v0', 44),
         row('ترولي 2 دور ب ترابيزة خشب ايكيا', 'بيج', 'posted', 'unallocated', 'prd-0', 9),
         row('منظم المطبخ المتكامل', '', 'posted', 'exact', 'prd-1', 120),
+        (function(){ var ap = WH.aliasProps['منظم المطبخ المتكامل|مقاس 65 عرض'];
+          var x = row('منظم المطبخ المتكامل', 'مقاس 65 عرض', 'posted', ap ? 'alias' : 'exact', ap || 'prd-1', 42);
+          x.sibling = !ap; x.alias_props = ap || null; return x; })(),
         WH.aliases['هدية'] === 'ignore' ? row('هدية', '', 'ignored', 'alias_item', null, 7) : row('هدية', '', 'unmatched', null, null, 7)
       ]};
     }
-    if(name === 'wh_alias_set'){ WH.aliases[a.p_item_key] = a.p_ignore ? 'ignore' : a.p_product_id; return { ok:true, code:'ok', reposted:0, superseded:0, voided:0 }; }
+    if(name === 'wh_alias_set'){
+      if(a.p_props_key) WH.aliasProps[a.p_item_key + '|' + a.p_props_key] = a.p_ignore ? null : a.p_product_id;
+      else WH.aliases[a.p_item_key] = a.p_ignore ? 'ignore' : a.p_product_id;
+      return { ok:true, code:'ok', reposted:0, superseded:0, voided:0 };
+    }
+    // فحص ما قبل التشغيل — نفس أسامي السيرفر (wh_start_check)
+    if(name === 'wh_start_check'){
+      var un = (WH.aliases['ترولي 3 دور ايكيا'] ? 0 : 1) + (WH.aliases['هدية'] ? 0 : 1);
+      var rv = WH.aliasProps['منظم المطبخ المتكامل|مقاس 65 عرض'] ? 0 : 1;
+      var miss = (WH.st.JEG000700000007 || {}).in ? 0 : 1;
+      return { ok:true, code:'ok', has_issues: !!(un || rv || miss),
+        unmatched:{ n:un, pieces:un ? 72 : 0, top: un ? ['ترولي 3 دور ايكيا'] : [] },
+        review:{ n:rv, pieces:rv ? 44 : 0, top: rv ? ['منظم المطبخ المتكامل · مقاس 65 عرض'] : [] },
+        missing_returns:miss, families:[], gap:{ since:null, pickups:0, returns:0 } };
+    }
+    if(name === 'wh_product_pile'){
+      if(!WH.baseline) return { ok:true, code:'not_started', pile:0, ret:0 };
+      var n = 0; WH_DEMO.forEach(function(d){ var st = WH.st[d.t] || {}; if(d.pid === (a && a.p_product_id) && st.out && !st.in) n += d.qty; });
+      return { ok:true, code:'ok', pile:n, ret:0, baseline_at:WH.baseline };
+    }
     if(name === 'wh_repost_unmatched') return { ok:true, code:'ok', reposted:0, superseded:0, voided:0 };
     if(name === 'wh_count_open'){
       var open = TABLES.stock_counts.filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
@@ -530,6 +557,7 @@
     if(name === 'wh_config_set'){
       var pp = (a && a.p) || {};
       if(pp.enabled === true && !WH.baseline && !pp.start) return { ok:false, code:'needs_start' };
+      if(pp.enabled === true && !WH.baseline && !pp.force){ var ck = whRpc('wh_start_check', {}); if(ck.has_issues) return { ok:false, code:'needs_confirm', check:ck }; }
       if(pp.enabled === true && !WH.baseline) WH.baseline = new Date().toISOString();
       if(pp.enabled != null) WH.enabled = !!pp.enabled;
       if(pp.hold_cancel_requested != null) WH.hold = !!pp.hold_cancel_requested;

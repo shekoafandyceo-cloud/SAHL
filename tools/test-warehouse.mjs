@@ -59,7 +59,7 @@
 //     سؤال المنتج اللي اتقال اسمه (مش أول سؤال في الصفحة) · «طبّق» والإجابة لسه بتتحفظ = ولا حاجة · مودال «سكانات وانت
 //     بتعدّ» بيتكلم عن المرتجع اللي اتضرب والسطور المش مربوطة (مش «سطر خروج»)
 // 43) wh_count_pile وقع = بانر أحمر بـ↻ و«طبّق» مقفول (كانت الصفحة بتتعرض كأن مفيش كومة والتأكيد بيكدب)
-// ── v76 (16 أكتوبر): السكان بيغيّر الحالة + لوحة المرتجعات زي صفحة n8n ──
+// ── v76 (15 أكتوبر): السكان بيغيّر الحالة + لوحة المرتجعات زي صفحة n8n ──
 // 44) الكارت: «حالة الأوردر بقت: اوردر اتضرب» (من status_to) · التراجع = «رجعت: …» · التجربة = «كانت هتبقى»
 // 45) لوحة المرتجعات: الكروت الأربعة (مع المندوب «1 من 2 ✅» · J&T قفلت النهارده عدّاد بس · اتسجل · ناقص أحمر) ·
 //     «ناقص» بيفتح القايمة · آخر 5 أرقام بارزين · ✅/⏳ · المرحلة · XSS في اسم المنتج = نص
@@ -152,7 +152,7 @@ window.__RPC_HOOK = function(name, args){
 
 async function open(opts){
   opts = opts || {};
-  const ctx = await b.newContext({ viewport: opts.viewport || { width: 1440, height: 1000 } });
+  const ctx = await b.newContext(Object.assign({ viewport: opts.viewport || { width: 1440, height: 1000 } }, opts.ctx || {}));
   const p = await ctx.newPage();
   p.on('pageerror', e => { console.log('  ⚠ pageerror:', e.message); bad++; });
   p.on('dialog', d => d.dismiss());
@@ -1274,6 +1274,173 @@ const c48a = await cam(null, true), c48b = await cam(null, false);
 ok(c48a.vis && c48a.scans.join(',') === 'JEG000700000061|manual,JEG000700000062|manual' && !c48b.vis,
   '48) 📷 الكاميرا: 3 أكواد (متكرر + AIM) = 2 سكان يدوي · من غير Code128 = الزرار مخفي (' + JSON.stringify({ a: c48a, b: c48b }) + ')');
 
+// ── إصلاحات المراجعة العدائية على v76 (15 أكتوبر) ──
+// 49 — «▶️ شغّل السكانر»: wh_start_check الأول والمشاكل في التأكيد · التشغيل بـforce · الفحص وقع = السيرفر يرد needs_confirm
+const CHK = { ok: true, code: 'ok', has_issues: true, unmatched: { n: 2, pieces: 72, top: ['ترولي 3 دور ايكيا'] },
+  review: { n: 1, pieces: 44, top: ['منظم المطبخ المتكامل · مقاس 65 عرض'] }, missing_returns: 1,
+  families: [{ name: 'تيربو بريمو 5 دور', qty: 43 }], gap: { since: null, pickups: 0, returns: 0 } };
+async function startCheck(patch, checkFails){
+  const p = await open({ patch, board: Object.assign({}, BOARD, { enabled: false, baseline_at: null }),
+    init: `window.__STOCK = []; window.__WH_COUNTS = []; window.__CHK = ${JSON.stringify(CHK)}; window.__CHKFAIL = ${checkFails ? 'true' : 'false'};
+      window.__WHR = function(n, a){
+        if(n === 'wh_start_check') return window.__CHKFAIL ? { ok:false, code:'error' } : window.__CHK;
+        if(n === 'wh_config_set'){ var pp = (a && a.p) || {};
+          if(pp.start && !pp.force) return { ok:false, code:'needs_confirm', check: window.__CHK };
+          window.__BOARD = Object.assign({}, window.__BOARD, { enabled: true, baseline_at: new Date().toISOString() });
+          return { ok:true, code:'ok', enabled:true, hold_cancel_requested:true, baseline_at: window.__BOARD.baseline_at }; }
+        return null; };` });
+  await p.click('.wh-tab[data-wh-tab="count"]');
+  await p.waitForSelector('#wh-count [data-wha="cfg-start"]', { timeout: 5000 });
+  const R = {};
+  R.steps = await p.evaluate(() => (document.querySelector('#wh-count .wh-set') || {}).textContent || '');
+  await p.click('[data-wha="cfg-start"]');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible' });
+  R.t1 = await p.evaluate(() => document.getElementById('cmodal-title').textContent + ' || ' + document.getElementById('cmodal-sub').textContent + ' || ' + document.getElementById('cmodal-ok').textContent);
+  await p.click('#cmodal-ok');
+  if(checkFails){
+    await p.waitForFunction(() => /فيه/.test((document.getElementById('cmodal-title') || {}).textContent || '') && document.getElementById('cmodal-backdrop').offsetParent !== null, null, { timeout: 4000 }).catch(() => {});
+    R.t2 = await p.evaluate(() => document.getElementById('cmodal-title').textContent + ' || ' + document.getElementById('cmodal-sub').textContent);
+    await p.click('#cmodal-ok');
+  }
+  await p.waitForTimeout(400);
+  R.chk = (await calls(p, 'wh_start_check')).length;
+  R.sent = (await calls(p, 'wh_config_set')).map(c => c.args.p);
+  await p.context().close();
+  return R;
+}
+const s49 = await startCheck(), s49b = await startCheck(null, true);
+ok(s49.chk === 1 && /فيه 4 حاجة/.test(s49.t1) && /❌ 2 اسم منتج مش مربوط/.test(s49.t1) && /⚠️ 1 خاصية «راجع»/.test(s49.t1) && /🚨 1 مرتجع/.test(s49.t1)
+   && /تيربو بريمو 5 دور \(43\)/.test(s49.t1) && /شغّله برضه/.test(s49.t1) && s49.sent.length === 1 && s49.sent[0].force === true && s49.sent[0].start === true
+   && /راجع/.test(s49.steps) && /نفس القعدة/.test(s49.steps) && /كل خاصية/.test(s49.steps),
+  '49) «▶️ شغّل»: الفحص الأول والمشاكل الأربعة في التأكيد · «شغّله برضه» = force · الخطوات فيها «راجع» و«نفس القعدة» و«كل خاصية» (' + JSON.stringify({ chk: s49.chk, sent: s49.sent }) + ')');
+ok(s49b.sent.length === 2 && !s49b.sent[0].force && s49b.sent[1].force === true && /مقدرناش نعمل فحص/.test(s49b.t1) && /فيه 4 حاجة/.test(s49b.t2 || ''),
+  '49ب) الفحص وقع: التشغيل من غير force → السيرفر رد needs_confirm → التأكيد بالمشاكل → force (' + JSON.stringify(s49b.sent) + ')');
+
+// 50 — ربط المنتجات: «⚠️ راجع» (مقاس 65 بيتخصم من الـ85 بالاسم)
+async function mapReview(patch){
+  const p = await open({ patch, init: `window.__WHR = function(n){ if(n === 'wh_items_unmapped') return { ok:true,
+      products:[{ id:'p85', name:'منظم المطبخ المتكامل', parent_id:null, active:true }, { id:'p65', name:'منظم المطبخ المتكامل مقاس ٦٥', parent_id:null, active:true }],
+      rows:[{ item_key:'منظم المطبخ المتكامل', props_key:'مقاس 65 عرض', var_key:'', sample:'منظم المطبخ المتكامل', orders:42, pieces:44, state:'posted',
+              matched_by:'exact', product_id:'p85', product_name:'منظم المطبخ المتكامل', alias_item:null, alias_props:null, sibling:true },
+            { item_key:'منظم المطبخ المتكامل', props_key:'', var_key:'', sample:'منظم المطبخ المتكامل', orders:46, pieces:48, state:'posted',
+              matched_by:'exact', product_id:'p85', product_name:'منظم المطبخ المتكامل', alias_item:null, alias_props:null, sibling:false }] }; return null; };` });
+  await p.click('.wh-tab[data-wh-tab="map"]');
+  await p.waitForSelector('#wh-map .wh-map-row', { timeout: 5000 }).catch(() => {});
+  const R = await p.evaluate(() => {
+    const on = document.querySelector('#wh-map .wh-chip.on');
+    const row = document.querySelector('#wh-map .wh-map-row');
+    return { on: on ? on.textContent.trim() : '', hot: !!(on && on.classList.contains('hot')), rows: document.querySelectorAll('#wh-map .wh-map-row').length,
+      cur: row ? (row.querySelector('.wh-map-cur') || {}).textContent : '', scope: row && row.querySelector('.wh-map-scope') ? row.querySelector('.wh-map-scope').value : '',
+      hint: (document.querySelector('#wh-map .wh-hint') || {}).textContent || '' };
+  });
+  await p.context().close();
+  return R;
+}
+const m50 = await mapReview();
+ok(/^⚠️ راجع 1$/.test(m50.on) && m50.hot && m50.rows === 1 && /فيه منتج تاني اسمه شبه/.test(m50.cur) && m50.scope === 'props' && /راجع/.test(m50.hint),
+  '50) ربط المنتجات: «⚠️ راجع» الفلتر الافتراضي (مفيش مش مربوط) · الصف بيقول «فيه منتج تاني اسمه شبه» · النطاق «بالخاصية دي بس» (' + JSON.stringify(m50) + ')');
+
+// 51 — «↩️ اتضربت مرتجع وJ&T سلّمتها» (الأدمن): القايمة بزرار التراجع والشارة الحمرا بتعدّها
+const BOARD_ID = Object.assign({}, BOARD, { counts: Object.assign({}, BOARD.counts, { in_delivered: 1 }),
+  lists: Object.assign({}, BOARD.lists, { in_delivered: [{ t: 'JEG000700000071', uid: '18271', items: 'منظم', at: NOW(), scan: 777, del_at: NOW() }] }) });
+async function inDelivered(patch){
+  const p = await open({ patch, board: BOARD_ID });
+  const R = { badge: await p.evaluate(() => (document.getElementById('wh-nav-badge2') || {}).textContent) };
+  R.chip = await p.evaluate(() => { const c = document.querySelector('#wh-chips [data-wh-list="in_delivered"]'); return c ? c.textContent.trim() + '|' + c.classList.contains('hot') : ''; });
+  await p.click('#wh-chips [data-wh-list="in_delivered"]').catch(() => {});
+  R.row = await p.evaluate(() => { const r = document.querySelector('#wh-lists .wh-row'); const u = r && r.querySelector('[data-wh-act="undo"]');
+    return r ? r.textContent + '|' + (u ? u.getAttribute('data-scan') : '') : ''; });
+  await p.context().close();
+  return R;
+}
+const d51 = await inDelivered();
+ok(d51.badge === '5' && /اتضربت مرتجع وJ&T سلّمتها 1\|true/.test(d51.chip) && /J&T سلّمته/.test(d51.row) && /\|777$/.test(d51.row),
+  '51) «اتضربت مرتجع وJ&T سلّمتها»: الشارة الحمرا 3 + 1 + 1 = 5 · الشريحة hot · الصف بزرار «↶ تراجع» على السكان (' + JSON.stringify(d51) + ')');
+
+// 52 — مرتجع اتسجل في صفحة n8n بس بعد التشغيل: البانر والصف بيقولوا · «ناقص» بيعدّه
+const BOARD_N8 = Object.assign({}, BOARD, { enabled: true, baseline_at: NOW(), returns: Object.assign({}, BOARD.returns, {
+  counts: Object.assign({}, BOARD.returns.counts, { n8n_only: 1 }),
+  missing: [{ t: 'JEG000700000041', uid: '18241', items: 'منظم', q: 1, cod: 1450, at: NOW(), fresh: false, n8n: true }] }) });
+async function n8nOnly(patch){
+  const p = await open({ patch, board: BOARD_N8 });
+  const R = { mode: await p.evaluate(() => document.getElementById('wh-mode').textContent) };
+  await p.click('#wh-ret .wh-ret-stat[data-wh-list="ret_missing"]');
+  R.row = await p.evaluate(() => (document.querySelector('#wh-lists .wh-row') || {}).textContent || '');
+  await p.context().close();
+  return R;
+}
+const n52 = await n8nOnly();
+ok(/1 مرتجع اتسجل في صفحة n8n بعد التشغيل/.test(n52.mode) && /متسجّل في صفحة n8n بس — اضربه هنا/.test(n52.row),
+  '52) مرتجع في صفحة n8n بس بعد التشغيل: البانر بالعدد · الصف في «ناقص» بيقول «اضربه هنا» (' + JSON.stringify(n52) + ')');
+
+// 53 — البحث لقى مرتجع واحد مستني يتسجل = بيتسجّل على طول (زي صفحة n8n)
+async function lookupAuto(patch){
+  const p = await open({ patch, init: `window.__WHR = function(n){ if(n === 'wh_lookup') return { ok:true, code:'ok', rows:[
+      { tracking_no:'JEG000700076489', uid:'18176', first_name:'سارة', items:'تيربو', open_return:true }] }; return null; };` });
+  await p.click('#wh-input');
+  await pasteEnter(p, '76489');
+  await p.waitForTimeout(500);
+  const R = { scans: (await calls(p, 'wh_scan')).map(c => c.args.p_code + '|' + c.args.p_source),
+    pick: await p.evaluate(() => document.querySelectorAll('#wh-result .wh-pick-row').length) };
+  await p.context().close();
+  return R;
+}
+const a53 = await lookupAuto();
+ok(a53.scans.join(',') === 'JEG000700076489|manual' && a53.pick === 0,
+  '53) آخر 5 أرقام ومرتجع واحد مستني = سكان على طول من غير اختيار (' + JSON.stringify(a53) + ')');
+
+// 54 — كارت مرتجع متسجّل في صفحة المرتجعات + F9 على طرد رايح (من غير إشارة رجوع) = برتقاني في «محتاجة انتباهك»
+const IN_EXT = { ok: true, code: 'in_ok_precount', tone: 'warn', dir: 'in', applied: true, scan_id: 601, order: order({ uid: '18301' }),
+  lines: [{ text: 'منظم المطبخ المتكامل', qty: 1, dir: 'in', state: 'posted', matched_by: 'exact', product_id: 'p1', product_name: 'منظم المطبخ المتكامل', qty_after: 62 }],
+  warnings: ['no_return_signal', 'ext_registered'], options: [], prev: { at: NOW(), by: 'صفحة المرتجعات', src: 'ext' }, dry: false };
+async function extCard(patch){
+  const p = await open({ patch, outOk: IN_EXT });
+  await p.click('#wh-input');
+  await pasteEnter(p, CODE);
+  await p.waitForFunction(() => document.getElementById('wh-result').getAttribute('data-code') === 'in_ok_precount', null, { timeout: 4000 }).catch(() => {});
+  const R = await p.evaluate(() => ({ prev: (document.querySelector('#wh-result .wh-r-prev') || {}).textContent || '',
+    txt: document.getElementById('wh-result').textContent, attn: document.querySelectorAll('#wh-result [data-wh-act="attn-ok"]').length,
+    tone: document.getElementById('wh-result').className }));
+  await p.context().close();
+  return R;
+}
+const e54 = await extCard();
+ok(/متسجّل قبل كده في صفحة المرتجعات/.test(e54.prev) && !/بإيد/.test(e54.prev) && /J&T ماقالتش إنه مرتجع/.test(e54.txt) && /صفحة المرتجعات \(n8n\) بس/.test(e54.txt)
+   && /tone-warn/.test(e54.tone) && e54.attn > 0,
+  '54) الكارت: «📋 متسجّل قبل كده في صفحة المرتجعات» (مش «بإيد») · تحذير «J&T ماقالتش إنه مرتجع» · برتقاني ومتسجّل في «محتاجة انتباهك» (✓ شفته) (' + JSON.stringify(e54) + ')');
+
+// 55 — الموبايل اللي مابيقراش الباركود (آيفون) = سطر «اكتب آخر 5 أرقام» · الديسكتوب = مفيش
+async function camHint(patch, touch){
+  const p = await open({ patch, ctx: touch ? { hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } } : null });
+  await p.waitForTimeout(150);
+  const R = { hint: await p.isVisible('#wh-cam-hint'), cam: await p.isVisible('#wh-cam') };
+  await p.context().close();
+  return R;
+}
+const h55a = await camHint(null, true), h55b = await camHint(null, false);
+ok(h55a.hint && !h55a.cam && !h55b.hint, '55) آيفون (مفيش BarcodeDetector): سطر «اكتب آخر 5 أرقام» ظاهر · الديسكتوب مخفي (' + JSON.stringify({ a: h55a, b: h55b }) + ')');
+
+// 56 — محرر المخزون بعد التشغيل: «اكتب اللي على الرف بس — منه N في الكومة»
+async function stockPile(patch){
+  const p = await open({ patch, init: `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, unit_price:1000, wholesale_price:600, active:true, parent_id:null, variant_label:null }];
+      window.__WHR = function(n, a){ if(n === 'wh_product_pile') return a.p_product_id === 'p1' ? { ok:true, code:'ok', pile:2, ret:1 } : { ok:false }; return null; };` });
+  await p.evaluate(async () => { const m = await import('/js/main.js'); m.showPage('stock'); });
+  await p.waitForSelector('.prod-edit-btn[data-id="p1"]', { timeout: 8000 });
+  await p.click('.prod-edit-btn[data-id="p1"]');
+  await p.waitForSelector('#pe-qty');
+  await p.waitForSelector('#pe-pile', { timeout: 2000 }).catch(() => {});
+  const R = { note: await p.evaluate(() => (document.getElementById('pe-pile') || {}).textContent || '') };
+  await p.fill('#pe-qty', '7');
+  await p.click('#pe-save');
+  await p.waitForSelector('#cmodal-backdrop', { state: 'visible', timeout: 1500 }).catch(() => {});
+  R.sub = await p.evaluate(() => (document.getElementById('cmodal-sub') || {}).textContent || '');
+  await p.context().close();
+  return R;
+}
+const p56 = await stockPile();
+ok(/منه 2 قطعة في طرود اتضربت خروج/.test(p56.note) && /1 مرتجع/.test(p56.note) && /منه 2 قطعة/.test(p56.sub) && !/جرد ·/.test(p56.sub),
+  '56) محرر المخزون: «اكتب اللي على الرف بس — منه 2 في الكومة · 1 مرتجع» تحت الكمية وفي مودال السبب (' + JSON.stringify(p56) + ')');
+
 // ── المعايرات ─────────────────────────────────────────────────────────
 console.log('المعايرات');
 {
@@ -1518,7 +1685,7 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
   ok(r.err || !r.tag0, 'معايرة (م5) وسم «مرتجع مستني» مش ظاهر → 46 وقع');
 }
 {
-  const r = await startFlow({ adm: s => s.replace("    onOk: function(){ cfgSet({ enabled: true, start: true }); } });", "    onOk: function(){ cfgSet({ enabled: true }); } });") }).catch(e => ({ err: String(e) }));
+  const r = await startFlow({ adm: s => s.replace("    onOk: function(){ cfgSet(force ? { enabled: true, start: true, force: true } : { enabled: true, start: true }); } });", "    onOk: function(){ cfgSet({ enabled: true }); } });") }).catch(e => ({ err: String(e) }));
   ok(r.err || !(r.sent && r.sent[0] && r.sent[0].start === true && /وقّفه/.test(r.after || '')), 'معايرة (م6) التشغيل من غير start → 47 وقع');
 }
 {
@@ -1530,8 +1697,47 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
   ok(r.err || (r.scans || []).length !== 2, 'معايرة (م8) الكاميرا من غير منع التكرار → 48 وقع (' + JSON.stringify(r.scans) + ')');
 }
 {
-  const r = await cam({ wh: s => s.replace("    b.hidden = !(Array.isArray(f) && f.indexOf('code_128') >= 0);", "    b.hidden = false;") }, false).catch(e => ({ err: String(e) }));
+  const r = await cam({ wh: s => s.replace("  var setOk = function(ok){ b.hidden = !ok;", "  var setOk = function(ok){ b.hidden = false;") }, false).catch(e => ({ err: String(e) }));
   ok(r.err || r.vis, 'معايرة (م9) زرار الكاميرا ظاهر والمتصفح مابيقراش Code128 → 48 وقع');
+}
+
+// ── معايرات إصلاحات المراجعة على v76 ──
+{
+  const r = await startCheck({ adm: s => s.replace("  if(!chk || !chk.ok) return out;", "  return out;") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/❌ 2 اسم منتج/.test(r.t1 || ''), 'معايرة (م10) المشاكل مش في التأكيد → 49 وقع');
+}
+{
+  const r = await startCheck({ adm: s => s.replace("    if(!d.ok && d.code === 'needs_confirm'){ startConfirm(d.check || null, true); return; }\n", "") }, true).catch(e => ({ err: String(e) }));
+  ok(r.err || !(r.sent && r.sent.length === 2 && r.sent[1].force), 'معايرة (م11) رد needs_confirm بيتساب → 49ب وقع');
+}
+{
+  const r = await mapReview({ adm: s => s.replace("  if(r.sibling && !r.alias_props && !r.alias_props_ignore) return 'review';\n", "") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/^⚠️ راجع 1$/.test(r.on || ''), 'معايرة (م12) «راجع» اتشالت → المقاس يبان ✅ → 50 وقع (' + JSON.stringify(r.on) + ')');
+}
+{
+  const r = await inDelivered({ wh: s => s.replace("\n                  + (c.in_delivered || 0) };", " };") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.badge !== '5', 'معايرة (م13) الشارة الحمرا مابتعدّش «اتضربت مرتجع وJ&T سلّمتها» → 51 وقع (' + r.badge + ')');
+}
+{
+  const r = await n8nOnly({ wh: s => s.replace("        + (x.n8n ? '<span class=\"wh-row-old\">⚠️ متسجّل في صفحة n8n بس — اضربه هنا عشان يرجع المخزن</span>' : '');\n    } else if(k === 'ret_scanned'){",
+                                                 "        + '';\n    } else if(k === 'ret_scanned'){") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/اضربه هنا/.test(r.row || ''), 'معايرة (م14) علامة صفحة n8n في «ناقص» اتشالت → 52 وقع');
+}
+{
+  const r = await lookupAuto({ wh: s => s.replace("    if(rows.length === 1 && rows[0].open_return && rows[0].tracking_no){", "    if(false){") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.scans.length === 0, 'معايرة (م15) من غير التسجيل المباشر → 53 وقع');
+}
+{
+  const r = await extCard({ wh: s => s.replace("  if(res.prev && res.prev.src === 'ext'){", "  if(false){") }).catch(e => ({ err: String(e) }));
+  ok(r.err || /بإيد/.test(r.prev || ''), 'معايرة (م16) ختم صفحة المرتجعات بيتعرض «اتضرب بإيد» → 54 وقع (' + r.prev + ')');
+}
+{
+  const r = await camHint({ wh: s => s.replace("if(hint) hint.hidden = ok || !touch;", "if(hint) hint.hidden = true;") }, true).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.hint, 'معايرة (م17) سطر «اكتب آخر 5 أرقام» مش ظاهر على آيفون → 55 وقع');
+}
+{
+  const r = await stockPile({ stock: s => s.replace("+(isNew?'':' data-pid=\"'+esc(p.id)+'\"')", "") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !/منه 2 قطعة/.test(r.note || ''), 'معايرة (م18) ملاحظة الكومة مش في المحرر → 56 وقع');
 }
 
 await b.close();

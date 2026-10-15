@@ -322,7 +322,7 @@ export function openProductEditor(id){
     +nameField
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">'
     +(isNew?'الكمية الافتتاحية':(kids.length?'المخزون الحالي (غير الموزع)':'المخزون الحالي'))+'</label>'
-    +'<input class="sinp" id="pe-qty" type="number" min="0" value="'+(p.current_qty||0)+'">'
+    +'<input class="sinp" id="pe-qty" type="number" min="0" value="'+(p.current_qty||0)+'"'+(isNew?'':' data-pid="'+esc(p.id)+'"')+'>'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر الجملة (للقطعة الواحدة)</label>'
     +'<input class="sinp" id="pe-wholesale" type="number" min="0" step="0.01" value="'+(p.wholesale_price||0)+'">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر البيع للقطعة</label>'
@@ -333,6 +333,24 @@ export function openProductEditor(id){
     +(isNew?'':'<button class="abtn cn" id="pe-del">🗑️ حذف</button>')
     +'<button class="abtn ok" id="pe-save">💾 حفظ</button>'
     +'</div>';
+
+  // (15 أكتوبر — مراجعة السكانر) بعد تشغيل السكانر الرقم المكتوب = اللي على الرف بس: الطرود اللي اتضربت خروج ولسه
+  // في الكومة اتخصمت خلاص — لو اتعدّت هنا بترجع تاني ومحدش بيخصمها لما المندوب ياخدها (التعديل رقم مطلق مش جرد)
+  var pileNote='';
+  if(!isNew&&!tourActive&&sb){
+    var pileFor=p.id;
+    Promise.resolve(sb.rpc('wh_product_pile',{p_product_id:pileFor})).then(function(r){
+      var d=r&&!r.error&&r.data;
+      var qi=$id('pe-qty');
+      if(!d||!d.ok||d.code!=='ok'||!qi||qi.getAttribute('data-pid')!==pileFor)return;
+      pileNote='📦 السكانر شغّال: اكتب اللي على الرف بس'
+        +(d.pile?' — منه '+d.pile+' قطعة في طرود اتضربت خروج ولسه في الكومة (اتخصموا خلاص، ماتعدّهمش)':' — مفيش طرود من المنتج ده في الكومة دلوقتي')
+        +(d.ret?' · و'+d.ret+' مرتجع J&T قالت سلّمته ومااتضربش (هيتضاف لما يتضرب — ماتعدّوش)':'')+'.';
+      var old=$id('pe-pile'); if(old)old.remove();
+      var div=document.createElement('div'); div.id='pe-pile'; div.className='pe-var-hint'; div.textContent=pileNote;
+      qi.insertAdjacentElement('afterend',div);
+    },function(){});
+  }
 
   // بعد أي عملية على الخصائص: تحميل من السيرفر (الاسم بيتولّد هناك) وإعادة فتح المحرر
   function reloadAndReopen(){ loadStock(function(){ openProductEditor(p.id); }); }
@@ -491,7 +509,7 @@ export function openProductEditor(id){
     };
     if(qtyChanged){
       showModal({icon:'✏️',title:'ليه الكمية اتغيّرت من '+orig.qty+' لـ'+qty+'؟',
-        sub:'التعديل بيتسجّل حركة في سجل المخزون باسمك — اكتب السبب (مثلاً: جرد · بضاعة وصلت · تالف).',
+        sub:'التعديل بيتسجّل حركة في سجل المخزون باسمك — اكتب السبب (مثلاً: بضاعة وصلت · تالف · تصحيح رقم).'+(pileNote?'\n'+pileNote:''),
         okLabel:'احفظ',input:true,placeholder:'السبب',onOk:function(reason){ run(reason); }});
       return;
     }

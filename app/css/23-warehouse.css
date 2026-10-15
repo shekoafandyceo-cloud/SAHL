@@ -36,7 +36,7 @@
 .wh-queue.is-off{background:#fee2e2;color:#991b1b;}
 .wh-queue[hidden]{display:none;}
 /* .wh-btn بيحط display — من غير السطر ده `hidden` كان مابيخفيش زرار الكاميرا على كروم الديسكتوب */
-#wh-cam[hidden]{display:none;}
+#wh-cam[hidden],#wh-cam-hint[hidden]{display:none;}
 
 /* كارت النتيجة — اللون هو الرسالة */
 .wh-result{margin:12px 0;padding:16px 18px;border-radius:18px;border:2px solid var(--brd);background:var(--card);min-height:96px;}
@@ -99,7 +99,7 @@
 .wh-pick-st{padding:0 8px;border-radius:999px;background:var(--bg2);font-size:.75rem;}
 
 /* العدّادات والقوايم */
-/* لوحة المرتجعات (16 أكتوبر) — نفس كروت صفحة «استلام مرتجعات J&T» في n8n */
+/* لوحة المرتجعات (15 أكتوبر) — نفس كروت صفحة «استلام مرتجعات J&T» في n8n */
 .wh-ret{margin:0 0 10px;padding:12px;border:1px solid var(--brd);border-radius:16px;background:var(--card);}
 .wh-ret[hidden]{display:none;}
 .wh-ret-head{margin-bottom:8px;font-size:.85rem;line-height:1.7;color:var(--muted);}
@@ -273,6 +273,8 @@ html.dark .wh-ret-stat{background:#111827;border-color:#334155;}
 html.dark .wh-ret-stat.bad{background:#2a0b0b;border-color:#b91c1c;}
 html.dark .wh-ret-stat.bad b{color:#fca5a5;}
 html.dark .wh-ret-stat.ok b{color:#86efac;}
+/* الكارت المختار لازم يبان حتى لو «ناقص» أحمر (قاعدة .bad فوق أعلى خصوصية من .on) */
+html.dark .wh-ret-stat.on{border-color:var(--acc);box-shadow:0 0 0 3px rgba(255,159,28,.35);}
 html.dark .wh-r-st{color:#cbd5e1;}
 html.dark .wh-pick-st.is-ret{background:#0b1f44;color:#93c5fd;}
 html.dark .wh-warn{background:#111827;}

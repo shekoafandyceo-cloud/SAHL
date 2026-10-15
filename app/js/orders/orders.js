@@ -323,10 +323,15 @@ function scheduleRealtimeRefresh(){
       rtInserts = 0;
     }
     if(rtStatusChanges.length){
-      var c = rtStatusChanges;
-      toast(c.length === 1
+      // سكانر المخزن (📷) لوحده — «من شركة الشحن» كان بيكذب على طرد اتضرب في المخزن
+      var c = rtStatusChanges.filter(function(x){ return !x.wh; });
+      var w = rtStatusChanges.filter(function(x){ return x.wh; });
+      if(c.length) toast(c.length === 1
         ? ('🚚 طلب #' + c[0].uid + ' بقى «' + c[0].to + '»')
         : ('🚚 ' + c.length + ' طلبات اتغيّرت حالتهم من شركة الشحن'), 'ok');
+      if(w.length) toast(w.length === 1
+        ? ('📦 طلب #' + w[0].uid + ' بقى «' + w[0].to + '» من سكانر المخزن')
+        : ('📦 ' + w.length + ' طرد اتضرب في سكانر المخزن'), 'ok');
       rtStatusChanges = [];
     }
     loadOrdersCards();
@@ -365,10 +370,15 @@ export function handleRealtimeChange(payload){
     // مش شايفه أصلاً).
     if(prev && prev.status !== row.status){
       var by = rtChangedBy(row);
+      // سكانر المخزن بيكتب «📷 <الموظف>» — الاسم من غير البادئة هو اللي بيتقارن (كان كل سكان بيعمل toast لصاحبه)
+      var wh = by.indexOf('📷') === 0;
+      var byName = wh ? by.replace(/^📷\s*/, '') : by;
       // الموظف اللي غيّر الحالة بنفسه شاف النتيجة قدامه — toast على فعله
       // هو ضوضاء. اللي يستاهل إشعار هو اللي جه من برّه: شركة الشحن أو زميل.
-      if(by !== (currentUser && currentUser.name)){
-        rtStatusChanges.push({ uid: row.order_uid || (row.id || '').slice(0,8), to: statusLabel(row.status) });
+      // وسكانات المخزن والصفحة بتاعته مفتوحة قدامه = القوايم بتعرضها (toast لكل طرد = ضوضاء)
+      var whOpen = wh && (function(){ var pg = document.getElementById('page-warehouse'); return !!(pg && pg.style.display !== 'none'); })();
+      if(byName !== (currentUser && currentUser.name) && !whOpen){
+        rtStatusChanges.push({ uid: row.order_uid || (row.id || '').slice(0,8), to: statusLabel(row.status), wh: wh });
       }
       try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/renderTable', e); }
     }

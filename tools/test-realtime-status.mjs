@@ -145,6 +145,21 @@ console.log('\n── 6) رشقة أحداث = toast واحد مجمّع');
   await p.close();
 }
 
+console.log('\n── 7) سكانر المخزن (📷): سكاني أنا = مفيش toast · سكان زميل = «من سكانر المخزن» مش «شركة الشحن»');
+{
+  const p = await openApp();
+  const me = await p.evaluate(async () => (await import('./js/auth/auth.js')).currentUser?.name || '');
+  await fireUpdate(p, 'o2', 'BOSTA2', '📷 ' + me);
+  const t1 = await toastsAfterFlush(p);
+  ok(!t1.some(x => x.indexOf('9002') >= 0), 'سكاني أنا («📷 ' + me + '») = مفيش toast: ' + JSON.stringify(t1));
+  await fireUpdate(p, 'o3', 'BOSTA2', '📷 زميل');
+  await fireUpdate(p, 'o2', 'Returned to business2', '📷 زميل');
+  const t2 = (await toastsAfterFlush(p)).filter(x => x.indexOf('📦') >= 0 && x.indexOf('سكانر المخزن') >= 0);
+  ok(t2.length === 1 && /2 طرد اتضرب في سكانر المخزن/.test(t2[0]) && !(await toasts(p)).some(x => /شركة الشحن/.test(x)),
+     'سكانين زميل = toast واحد «2 طرد اتضرب في سكانر المخزن» ومن غير «شركة الشحن»: ' + JSON.stringify(t2));
+  await p.close();
+}
+
 console.log('\n── معايرات (لازم كل واحدة تقع)');
 async function calib(name, patch, check){
   const p = await openApp(patch);
@@ -160,7 +175,7 @@ await calib('(أ) من غير تحديث `fil` الصف المرسوم بيفض�
                return await badgeText(p, TARGET) === 'استلام في المخزن'; });
 // (ب) شيل فلتر by — الموظف بياخد toast على فعله
 await calib('(ب) من غير فلتر `by` الموظف بياخد toast على فعله هو',
-  s => s.replace('if(by !== (currentUser && currentUser.name)){', 'if(true){'),
+  s => s.replace('if(byName !== (currentUser && currentUser.name) && !whOpen){', 'if(true){'),
   async p => { const me = await p.evaluate(async () => (await import('./js/auth/auth.js')).currentUser?.name || '');
                await fireUpdate(p, TARGET, 'Delivered', me);
                return (await toastsAfterFlush(p)).some(x => x.indexOf('9002') >= 0); });
@@ -171,6 +186,13 @@ await calib('(ج) من غير `renderDetail` النافذة المفتوحة ت�
                await p.waitForSelector('#dcnt .dsec', { timeout: 8000 });
                await fireUpdate(p, TARGET, 'Delivered', 'J&T API');
                return (await detailStatus(p)) === 'Received at warehouse'; });
+
+// (د) من غير شيل بادئة 📷 — سكاني أنا بيعمل toast
+await calib('(د) من غير شيل بادئة «📷» سكان الموظف نفسه بيعمل toast',
+  s => s.replace("var byName = wh ? by.replace(/^📷\\s*/, '') : by;", "var byName = by;"),
+  async p => { const me = await p.evaluate(async () => (await import('./js/auth/auth.js')).currentUser?.name || '');
+               await fireUpdate(p, 'o2', 'BOSTA2', '📷 ' + me);
+               return (await toastsAfterFlush(p)).some(x => x.indexOf('9002') >= 0); });
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فحص وقع` : '\n✅ كله تمام');

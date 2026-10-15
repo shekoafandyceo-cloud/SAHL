@@ -1,4 +1,4 @@
--- سكانر المخزن v76 — السكان بيغيّر الحالة مع المخزون (16 أكتوبر — طلب المالك)
+-- سكانر المخزن v76 — السكان بيغيّر الحالة مع المخزون (15 أكتوبر — طلب المالك)
 --
 -- «انا كنت محتاج فقط اسكانر اضرب بيه الاوردرات الي خارجة و نحول حالته … ل "اوردر مضروب" و نضرب المرتجع
 -- الي راجع و نحول حالته ل "مرتجع مضروب"» · «انا عاوز الحالة و المخزون، و عاوز نفس المراقبة الي موجودة في
@@ -208,7 +208,7 @@ begin
         v_note := '↩️ مرتجع · #' || coalesce(o.order_uid, '') || ' · ' || p_by;
         perform app.wh_post(p_scan_id, v_source, p_by, v_note);
       end if;
-      -- (16 أكتوبر — طلب المالك) الحالة بتتغيّر مع المخزون: مرتجع J&T رجّعته واتضرب = «مرتجع مضروب» ·
+      -- (15 أكتوبر — طلب المالك) الحالة بتتغيّر مع المخزون: مرتجع J&T رجّعته واتضرب = «مرتجع مضروب» ·
       -- J&T عمرها ما استلمته (الأدمن رجّع طرد من الكومة) = يرجع لحالته قبل سكان الخروج · متسلّم/ملغي = زي ما هي
       if v_kind is distinct from 'flag' and v_jt_first is not null
          and lower(coalesce(o.status, '')) not in ('delivered', 'cancelled', 'returned to business2') then
@@ -268,7 +268,7 @@ begin
       update orders set stock_deducted_at = now() where id = o.id;
       v_stamp_d := true;
     end if;
-    -- (16 أكتوبر) الطرد خرج = «اوردر اتضرب» — بس من حالة الشحن الأولى: J&T حرّكته قبل السكان = حالتها هي الأحدث
+    -- (15 أكتوبر) الطرد خرج = «اوردر اتضرب» — بس من حالة الشحن الأولى: J&T حرّكته قبل السكان = حالتها هي الأحدث
     if o.status in ('BOSTA AUTO', 'bosta_assigned') then
       v_st_from := o.status; v_st_to := 'BOSTA2';
       perform app.wh_set_status(o.id, 'BOSTA2', p_by, '📦 اتضرب خروج من المخزن');
@@ -406,7 +406,7 @@ begin
         update orders set stock_returned_at = null where id = s.order_id;
       end if;
     end if;
-    -- (16 أكتوبر) الحالة اللي السكان كتبها بترجع — بس لو محدش غيّرها بعده (J&T حرّكته = حالتها هي الأحدث)
+    -- (15 أكتوبر) الحالة اللي السكان كتبها بترجع — بس لو محدش غيّرها بعده (J&T حرّكته = حالتها هي الأحدث)
     if nullif(s.result ->> 'status_to', '') is not null and nullif(s.result ->> 'status_from', '') is not null
        and exists (select 1 from orders x where x.id = s.order_id and x.status = s.result ->> 'status_to') then
       v_back := s.result ->> 'status_from';
@@ -437,7 +437,7 @@ begin
   if me.uid is null then return jsonb_build_object('ok', false, 'code', 'not_allowed'); end if;
   q := upper(regexp_replace(translate(coalesce(p_q, ''), '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'), '\s', '', 'g'));
   v_code := app.wh_code(q);
-  -- (16 أكتوبر) آخر 4–5 أرقام = البوليصة كمان (زي صفحة استلام المرتجعات) — مش رقم الأوردر بس ·
+  -- (15 أكتوبر) آخر 4–5 أرقام = البوليصة كمان (زي صفحة استلام المرتجعات) — مش رقم الأوردر بس ·
   -- المرتجع اللي لسه ماتضربش فوق (هو اللي بيتكتب بالإيد على الباب)
   with c as (
     select x.id, ((x.status in ('Returned to business', 'Returned to business2')
@@ -478,7 +478,7 @@ begin
   v_en := coalesce((p ->> 'enabled')::boolean, cfg.enabled);
   v_hold := coalesce((p ->> 'hold_cancel_requested')::boolean, cfg.hold_cancel_requested);
   v_start := coalesce((p ->> 'start')::boolean, false);
-  -- (16 أكتوبر — قرار المالك) التشغيل من غير جرد: «▶️ شغّل السكانر» بيكتب لحظة البداية دلوقتي، وأرقام المخزون
+  -- (15 أكتوبر — قرار المالك) التشغيل من غير جرد: «▶️ شغّل السكانر» بيكتب لحظة البداية دلوقتي، وأرقام المخزون
   -- الأدمن بيظبطها من محرر المخزون (حركة «تعديل» بسبب). التشغيل الأول لازم يبقى صريح (start) — مش أثر جانبي
   if v_en and cfg.baseline_at is null and not v_start then return jsonb_build_object('ok', false, 'code', 'needs_start'); end if;
   v_base := case when v_en and cfg.baseline_at is null then now() else cfg.baseline_at end;
@@ -631,7 +631,7 @@ begin
     carrier_status_at = coalesce(p_scan_at, now()) where id = v_row.id;
   -- (4) في الخريطة بـNULL = خام بس (Holding / 120 — محجوزة في فرع): الحالة ماتتغيّرش
   if v_target is null then return jsonb_build_object('ok', true, 'note', 'raw_only', 'order_id', v_row.id, 'key', v_key); end if;
-  -- (5) «مرتجع مضروب» = المخزن ضرب المرتجع وهو في إيده (16 أكتوبر): أي مسح J&T بعده (13/111/172 «رجع للتاجر»
+  -- (5) «مرتجع مضروب» = المخزن ضرب المرتجع وهو في إيده (15 أكتوبر): أي مسح J&T بعده (13/111/172 «رجع للتاجر»
   -- اتأخر · تسليم) مايرجّعهوش لـ«مرتجع» — الخام والساعة اتكتبوا فوق، الحالة بس اللي بتفضل
   if v_row.status = 'Returned to business2' then
     return jsonb_build_object('ok', true, 'note', 'warehouse_return_kept', 'order_id', v_row.id);
@@ -740,7 +740,7 @@ begin
   if v_by ilike '%واتساب%' or v_by ilike '%whatsapp%'
      or v_by ilike '%bosta%' or v_by = 'بوسطة' or v_by ilike '%api%' or v_by = 'البوت'
      or v_by ilike '%system%' or v_by ilike '%النظام%' or v_by = 'النظام'
-     -- (16 أكتوبر) سكانر المخزن (📷): ~30–60 طرد في اليوم — رسالة لكل طرد كانت هتغرق الجروب، والمتابعة في صفحة المخزن
+     -- (15 أكتوبر) سكانر المخزن (📷): ~30–60 طرد في اليوم — رسالة لكل طرد كانت هتغرق الجروب، والمتابعة في صفحة المخزن
      or v_by like '📷%'
   then return new; end if;
 

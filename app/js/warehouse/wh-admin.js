@@ -3,8 +3,10 @@
 // 🔗 ربط المنتجات: اسم المنتج في الأوردر (زي ما اللاندنج بيكتبه) ↔ منتج في المخزون. السيرفر بيحل لوحده
 //    لو الاسم = اسم منتج واحد بالظبط بعد التطبيع؛ اللي مايتحلش بيظهر هنا «مش مربوط». الربط بيتعمل مرة
 //    (`stock_item_aliases`) والسطور المعلّقة اللي اتضربت قبل كده بتتخصم لحظة الربط (`wh_alias_set`).
-// ⚙️ التشغيل (16 أكتوبر — قرار المالك): «▶️ شغّل السكانر» من غير جرد — لحظة البداية (`baseline_at`) = دلوقتي،
+// ⚙️ التشغيل (15 أكتوبر — قرار المالك): «▶️ شغّل السكانر» من غير جرد — لحظة البداية (`baseline_at`) = دلوقتي،
 //    وأرقام المخزون بتتظبط مرة من محرر المخزون (حركة «تعديل» بسبب). من بعدها كل سكان بيغيّر الحالة ويحرّك المخزون.
+//    قبل التشغيل `wh_start_check` (مش مربوط · «راجع» · مرتجعات ناقصة · عائلات رصيدها على الأم · حركة J&T من ساعة
+//    ما الأرقام اتظبطت) بيتعرض في التأكيد — والسيرفر نفسه بيرفض التشغيل من غير `force` لو فيه حاجة (needs_confirm).
 // 🧮 الجرد الكامل (اختياري — مطوي): عدّ حقيقي لكل منتج → حركة «جرد» بالفرق. «جرد التشغيل» = طريقة تانية للبداية:
 //    السكان بيبدأ يخصم من لحظة فتح الجرد — كل اللي خرج قبلها اتحسب في الجرد، واللي يرجع منه بيتضاف.
 // 🔴 الكتابة كلها RPCs أدمن (السيرفر بيرفض أي حد تاني) — الواجهة مابتحسبش كميات.
@@ -34,11 +36,15 @@ export function whMapState(r){
   if(r.state === 'ignored') return 'ignored';
   if(r.state !== 'posted' || !r.product_id) return 'unmatched';
   if(r.matched_by === 'unallocated') return 'unallocated';
+  // (15 أكتوبر — المراجعة) اتربط بالاسم والسطر ليه خاصية، وفيه منتج تاني اسمه بيبدأ بنفس الاسم («… مقاس ٦٥»):
+  // «مقاس 65 عرض» كان بيتخصم من الـ85 ويبان ✅ — لحد ما الأدمن يربط الخاصية بنفسه
+  if(r.sibling && !r.alias_props && !r.alias_props_ignore) return 'review';
   return 'ok';
 }
 
 var MAP_CHIPS = [
   { k: 'unmatched',   t: '❌ مش مربوط' },
+  { k: 'review',      t: '⚠️ راجع' },
   { k: 'unallocated', t: '📦 بيتخصم من «غير موزع»' },
   { k: 'ok',          t: '✅ مربوط' },
   { k: 'ignored',     t: '🚫 متجاهَل' },
@@ -61,14 +67,14 @@ function loadMap(){
     mapProducts = (r.data.products || []).filter(function(p){ return p.active !== false; });
     if(!mapFilter){
       var c = mapCounts();
-      mapFilter = c.unmatched ? 'unmatched' : (c.unallocated ? 'unallocated' : 'all');
+      mapFilter = c.unmatched ? 'unmatched' : (c.review ? 'review' : (c.unallocated ? 'unallocated' : 'all'));
     }
     renderMap();
   });
 }
 
 function mapCounts(){
-  var c = { unmatched: 0, unallocated: 0, ok: 0, ignored: 0, all: 0 };
+  var c = { unmatched: 0, review: 0, unallocated: 0, ok: 0, ignored: 0, all: 0 };
   (mapRows || []).forEach(function(r){ c[whMapState(r)]++; c.all++; });
   return c;
 }
@@ -85,6 +91,7 @@ function isChildProduct(id){
 export function whMapDefaultScope(r, pid){
   if(!r || !r.props_key) return 'item';
   if(r.alias_props || r.alias_props_ignore) return 'props';
+  if(whMapState(r) === 'review') return 'props';   // المقاس ده بالذات — مش الاسم كله
   if((r.alias_item || r.alias_item_ignore) && (!pid || pid === r.alias_item)) return 'item';
   if(pid && isChildProduct(pid)) return 'props';
   return 'item';
@@ -112,10 +119,11 @@ function renderMap(){
   if(!mapRows){ el.innerHTML = ''; return; }
   var c = mapCounts();
   var h = '<div class="wh-hint">كل اسم منتج اتكتب في الأوردرات آخر 30 يوم، والسيستم بيخصمه من أنهي منتج في المخزون. '
-    + 'اللي «مش مربوط» مش هيتخصم من المخزن لحد ما تربطه — والسكانات اللي اتعملت عليه قبل الربط بتتخصم لحظة الربط.</div>';
+    + 'اللي «مش مربوط» مش هيتخصم من المخزن لحد ما تربطه — والسكانات اللي اتعملت عليه قبل الربط بتتخصم لحظة الربط. '
+    + '«⚠️ راجع» = خاصية (مقاس) بتتخصم من منتج بالاسم، وفيه منتج تاني اسمه شبه — اختار الصح «بالخاصية دي بس». خلّي الاتنين صفر قبل التشغيل.</div>';
   h += '<div class="wh-map-bar"><div class="wh-chips">';
   MAP_CHIPS.forEach(function(ch){
-    h += '<button type="button" class="wh-chip' + (mapFilter === ch.k ? ' on' : '') + (ch.k === 'unmatched' && c.unmatched ? ' hot' : '') + '" data-wha="map-filter" data-k="' + ch.k + '">'
+    h += '<button type="button" class="wh-chip' + (mapFilter === ch.k ? ' on' : '') + (((ch.k === 'unmatched' && c.unmatched) || (ch.k === 'review' && c.review)) ? ' hot' : '') + '" data-wha="map-filter" data-k="' + ch.k + '">'
       + esc(ch.t) + ' <span class="n">' + c[ch.k] + '</span></button>';
   });
   h += '</div><div class="wh-map-tools"><input type="search" class="wh-search" id="wh-map-q" placeholder="دوّر باسم المنتج" value="' + esc(mapQ) + '">'
@@ -133,10 +141,11 @@ function renderMap(){
     var st = whMapState(r), k = rowKey(r);
     var cur = st === 'ok' || st === 'unallocated'
       ? '<span class="wh-ms ' + st + '">' + (st === 'ok' ? '✅ ' : '📦 ') + esc(r.product_name || '') + ' <small>(' + esc(MATCHED_BY[r.matched_by] || r.matched_by || '') + ')</small></span>'
+      : st === 'review' ? '<span class="wh-ms unmatched">⚠️ بيتخصم من «' + esc(r.product_name || '') + '» (نفس الاسم) — فيه منتج تاني اسمه شبه: اتأكد إن الخاصية دي بتاعته</span>'
       : (st === 'ignored' ? '<span class="wh-ms ignored">🚫 متجاهَل — مش بيتخصم</span>' : '<span class="wh-ms unmatched">❌ مش مربوط — مش بيتخصم</span>');
     var hasProps = !!(r.props_key);
     var pk = mapPick[k];
-    var sel = pk ? pk.pid : (r.alias_props || r.alias_item || (st === 'ok' || st === 'unallocated' ? r.product_id : ''));
+    var sel = pk ? pk.pid : (r.alias_props || r.alias_item || (st === 'ok' || st === 'unallocated' || st === 'review' ? r.product_id : ''));
     var scope = pk && pk.scope ? pk.scope : whMapDefaultScope(r, sel);
     h += '<div class="wh-map-row" data-k="' + esc(k) + '">'
       + '<div class="wh-map-name"><b>' + esc(r.sample || r.item_key) + '</b>'
@@ -556,14 +565,18 @@ function settingsHtml(enabled, base){
   var h = '<div class="wh-set"><h3>⚙️ تشغيل السكانر</h3>';
   if(base){
     h += '<div class="wh-set-row">' + (enabled ? '🟢 شغّال من ' + esc(whenTxt(base)) + ' — كل سكان بيغيّر الحالة ويحرّك المخزون' : '⏸️ متوقف — السكان بيرجع وضع تجربة (مابيغيّرش حالة ولا مخزون)')
-      + ' <button type="button" class="wh-btn wh-btn-ghost" data-wha="cfg-toggle" data-en="' + (enabled ? '0' : '1') + '"' + (cfgBusy ? ' aria-busy="true"' : '') + '>' + (enabled ? '⏸️ وقّفه' : '▶️ شغّله') + '</button></div>';
+      + ' <button type="button" class="wh-btn wh-btn-ghost" data-wha="cfg-toggle" data-en="' + (enabled ? '0' : '1') + '"' + (cfgBusy ? ' aria-busy="true"' : '') + '>' + (enabled ? '⏸️ وقّفه' : '▶️ شغّله') + '</button></div>'
+      // تذكير دايم بعد التشغيل — الاتنين اللي بيبوّظوا الأرقام في صمت
+      + '<div class="wh-hint bad">🔴 صفحة المرتجعات وسكانر التلجرام في n8n لازم يفضلوا واقفين — صفحة n8n بتعلّم المرتجع من غير ما المخزون يرجع.</div>'
+      + '<div class="wh-hint">✏️ تصحيح رقم منتج: من «المخزون» — اكتب اللي على الرف بس (الطرود اللي اتضربت خروج ولسه في الكومة اتخصمت خلاص) · أو اعمل جرد كامل تحت (بيطرح الكومة لوحده).</div>';
   } else {
     h += '<div class="wh-set-row">🧪 وضع تجربة — السكان بيقولك النتيجة بس، مابيغيّرش الحالة ولا المخزون.</div>'
       + '<ol class="wh-steps">'
-      + '<li>🔗 اربط المنتجات (تاب «ربط المنتجات») لحد ما «مش مربوط» تبقى صفر — المنتج المش مربوط مابيتخصمش.</li>'
-      + '<li>📦 ظبط أرقام المخزون من صفحة «المخزون»: اكتب <b>كل اللي في المخزن فعلاً</b> — حتى الطرود المتغلّفة اللي لسه ماخرجتش (دي هتتخصم لما تتضرب خروج).</li>'
-      + '<li>▶️ اضغط «شغّل السكانر» — من اللحظة دي: الخروج حالته «اوردر اتضرب» ويتخصم، والمرتجع حالته «مرتجع مضروب» ويرجع المخزن.</li>'
-      + '<li>🔴 بعدها على طول: وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n بإيدك — وإلا الطرد بيتسجّل مرتين.</li></ol>'
+      + '<li>🔗 اربط المنتجات (تاب «ربط المنتجات») لحد ما «❌ مش مربوط» و«⚠️ راجع» يبقوا صفر — المنتج المش مربوط مابيتخصمش، و«راجع» = مقاس ممكن يتخصم من منتج غلط.</li>'
+      + '<li>↩️ مرتجعات «🚨 ناقص» (J&amp;T قالت سلّمتها ومحدش سجّلها): اللي وصل فعلاً سجّله في صفحة n8n <b>قبل</b> التشغيل — بعد التشغيل اضربه هنا.</li>'
+      + '<li>📦 ظبط أرقام المخزون من صفحة «المخزون»: اكتب <b>كل اللي في المخزن فعلاً</b> — حتى الطرود المتغلّفة اللي لسه ماخرجتش (دي هتتخصم لما تتضرب خروج). المنتج اللي ليه ألوان/مقاسات: اكتب العدد على <b>كل خاصية</b> (✏️ على صفها أو ⬅ توزيع) — «غير موزع» للي خاصيته مش معروفة بس.</li>'
+      + '<li>▶️ اضغط «شغّل السكانر» <b>في نفس القعدة</b> — ومايكونش في النص استلام مندوب J&amp;T (بيستلم العصر) ولا مرتجعات (بتوصل الضهر): أي طرد خرج أو مرتجع وصل بين ظبط الأرقام والتشغيل مش هيتحسب صح.</li>'
+      + '<li>🔴 في نفس اللحظة: وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n بإيدك — صفحة n8n بتعلّم المرتجع من غير ما المخزون يرجع، والسكانر القديم بيخصم مرتين.</li></ol>'
       + '<button type="button" class="wh-btn wh-btn-main" data-wha="cfg-start"' + (cfgBusy ? ' aria-busy="true"' : '') + '>▶️ شغّل السكانر من دلوقتي</button>';
   }
   h += '<label class="wh-check"><input type="checkbox" id="wh-hold"' + (hold ? ' checked' : '') + '> امنع خروج الطرد لو العميل طالب إلغاء ولسه الطلب ماتحسمش</label>';
@@ -727,22 +740,51 @@ function cfgSet(patch){
     if(d.ok && board){ board = Object.assign({}, board, { enabled: !!d.enabled, hold_cancel_requested: d.hold_cancel_requested !== false,
                                                          baseline_at: d.baseline_at || board.baseline_at }); }
     refreshSet(true);
+    // السيرفر لقى حاجة قبل التشغيل (مش مربوط · ناقص · …) = التأكيد بالتفاصيل، والتشغيل بعده بـforce
+    if(!d.ok && d.code === 'needs_confirm'){ startConfirm(d.check || null, true); return; }
     if(!d.ok){ toast(d.code === 'needs_start' ? 'لازم «▶️ شغّل السكانر» الأول' : 'مقدرناش نحفظ', 'er'); api.reloadBoard(); return; }
     toast('اتحفظ ✓', 'ok');
     api.reloadBoard();
   }, function(){ cfgBusy = false; refreshSet(true); toast('مقدرناش نحفظ', 'er'); });
 }
 
-// التشغيل الأول — تأكيد صريح بالأثر (الحالة + المخزون + n8n القديم)
+// نتيجة wh_start_check → سطور بالكلام (مصدر واحد للتأكيد ولرد needs_confirm من السيرفر)
+export function whStartIssues(chk){
+  var out = [];
+  if(!chk || !chk.ok) return out;
+  var un = chk.unmatched || {}, rv = chk.review || {}, g = chk.gap || {};
+  if(un.n) out.push('❌ ' + un.n + ' اسم منتج مش مربوط (' + (un.pieces || 0) + ' قطعة آخر 30 يوم' + (un.top && un.top.length ? ': ' + un.top.slice(0, 3).join(' · ') : '') + ') — الطرود دي هتغيّر حالتها بس مش هتتخصم لحد ما تربطها. ولو صلّحت رقمها من المخزون قبل الربط، اللي اتضرب قبل الربط هيتخصم تاني لحظة الربط.');
+  if(rv.n) out.push('⚠️ ' + rv.n + ' خاصية «راجع» (' + (rv.pieces || 0) + ' قطعة) — مقاس ممكن يتخصم من منتج تاني' + (rv.top && rv.top.length ? ': ' + rv.top.slice(0, 2).join(' · ') : '') + '.');
+  if(chk.missing_returns) out.push('🚨 ' + chk.missing_returns + ' مرتجع J&T قالت سلّمته ومحدش سجّله — اللي على الرف سجّله في صفحة n8n قبل ما تشغّل (بعد التشغيل السكان هيضيفه للمخزن، ولو كنت عدّيته يبقى مرتين).');
+  if(Array.isArray(chk.families) && chk.families.length) out.push('📦 منتجات ليها خصائص ورصيدها كله على الأم: ' + chk.families.map(function(f){ return f.name + ' (' + f.qty + ')'; }).join(' · ') + ' — السكان بيخصم من الخاصية، فهتبان بالسالب من أول ساعة. وزّع العدد على الخصائص من «المخزون».');
+  if(g.pickups || g.returns) out.push('⏰ من ساعة ما بدأت تظبط الأرقام (' + whenTxt(g.since) + '): J&T استلمت ' + (g.pickups || 0) + ' طرد ووصل ' + (g.returns || 0) + ' مرتجع — مش محسوبين صح. ظبط أرقام المنتجات دي تاني قبل التشغيل.');
+  return out;
+}
+
+function startConfirm(chk, force){
+  var n = api.pending();
+  var issues = whStartIssues(chk);
+  showModal({ icon: issues.length ? '⚠️' : '▶️', title: issues.length ? 'قبل ما تشغّل — فيه ' + issues.length + ' حاجة محتاجة تتشاف' : 'تشغّل السكانر من دلوقتي؟',
+    sub: (issues.length ? issues.join('\n') + '\n\n' : '')
+      + 'من اللحظة دي: كل طرد يتضرب خروج حالته بتبقى «اوردر اتضرب» ويتخصم من المخزن، وكل مرتجع يتضرب حالته بتبقى «مرتجع مضروب» ويرجع للمخزن.\n'
+      + '🔴 في نفس اللحظة وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n.'
+      + (chk ? '' : '\n⚠️ مقدرناش نعمل فحص ما قبل التشغيل — السيرفر هيعمله.')
+      + (n ? '\n⚠️ فيه ' + n + ' سكان على الجهاز ده لسه ماوصلوش السيرفر — هيتسجّلوا بعد التشغيل.' : ''),
+    okLabel: issues.length ? 'شغّله برضه' : 'شغّله',
+    onOk: function(){ cfgSet(force ? { enabled: true, start: true, force: true } : { enabled: true, start: true }); } });
+}
+
+// التشغيل الأول — الفحص الأول، وبعدين تأكيد صريح بالأثر والمشاكل اللي اتلقت
 function cfgStart(){
   if(cfgBusy || (board && board.baseline_at)) return;
-  var n = api.pending();
-  showModal({ icon: '▶️', title: 'تشغّل السكانر من دلوقتي؟',
-    sub: 'من اللحظة دي: كل طرد يتضرب خروج حالته بتبقى «اوردر اتضرب» ويتخصم من المخزن، وكل مرتجع يتضرب حالته بتبقى «مرتجع مضروب» ويرجع للمخزن.\n'
-      + 'اتأكد إن أرقام المخزون مظبوطة (صفحة «المخزون»)، وبعدها على طول وقّف سكانر التلجرام القديم وصفحة المرتجعات في n8n.'
-      + (n ? '\n⚠️ فيه ' + n + ' سكان على الجهاز ده لسه ماوصلوش السيرفر — هيتسجّلوا بعد التشغيل.' : ''),
-    okLabel: 'شغّله',
-    onOk: function(){ cfgSet({ enabled: true, start: true }); } });
+  cfgBusy = true; refreshSet(true);
+  Promise.resolve(sb.rpc('wh_start_check')).then(function(r){
+    cfgBusy = false; refreshSet(true);
+    var d = r && !r.error && r.data;
+    // الفحص وقع = التأكيد من غير تفاصيل والتشغيل من غير force (السيرفر هيفحص بنفسه ويرد needs_confirm)
+    if(!d || !d.ok){ startConfirm(null, false); return; }
+    startConfirm(d, true);
+  }, function(){ cfgBusy = false; refreshSet(true); startConfirm(null, false); });
 }
 
 // كتلة الإعدادات لوحدها — force = حتى والفوكس جوّاها (والفوكس بيرجع لنفس الزرار/الخانة)
