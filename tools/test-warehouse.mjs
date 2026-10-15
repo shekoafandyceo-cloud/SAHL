@@ -45,10 +45,11 @@
 // ── المراجعة العدائية التالتة ──
 // 37) كارت «محتاج قرار» وبعده سكان لسه بيتسجّل (الكارت «⏳ بيتسجّل») = F9 مابيعملش حاجة (كان بيفرض القرار القديم
 //     على طرد مش قدام الموظف) · النتيجة القديمة رجعت «محتاجة انتباهك»
-// 38) المودال مفتوح: زرار متداس (e.repeat) = مش سكان والمودال بيتأكّد بالكلام · كود J&T مكتوب بالإيد (60ms/زرار) = سبب مش سكان
-// 39) الجرد: «اتسلّمت وانت بتعدّ» و«مرتجع ماتضربش» = سؤالين · التطبيق ممنوع قبل الإجابة (مفيش نداء) · ❓ جنب المنتج ·
-//     «✅ أيوه» = wh_count_opts {moved:counted} والكومة جنب المنتج بقت 2 · «🚫 مش هنا» = مفيش طرح · pile_questions من
-//     السيرفر = تحميل تاني · التطبيق بعدها = wh_count_apply
+// 38) المودال مفتوح: زرار متداس (e.repeat) = مش سكان والمودال بيتأكّد بالكلام · كود J&T مكتوب بالإيد (60ms/زرار) = سبب مش سكان ·
+//     سكانر أبطأ (~38ms) وفيه تهنيجة 150ms = سكان والمودال فاضل مفتوح (المراجعة الرابعة — كان بيتأكّد بالكود كسبب)
+// 39) الجرد (المراجعة الرابعة): السؤال **جنب كل منتج** · التطبيق ممنوع قبل الإجابة (مفيش نداء) · منتجين بإجابتين مختلفتين
+//     (اتعدّ قبل المندوب / بعده) · «للكل» من فوق · الإجابة بتبعت **الطرود اللي اتعرضت** (ids) · طرد جديد ظهر = changed
+//     والسؤال بيرجع على المنتج ده بس · زرار الإجابة بالكيبورد الفوكس بيفضل عليه · pile_questions = تحميل تاني
 // 40) «خرجت من غير سكان»: جرد عدّ جزء من منتجاتها = «🧮 جزء من منتجاتها اتعدّ» وبتتعدّ في الشارة
 // 41) خانة العدّ: رقم متداس (e.repeat) + Enter = الرقم بيفضل (كان بيترجّع ويقول «اتضرب كود»)
 //
@@ -57,6 +58,8 @@
 // RT_SCORE_COLS → 19 · شيل looksScanned من حارس المحادثات → 20 · الكمية PATCH مباشر → 21 · الفاضي = 0 في الجرد → 22
 // + التالتة: whCard فاضل وقت «بيتسجّل» → 37 · الزرار المتداس ضربة → 38 · الكود بالإيد سكان → 38 · التطبيق من غير إجابة → 39 ·
 // «اتعدّوا» مابيطرحش → 39 · «جزء من منتجاتها» → 40 · الرقم المتداس بيترجّع → 41
+// + الرابعة: حد السرعة الضيق على كود J&T في المودال → 38 · الإجابة لكل المنتجات → 39 · من غير الطرود اللي اتعرضت → 39 ·
+// الفوكس مابيرجعش للزرار → 39 · «طرود جديدة ظهرت» مابتتقالش → 39
 // تشغيل:  python3 tools/spa-server.py 8899 app &   ثم   cd tools && node --import ./clock-preload.mjs test-warehouse.mjs
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -861,7 +864,8 @@ async function modalKeys(patch, seq, gap){
     for(const k of seq){
       const ev = new KeyboardEvent('keydown', { code: /\d/.test(k.ch) ? 'Digit' + k.ch : 'Key' + k.ch, key: k.ch, repeat: !!k.rep, bubbles: true, cancelable: true });
       mi.dispatchEvent(ev); if(!ev.defaultPrevented) mi.setRangeText(k.ch, mi.selectionStart, mi.selectionEnd, 'end');
-      if(gap) await new Promise(r => setTimeout(r, gap));
+      const g = k.gap != null ? k.gap : gap;
+      if(g) await new Promise(r => setTimeout(r, g));
     }
     const v = mi.value;
     mi.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true, cancelable: true }));
@@ -875,45 +879,80 @@ async function modalKeys(patch, seq, gap){
 }
 const HELD = [{ ch: '1' }].concat(Array.from({ length: 11 }, () => ({ ch: '1', rep: true })));
 const MANUAL = 'JEG000700000077'.split('').map(ch => ({ ch }));
+// سكانر أبطأ شوية (~38ms بين الزراير — فوق حد looksScanned مع التهنيجة) وفيه «تهنيجة» واحدة 150ms — الصفحة نفسها بتقبله، فالمودال لازم يقبله
+const SLOW = 'JEG000700000088'.split('').map((ch, i) => ({ ch, gap: i === 6 ? 150 : 36 }));
 const mh = await modalKeys(null, HELD, 0);
 const mm = await modalKeys(null, MANUAL, 60);
-ok(mh.scans.length === 0 && mh.und.length === 1 && /1{12}/.test(mh.und[0] || '') && mm.scans.length === 0 && mm.und.length === 1 && /JEG000700000077/.test(mm.und[0] || ''),
-  '38) المودال: زرار متداس = مش سكان والسبب اتبعت · كود مكتوب بالإيد = سبب مش سكان (' + JSON.stringify({ mh, mm }) + ')');
+const mslow = await modalKeys(null, SLOW, 0);
+ok(mh.scans.length === 0 && mh.und.length === 1 && /1{12}/.test(mh.und[0] || '') && mm.scans.length === 0 && mm.und.length === 1 && /JEG000700000077/.test(mm.und[0] || '')
+   && mslow.scans.indexOf('JEG000700000088') >= 0 && mslow.und.length === 0 && mslow.open,
+  '38) المودال: زرار متداس = مش سكان والسبب اتبعت · كود مكتوب بالإيد = سبب مش سكان · سكانر أبطأ بتهنيجة = سكان والمودال مفتوح (' + JSON.stringify({ mh, mm, mslow }) + ')');
 
 const Q_INIT = `window.__STOCK = [{ id:'p1', tenant_id:'t-test-1', name:'منظم', current_qty:10, active:true, parent_id:null },
-      { id:'p2', tenant_id:'t-test-1', name:'ترولي', current_qty:5, active:true, parent_id:null }];
+      { id:'p2', tenant_id:'t-test-1', name:'ترولي', current_qty:5, active:true, parent_id:null },
+      { id:'p3', tenant_id:'t-test-1', name:'ستاند', current_qty:4, active:true, parent_id:null }];
     window.__WH_COUNTS = [{ id: 7, tenant_id:'t-test-1', opened_at: new Date().toISOString(), opened_by_name:'أدمن', applied_at:null, cancelled_at:null, go_live:false }];
-    window.__OPTS = {}; window.__PILEN = 0; window.__APPLY_Q = 0;
+    window.__OPTS = { moved:{}, ret:{} }; window.__PILEN = 0; window.__APPLY_Q = 0; window.__EXTRA = 0;
+    // نفس قاعدة السيرفر: الإجابة لكل منتج على الطرود اللي اتبعتت · طرد للمنتج مش في الإجابة = محتاج إجابة
+    window.__CUR = function(){ return { moved:{ p1: window.__EXTRA ? ['o1', 'o5'] : ['o1'], p3: ['o4'] }, ret:{ p2: ['o2', 'o3'] } }; };
     window.__WHR = function(n, a){
-      if(n === 'wh_count_pile'){ window.__PILEN++; return { ok:true, count_id:7, opts: JSON.parse(JSON.stringify(window.__OPTS)),
-        pile:[{ product_id:'p1', pile:1, moved:1, ret:0 }, { product_id:'p2', pile:0, moved:0, ret:2 }], pile_orders:1, moved_orders:1, ret_orders:1,
-        moved_list:[{ uid:'18300', t:'00000033' }], ret_list:[{ uid:'18301', t:'00000044' }] }; }
-      if(n === 'wh_count_opts'){ var o = a.p_opts || {};
-        if(o.moved){ window.__OPTS.moved = o.moved; window.__OPTS.moved_n = 1; window.__OPTS.moved_by = 'أدمن'; }
-        if(o.ret){ window.__OPTS.ret = o.ret; window.__OPTS.ret_n = 1; window.__OPTS.ret_by = 'أدمن'; }
-        return { ok:true, code:'ok', opts: JSON.parse(JSON.stringify(window.__OPTS)) }; }
-      if(n === 'wh_count_apply'){ if(window.__APPLY_Q){ window.__APPLY_Q = 0; return { ok:false, code:'pile_questions', moved:1, returns_unscanned:1 }; }
-        return { ok:true, code:'ok', changed:1, pile:2 }; }
+      var cur = window.__CUR(), O = window.__OPTS;
+      var need = function(k, pid){ var x = O[k][pid]; return !x || cur[k][pid].some(function(id){ return x.ids.indexOf(id) < 0; }); };
+      var ans = function(k, pid){ return O[k][pid] ? O[k][pid].v : null; };
+      var lst = function(ids){ return ids.map(function(id, i){ return { uid: '183' + id.slice(1), t: '0000003' + i }; }); };
+      if(n === 'wh_count_pile'){ window.__PILEN++; return { ok:true, count_id:7, pile_orders:1, moved_orders: cur.moved.p1.length + 1, ret_orders:2, pile:[
+        { product_id:'p1', pile:1, moved: cur.moved.p1.length, moved_leak:0, ret:0, moved_ids: cur.moved.p1, ret_ids:[], moved_ans: ans('moved', 'p1'),
+          moved_by:'أدمن', moved_need: need('moved', 'p1'), ret_need:false, moved_list: lst(cur.moved.p1), ret_list:[] },
+        { product_id:'p2', pile:0, moved:0, moved_leak:0, ret:2, moved_ids:[], ret_ids: cur.ret.p2, ret_ans: ans('ret', 'p2'), ret_by:'أدمن',
+          moved_need:false, ret_need: need('ret', 'p2'), moved_list:[], ret_list: lst(cur.ret.p2) },
+        { product_id:'p3', pile:0, moved:0, moved_leak:1, ret:0, moved_ids: cur.moved.p3, ret_ids:[], moved_ans: ans('moved', 'p3'),
+          moved_by:'أدمن', moved_need: need('moved', 'p3'), ret_need:false, moved_list:[{ uid:'18304', t:'00000039', leak:true }], ret_list:[] }] }; }
+      if(n === 'wh_count_opts'){ var o = a.p_opts || {}, chg = false;
+        ['moved', 'ret'].forEach(function(k){ Object.keys(o[k] || {}).forEach(function(pid){
+          var sent = o[k][pid].ids || [], keep = cur[k][pid].filter(function(id){ return sent.indexOf(id) >= 0; });
+          if(keep.length < cur[k][pid].length) chg = true;
+          O[k][pid] = { v: o[k][pid].v, ids: keep }; }); });
+        return { ok:true, code: chg ? 'changed' : 'ok', opts: JSON.parse(JSON.stringify(O)) }; }
+      if(n === 'wh_count_apply'){ if(window.__APPLY_Q){ window.__APPLY_Q = 0; return { ok:false, code:'pile_questions', products:['p1'] }; }
+        return { ok:true, code:'ok', changed:1, pile:3 }; }
       return null; };`;
 async function countQ(patch){
   const p = await open({ patch, init: Q_INIT });
   await p.click('.wh-tab[data-wh-tab="count"]');
-  await p.waitForSelector('#wh-count .wh-count-q[data-k="moved"]', { timeout: 5000 });
+  await p.waitForSelector('#wh-count .wh-cq[data-k="moved"][data-pid="p1"]', { timeout: 5000 });
   const rowTxt = (pid) => p.evaluate(pid => { const r = document.querySelector('#wh-count .wh-ci[data-pid="' + pid + '"]').closest('.wh-count-row');
     const a = r.querySelector('.wh-cpile:not(.q)'), q = r.querySelector('.wh-cpile.q'); return { pile: a ? a.textContent : '', q: q ? q.textContent : '' }; }, pid);
+  const btn = (k, v, pid) => '#wh-count [data-wha="count-opt"][data-k="' + k + '"][data-v="' + v + '"][data-pid="' + pid + '"]';
+  const needN = () => p.evaluate(() => document.querySelectorAll('#wh-count .wh-cq.need').length);
   const R = {};
-  R.need0 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
-  R.r1 = await rowTxt('p1'); R.r2 = await rowTxt('p2');
+  R.need0 = await needN();
+  R.top0 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
+  R.r1 = await rowTxt('p1'); R.r2 = await rowTxt('p2'); R.r3 = await rowTxt('p3');
   await p.fill('#wh-count .wh-ci[data-pid="p1"]', '9');
   await p.fill('#wh-count .wh-ci[data-pid="p2"]', '5');
+  await p.fill('#wh-count .wh-ci[data-pid="p3"]', '3');
   await p.click('[data-wha="count-apply"]'); await p.waitForTimeout(200);
   R.block = (await calls(p, 'wh_count_apply')).length + (await p.evaluate(() => document.getElementById('cmodal-backdrop').style.display === 'flex' ? 1 : 0));
-  await p.click('#wh-count [data-wha="count-opt"][data-k="moved"][data-v="counted"]'); await p.waitForTimeout(300);
-  R.opt1 = (await calls(p, 'wh_count_opts')).map(c => c.args.p_opts);
+  // المنتج ده اتعدّ قبل المندوب (اتعدّوا) والتاني بعده (خرجوا) = إجابتين مختلفتين
+  await p.click(btn('moved', 'counted', 'p1')); await p.waitForTimeout(300);
   R.r1b = await rowTxt('p1');
-  await p.click('#wh-count [data-wha="count-opt"][data-k="ret"][data-v="absent"]'); await p.waitForTimeout(300);
+  // بالكيبورد: الفوكس على الزرار بعد الرسم (درس 54)
+  await p.focus(btn('moved', 'left', 'p3')); await p.keyboard.press('Enter'); await p.waitForTimeout(350);
+  R.focus = await p.evaluate(() => { const a = document.activeElement; return a ? (a.getAttribute('data-wha') || '') + ':' + (a.getAttribute('data-v') || '') + ':' + (a.getAttribute('data-pid') || '') : ''; });
+  R.r3b = await rowTxt('p3');
+  await p.click(btn('ret', 'absent', '')); await p.waitForTimeout(300);
+  R.opts = (await calls(p, 'wh_count_opts')).map(c => c.args.p_opts);
   R.r2b = await rowTxt('p2');
-  R.need1 = await p.evaluate(() => document.querySelectorAll('#wh-count .wh-count-q.need').length);
+  R.need1 = await needN();
+  // طرد جديد للمنتج ظهر والشاشة قديمة: الإجابة بالطرود اللي اتعرضت بس → changed + السؤال بيرجع على المنتج ده لوحده
+  await p.evaluate(() => { window.__EXTRA = 1; });
+  await p.click(btn('moved', 'counted', 'p1')); await p.waitForTimeout(400);
+  R.chg = await p.evaluate(() => /طرود جديدة ظهرت/.test(document.body.textContent));
+  R.need2 = await p.evaluate(() => Array.from(document.querySelectorAll('#wh-count .wh-cq.need')).map(e => e.getAttribute('data-pid')).join(','));
+  R.newTxt = await p.evaluate(() => /طرد جديد ظهر/.test(document.querySelector('#wh-count .wh-cq[data-pid="p1"]').textContent));
+  await p.click(btn('moved', 'counted', 'p1')); await p.waitForTimeout(300);
+  R.last = (await calls(p, 'wh_count_opts')).map(c => c.args.p_opts).pop();
+  R.need3 = await needN();
   // السيرفر لقى طرد جديد وقت التأكيد = pile_questions → تحميل تاني
   await p.evaluate(() => { window.__APPLY_Q = 1; });
   const pn0 = await p.evaluate(() => window.__PILEN);
@@ -928,10 +967,16 @@ async function countQ(patch){
   return R;
 }
 const cq = await countQ();
-ok(cq.need0 === 2 && /1/.test(cq.r1.pile) && /1/.test(cq.r1.q) && /2/.test(cq.r2.q) && cq.block === 0
-   && cq.opt1.length === 1 && cq.opt1[0].moved === 'counted' && /2/.test(cq.r1b.pile) && !cq.r1b.q && cq.r2b.pile === '' && !cq.r2b.q
-   && cq.need1 === 0 && cq.reload && /2 قطعة/.test(cq.sub || '') && cq.ap === 2,
-  '39) الجرد: سؤالين · التطبيق ممنوع قبل الإجابة · «اتعدّوا» = الكومة 2 · «مش هنا» = مفيش طرح · pile_questions = تحميل تاني · التطبيق (' + JSON.stringify(cq) + ')');
+const o0 = (cq.opts || [])[0] || {}, o1 = (cq.opts || [])[1] || {}, o2 = (cq.opts || [])[2] || {};
+ok(cq.need0 === 3 && cq.top0 === 2 && /1/.test(cq.r1.pile) && /1/.test(cq.r1.q) && /2/.test(cq.r2.q) && /1/.test(cq.r3.q) && cq.block === 0
+   && JSON.stringify(o0) === JSON.stringify({ moved:{ p1:{ v:'counted', ids:['o1'] } } })
+   && JSON.stringify(o1) === JSON.stringify({ moved:{ p3:{ v:'left', ids:['o4'] } } })
+   && JSON.stringify(o2) === JSON.stringify({ ret:{ p2:{ v:'absent', ids:['o2', 'o3'] } } })
+   && /2/.test(cq.r1b.pile) && !cq.r1b.q && cq.r3b.pile === '' && !cq.r3b.q && cq.r2b.pile === '' && !cq.r2b.q && cq.need1 === 0
+   && cq.focus === 'count-opt:left:p3'
+   && cq.chg && cq.need2 === 'p1' && cq.newTxt && JSON.stringify(cq.last) === JSON.stringify({ moved:{ p1:{ v:'counted', ids:['o1', 'o5'] } } }) && cq.need3 === 0
+   && cq.reload && /3 قطعة/.test(cq.sub || '') && cq.ap === 2,
+  '39) الجرد: سؤال لكل منتج · التطبيق ممنوع قبل الإجابة · إجابتين مختلفتين لمنتجين · «للكل» · الإجابة بالطرود اللي اتعرضت · طرد جديد = changed والسؤال على المنتج ده بس · الفوكس بعد Enter · pile_questions = تحميل تاني (' + JSON.stringify(cq) + ')');
 
 const BOARD_CS = Object.assign({}, BOARD, { counts: Object.assign({}, BOARD.counts, { leak: 1, leak_counted: 0, unmatched_lines: 0, negative_products: 0 }),
   lists: Object.assign({}, BOARD.lists, { leak: [{ id: 'o-leak-2', t: 'JEG000700000022', uid: '18222', items: 'منظم · استاند', jt_at: NOW(), cancelled: false, counted: false, counted_some: true }] }) });
@@ -1112,15 +1157,15 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
   ok(!(r.scans.length === 0 && r.und.length === 1), 'معايرة (ثث) الزرار المتداس بيتحسب ضربة سكانر → 38 وقع (' + JSON.stringify(r) + ')');
 }
 {
-  const r = await modalKeys({ wh: s => s.replace(" && looksScanned(whModalKeys.timing(15));", ";") }, MANUAL, 60);
+  const r = await modalKeys({ wh: s => s.replace(" && wt.n >= 15 && wt.avg <= 50 && wt.max <= 300;", ";") }, MANUAL, 60);
   ok(!(r.scans.length === 0 && r.und.length === 1), 'معايرة (جج) كود J&T مكتوب بالإيد بيتحسب سكان → 38 وقع (' + JSON.stringify(r) + ')');
 }
 {
-  const r = await countQ({ adm: s => s.replace("  var nq = whPileNeed(cntPile, cnt.id);\n  if(nq.moved || nq.ret){", "  var nq = whPileNeed(cntPile, cnt.id);\n  if(false){") }).catch(e => ({ err: String(e) }));
+  const r = await countQ({ adm: s => s.replace("c.product_id; }));\n  if(nq.moved || nq.ret){", "c.product_id; }));\n  if(false){") }).catch(e => ({ err: String(e) }));
   ok(r.err || r.block !== 0, 'معايرة (حح) التطبيق مابيستناش الإجابة → 39 وقع');
 }
 {
-  const r = await countQ({ adm: s => s.replace("(o.moved === 'counted' ? r.moved : 0)", '0') }).catch(e => ({ err: String(e) }));
+  const r = await countQ({ adm: s => s.replace("(r.moved_ans === 'counted' ? r.moved : 0)", '0') }).catch(e => ({ err: String(e) }));
   ok(r.err || !/2/.test((r.r1b || {}).pile || ''), 'معايرة (خخ) «اتعدّوا» مابيطرحش → 39 وقع (' + JSON.stringify(r.r1b || r.err) + ')');
 }
 {
@@ -1130,6 +1175,26 @@ ok(await rtCheck({ orders: s => s.replace(",\n  stock_deducted_at: 1, stock_retu
 {
   const v = await ciHeld({ adm: s => s.replace("  if(e.repeat){ ciBurst = { el: null, snap: '', last: 0, n: 0, sum: 0, max: 0 }; return; }\n", '') });
   ok(v !== '5555555555', 'معايرة (ذذ) الرقم المتداس بيترجّع → 41 وقع (' + v + ')');
+}
+{
+  const r = await modalKeys({ wh: s => s.replace(" && wt.n >= 15 && wt.avg <= 50 && wt.max <= 300;", " && looksScanned(wt);") }, SLOW, 0);
+  ok(!(r.scans.indexOf('JEG000700000088') >= 0 && r.und.length === 0), 'معايرة (رر) حد السرعة الضيق على كود J&T في المودال → السكانر الأبطأ بيضيع → 38 وقع (' + JSON.stringify(r) + ')');
+}
+{
+  const r = await countQ({ adm: s => s.replace("    if(pid && id !== pid) return;\n", '') }).catch(e => ({ err: String(e) }));
+  ok(r.err || JSON.stringify((r.opts || [])[0]) === JSON.stringify({ moved:{ p1:{ v:'counted', ids:['o1'] } } }) === false, 'معايرة (زز) الإجابة بتروح لكل المنتجات (مش للمنتج ده) → 39 وقع');
+}
+{
+  const r = await countQ({ adm: s => s.replace("    m[id] = { v: v, ids: ids.slice() }; n++;", "    m[id] = { v: v, ids: [] }; n++;") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.need1 !== 0, 'معايرة (سس) الإجابة من غير الطرود اللي اتعرضت → السؤال مابيتقفلش → 39 وقع');
+}
+{
+  const r = await countQ({ adm: s => s.replace("  } else if(keepBtn){", "  } else if(false){") }).catch(e => ({ err: String(e) }));
+  ok(r.err || r.focus !== 'count-opt:left:p3', 'معايرة (شش) الفوكس مابيرجعش لزرار الإجابة → 39 وقع (' + (r.focus || r.err) + ')');
+}
+{
+  const r = await countQ({ adm: s => s.replace("    if(d.code === 'changed') toast(", "    if(false) toast(") }).catch(e => ({ err: String(e) }));
+  ok(r.err || !r.chg, 'معايرة (صص) «طرود جديدة ظهرت» مابتتقالش → 39 وقع');
 }
 
 await b.close();

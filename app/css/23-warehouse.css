@@ -194,6 +194,11 @@
 .wh-q-a{margin-top:4px;font-size:.78rem;color:#15803d;}
 .wh-q-a.bad{color:#b91c1c;}
 .wh-cpile.q{background:#fef9c3;border-color:#fde047;color:#854d0e;}
+.wh-cq{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:2px;padding:6px 8px;border:1px dashed #fed7aa;border-radius:10px;background:#fffbf5;font-size:.8rem;color:#9a3412;}
+.wh-cq.need{border-style:solid;border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.18);}
+.wh-cq .wh-q-list{margin:0;}
+.wh-cq .wh-q-a{margin-top:0;}
+.wh-cq .wh-btn.on{background:#ea580c;border-color:#ea580c;color:#fff;}
 
 /* الشارات على زرار التبويب */
 .wa-nav-badge.wh-nav-badge{background:var(--ora);}
@@ -226,6 +231,7 @@ html.dark .wh-q-list>span{background:#3b1d08;color:#fed7aa;}
 html.dark .wh-q-a{color:#86efac;}
 html.dark .wh-q-a.bad{color:#fca5a5;}
 html.dark .wh-cpile.q{background:#2a2306;border-color:#a16207;color:#fde68a;}
+html.dark .wh-cq{background:#1f1206;border-color:#9a3412;color:#fdba74;}
 html.dark .wh-attn-head{color:#fdba74;}
 html.dark .wh-attn-row{background:#111827;}
 html.dark .wh-orphan{background:#0b2235;border-color:#0369a1;color:#bae6fd;}

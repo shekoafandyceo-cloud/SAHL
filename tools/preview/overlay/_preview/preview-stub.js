@@ -471,18 +471,36 @@
     if(name === 'wh_count_apply'){
       var cc = null; TABLES.stock_counts.forEach(function(c){ if(c.id === a.p_count_id) cc = c; });
       if(!cc) return { ok:false, code:'not_found' };
-      var changed = 0;
-      (a.p_counts || []).forEach(function(e){ var p = whStock(e.product_id); if(p && p.current_qty !== e.counted){ p.current_qty = e.counted; changed++; } });
+      var changed = 0, oo2 = WH.cntOpts || { moved:{}, ret:{} };
+      var need = (a.p_counts || []).filter(function(e){ return (e.product_id === 'prd-1' && !oo2.moved['prd-1']) || (e.product_id === 'prd-0-v0' && !oo2.ret['prd-0-v0']); });
+      if(need.length) return { ok:false, code:'pile_questions', products:need.map(function(e){ return e.product_id; }) };
+      var pq = { 'prd-1': 1 + ((oo2.moved['prd-1'] || {}).v === 'counted' ? 1 : 0), 'prd-0-v0': (oo2.ret['prd-0-v0'] || {}).v === 'counted' ? 1 : 0 };
+      (a.p_counts || []).forEach(function(e){ var p = whStock(e.product_id), t = e.counted - (pq[e.product_id] || 0); if(p && p.current_qty !== t){ p.current_qty = t; changed++; } });
+      WH.cntOpts = null;
       cc.applied_at = new Date().toISOString(); cc.applied_by_name = 'أدمن المعاينة'; cc.go_live = !!a.p_go_live;
       if(a.p_go_live){ WH.enabled = true; WH.baseline = cc.opened_at; }
       return { ok:true, code:'ok', count_id:cc.id, changed:changed, go_live:!!a.p_go_live, baseline_at:a.p_go_live ? cc.opened_at : null };
     }
+    // معاينة الجرد: «منظم المطبخ المتكامل» عليه طرد في الكومة + طرد المندوب أخده وانت بتعدّ · «ترولي 2 دور — اسود»
+    // عليه مرتجع J&T سلّمه ومحدش ضربه — الإجابة لكل منتج (wh_count_opts) زي السيرفر بالظبط
     if(name === 'wh_count_pile'){
       var op = TABLES.stock_counts.filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
-      return { ok:true, count_id: op ? op.id : null, opts:{}, pile:[], pile_orders:0, moved_orders:0, ret_orders:0, moved_list:[], ret_list:[] };
+      if(!op) return { ok:true, count_id:null, opts:{}, pile:[], pile_orders:0, moved_orders:0, ret_orders:0, moved_need:0, ret_need:0 };
+      var oo = WH.cntOpts || { moved:{}, ret:{} };
+      var ans = function(k, pid, id){ var x = oo[k][pid]; return x && x.ids.indexOf(id) >= 0 ? x.v : null; };
+      return { ok:true, count_id:op.id, opts:oo, pile_orders:1, moved_orders:1, ret_orders:1, pile:[
+        { product_id:'prd-1', pile:1, moved:1, moved_leak:0, ret:0, moved_ids:['o-prev-m1'], ret_ids:[],
+          moved_ans:ans('moved', 'prd-1', 'o-prev-m1'), moved_by:'أدمن المعاينة', moved_need:!ans('moved', 'prd-1', 'o-prev-m1'),
+          ret_ans:null, ret_need:false, moved_list:[{ uid:'17990', t:'00000990', leak:false }], ret_list:[] },
+        { product_id:'prd-0-v0', pile:0, moved:0, moved_leak:0, ret:1, moved_ids:[], ret_ids:['o-prev-r1'],
+          moved_ans:null, moved_need:false, ret_ans:ans('ret', 'prd-0-v0', 'o-prev-r1'), ret_by:'أدمن المعاينة',
+          ret_need:!ans('ret', 'prd-0-v0', 'o-prev-r1'), moved_list:[], ret_list:[{ uid:'17991', t:'00000991' }] }] };
     }
     if(name === 'wh_count_opts'){
-      return { ok:true, code:'ok', opts:(a && a.p_opts) || {} };
+      WH.cntOpts = WH.cntOpts || { moved:{}, ret:{} };
+      var po = (a && a.p_opts) || {};
+      ['moved', 'ret'].forEach(function(k){ Object.keys(po[k] || {}).forEach(function(pid){ WH.cntOpts[k][pid] = { v:po[k][pid].v, ids:(po[k][pid].ids || []).slice() }; }); });
+      return { ok:true, code:'ok', opts:WH.cntOpts };
     }
     if(name === 'wh_config_set'){
       var pp = (a && a.p) || {};

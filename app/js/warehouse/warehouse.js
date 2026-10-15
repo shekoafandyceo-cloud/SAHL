@@ -523,9 +523,12 @@ function modalScanGuard(e){
     // = قراية سكانر برضه (كود قديم · باركود منتج · قراية ناقصة): ماتأكّدش المودال بيها، والسيرفر يقول نوعها
     var tail = whModalKeys.tail(15), start = whModalKeys.markAt(15);
     var bn = whModalKeys.burstLen(120), bt = whModalKeys.timing(bn);
-    // 🔴 والشكل لوحده مش كفاية: كود مكتوب بالإيد كسبب = سبب مش سكان (looksScanned) · وزرار متداس
-    // (e.repeat — البافر مابيعدّوش) أو حرف واحد متكرر = مش سكانر
-    var isWay = /^[JU]EG\d{12}$/.test(tail) && looksScanned(whModalKeys.timing(15));
+    // 🔴 والشكل لوحده مش كفاية: كود مكتوب بالإيد كسبب = سبب مش سكان · وزرار متداس (e.repeat — البافر مابيعدّوش)
+    // أو حرف واحد متكرر = مش سكانر. بس حد السرعة هنا **أوسع** من looksScanned (متوسط ≤ 50ms وأقصى فجوة ≤ 300ms):
+    // سكانر بلوتوث/أبطأ شوية أو فيه «تهنيجة» واحدة كان بيتحسب كتابة إيد، فالمودال يتأكّد بالكود كسبب والطرد يضيع —
+    // والصفحة نفسها بتقبل كود J&T من غير أي حد سرعة. الكتابة بالإيد (~60ms+ بين الزراير) لسه برّه.
+    var wt = whModalKeys.timing(15);
+    var isWay = /^[JU]EG\d{12}$/.test(tail) && wt.n >= 15 && wt.avg <= 50 && wt.max <= 300;
     var bTail = whModalKeys.tail(bn);
     if(!isWay && bn >= 8 && bt.avg <= 35 && bt.max <= 120 && !/^(.)\1+$/.test(bTail)){ tail = bTail; start = whModalKeys.markAt(bn); isWay = true; }
     whModalKeys.reset();
