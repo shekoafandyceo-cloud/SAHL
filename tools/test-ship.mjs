@@ -6,14 +6,15 @@
 //   - jt-ship: test-jt-ship.mjs (النافذة · الحمولة · الفشل وعلامته)
 //
 // اللي بيتأكد هنا:
-//  1) تاجر بمفتاح بوسطة قديم (has_shipping_api) = مفيش زرار أوتوماتيك ومفيش نداء
-//     لـorder-ship — حتى لو الأوردر عليه محاولة بوسطة قديمة (shipping_requested_at)
-//     مفيش علامة «ماكملتش» صفرا للأبد على صفه
+//  1) تاجر مش J&T (shipping_provider='bosta' — الستب الافتراضي) = مفيش زرار أوتوماتيك
+//     والنافذة مافيهاش شارة «محاولة ماكملتش» حتى لو صف الأوردر فيه محاولة بوسطة قديمة
+//     (shipping_requested_at — بيوصل للنافذة من select('*'))
 //  2) اليدوي بيعدّي على mark_shipped_manual بالتتبع المكتوب (وفاضي = null)
 //  3) أوردر له بوليصة = ولا زرار
 //  4) تاجر J&T = زرار «🚚 شحن J&T»
-//  5) زرار 🖨️ في الجدول لأوردرات J&T بس · الطباعة الجماعية لأوردر مش J&T بتقول
-//     السبب ومفيش نداء لـbosta-print-awb
+//  5) زرار 🖨️ في الجدول لأوردرات J&T بس · «حدد غير المطبوع» J&T بس · الطباعة الجماعية
+//     لأوردر مش J&T بتقول السبب · اختيار مخلوط بيطبع J&T بس ويقول كام اتساب · مفيش
+//     نداء لـbosta-print-awb
 //  6) التيكر بيتابع شحنات J&T اللي في السكة بس — صامت لحد ما الحالة تتغيّر
 //  7) معايرات: رجوع زرار الأوتوماتيك لغير J&T · زرار الطباعة لكل صف · التيكر بيراقب اللي من غير بوليصة
 import { chromium } from 'playwright';
@@ -78,32 +79,35 @@ async function openDetailOf(p, orderId){
 
 const fnSlugs = (p) => p.evaluate(() => (window.__FNCALLS || []).map(c => c.slug));
 
-// ════ 1) تاجر بمفتاح بوسطة قديم — مفيش أوتوماتيك خالص ════
+// ════ 1) تاجر مش J&T — مفيش أوتوماتيك خالص ════
 async function bostaTenantCheck(label, extra){
   const p = await openApp(Object.assign({ pre: `
-    // محاولة بوسطة قديمة من غير بوليصة (زي أوردرات سبتمبر) — كانت بتعمل علامة صفرا للأبد
+    // محاولة بوسطة قديمة من غير بوليصة (زي أوردرات سبتمبر) — كانت بتعمل شارة «ماكملتش» للأبد.
+    // الجدول مابقاش بيطلب العمود، فبيوصل لنافذة التفاصيل بس (select('*'))
     window.__SHIP_REQS = { o3: new Date(Date.now() - 3*86400000).toISOString() };
   ` }, extra || {}));
-  const ind = await p.evaluate(() => !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind'));
   await openDetailOf(p, 'o3');
-  const st = await p.evaluate(() => ({
-    auto: !!document.getElementById('ship-auto'),
-    manual: !!document.getElementById('da-bs'),
-    manualTxt: (document.getElementById('da-bs') || {}).textContent || '',
-    chip: !!document.getElementById('ship-chip')
-  }));
-  const slugs = await fnSlugs(p);
+  const st = await p.evaluate(async () => {
+    const os = await import('./js/orders/state.js');
+    return {
+      auto: !!document.getElementById('ship-auto'),
+      manual: !!document.getElementById('da-bs'),
+      manualTxt: (document.getElementById('da-bs') || {}).textContent || '',
+      chip: !!document.getElementById('ship-chip'),
+      selReq: !!(os.sel && os.sel.shipping_requested_at)
+    };
+  });
   await p.close();
-  return { ind, st, slugs };
+  return { st };
 }
 {
-  console.log('──── تاجر بمفتاح بوسطة قديم ────');
+  console.log('──── تاجر مش J&T ────');
   const r = await bostaTenantCheck();
   ok(!r.st.auto, 'مفيش زرار «شحن أوتوماتيك» — مسار بوسطة اتشال');
   ok(r.st.manual && /يدوي/.test(r.st.manualTxt), `وزرار اليدوي موجود — «${r.st.manualTxt.trim()}»`);
-  ok(!r.ind, 'ومفيش علامة صفرا على صف عليه محاولة بوسطة قديمة');
-  ok(!r.st.chip, 'ولا شارة «محاولة ماكملتش» جوّه النافذة');
-  ok(!r.slugs.includes('order-ship'), `ومفيش نداء لـorder-ship — ${JSON.stringify(r.slugs)}`);
+  // الفحص اللي بعده مايبقاش أعمى: المحاولة القديمة لازم تكون وصلت النافذة فعلاً
+  ok(r.st.selReq, 'الأوردر المفتوح فيه محاولة بوسطة قديمة (shipping_requested_at وصل النافذة)');
+  ok(!r.st.chip, 'ومع ذلك مفيش شارة «محاولة ماكملتش» جوّه النافذة');
 }
 
 // ════ 2) المسار اليدوي — التتبع بيتسجل عبر الـRPC ════
@@ -203,10 +207,12 @@ async function bostaTenantCheck(label, extra){
 
 // ════ 5) طباعة البوالص — J&T بس ════
 async function printCheck(extra){
-  const p = await openApp(Object.assign({ pre: `
+  extra = extra || {};
+  // الـpre بتاع الحالة بيتضاف على الأساسي (مش بيستبدله)
+  const p = await openApp(Object.assign({}, extra, { pre: `
     window.__TENANT = { shipping_provider: 'jt' };
     window.__PROPS = { o1: { shipping_carrier: 'jt' } };   // o1 بوليصة J&T · o2 بوليصة قديمة من غير شركة
-  ` }, extra || {}));
+  ` + (extra.pre || '') }));
   const r = await p.evaluate(() => ({
     jtBtn: !!document.querySelector('#tbody tr[data-id="o1"] .awb-btn'),
     oldBtn: !!document.querySelector('#tbody tr[data-id="o2"] .awb-btn'),
@@ -241,9 +247,7 @@ async function unprintedCheck(p){
   ok(JSON.stringify(un.sel) === '["o1"]', `وبيحدد J&T بس — ${JSON.stringify(un.sel)}`);
   await p.evaluate(async () => { const st = await import('./js/orders/state.js'); st.selectedIds.clear(); });
   // الطباعة الجماعية لأوردر مش J&T: رسالة بالسبب ومفيش نداء لـbosta-print-awb
-  // ⚠️ الستب مابيطبّقش `.in('id', …)` على orders (بيرجّع كل الصفوف) — فبنشيل علامة J&T
-  // من o1 قبل الضغطة (بتتقرا وقت الاستعلام) عشان الطباعة ماتفتحش على o1 اللي مش مختار
-  await p.evaluate(() => { window.__PROPS = {}; });
+  // (الستب بيطبّق `.in('id', …)` زي PostgREST — o1 اللي مش مختار مابيرجعش)
   await p.click('#tbody tr[data-id="o2"] .cb-row');
   await p.waitForSelector('#bb-print', { state:'visible' });
   await p.click('#bb-print');
@@ -258,15 +262,35 @@ async function unprintedCheck(p){
   ok(after.btnOn, 'وزرار الطباعة رجع شغّال بعدها');
   await p.close();
 }
+{
+  // اختيار مخلوط: o1 (J&T) + o2 (قديمة) → قالب J&T بيتطلب لـo1 بس ورسالة إن 1 اتساب.
+  // ⚠️ window.open = null: الخطوط مابتوصلش نافذة document.write في الهارنس فـdoc.fonts.ready
+  // بيعلّق والطباعة مابترجعش (درس v77) — كده printJtAwb بترجع بعد ما تطلب الصفوف
+  const { p } = await printCheck({ pre: `window.open = function(){ return null; };` });
+  await p.click('#tbody tr[data-id="o1"] .cb-row');
+  await p.click('#tbody tr[data-id="o2"] .cb-row');
+  await p.waitForSelector('#bb-print', { state:'visible' });
+  await p.click('#bb-print');
+  await p.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /مالوش بوليصة J&T/.test(t.textContent)), { timeout: 12000 }).catch(() => {});
+  const mixed = await p.evaluate(() => {
+    const awb = (window.__calls || []).filter(c => c.table === 'orders' && /jt_sorting_code/.test(String(c.cols || '')) && (c.f || []).some(f => f.op === 'in' && f.col === 'id'));
+    return {
+      printed: awb.length ? [...new Set(awb.flatMap(c => c.f.filter(f => f.op === 'in' && f.col === 'id').flatMap(f => f.val)))].sort() : null,
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
+    };
+  });
+  ok(JSON.stringify(mixed.printed) === '["o1"]', `اختيار مخلوط: قالب J&T اتطلب لـo1 بس — ${JSON.stringify(mixed.printed)}`);
+  ok(/1 أوردر مالوش بوليصة J&T/.test(mixed.toast), `ورسالة إن أوردر واحد اتساب — «${mixed.toast.slice(0, 120)}»`);
+  await p.context().close();
+}
 
 // ════ 6) التيكر: شحنات J&T اللي في السكة بس — صامت لحد التغيير ════
 async function tickerWatch(extra){
   const p = await openApp(Object.assign({ pre: `
     window.__SHIP_TICK_MS = 700;
     window.__TENANT = { shipping_provider: 'jt' };
-    // o2 = شحنة J&T لسه في السكة · o3 = محاولة بوسطة قديمة (المفروض التيكر يطنّشها)
+    // o2 = شحنة J&T لسه في السكة · o3 = pending من غير بوليصة (المفروض التيكر يطنّشه)
     window.__PROPS = { o2: { shipping_carrier: 'jt' } };
-    window.__SHIP_REQS = { o3: new Date().toISOString() };
   `}, extra || {}));
   await p.evaluate(() => {
     window.__renders = 0;
@@ -286,7 +310,7 @@ async function tickerWatch(extra){
   console.log('──── التيكر ────');
   const { p, quiet } = await tickerWatch();
   ok(quiet.asked >= 2, `التيكر بيسأل السيرفر عن شحنة J&T اللي في السكة — ${quiet.asked} استعلام`);
-  ok(JSON.stringify(quiet.ids) === '["o2"]', `وبيراقب شحنة J&T بس — مش المحاولة القديمة ولا أوردر من غير بوليصة — ${JSON.stringify(quiet.ids)}`);
+  ok(JSON.stringify(quiet.ids) === '["o2"]', `وبيراقب شحنة J&T بس — مش أوردر من غير بوليصة ولا متقفل — ${JSON.stringify(quiet.ids)}`);
   ok(quiet.renders === 0, `ومفيش إعادة رسم للجدول من غير تغيير — ${quiet.renders}`);
   // الشحنة اتسلّمت على السيرفر (ريل-تايم ضاع) — التيكر بيلقطها
   await p.evaluate(() => { const o = (window.__ORDERS || []).filter(x => x.id === 'o2')[0]; if(o) o.status = 'Delivered'; });
@@ -321,7 +345,7 @@ async function tickerWatch(extra){
   const unB = await unprintedCheck(pb.p);
   ok(!/\(1\)/.test(unB.txt), `معايرة (ب2): العدّ لكل البوالص = فحص «J&T بس» كان هيقع — «${unB.txt}»`);
   await pb.p.close();
-  // (ج) التيكر يرجع يراقب أوردرات من غير بوليصة (زي فرع محاولة بوسطة القديم) → فحص (6) لازم يقع
+  // (ج) التيكر يراقب أي أوردر من غير بوليصة (زي ما فرع بوسطة القديم كان بيراقب المحاولات) → فحص (6) لازم يقع
   const C = "if(o.shipping_carrier === 'jt' && (o.tracking_no||'').trim() && !shipmentSettled(o)){";
   if(SHIP_SRC.split(C).length !== 2) throw new Error('المعايرة (ج) مالقتش المرساة');
   const tw = await tickerWatch({ patch: [{ file: 'ship.js', body: SHIP_SRC.replace(C,

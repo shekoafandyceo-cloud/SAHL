@@ -58,10 +58,6 @@ export var BOSTA_POSITIVE_STATUSES = [
 // Expected revenue = orders actually shipped or with Bosta (NOT just confirmed — those still may refuse on delivery)
 export var BOSTA_EXPECTED_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','Exception','out_for_delivery','received_at_warehouse','route_assigned','picked_up','in_transit','exception'];
 
-// Inventory card: count products only after the shipment is actually created/inside Bosta operation.
-// Important: bosta_assigned and BOSTA AUTO are intentionally excluded.
-export var BOSTA_INVENTORY_STATUSES = ['BOSTA2','bosta2','Exception','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','out_for_delivery','received_at_warehouse','route_assigned','in_transit','exception','picked_up'];
-
 // OPERATION filter = Bosta API statuses only, excluding Delivered and excluding internal Bosta statuses.
 export var BOSTA_OPERATION_STATUSES = ['Exception','Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs','Picking up from consignee','Out for exchange','out_for_delivery','received_at_warehouse','route_assigned','in_transit','exception','picked_up'];
 

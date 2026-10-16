@@ -68,7 +68,7 @@ export function loadStock(cb){
     if(stockMovements && stockMovements.length)renderMovements();
     if(cb)cb();
   });
-  // فلاج السقف — العدّاد والتنبؤ لازم يصارحوا إن في أقدم من كده
+  // فلاج السقف — عدّاد الحركات لازم يصارح إن في أقدم من كده
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(500).then(function(r){
     if(myGen!==stockLoadGen) return;
     if(r.error){return;}

@@ -312,7 +312,8 @@ export function loadBostaInventoryCard(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
   loadStockProductsForCosts(function(){
-    // BOSTA_OPERATION_STATUSES هنا مقصودة — مش BOSTA_INVENTORY_STATUSES:
+    // BOSTA_OPERATION_STATUSES هنا مقصودة — مش قايمة فيها BOSTA2/bosta2 (زي
+    // BOSTA_INVENTORY_STATUSES اللي اتشالت في v80 لما آخر مستخدم ليها اتشال):
     // BOSTA2/bosta2 معناها السكانر بتاعنا ضرب الأوردر في مخزننا وبوسطة
     // لسه ماستلمتش، فمش "بضاعة مع بوسطة" (قرار المالك 1 أغسطس — أي مراجعة
     // تقترح "تصليح" ده تعتبر غلط)

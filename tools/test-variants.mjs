@@ -271,7 +271,7 @@ console.log('──── معايرات ────');
     empty: document.getElementById('st-empty').textContent
   }));
   ok(sig.products === '7' && sig.fams === 0 && sig.empty === '3',
-     `معايرة أ: من غير parent_id الكروت بتنقلب (7 منتجات/3 نواقص/صفر عيلات) — فحوص 1+3+4 كانت هتقع — ${JSON.stringify(sig)}`);
+     `معايرة أ: من غير parent_id الكروت بتنقلب (7 منتجات/3 نواقص/صفر عيلات) — فحوص 1+3 كانت هتقع — ${JSON.stringify(sig)}`);
   await p.close();
 }
 // (ب) سواب اتجاه التوزيع: الأرقام بعد النقل هي اللي بتمسكه

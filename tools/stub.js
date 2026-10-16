@@ -97,9 +97,6 @@
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
     if(table === 'v_stock_products' && window.__STOCK) rows = window.__STOCK.slice();
     if(table === 'v_my_tenant'){
-      // ⚠️ الواجهة مابقتش بتقرا العمود ده من v80 (مسار بوسطة الأوتوماتيك اتشال) — فاضل هنا
-      // عشان test-ship يثبت إن تاجر بمفتاح بوسطة قديم مابيشوفش زرار أوتوماتيك
-      rows = rows.map(function(t){ return Object.assign({}, t, { has_shipping_api: window.__SHIP_API !== false }); });
       // إعدادات المتجر اللي الاختبار عايز يزوّدها (قالب المتابعة مثلاً).
       // الافتراضي **فاضي** عن قصد: من غيره كل اختبار قديم كان هيلاقي إعداد
       // مالوش لازمة عنده. وبيتقرا وقت الاستعلام مش وقت التحميل.
@@ -110,9 +107,13 @@
       // الاستعلام**. الحقن على DOMContentLoaded ماينفعش — موديولات ES بتتنفّذ
       // قبله، فالـ16 استعلام كلهم بيخرجوا والصفحة اترسمت قبل ما الحدث يولّع.
       if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
+      // `.in('id', …)` زي PostgREST (v80): الطباعة والتيكر بيطلبوا أوردرات بعينها — من غيره
+      // الستب كان بيرجّع كل الصفوف والطباعة بتشتغل على أوردرات محدش اختارها
+      (st.f || []).forEach(function(f){ if(f.op === 'in' && f.col === 'id') rows = rows.filter(function(o){ return (f.val || []).indexOf(o.id) >= 0; }); });
       if(st.eqExchange !== undefined) rows = rows.filter(function(o){ return o.exchange_of === st.eqExchange; });
-      // علامة الشحن في الجدول: الاختبار بيحقن {id: iso} والستب بيطبّقها
-      // وقت الاستعلام — نفس نمط __UPSELL_IDS
+      // shipping_requested_at (محاولة شحن بوسطة القديمة): الاختبار بيحقن {id: iso} والستب بيطبّقها
+      // وقت الاستعلام — نفس نمط __UPSELL_IDS. ⚠️ من v80 الجدول مابيطلبش العمود ده، فبيوصل
+      // لـselect('*') بس (نافذة التفاصيل)
       var sq = window.__SHIP_REQS || {};
       rows = rows.map(function(o){
         return sq[o.id] !== undefined ? Object.assign({}, o, {shipping_requested_at: sq[o.id]}) : o;

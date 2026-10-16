@@ -6,7 +6,7 @@
    الملف ده للمعاينة المحلية بس — عمره ما يتنشر.
    ══════════════════════════════════════════════════════════════════════ */
 (function(){
-  // المعاينة: التيكر أسرع عشان علامة الجدول تتقلب قدام عين المجرّب
+  // المعاينة: التيكر أسرع (شحنات J&T اللي في السكة) عشان التحديث يبان قدام عين المجرّب
   window.__SHIP_TICK_MS = 7000;
 
   var TENANT = 'preview-tenant';
@@ -764,6 +764,9 @@
       if(st.gte) rows = rows.filter(function(o){ return o.created_at >= st.gte; });
       if(st.lt)  rows = rows.filter(function(o){ return o.created_at <  st.lt;  });
       if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
+      // `.in('id', …)` — الطباعة (printJtAwb · printAwbForOrders) والتيكر بيطلبوا أوردرات بعينها؛
+      // من غيره المعاينة كانت بتطبع كل بوالص J&T مش اللي اتحدد بس (v80)
+      (st.inAny || []).forEach(function(f){ if(f.col === 'id') rows = rows.filter(function(o){ return (f.val || []).indexOf(o.id) >= 0; }); });
       if(st.eqStatus) rows = rows.filter(function(o){ return o.status === st.eqStatus; });
       if(st.inStatus) rows = rows.filter(function(o){ return st.inStatus.indexOf(o.status) >= 0; });
       if(st.eqPhone)  rows = rows.filter(function(o){ return o.phone === st.eqPhone; });
