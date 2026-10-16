@@ -11,11 +11,14 @@
 //  4) التحويل للأوردرات = الكروت والجدول اتجابوا
 //  5) /orders والتاب في الخلفية + حدث ريل-تايم = صفر · رجوع التاب = اتجابوا
 //  6) poll المحادثات والتاب في الخلفية = صفر جلب · رجوع التاب = جلب واحد بس
+//  7) لينك /mycommission مباشر (أو F5) = الصفحة مرسومة مش «—» — applyInitialRoute بقت قبل loadAll، ونداء
+//     العمولة اللي في loadAll بيبقى الأحدث (cmGen) فلازم يرسم الصفحة كمان (مراجعة v79)
 //
 // المعايرات (كل واحدة لازم تقع على الكود السليم وتعدّي على المحقون):
 //  (أ) ordersShown دايماً true → فحص 2 بيقع
 //  (ب) شيل refreshOrdersIfStale من showPage → فحص 4 بيقع
 //  (ج) شيل حارس document.hidden من الـpoll → فحص 6 بيقع
+//  (د) loadAll ترجع لـloadCommissions(renderMyCommissionBar) → فحص 7 بيقع
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -37,8 +40,9 @@ function patched(name, from, to){
   return out;
 }
 
-async function open(path, patch){
+async function open(path, patch, pre){
   const ctx = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  if (pre) await ctx.addInitScript(pre);
   // الإنبوكس محتاج يعدّي البوابة عشان الـpoll يشتغل
   const now = new Date().toISOString();
   const CONVOS = [{ id: 'c1', tenant_id: 't1', wa_id: '201011111111', customer_name: 'عميل', last_message_at: now,
@@ -149,6 +153,27 @@ async function pollCheck(patch){
   ok(r.again === 0, `6) رجوع تاني من غير poll فايت = مفيش جلب (${r.again})`);
 }
 
+// ════ 7) لينك /mycommission مباشر — الموظف اللي عمولته مفعّلة ════
+const CM_PRE = `window.__CM_ON = true; window.__ROLE = 'employee';
+  window.__CM_BAL = [{ user_id:'u1', user_name:'موظف', events_count:1, pending_total:30, earned_total:90, void_total:0,
+    settled_total:100, settlements_count:1, outstanding:-10 }];`;
+async function mycm(patch){
+  const p = await open('/mycommission', patch, CM_PRE);
+  await p.waitForTimeout(600);
+  const r = await p.evaluate(() => ({
+    shown: getComputedStyle(document.getElementById('page-mycommission')).display !== 'none',
+    out: (document.getElementById('my-cm-out') || {}).textContent || '',
+    pend: (document.getElementById('my-cm-pending') || {}).textContent || '' }));
+  r.errs = p.__errs.slice();
+  await p.context().close();
+  return r;
+}
+{
+  const r = await mycm();
+  ok(r.shown && /10/.test(r.out) && /30/.test(r.pend), `7) /mycommission مباشر = الصفحة مرسومة (رصيد «${r.out}» · معلّق «${r.pend}»)`);
+  ok(!r.errs.length, '7) مفيش pageerror ' + r.errs.join(' | '));
+}
+
 // ════ المعايرات ════
 {
   const p = await open('/chats', { orders: patched('orders',
@@ -172,6 +197,17 @@ async function pollCheck(patch){
   const r = await pollCheck({ inbox: patched('inbox',
     "    if(document.hidden){ waPollMissed=true; return; }   // التاب في الخلفية — بنجيب لما ترجع (v79)\n", "") });
   ok(r.hiddenFetches > 0, `معايرة (ج): من غير الحارس الـpoll جاب والتاب في الخلفية (${r.hiddenFetches}) — فحص 6 بيمسكها`);
+}
+
+{
+  let body = patched('orders',
+    "import { loadMyCommission, myCommissionEnabled, refreshMyCommissionNav } from '../finance/commissions.js';",
+    "import { loadCommissions, myCommissionEnabled, refreshMyCommissionNav, renderMyCommissionBar } from '../finance/commissions.js';");
+  const before = body;
+  body = body.replace("refreshMyCommissionNav(); loadMyCommission(); }", "refreshMyCommissionNav(); loadCommissions(renderMyCommissionBar); }");
+  if (body === before) throw new Error('المعايرة مالقتش المرساة: loadMyCommission في loadAll');
+  const r = await mycm({ orders: body });
+  ok(!/10/.test(r.out), `معايرة (د): loadAll بترسم الشريط بس → /mycommission مباشر فاضلة «${r.out}» — فحص 7 بيمسكها`);
 }
 
 await b.close();

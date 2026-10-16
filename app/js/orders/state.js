@@ -8,7 +8,7 @@
 //
 // الحالة اللي كاتبها الوحيد موديول واحد مابتيجيش هنا — قاعدة في الموديول
 // بتاعها (intNotesTimer و detailHistory في detail.js، mergeableCustomers في
-// merge.js، VFCASH_NUMBER و inboxVerified في billing-summary.js).
+// merge.js، inboxVerified في billing-summary.js).
 
 export var all = [], fil = [], cur = 1, PS = 50, sel = null, stm = null;
 

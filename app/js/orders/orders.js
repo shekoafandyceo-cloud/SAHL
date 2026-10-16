@@ -1,7 +1,7 @@
 // الأوردرات — الحالة والتحميل والجدول والتفاصيل والتحديث الجماعي والريل-تايم
 
 import { skelTable } from '../core/skeleton.js';
-import { loadCommissions, myCommissionEnabled, refreshMyCommissionNav, renderMyCommissionBar } from '../finance/commissions.js';
+import { loadMyCommission, myCommissionEnabled, refreshMyCommissionNav } from '../finance/commissions.js';
 import { currentTenantId, currentUser, forceSuspendLogout } from '../auth/auth.js';
 import { loadWalletState } from '../billing/billing.js';
 import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusLabel } from '../core/constants.js';
@@ -178,7 +178,8 @@ export function fetchPhoneCounts(rawPhones, cb){
 // مفتوحين طول اليوم، وكل رشقة ريل-تايم على orders كانت بتجيب الكروت والدمج
 // والبضاعة والجدول (~8 نداءات) في كل تاب. الصفحة مش ظاهرة (أو التاب في الخلفية) =
 // علامة «قديمة» وبتتجاب أول ما الصفحة تبان (showPage('orders') · رجوع التاب).
-// ⚠️ تحديث `fil` من الحدث نفسه (handleRealtimeChange) والـtoasts زي ما هم.
+// ⚠️ تحديث `fil` من الحدث نفسه (handleRealtimeChange) زي ما هو — وtoast الحالة بيطلع للصفوف اللي في الجدول
+// المتحمّل بس (تاب فتحت على المحادثات مالهاش جدول لحد ما الأوردرات تتفتح) · toast الأوردر الجديد في كل تاب.
 var ordersStale = false;
 function ordersShown(){ var p=$id('page-orders'); return !!(p && p.style.display!=='none' && !document.hidden); }
 export function refreshOrdersIfStale(){
@@ -198,7 +199,9 @@ export function loadAll(){
   ordersSetAll([]); ordersSetAllLoaded(false);
   // شريط عمولة الموظف + زرار «عمولتي» — بيتحمّلوا مرة مع أول تحميل للطلبات.
   // بيرجعوا بدري لو العمولة مش مفعّلة، فمفيش نداء زيادة على أغلب التجار.
-  if(myCommissionEnabled()){ refreshMyCommissionNav(); loadCommissions(renderMyCommissionBar); }
+  // 🔴 loadMyCommission (الصفحة + الشريط) مش loadCommissions(الشريط بس): applyInitialRoute بقت قبل loadAll (v79)،
+  // فعلى لينك /mycommission نداء الصفحة بيطلع الأول ونداءنا بيبقى الأحدث (cmGen) — لو رسم الشريط بس، الصفحة تفضل «—»
+  if(myCommissionEnabled()){ refreshMyCommissionNav(); loadMyCommission(); }
   if(ordersShown()){
     ordersStale = false;
     loadOrdersCards();         // s0..s7 + الإيرادات + عدّاد المدة من RPC
@@ -385,7 +388,9 @@ export function handleRealtimeChange(payload){
     // 🔴 REPLICA IDENTITY على `orders` = default، يعني `payload.old` فيه
     // المفتاح بس — الحالة القديمة بتتقرا من الصف اللي في الذاكرة مش من
     // الحدث. لو الصف مش معروض، مفيش مقارنة ومفيش toast (وده صح: الجدول
-    // مش شايفه أصلاً).
+    // مش شايفه أصلاً). ⚠️ من v79 تاب فتحت على صفحة تانية (المحادثات · السكانر)
+    // جدولها مابيتحمّلش لحد ما الأوردرات تتفتح = مفيش toast حالة فيها خالص
+    // (قبل كده كانت بتطلع للصفوف اللي في أول صفحة بالصدفة). toast الأوردر الجديد زي ما هو.
     if(prev && prev.status !== row.status){
       var by = rtChangedBy(row);
       // سكانر المخزن بيكتب «📷 <الموظف>» — الاسم من غير البادئة هو اللي بيتقارن (كان كل سكان بيعمل toast لصاحبه)
