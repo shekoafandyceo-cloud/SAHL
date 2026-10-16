@@ -5,9 +5,6 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../core/config.js';
 import { $id, esc } from '../core/dom.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-// جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
-// قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { showPage } from '../main.js';
 import { SECRET_NOT_READY, WA_WEBHOOK_BASE_URL, WEBHOOK_BASE_URL } from '../core/config.js';
 import { swallow } from '../core/log.js';
 import { copyWaCallbackUrl, copyWaVerifyToken, copyWebhookUrl } from './webhook.js';
@@ -101,9 +98,7 @@ export function renderSettings(t){
   if($id('set-email'))      $id('set-email').textContent = (currentUser && currentUser.email) || '—';
   var planMap = { payg: 'الدفع مقابل الاستخدام', growth: 'Growth', unlimited: 'Unlimited', lifetime: 'Lifetime ♾️' };
   var planLabel = planMap[t.plan] || t.plan || '—';
-  if($id('set-plan'))       $id('set-plan').innerHTML = esc(planLabel) + ' <a href="#" id="set-plan-link" style="color:var(--acc);font-weight:700;font-size:.82rem;margin-right:6px;">تغيير</a>';
-  var planLink = $id('set-plan-link');
-  if(planLink) planLink.addEventListener('click', function(e){ e.preventDefault(); showPage('billing'); });
+  if($id('set-plan'))       $id('set-plan').textContent = planLabel;   // لينك «تغيير» اتشال — صفحة المحفظة اتقفلت (19 سبتمبر)
 
   // Webhook URL — read-only, built from webhook_secret
   var wh = t.webhook_secret ? (WEBHOOK_BASE_URL + t.webhook_secret) : '';

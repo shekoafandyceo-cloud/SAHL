@@ -47,7 +47,6 @@ export function whUnknownOpen(code, onRes){
   render();
   loadProducts();
 }
-export function whUnknownIsOpen(){ return !!st; }
 // اتضرب طرد تاني والنافذة مفتوحة = بتتقفل (كانت هتغطي كارت النتيجة الجديدة والموظف مش شايفه) — إلا لو بتسجّل دلوقتي
 export function whUnknownCloseIfOther(code){
   if(!st || st.busy || !code || code === st.code) return false;

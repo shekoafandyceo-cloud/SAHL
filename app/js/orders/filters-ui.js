@@ -1,7 +1,7 @@
 // شريط الفلاتر والبحث وكروت الحالة
 
 import { loadAnalytics } from '../analytics/analytics.js';
-import { loadBilling, loadWalletState, wireBillingEvents } from '../billing/billing.js';
+import { loadWalletState } from '../billing/billing.js';
 import { $id } from '../core/dom.js';
 import { loadFinance } from '../finance/finance.js';
 import { loadInbox, waActiveId, waFetchMessages } from '../inbox/inbox.js';
@@ -26,8 +26,6 @@ export function initRefreshAndSearch(){
     } else if(page === 'finance'){
       loadFinance();
       loadWalletState();
-    } else if(page === 'billing'){
-      loadBilling();
     } else if(page === 'settings'){
       loadSettings();
     } else if(page === 'issues' && typeof loadIssues === 'function'){
@@ -105,7 +103,6 @@ export function initFilterDropdowns(){
   (function(){ var b=$id('cxbar'); if(b) b.addEventListener('click', showCancelRequested); })();
   document.addEventListener('click', function(ev){ var t=ev.target; if(t && t.id==='cx-resolve'){ ev.preventDefault(); resolveCancelRequest(); } });
   enhanceFilters();
-  wireBillingEvents();
 
   // ---- clickable status cards: tap a card to filter orders by that status (no-op during the demo/tour) ----
 }

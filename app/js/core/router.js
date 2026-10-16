@@ -167,9 +167,6 @@ export function routeBase(){ return BASE; }
 var deepLinksOk = false;
 var PROBE_KEY = 'sahl_deep_links_ok';
 
-export function deepLinksSupported(){ return deepLinksOk; }
-export function setDeepLinksSupported(v){ deepLinksOk = !!v; }
-
 // بيتنادى مرة واحدة وقت الإقلاع
 export function probeDeepLinks(){
   // **الدليل القاطع**: اتحمّلنا على مسار مش ملف والصفحة اشتغلت → الاستضافة

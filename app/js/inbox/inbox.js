@@ -26,6 +26,7 @@ import { createKeyBuffer, looksScanned, parseWaybill, scanToLatin } from '../war
 export var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
 
 export var waConvos=[], waActiveId=null, waPollTimer=null, waRenderedCount=0;
+var waPollMissed=false;   // الـpoll اتخطّى وهو في الخلفية — بيتعوّض مرة لما التاب ترجع (مش مع كل رجوع)
 
 export function waInitials(name,phone){
   var s=(name||'').trim();
@@ -65,6 +66,7 @@ export function loadInbox(){
   waPollTimer=setInterval(function(){
     var p=$id('page-inbox');
     if(!p || p.style.display==='none'){ clearInterval(waPollTimer); waPollTimer=null; return; }
+    if(document.hidden){ waPollMissed=true; return; }   // التاب في الخلفية — بنجيب لما ترجع (v79)
     waFetchConvos(false);
     if(waActiveId) waFetchMessages(waActiveId,false,true);
   },20000);
@@ -699,7 +701,8 @@ export function waFetchMessages(convId,scroll,isPoll){
   var myGen=++waMsgGen;
   // descending + reverse = أحدث 500 — الترتيب التصاعدي كان بيجيب أقدم 500
   // والمحادثة اللي عدّت الحد كانت بتتجمد على القديم للأبد
-  sb.from('wa_messages').select('*').eq('conversation_id',convId)
+  // 🔴 أعمدة صريحة (v79 — كان '*' بالـreferral jsonb): أي عمود جديد الشات بيعرضه لازم يتضاف هنا (درس 33)
+  sb.from('wa_messages').select('id,tenant_id,conversation_id,wa_message_id,direction,type,body,media_path,media_filename,wa_timestamp,is_read,created_at,status,sent_by_name,reply_to_wa_id').eq('conversation_id',convId)
     .order('created_at',{ascending:false}).limit(500).then(function(r){
       if(convId!==waActiveId) return;
       if(myGen!==waMsgGen) return;   // رد أقدم لنفس المحادثة
@@ -737,10 +740,7 @@ export var waLastMsgs = [];
 
 export function waSetReplyTo(mid){
   var box=$id('wa-msgs'); if(!box) return;
-  // بندوّر في الرسايل المرسومة عشان مانحتفظش بنسخة تانية من الحالة
-  var found = null;
-  for(var i=0;i<waRenderedState.length;i++){ if(waRenderedState[i].id===mid) found=waRenderedState[i]; }
-  // waRenderedState فيها الملخص بس — الرسالة الكاملة لازم تتجاب من الجلب الأخير
+  // الرسالة الكاملة من الجلب الأخير (waRenderedState فيها الملخص بس)
   waReplyTo = (waLastMsgs || []).filter(function(m){ return m.id===mid; })[0] || null;
   if(!waReplyTo || !waReplyTo.wa_message_id){ waReplyTo = null; waRenderReplyBar(); return; }
   waRenderReplyBar();
@@ -1581,13 +1581,6 @@ export function waQrmSave(){
   next();
 }
 
-// «＋ احفظ اللي مكتوب» القديم (مستورد في main.js) — بقى بيفتح النافذة بالنص
-// عشان الرد ياخد اسم مختصر زي أي رد
-export function waSaveQuickReply(){
-  var inp=$id('wa-input');
-  waQrmOpen(inp?(inp.value||''):'');
-}
-
 export function waDeleteQuickReply(id){
   if(!id||!sb) return;
   var q=waQuickReplies.filter(function(x){return x.id===id;})[0];
@@ -1767,7 +1760,7 @@ export function waSetNavBadge(n){
 
 export function waRefreshNavBadge(){
   if(!sb||!currentTenantId) return;
-  sb.from('wa_conversations').select('unread_count').eq('tenant_id',currentTenantId).then(function(r){
+  sb.from('wa_conversations').select('unread_count').eq('tenant_id',currentTenantId).gt('unread_count',0).then(function(r){
     if(r.error) return;
     var total=0; (r.data||[]).forEach(function(c){ total+=(c.unread_count||0); });
     waSetNavBadge(total);
@@ -2173,6 +2166,14 @@ export function initInbox(){
   try{
     window.addEventListener('storage',function(e){ if(e && e.key===WA_OPEN_KEY && e.newValue) waConsumeOpenRequest(); });
   }catch(e){ swallow('initInbox/storage', e); }
+  document.addEventListener('visibilitychange', function(){
+    if(document.hidden || !waPollMissed) return;
+    waPollMissed=false;
+    if(!waPollTimer || tourActive) return;   // waPollTimer = البوابة عدّت (مش جولة · مش نفاد · متوثّق)
+    var p=$id('page-inbox'); if(!p || p.style.display==='none') return;
+    waFetchConvos(false);
+    if(waActiveId) waFetchMessages(waActiveId,false,true);
+  });
   if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
   if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waOnSearchInput(this.value); });
   if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});

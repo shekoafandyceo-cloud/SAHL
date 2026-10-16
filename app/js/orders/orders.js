@@ -22,7 +22,7 @@ import { deliveryScoreSection } from './delivery-score.js';
 import { reflectStatusCards, wireStatusCards } from './filters-ui.js';
 import { ensureTenant } from './guards.js';
 import { doBulkUpdate } from './mutations.js';
-import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetAllLoaded, ordersSetFiltered, ordersSetLoading, ordersSetPage, ordersSetPageSize, ordersSetPendingBosta, ordersSetPhoneCounts, ordersSetSelected, ordersSetTotalCount, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, totalCount } from './state.js';
+import { all, allLoaded, cur, fil, ordersPeriod, ordersSetAll, ordersSetAllLoaded, ordersSetFiltered, ordersSetPage, ordersSetPageSize, ordersSetPendingBosta, ordersSetPhoneCounts, ordersSetSelected, ordersSetTotalCount, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, totalCount } from './state.js';
 import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
 import { initShipTicker } from './ship.js';
 import { initJtHealth } from './jt-health.js';
@@ -174,6 +174,20 @@ export function fetchPhoneCounts(rawPhones, cb){
   });
 }
 
+// 🔴 بيانات صفحة الأوردرات بتتجاب بس وهي ظاهرة (v79): تاب المحادثات وتاب السكانر
+// مفتوحين طول اليوم، وكل رشقة ريل-تايم على orders كانت بتجيب الكروت والدمج
+// والبضاعة والجدول (~8 نداءات) في كل تاب. الصفحة مش ظاهرة (أو التاب في الخلفية) =
+// علامة «قديمة» وبتتجاب أول ما الصفحة تبان (showPage('orders') · رجوع التاب).
+// ⚠️ تحديث `fil` من الحدث نفسه (handleRealtimeChange) والـtoasts زي ما هم.
+var ordersStale = false;
+function ordersShown(){ var p=$id('page-orders'); return !!(p && p.style.display!=='none' && !document.hidden); }
+export function refreshOrdersIfStale(){
+  if(!ordersStale || tourActive || !ordersShown()) return;
+  ordersStale = false;
+  loadOrdersCards(); loadMergeCandidates(); loadBostaInventoryCard();
+  if(fil.length) fetchOrdersPage(); else doFilter();   // fetchOrdersPage بيحافظ على الصفحة اللي الموظف واقف عليها
+}
+
 export function loadAll(){
   // بانر «مزامنة J&T واقفة» للأدمن — بعد الدخول (initNav بيشتغل قبل ما sb يجهز) ومع كل ↻
   initJtHealth();
@@ -182,13 +196,16 @@ export function loadAll(){
   // مش بنحمّل كل الأوردرات عند البداية — صفحة الأوردرات كلها من السيرفر.
   // all يتحمّل lazily بس لما الماليات أو الإحصائيات تتفتح.
   ordersSetAll([]); ordersSetAllLoaded(false);
-  loadOrdersCards();         // s0..s7 + الإيرادات + عدّاد المدة من RPC
-  loadMergeCandidates();     // تنبيه الدمج من كويري مخصّص
-  loadBostaInventoryCard();  // كارت بضاعة بوسطة من كويري مخصّص (بيحمّل المخزون عند اللزوم)
   // شريط عمولة الموظف + زرار «عمولتي» — بيتحمّلوا مرة مع أول تحميل للطلبات.
   // بيرجعوا بدري لو العمولة مش مفعّلة، فمفيش نداء زيادة على أغلب التجار.
   if(myCommissionEnabled()){ refreshMyCommissionNav(); loadCommissions(renderMyCommissionBar); }
-  doFilter();                // الجدول: صفحة واحدة من السيرفر
+  if(ordersShown()){
+    ordersStale = false;
+    loadOrdersCards();         // s0..s7 + الإيرادات + عدّاد المدة من RPC
+    loadMergeCandidates();     // تنبيه الدمج من كويري مخصّص
+    loadBostaInventoryCard();  // كارت بضاعة بوسطة من كويري مخصّص (بيحمّل المخزون عند اللزوم)
+    doFilter();                // الجدول: صفحة واحدة من السيرفر
+  } else ordersStale = true;   // بتتجاب أول ما صفحة الأوردرات تبان
   startRealtime();
   waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
   jtRefreshNavBadge();       // عدّاد «استثناءات الشحن» اللي محتاجة متابعة (وبيفتح الريل-تايم بتاعها)
@@ -294,7 +311,7 @@ export function startRealtime(){
         // على حالات قديمة والنقطة خضرا، وده أسوأ من نقطة حمرا.
         var wasOff = rtEverOff;
         showRealtimeDot(true);
-        if(wasOff){ rtEverOff = false; scheduleRealtimeRefresh(); }
+        if(wasOff){ rtEverOff = false; scheduleRealtimeRefresh(); loadWalletState(); }   // tenants مالهاش replay — المحفظة بتتقرا تاني بعد القطع
       } else if(status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
         rtEverOff = true;
         showRealtimeDot(false);
@@ -334,11 +351,12 @@ function scheduleRealtimeRefresh(){
         : ('📦 ' + w.length + ' طرد اتضرب في سكانر المخزن'), 'ok');
       rtStatusChanges = [];
     }
-    loadOrdersCards();
-    loadMergeCandidates();
-    loadBostaInventoryCard();
-    fetchOrdersPage();   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
-    loadWalletState();   // تغيير حالة ممكن يكون سبّب خصم
+    if(ordersShown()){
+      loadOrdersCards();
+      loadMergeCandidates();
+      loadBostaInventoryCard();
+      fetchOrdersPage();   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
+    } else ordersStale = true;
   }, (_now - rtFirstAt >= 3000) ? 0 : 800);
 }
 
@@ -412,10 +430,12 @@ export function handleRealtimeChange(payload){
 
 // أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE)
 // + شركة الشحن (ship-rank-sync — 10 أكتوبر): بيعمل UPDATE تاني بعد ~0–2 دقيقة من نزول الأوردر بنفس الشكل
+// + ختم مزامنة J&T (`jt_cod_synced_at`/`jt_fee_synced_at` — v79): ختم وقت بس من غير أي تغيير في الأوردر
 // + سكانر المخزن (14 أكتوبر): السكان بيختم `stock_deducted_at`/`stock_returned_at` بس — مايتحسبش تعديل في
 //   الأوردر، فنافذة التفاصيل المفتوحة مابتترسمش من جديد (وكلام الموظف اللي مااتحفظش مابيضيعش)
 var RT_SCORE_COLS = { eo_metadata: 1, eo_rate: 1, eo_rate_alt: 1, updated_at: 1,
   ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1,
+  jt_cod_synced_at: 1, jt_fee_synced_at: 1,
   stock_deducted_at: 1, stock_returned_at: 1 };
 // نفس القيمة بشكلين؟ PostgREST والريل-تايم ممكن يختلفوا في كتابة الرقم أو الوقت — والفرق ده
 // مايتحسبش تغيير (ولو اتحسب: رسم كامل زي الأول، يعني الغلط في الاتجاه الآمن).
@@ -558,7 +578,6 @@ export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()
   if(!ensureTenant()) return;
   var myGen = ++fetchGen;
-  ordersSetLoading(true);
   $id('tbody').innerHTML=skelTable(8);
   var st=$id('fst').value, pl=$id('fpl').value, py=$id('fpy').value;
   var q=$id('qinp').value.trim();
@@ -585,7 +604,6 @@ export function fetchOrdersPage(){
   if(rng) query=query.gte('created_at',rng.fromTs).lt('created_at',rng.toTs);
   query.order('created_at',{ascending:false}).range(fromIdx,toIdx).then(function(r){
     if(myGen !== fetchGen) return;   // طلب أحدث خرج بعدنا — الرد ده بقى قديم
-    ordersSetLoading(false);
     refreshCancelBar();
     if(r.error){
       toast('خطأ في تحميل الأوردرات: '+r.error.message,'er');
@@ -642,6 +660,8 @@ export function doFilter(){
 }
 
 export function initOrdersUI(){
+  // التاب رجعت قدامك وصفحة الأوردرات ظاهرة = هات اللي فات وهي في الخلفية
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) refreshOrdersIfStale(); });
   if($id('fst')) $id('fst').addEventListener('change',reflectStatusCards);
   wireStatusCards();
 
@@ -698,7 +718,6 @@ export function initNav(){
   $id('nav-stock').addEventListener('click',function(){showPage('stock');});
   if($id('nav-issues'))$id('nav-issues').addEventListener('click',function(){showPage('issues');});
   $id('nav-finance').addEventListener('click',function(){showPage('finance');});
-  if($id('nav-billing'))$id('nav-billing').addEventListener('click',function(){showPage('billing');});
   if($id('nav-settings'))$id('nav-settings').addEventListener('click',function(){showPage('settings');});
   if($id('nav-analytics'))$id('nav-analytics').addEventListener('click',function(){showPage('analytics');});
   // 🔴 المحادثات ليها **تاب لوحدها** (طلب المالك 6 سبتمبر) — عشان تفضل مفتوحة

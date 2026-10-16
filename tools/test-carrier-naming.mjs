@@ -21,9 +21,9 @@ let bad=0; const ok=(c,m)=>{console.log(c?'  ✓':'  ✗',m); if(!c)bad++;};
 
 // كل نص ظاهر على الصفحة كلها (بعد فتح كل الصفحات) — بدون بوسطة
 // ⚠️ `billing` اتشالت من القايمة 19 سبتمبر (المحاسبة اتلغت — السيستم بقى
-// خاص بـ3ataba). صفحة `#page-billing` لسه في الـmarkup بس **مفيش طريق
-// ليها** (`showPage('billing')` بترجّع للأوردرات)، فنصها مايقدرش يوصل
-// التاجر أصلاً — والفحص الساكن في `check.py` بيغطّي الـmarkup برضه.
+// خاص بـ3ataba). صفحة `#page-billing` اتشالت من الـmarkup كمان (v79)
+// و`showPage('billing')` بترجّع للأوردرات — والفحص الساكن في `check.py`
+// بيغطّي الـmarkup برضه.
 const pages=['orders','stock','finance','analytics','inbox','settings'];
 for(const pg of pages){
   const nav=await p.$(`[data-page="${pg}"]`);

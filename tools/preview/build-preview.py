@@ -4,11 +4,11 @@
 #
 # اللي بيحصل:
 #   1. نسخ app/ كاملة (من غير _headers — مفيش CSP في المعاينة المحلية)
-#   2. نسخ overlay/ فوقها: _preview/ (supabase-js + chart.js + خط Cairo
-#      محليين + preview-stub.js بتاع الداتا الوهمية) + ملفات التشغيل
-#   3. تحويل index.html: العنوان بيتعلّم «[معاينة]»، لينك جوجل فونتس
-#      بيتبدل بـcairo.css المحلي، وسكربتات الـCDN بتتبدل بالنسخ المحلية
-#      + preview-stub.js بعدهم
+#   2. نسخ overlay/ فوقها: _preview/ (supabase-js + chart.js محليين +
+#      preview-stub.js بتاع الداتا الوهمية) + ملفات التشغيل + سيرفر الهارنسات
+#      (tools/spa-server.py — نسخة واحدة)
+#   3. تحويل index.html: العنوان بيتعلّم «[معاينة]»، وسكربتات الـCDN بتتبدل
+#      بالنسخ المحلية + preview-stub.js بعدهم (الخطوط بقت محلية في app/ من v79)
 #
 # ⚠️ أي تحويلة مالهاش مرساة في index.html = فشل صريح مش تخطي صامت —
 #    لو الـmarkup اتغير، السكربت بيقولك بدل ما يطلع معاينة ناقصة.
@@ -26,8 +26,6 @@ OVERLAY = Path(__file__).resolve().parent / 'overlay'
 REPLACEMENTS = [
     ('<title>سهل — لوحة التحكم</title>',
      '<title>[معاينة] سهل — لوحة التحكم</title>'),
-    ('<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">',
-     '<link href="./_preview/cairo.css" rel="stylesheet">'),
     ('<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/dist/umd/supabase.js" integrity="sha384-faMlYZUtkJj+Sh6Bmu/L0GzPcraRWN6CW+9RH3GUrK/Z0WS9tgaNNt0tHiLxsbdb" crossorigin="anonymous"></script>',
      '<script src="./_preview/supabase.js"></script>'),
     ('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>',
@@ -49,6 +47,7 @@ def main():
             shutil.copytree(item, dst)
         else:
             shutil.copy2(item, dst)
+    shutil.copy2(ROOT / 'tools' / 'spa-server.py', out / '_preview' / 'spa-server.py')   # نسخة واحدة — نفس سيرفر الهارنسات
 
     idx = out / 'index.html'
     html = idx.read_text(encoding='utf-8')
@@ -60,7 +59,7 @@ def main():
 
     # 🔴 صفحات الأقسام (`orders.html` …) نسخ من `index.html`، والتحويلة فوق
     # طبّقت على الأصل بس. من غير السطور دي المعاينة بتشيل 8 نسخ **غير محوّلة**
-    # (لسه بتنده جوجل فونتس ومن غير علامة «[معاينة]») — والمالك اللي يفتح
+    # (لسه بتنده الـCDN ومن غير علامة «[معاينة]») — والمالك اللي يفتح
     # /chats في المعاينة يشوف صفحة مختلفة عن اللي في /.
     routes = [f for f in out.glob('*.html') if f.name != 'index.html']
     for f in routes:

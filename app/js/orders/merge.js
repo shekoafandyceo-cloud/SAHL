@@ -38,7 +38,6 @@ export function renderMergeAlert(){
     container.innerHTML = '';
     return;
   }
-  var totalDuplicateOrders = mergeableCustomers.reduce(function(s,c){return s+c.orders.length;},0);
   var savings = mergeableCustomers.reduce(function(s,c){return s+(c.orders.length-1);},0); // shipments saved
   var h = '<div class="merge-alert">'
     + '<div class="merge-alert-header">'

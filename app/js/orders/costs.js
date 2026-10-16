@@ -226,9 +226,3 @@ export function ordersInRange(range){
 
 // Status category helpers
 export function isDeliveredOrder(o){ return o.status === 'delivered' || o.status === 'Delivered'; }
-
-export function isWithBosta(o){
-  return ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2',
-    'Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs',
-    'Picking up from consignee','Out for exchange'].indexOf(o.status) >= 0;
-}

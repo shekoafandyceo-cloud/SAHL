@@ -117,7 +117,6 @@ var jxRvLast = {};             // id → تعليق «رجّعها» اللي ر
 var jxShownDay = '';     // الأدمن بيفتح على «مستنية مراجعتك» لو فيها حاجة — مرة واحدة أول تحميل
 var jxPollTimer = null, jxSearchTimer = null;
 var jxChannel = null, jxRtOff = false, jxRtQueue = {}, jxRtTimer = null;
-var jxDbMissing = false;
 
 // ── منطق خالص (الهارنس بيستورده) ─────────────────────────────────────
 var JX_DAY_FMT = null;
@@ -792,7 +791,6 @@ function jxFullLoad(){
       if(my !== jxGen) return;   // طلب أحدث خرج بعدنا
       veilDone('exceptions');
       if(r.error){ jxShowLoadError(r.error); return; }
-      jxDbMissing = false;
       jxSetRows(jxWithKept(r.data || [], k));
       jxLoadedAt = Date.now();
       jxLogCache = {};
@@ -827,7 +825,6 @@ function jxShowLoadError(err){
   swallow('exceptions/load', err);
   var list = $id('jx-list');
   if(jxIsDbMissing(err)){
-    jxDbMissing = true;
     // 🔴 مش «شغّل jt-issues-tab.sql» — الملف ده ممنوع يتشغّل تاني (بيرجّع الدوال القديمة ويدخّل التاريخ كله)
     if(list) list.innerHTML = emptyState({ icon: '🛠️', title: 'تحديث الداتابيز بتاع التاب ده لسه مااتطبّقش',
       sub: 'الواجهة الجديدة اترفعت قبل تحديث الداتابيز — كلّم المطوّر، وبعدين اضغط ↻ هنا.' });

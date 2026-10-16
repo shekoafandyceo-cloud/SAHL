@@ -48,8 +48,7 @@ html.dark input::placeholder,html.dark textarea::placeholder{color:var(--muted2)
 html.dark .bbtn,html.dark .pbtn,html.dark .abtn,html.dark .period-btn,html.dark .aperiod-btn,
 html.dark .stock-tab,html.dark .fdrop-btn,html.dark .prod-edit-btn,html.dark .exp-edit-btn,
 html.dark .exp-del-btn,html.dark .issue-action-btn,html.dark .alert-action,html.dark .copy-btn,
-html.dark .prod-del,html.dark .xcls,html.dark .auth-secondary-btn,html.dark .file-wrap .file-btn,
-html.dark .vip-show-btn2,html.dark .merge-show-btn2{background:#1a2233;border-color:var(--brd);color:var(--txt);}
+html.dark .prod-del,html.dark .xcls,html.dark .auth-secondary-btn{background:#1a2233;border-color:var(--brd);color:var(--txt);}
 html.dark .stock-tab{color:var(--muted);}
 html.dark .stock-tab.active{background:#e6ebf5;color:#0d1220;border-color:#e6ebf5;}
 html.dark .var-row td{background:rgba(255,255,255,.03);}
@@ -78,7 +77,6 @@ html.dark td.id{color:#dbe3f0;}
 html.dark td.nm{color:#eef2fa;}
 html.dark td.pr{color:#a8b4c8;}
 html.dark td.addr{color:var(--muted);}
-html.dark .history-table th{background:#1b2337;}
 html.dark .dsec{background:#151d30;border-color:var(--brd);}
 html.dark .dpan{background:rgba(22,29,46,.98);border-color:var(--brd);}
 /* نافذة تفاصيل الأوردر في الليلي — الكارت لازم يبقى **أفتح** من اللوح (elevation).
@@ -147,25 +145,6 @@ html.dark .alert-badge{background:#1a2233;border-color:var(--brd);}
 html.dark .cost-row.profit{background:rgba(16,185,129,.07);}
 html.dark .movement-cost.zero{background:rgba(239,68,68,.12);}
 
-/* ── المحفظة والباقات ── */
-html.dark .wallet-chip{background:#1a2233;border-color:var(--brd);}
-html.dark .wallet-chip .wseg .wval{color:var(--txt);}
-/* segment الرصيد: الخلفيات الفاتحة بتاعة 16-billing كانت بتفضل زي ما هي
-   والنص بيتحول شبه أبيض — contrast مكسور. تغميق الخلفية + لون قيمة مقروء
-   لكل حالة (عادي/warn/danger) */
-html.dark .wallet-chip .wseg.wbalance{background:rgba(29,110,242,.16);}
-html.dark .wallet-chip .wseg.wbalance .wval{color:#7fb3ff;}
-html.dark .wallet-chip .wseg.wbalance.warn{background:rgba(245,158,11,.15);}
-html.dark .wallet-chip .wseg.wbalance.warn .wval{color:#fbbf24;}
-html.dark .wallet-chip .wseg.wbalance.danger{background:rgba(239,68,68,.17);}
-html.dark .wallet-chip .wseg.wbalance.danger .wval{color:#f87171;}
-html.dark .plan-card{background:var(--card);border-color:var(--brd);}
-html.dark .plan-card.current{background:rgba(16,185,129,.08);}
-html.dark .plan-card.popular{background:rgba(255,159,28,.08);}
-html.dark .plan-card.lifetime{background:rgba(124,58,237,.10);}
-html.dark .wstat,html.dark .topup-box,html.dark .vfcash-info{background:#161e30;border-color:var(--brd);}
-html.dark .topup-form input,html.dark .topup-form .file-wrap{background:#131b2d;border-color:var(--brd);}
-
 /* ── تنبيه الدمج وطلبات الإلغاء ── */
 /* بانر الدمج بيفضل بألوانه الكهرمانية الفاتحة عمداً — نظام ألوان مقفول
    على نفسه (بني غامق على كهرماني) وإنذار مقصود يلفت النظر على الغامق.
@@ -183,7 +162,6 @@ html.dark .fld-edit-input{background:#131b2d;border-color:var(--brd);color:var(-
 html.dark .tour-bubble{background:#1b2337;border-color:var(--brd2);color:var(--txt);}
 
 /* ── الأوث (اللوجين) ── */
-html.dark #setup{background:transparent;}
 html.dark .sbox,html.dark .signup-bonus-card{background:var(--card);border-color:var(--brd);}
 html.dark .lw-name{color:var(--txt);}
 html.dark .sinp{background:#131b2d;color:var(--txt);border-color:var(--brd);}

@@ -544,6 +544,11 @@ function shipmentSettled(o){
 
 export function initShipTicker(){
   setInterval(function(){
+    // التاب في الخلفية أو جدول الأوردرات مش ظاهر = مفيش داعي نسأل السيرفر (v79)
+    // — إلا لو نافذة تفاصيل مفتوحة (ممكن تكون اتفتحت من المحادثات/الاستثناءات)
+    if(document.hidden) return;
+    var pgo = $id('page-orders'), ovlEl = $id('ovl');
+    if(pgo && pgo.style.display === 'none' && !(ovlEl && ovlEl.classList.contains('open'))) return;
     // صفوف الجدول في fil (الصفحة الحالية من السيرفر) — وall مخزن
     // الماليات الكسول وممكن يبقى فاضي. بنمسح الاتنين.
     var watch = [], seen = {}, flipped = [];

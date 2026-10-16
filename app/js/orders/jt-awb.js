@@ -69,7 +69,7 @@ export function fontCss(){
   var base = location.origin + routeBase() + 'fonts/';
   var files = [['Cairo','cairo-arabic-400-normal.woff2',400,ARABIC_RANGE],['Cairo','cairo-arabic-700-normal.woff2',700,ARABIC_RANGE],['Cairo','cairo-arabic-800-normal.woff2',800,ARABIC_RANGE],
     ['Cairo','cairo-latin-400-normal.woff2',400,null],['Cairo','cairo-latin-700-normal.woff2',700,null],['Cairo','cairo-latin-800-normal.woff2',800,null],
-    ['Liberation Sans','LiberationSans-Regular.ttf',400,null],['Liberation Sans','LiberationSans-Bold.ttf',700,null]];
+    ['Liberation Sans','LiberationSans-Regular.woff2',400,null],['Liberation Sans','LiberationSans-Bold.woff2',700,null]];
   return files.map(function(f){
     var fmt = f[1].slice(-5) === 'woff2' ? 'woff2' : 'truetype';
     return '@font-face{font-family:"' + f[0] + '";font-style:normal;font-weight:' + f[2] + ';font-display:block;src:url(' + base + f[1] + ') format("' + fmt + '");' + (f[3] ? 'unicode-range:' + f[3] + ';' : '') + '}';

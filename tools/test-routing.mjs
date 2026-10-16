@@ -440,12 +440,14 @@ console.log('──── معايرات ────');
     const m = await import('/js/main.js');
     m.showPage('billing');
     await new Promise(r => setTimeout(r, 200));
+    const bill = document.getElementById('page-billing');   // اتشالت من الـmarkup (v79)
     return { path: location.pathname,
-             billingVisible: getComputedStyle(document.getElementById('page-billing')).display !== 'none',
+             billingGone: !bill,
+             billingVisible: !!bill && getComputedStyle(bill).display !== 'none',
              ordersVisible:  getComputedStyle(document.getElementById('page-orders')).display !== 'none' };
   });
-  ok(!after.billingVisible && after.ordersVisible && after.path.indexOf('billing') < 0,
-     `12هـ) 🔴 showPage('billing') رجّعت للأوردرات واللينك مافيهوش billing (${after.path})`);
+  ok(after.billingGone && !after.billingVisible && after.ordersVisible && after.path.indexOf('billing') < 0,
+     `12هـ) 🔴 showPage('billing') رجّعت للأوردرات واللينك مافيهوش billing وصفحة المحفظة مش في الـmarkup (${after.path})`);
   await p.close();
 }
 
@@ -463,9 +465,10 @@ console.log('──── معايرات ────');
     const m = await import('/js/main.js');
     m.showPage('billing');
     await new Promise(r => setTimeout(r, 200));
-    return getComputedStyle(document.getElementById('page-billing')).display !== 'none';
+    // الصفحة مابقتش موجودة — من غير الحارس كل الصفحات بتستخبّى ومفيش حاجة بتظهر
+    return getComputedStyle(document.getElementById('page-orders')).display === 'none';
   });
-  ok(after, 'معايرة و: من غير الحارس صفحة المحفظة ظهرت — فحص 12هـ بيمسكها');
+  ok(after, 'معايرة و: من غير الحارس الأوردرات اختفت ومفيش صفحة ظاهرة — فحص 12هـ بيمسكها');
   await p.close();
 }
 

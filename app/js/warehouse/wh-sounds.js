@@ -50,7 +50,6 @@ function decode(c, ab){
   });
 }
 
-export function whSoundsCfg(){ return cfg; }
 export function whClipFor(slot){
   var v = slot && cfg[slot], b = v && v.path ? bufs[v.path] : null;
   return b && typeof b === 'object' ? b : null;

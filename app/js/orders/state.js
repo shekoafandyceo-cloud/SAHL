@@ -28,8 +28,6 @@ export var ordersPeriod = { type: 'month', from: null, to: null };   // الاف
 // ===== Server-side orders pagination =====
 export var totalCount = 0;      // إجمالي الأوردرات المطابقة للفلتر (من عدّاد السيرفر)
 
-export var ordersLoading = false;
-
 
 // ── الـsetters — الطريقة الوحيدة للكتابة من بره الموديول ده ──────────
 // الأسماء الأربعة الأولى قديمة ومستخدمة في auth.js و tour.js و main.js،
@@ -55,8 +53,6 @@ export function ordersSetPhoneCounts(v){ phoneCounts = v || {}; }
 export function ordersSetPendingBosta(v){ pendingBostaByPhone = v || {}; }
 
 export function ordersSetTotalCount(v){ totalCount = v || 0; }
-
-export function ordersSetLoading(v){ ordersLoading = !!v; }
 
 // ملحوظة: مفيش setter لـ`ordersPeriod` — `setOrdersPeriod` بتعدّل خصائصه
 // (`ordersPeriod.type=…`) وماتعيدش إسناده، والتعديل على الكائن مسموح
