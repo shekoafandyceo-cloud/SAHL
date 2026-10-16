@@ -16,7 +16,8 @@
 //     لأوردر مش J&T بتقول السبب · اختيار مخلوط بيطبع J&T بس ويقول كام اتساب · مفيش
 //     نداء لـbosta-print-awb
 //  6) التيكر بيتابع شحنات J&T اللي في السكة بس — صامت لحد ما الحالة تتغيّر
-//  7) معايرات: رجوع زرار الأوتوماتيك لغير J&T · زرار الطباعة لكل صف · التيكر بيراقب اللي من غير بوليصة
+//  7) معايرات: رجوع زرار الأوتوماتيك لغير J&T · زرار الطباعة لكل صف · «حدد غير المطبوع» لكل البوالص ·
+//     التيكر بيراقب اللي من غير بوليصة
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -29,8 +30,8 @@ let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if(!c) bad++; };
 const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium' });
 
-// كل نداء Edge Function بيتسجّل (الستب بيعترضه لما __FN متعرّفة) — عشان نثبت إن
-// order-ship وbosta-print-awb عمرهم ما بيتندهوا
+// كل نداء Edge Function بيتسجّل (الستب بيعترضه لما __FN متعرّفة) — عشان نثبت إن الطباعة
+// الجماعية عمرها ما بتندَه bosta-print-awb (order-ship مالوش أي مسار في الكود أصلاً من v80)
 const FN_SPY = `window.__FN = function(slug, body){ return { status: 404, body: { message: 'مش متوقع: ' + slug } }; };`;
 
 // عميل مشترك: يفتح صفحة بستب + هوكات. patch = {path, body} لموديول متعدّل (المعايرات)

@@ -270,7 +270,7 @@ export function updateBulkBar(){
   $id('bcnt').textContent=num(n)+' طلب محدد';
 }
 
-// زرار "حدد غير المطبوع" — يظهر بس في فلتر بوسطة/OPERATION ويحدّد كل اللي لسه ماتطبعش
+// زرار "حدد غير المطبوع" — يظهر بس في فلتر «شحن»/OPERATION ويعدّ بوالص J&T اللي لسه ماتطبعتش (v80 — الطباعة J&T بس)
 export function updateUnprintedBtn(){
   var btn = $id('bb-sel-unprinted');
   if(!btn) return;
