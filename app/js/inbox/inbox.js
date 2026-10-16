@@ -1897,7 +1897,7 @@ export function waNewOrderOpen(){
 export function waNewOrderClose(){ var b=$id('wa-neworder'); if(b) b.style.display='none'; }
 
 // قايمة المنتجات من المخزون — الاسم لازم يطابق `stock_products` وإلا
-// التكلفة والخصم مش هيلاقوا المنتج (فيه تنبيه في صفحة issues بيرصد ده).
+// التكلفة والخصم مش هيلاقوا المنتج.
 // بنعرض الأسماء الكاملة زي ما هي، والموظف يقدر يكتب اسم بره القايمة.
 function waNewOrderProducts(){
   var dl=$id('wa-no-prodlist'); if(!dl) return;

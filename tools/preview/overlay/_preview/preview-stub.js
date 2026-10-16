@@ -8,7 +8,6 @@
 (function(){
   // المعاينة: التيكر أسرع عشان علامة الجدول تتقلب قدام عين المجرّب
   window.__SHIP_TICK_MS = 7000;
-  window.__SHIP_STALE_MIN = 0.35;   // 21 ثانية — عشان تجربة «المحاولة ماكملتش» تبان قدام المجرّب
 
   var TENANT = 'preview-tenant';
   var UID    = 'preview-user';
@@ -280,8 +279,8 @@
     user_profiles: [{ id:UID, tenant_id:TENANT, role:'admin', active:true, full_name:'أدمن المعاينة', is_super_admin:false }],
     v_my_tenant: [{ id:TENANT, slug:'preview', store_name:'متجر المعاينة', active:true, plan:'payg',
       plan_expires_at:null, subscription_status:'active', grace_period_days:3, monthly_price:0,
-      shipping_provider:'bosta', created_at: iso(120, 10, 0),
-      whatsapp_phone_id:'', whatsapp_token:'', shipping_api_key:'b_preview_key', has_shipping_api:true,
+      shipping_provider:'jt', created_at: iso(120, 10, 0),
+      whatsapp_phone_id:'', whatsapp_token:'',
       telegram_chat_id:'', telegram_chat_id_set_at:null, error_notify_chat:'',
       whatsapp_confirmation_enabled:true,
       webhook_secret:'preview-webhook-secret', wa_webhook_secret:'preview-wa-secret',
@@ -289,7 +288,11 @@
       // في المعاينة والمالك مايشوفش الميزة الجديدة خالص
       wa_followup_template:'order_shipping_confirm_ar', wa_followup_lang:'ar_EG',
       wa_followup_body:'أهلاً {{1}}، بخصوص طلبك رقم {{2}}.\n\nحاولنا نتصل بحضرتك عشان نأكد شحن الطلب ومقدرناش نوصلك.\n\nالطلب: {{3}}\n\nردّ على الرسالة دي لو تحب نشحن الطلب أو تلغيه، وهنكمّل على طول.' }],
-    tenant_subscription_state: [{ id:TENANT, computed_status:'active', days_remaining:30 }],
+    tenant_subscription_state: [{ id:TENANT, computed_status:'active', days_remaining:null }],
+    // نطاق J&T (صفوف المدن بس — area='') لنافذة «🚚 شحن J&T» في المعاينة (v80)
+    jt_pca: [['القاهرة','القاهرة'],['القاهرة','مدينة نصر'],['القاهرة','حلوان'],['الجيزة','الجيزة'],['الجيزة','الدقي'],
+             ['الإسكندرية','الإسكندرية'],['الإسكندرية','المنتزه'],['الدقهلية','المنصورة'],['الشرقية','الزقازيق']]
+      .map(function(r, i){ return { id:i+1, prov:r[0], city:r[1], area:'' }; }),
     wallet_state: [{ tenant_id:TENANT, wallet_balance:340, overdraft_limit:0, available:340,
       orders_used_cycle:46, max_orders:null, orders_remaining:null, overage_debt:0,
       plan:'payg', plan_name:'الدفع مقابل الاستخدام', monthly_price:0, per_order_price:1.5,
@@ -879,25 +882,22 @@
   var chan = { on: function(ev, opts, cb){ if(opts && typeof cb === 'function') PREVIEW_RT.push({ opts: opts, cb: cb }); return chan; },
                subscribe: function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); }, 0); return chan; } };
 
-  // زرار «شحن أوتوماتيك» بينده Edge Function بـfetch مباشر — في المعاينة
-  // بنمثّل الرحلة: رد ok فوري، وبعد ~4 ثواني «البوليصة بتتعمل» فالتتبع
-  // يظهر والـpoll يلقطه — نفس إيقاع الإنتاج (12–30ث) بس أسرع للتجربة.
+  // «🚚 شحن J&T» بينده Edge Function jt-ship بـfetch مباشر — في المعاينة بنرد ببوليصة
+  // وهمية فوراً (زي رد J&T: رقم البوليصة + كود الفرز) ونكتبها على الأوردر.
   var _fetch = window.fetch;
   window.fetch = function(url, opt){
     var u = String(url || '');
-    if(u.indexOf('/functions/v1/order-ship') >= 0){
+    if(u.indexOf('/functions/v1/jt-ship') >= 0){
       var body = {}; try{ body = JSON.parse((opt && opt.body) || '{}'); }catch(e){}
       var mo = TABLES.orders.filter(function(o){ return o.id === body.order_id; })[0];
       if(mo && !(mo.tracking_no||'')){
-        // كل تالت محاولة «بتفشل في صمت» (زي n8n لما يقع) — عشان المالك
-        // يشوف العلامة الصفرا ورسالة «ماكملتش» بنفسه في المعاينة
-        window.__shipSim = (window.__shipSim||0)+1;
-        if(window.__shipSim % 3 !== 0)
-          setTimeout(function(){ mo.tracking_no = '7' + String(90000000 + Math.floor(Math.random()*9999999)); mo.status = 'BOSTA AUTO'; }, 4000);
-        var ra = new Date().toISOString(); mo.shipping_requested_at = ra;
-        return Promise.resolve(new Response(JSON.stringify({ ok:true, requested_at: ra }), { status:200, headers:{'Content-Type':'application/json'} }));
+        var trk = 'JEG0005' + String(10000000 + Math.floor(Math.random()*89999999));
+        mo.tracking_no = trk; mo.status = 'BOSTA AUTO'; mo.shipping_carrier = 'jt'; mo.jt_sorting_code = '20,A01-03,021';
+        if(body.receiver){ mo.ship_prov = body.receiver.prov; mo.ship_city = body.receiver.city; mo.ship_area = body.receiver.area; }
+        mo.shipping_weight_kg = body.weight_kg || 1;
+        return Promise.resolve(new Response(JSON.stringify({ ok:true, tracking_no: trk, sorting_code: mo.jt_sorting_code, record:{ status:'BOSTA AUTO' } }), { status:200, headers:{'Content-Type':'application/json'} }));
       }
-      return Promise.resolve(new Response(JSON.stringify({ error:'already_has_tracking', message:'الأوردر له بوليصة بالفعل' }), { status:409, headers:{'Content-Type':'application/json'} }));
+      return Promise.resolve(new Response(JSON.stringify({ ok:false, error:'already_has_tracking', message:'الأوردر له بوليصة بالفعل' }), { status:409, headers:{'Content-Type':'application/json'} }));
     }
     if(u.indexOf('/functions/v1/') >= 0){
       return Promise.resolve(new Response(JSON.stringify({ ok:false, message:'وضع المعاينة' }), { status:200, headers:{'Content-Type':'application/json'} }));

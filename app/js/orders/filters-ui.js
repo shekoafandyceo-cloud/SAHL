@@ -6,7 +6,6 @@ import { $id } from '../core/dom.js';
 import { loadFinance } from '../finance/finance.js';
 import { loadInbox, waActiveId, waFetchMessages } from '../inbox/inbox.js';
 import { loadJtIssues } from '../exceptions/exceptions.js';
-import { loadIssues } from '../issues/issues.js';
 import { loadSettings } from '../settings/settings.js';
 import { loadStock } from '../stock/stock.js';
 import { tourActive } from '../tour/tour.js';
@@ -28,9 +27,6 @@ export function initRefreshAndSearch(){
       loadWalletState();
     } else if(page === 'settings'){
       loadSettings();
-    } else if(page === 'issues' && typeof loadIssues === 'function'){
-      loadIssues();
-      loadWalletState();
     } else if(page === 'analytics'){
       // ↻ كان بيقع على loadAll (فرع الأوردرات) — بيصفّر allLoaded من غير
       // ما يرندر الصفحة نفسها. هنا: تصفير الكاش + إعادة جلب فعلية ورندر
@@ -128,7 +124,6 @@ export function wireStatusCards(){
       var fst=$id('fst'); if(!fst)return;
       fst.value=val;
       fst.dispatchEvent(new Event('change',{bubbles:true}));  // runs doFilter + syncs UI + highlights card
-      var anchor=$id('fbar'); if(anchor) window.scrollTo({top:Math.max(0,anchor.offsetTop-80),behavior:'smooth'});
     });
   });
 }

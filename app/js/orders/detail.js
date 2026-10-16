@@ -593,7 +593,7 @@ export function renderDetail(){
     +STATUS_OPTIONS.map(function(s){return'<option value="'+s+'"'+(s===o.status?' selected':'')+'>'+statusLabel(s)+'</option>';}).join('')
     +'</select></div>'
 
-    // منطقة الشحن: شارة المتابعة/التحذير + زرار الأوتوماتيك (للرابط API بس)
+    // منطقة الشحن: شارة التحذير + زرار «🚚 شحن J&T» (لتاجر J&T بس)
     +'<div class="ship-area" id="ship-area">'+shipControlsHtml(o)+'</div>'
     // 3 main action buttons: تأكيد - شحن يدوي - إلغاء
     // «اتشحن يدوي» بيسجّل رقم التتبع كمان — والأوردر اللي له بوليصة مابيشوفهوش

@@ -9,7 +9,7 @@
 //  4) بعد الحفظ → الشحن بيعدّي والنافذة بتعرض الرقم الجديد (1450 + منتج واحد)
 //  5) بعد البوليصة → ملاحظة القفل ظاهرة، والحفظ المرفوض من السيرفر (jt_waybill_locked)
 //     بيتقال بالعربي مش «خطأ: jt_waybill_locked» · ضابط: أوردر من غير بوليصة J&T مالوش ملاحظة
-//  6) المعايرات: الحارس دايماً false · شيل الحارس من autoShipFlow · تجاهل خانات السعر ·
+//  6) المعايرات: الحارس دايماً false · شيل الحارس من jtShipStart · تجاهل خانات السعر ·
 //     شيل ملاحظة القفل — كل واحدة لازم توقّع فحصها
 import { chromium } from 'playwright';
 import fs from 'fs';
@@ -197,8 +197,9 @@ console.log('\n  المعايرات:');
   await p.context().close();
 }
 {
-  const p = await openApp([['ship.js', /(if\(!ord \|\| !shippable\(ord\)\) return;\n)  if\(blockIfProductsDirty\(\)\) return;\n(  if\(isJt\(\)\))/, '$1$2']]);
-  ok(!(await scenarioRemoved(p)), 'معايرة ب) شيل الحارس من autoShipFlow → فحص 2 بيقع');
+  // v80: autoShipFlow اتشالت مع مسار بوسطة — الحارس بقى في jtShipStart
+  const p = await openApp([['ship.js', /(if\(!ord \|\| !shippable\(ord\) \|\| !isJt\(\)\) return;\n)  if\(blockIfProductsDirty\(\)\) return;\n/, '$1']]);
+  ok(!(await scenarioRemoved(p)), 'معايرة ب) شيل الحارس من jtShipStart → فحص 2 بيقع');
   await p.context().close();
 }
 {

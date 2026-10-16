@@ -37,8 +37,6 @@ import { loadSettings, wireSettingsEvents } from './settings/settings.js';
 
 import { initAnalyticsTabs, loadAnalytics } from './analytics/analytics.js';
 
-import { loadIssues } from './issues/issues.js';
-
 import './billing/billing.js';
 
 import { initStockButtons, initStockTabs, loadStock } from './stock/stock.js';
@@ -372,8 +370,8 @@ export function showPage(page, opts){
   // والموديول فاضل لأن `walletStateCache` بتغذّي قفل النفاد في 6 ملفات —
   // ده الحارس للينك المباشر القديم.
   if(page==='billing'){ page='orders'; }
-  // Finance and Issues are admin-only in code as well, not just hidden by CSS.
-  if((page==='finance' || page==='issues' || page==='analytics') && !isAdmin()){
+  // الماليات والإحصائيات للأدمن بس — في الكود كمان مش بس مخفية بالـCSS.
+  if((page==='finance' || page==='analytics') && !isAdmin()){
     toast('القسم ده للأدمن فقط','er');
     page='orders';
   }
@@ -384,7 +382,6 @@ export function showPage(page, opts){
   $id('page-stock').style.display   = page==='stock'   ? 'block' : 'none';
   $id('page-finance').style.display = page==='finance' ? 'block' : 'none';
   if($id('page-settings'))$id('page-settings').style.display = page==='settings' ? 'block' : 'none';
-  if($id('page-issues'))$id('page-issues').style.display = page==='issues' ? 'block' : 'none';
   if($id('page-analytics'))$id('page-analytics').style.display = page==='analytics' ? 'block' : 'none';
   if($id('page-inbox'))$id('page-inbox').style.display = page==='inbox' ? 'block' : 'none';
   if($id('page-exceptions'))$id('page-exceptions').style.display = page==='exceptions' ? 'block' : 'none';
@@ -399,7 +396,6 @@ export function showPage(page, opts){
   if(page==='stock'){veilBegin('stock');loadStock();}
   if(page==='finance'){veilBegin('finance');loadFinance();}
   if(page==='settings'){veilBegin('settings');loadSettings();}
-  if(page==='issues'){veilBegin('issues');loadIssues();}
   if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
   if(page==='inbox'){veilBegin('inbox');loadInbox();}
   if(page==='exceptions'){veilBegin('exceptions');loadJtIssues();}

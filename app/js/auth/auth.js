@@ -86,7 +86,7 @@ export function loadTenantAndEnter(){
   // حساب منتهي، ومتقدمة كانت بتقفل حساب دافع.
   Promise.all([
     sb.from('v_my_tenant')
-      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price,has_shipping_api,wa_followup_template,wa_followup_body')
+      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price,wa_followup_template,wa_followup_body')
       .eq('id', currentTenantId)
       .single(),
     sb.from('tenant_subscription_state')

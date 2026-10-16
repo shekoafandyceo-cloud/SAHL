@@ -147,7 +147,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     h+='<tr data-id="'+o.id+'"'+clsAttr+'>'
       +'<td class="cbcol"><input type="checkbox" class="cb cb-row" data-id="'+o.id+'" '+checked+'></td>'
       +'<td class="id'+(cancelBadge?' has-cx':'')+'">'+noteIcon+(o.exchange_of?'<span class="ex-badge" title="أوردر استبدال — افتحه تشوف الأصلي">🔁</span>':'')+esc(fmt(o.order_uid))+cancelBadge+'</td>'
-      +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة الشحن">🖨️</button>'+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
+      +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+(o.shipping_carrier==='jt'?'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة J&amp;T">🖨️</button>':'')+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
       +'<td class="nm">'+vipBadge+upBadge+lockMaybe(fmt(o.customer_name))+rankBadge+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.phone))+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.alt_phone))+'</td>'
@@ -279,7 +279,7 @@ export function updateUnprintedBtn(){
   if(!relevant){ btn.classList.remove('show'); return; }
   var cnt = 0;
   (fil||[]).forEach(function(o){
-    if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)) cnt++;
+    if(o.shipping_carrier === 'jt' && o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)) cnt++;
   });
   if(cnt > 0){
     btn.classList.add('show');

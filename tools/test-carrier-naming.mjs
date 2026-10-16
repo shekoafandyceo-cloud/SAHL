@@ -52,11 +52,9 @@ const r = await p.evaluate(()=>{
   const opts=[...document.querySelectorAll('#dsel option, #fst option')].map(o=>o.textContent.trim());
   return {hits, statusLabels:opts.filter(t=>/شحن|بوسطة|اتضرب/.test(t))};
 });
-// الموضع الوحيد المسموح: السطر الشارح تحت «ربط شركة الشحن» في الإعدادات
-const ALLOW = /شركة الشحن المدعومة حاليًا: بوسطة/;
-const outside = r.hits.filter(h => !ALLOW.test(h.t));
+// مفيش أي موضع مسموح: السطر الشارح تحت «ربط شركة الشحن» اتشال مع كارت مفتاح بوسطة (v80)
+const outside = r.hits;
 ok(outside.length===0, `صفر «بوسطة» في أي نص معروض — ${outside.length}${outside.length?' :: '+JSON.stringify(outside.slice(0,4).map(h=>({...h,t:h.t.slice(0,70)}))):''}`);
-console.log('  المسموح:', r.hits.filter(h=>ALLOW.test(h.t)).map(h=>h.t.slice(0,80)).join(' · ')||'—');
 console.log('  تسميات الحالات:', JSON.stringify(r.statusLabels));
 ok(r.statusLabels.includes('شحن'), 'حالة bosta_assigned بقت «شحن»');
 ok(r.statusLabels.includes('شحن أوتوماتيك'), 'حالة BOSTA AUTO بقت «شحن أوتوماتيك»');

@@ -1,16 +1,14 @@
-// شحن الأوردر من نافذة التفاصيل — مسارين حسب حالة التاجر:
+// شحن الأوردر من نافذة التفاصيل — مسارين:
 //
-//   «🚚 شحن أوتوماتيك»  — للتاجر الرابط مفتاح شحن (has_shipping_api):
-//     Edge Function `order-ship` بتفحص وتنده ويبهوك n8n، وn8n بيحلل
-//     العنوان ويعمل البوليصة ويكتب الحالة + رقم التتبع **بعد رد شركة
-//     الشحن الحقيقي بس**. الويبهوك بيرد فوراً من غير نتيجة، فمصدر
-//     الحقيقة هو صف الأوردر: بنعمل poll لحد ما tracking_no يظهر
-//     (القياس الحي: 12–30 ثانية) — الواجهة عمرها ما تقول «اتشحن»
-//     من نفسها.
+//   «🚚 شحن J&T» — لتاجر shipping_provider = 'jt': نافذة العنوان بأسماء J&T والوزن ثم
+//     Edge Function `jt-ship` بتعمل البوليصة وبترجّع رقمها وكود الفرز (الحالة بتتكتب على
+//     السيرفر بعد رد J&T بس).
 //
-//   «📦 اتشحن يدوي» — للتاجر اللي بيعمل البوليصة بنفسه في موقع شركة
-//     الشحن (أو مش رابط API أصلاً): RPC ذري بيسجّل الحالة + رقم
-//     التتبع (اختياري) بنفس شكل سجل set_order_status.
+//   «📦 اتشحن يدوي» — للتاجر اللي بيعمل البوليصة بنفسه في موقع شركة الشحن: RPC ذري
+//     بيسجّل الحالة + رقم التتبع (اختياري) بنفس شكل سجل set_order_status.
+//
+// ⚠️ مسار بوسطة الأوتوماتيك (`order-ship` → ويبهوك n8n → poll على tracking_no) اتشال في v80
+// بقرار المالك — بوسطة اتلغت 16 سبتمبر و`Switch1` في n8n مفصول من 20 سبتمبر.
 //
 // الأوردر اللي له tracking_no مابيشوفش ولا زرار — بوليصة واحدة بس.
 
@@ -31,29 +29,12 @@ import { productsEditorDirty } from './products-editor.js';
 import { cleanShipNote, composeRemark, NOTE_PREFIX, REMARK_MAX } from './jt-remark.js';
 import { num } from '../core/format.js';
 
-// المدة اللي بعدها المحاولة المعلّقة بتتحسب «ماكملتش». النجاح المقاس حي
-// 12–30 ثانية والفشل أسرع — 60 ثانية (نزلت من 90 بطلب المالك 8 أغسطس:
-// ضعف أبطأ نجاح مقاس، والفشل بيبان بدري).
-// window.__SHIP_STALE_MIN مدخل اختبار بس — الهارنس بيقصّر العتبة.
-var STALE_MINUTES = (typeof window !== 'undefined' && window.__SHIP_STALE_MIN) || 1.0;
-// الـpoll: كل 3 ثواني لحد العتبة نفسها — لما يخلص من غير tracking
-// العلامة بتتقلب صفرا في نفس اللحظة ورسالة بتقول
-var POLL_MS = 3000, POLL_TRIES = Math.max(1, Math.round(STALE_MINUTES * 60000 / POLL_MS));
-
-var pollTimer = null, pollOrderId = null;
-// الأوردرات اللي علامتها الصفرا اترسمت خلاص — عشان التيكر مايرسمش تاني
-var staleShown = {};
-// سبب فشل المحاولة (جلسة محلية): بيظهر في تلميح العلامة الصفرا وفي شارة
-// النافذة — بدل رسايل الـtoast اللي المالك شالها. عبر الأجهزة/الريفريش
-// السبب بيضيع والعلامة بتفضل بانقلاب الوقت (عادي — التلميح العام بيكفي).
+// سبب فشل محاولة J&T (جلسة محلية): بيظهر في تلميح العلامة الصفرا وفي شارة
+// النافذة. عبر الأجهزة/الريفريش السبب بيتقرا من `jt_ship_error` على الأوردر.
 var shipFail = {};
 
-export function hasShipApi(){
-  return isJt() || !!(currentTenant && currentTenant.has_shipping_api);
-}
-
-// J&T = شركة الشحن (tenants.shipping_provider) — أسرارها في secrets الـEdge Function،
-// فمفيش مفتاح على صف التاجر ومفيش has_shipping_api. الزرار بيبان بالمزوّد نفسه.
+// J&T = شركة الشحن (tenants.shipping_provider) — أسرارها في الـVault (jt_secrets_v1)،
+// فمفيش مفتاح على صف التاجر. الزرار بيبان بالمزوّد نفسه.
 export function isJt(){
   return !!(currentTenant && currentTenant.shipping_provider === 'jt');
 }
@@ -63,26 +44,12 @@ function shippable(o){
     (o.status === 'pending' || o.status === 'confirmed');
 }
 
-// حالة محاولة الشحن — بتتحسب من العمود مش من ذاكرة الجلسة، فبتشتغل
-// حتى لو الموظف عمل refresh أو فتح من جهاز تاني.
-// null = مفيش محاولة · {stale:false} = بيتبعت · {stale:true} = ماكملتش
-export function shipPendingState(o){
-  if(!o || !o.shipping_requested_at || (o.tracking_no || '').trim()) return null;
-  var age = (Date.now() - new Date(o.shipping_requested_at).getTime()) / 60000;
-  if(isNaN(age) || age < 0) return null;
-  return { stale: age >= STALE_MINUTES, ageMin: age };
-}
-
-// علامة جوه إطار شارة الحالة في الجدول (طلب المالك): الموظف بيدوس
-// «شحن أوتوماتيك» ويمشي يشتغل على غيره — الجدول هو اللي بيحكي.
+// علامة جوه إطار شارة الحالة في الجدول: محاولة J&T اترفضت في الجلسة دي = تحذير
+// والسبب في التلميح (الموظف بيكمّل شغله والجدول هو اللي بيحكي).
 export function shipIndicatorHtml(o){
   if(!o || (o.tracking_no || '').trim()) return '';
-  var st = shipPendingState(o);
-  if(st && !st.stale)
-    return '<span class="ship-ind wait" title="بيتبعت لشركة الشحن أوتوماتيك — العلامة هتتحدث لوحدها"></span>';
   var reason = shipFail[o.id];
-  if(reason || (st && st.stale))
-    return '<span class="ship-ind warn" title="' + esc(reason || 'محاولة الشحن الأوتوماتيك ماكملتش — افتح الأوردر واشحنه يدوي أو جرّب تاني') + '"></span>';
+  if(reason) return '<span class="ship-ind warn" title="' + esc(reason) + '"></span>';
   return '';
 }
 
@@ -105,27 +72,22 @@ function updateRowIndicator(orderId){
 export function shipControlsHtml(o){
   if(!o) return '';
   var h = '';
-  var req = shipPendingState(o);
-  var reason = (!((o.tracking_no || '').trim()) && shipFail[o.id]) || null;
-  if(req && !req.stale){
-    h += '<div class="ship-chip wait" id="ship-chip"><span class="spin sm"></span> بيتبعت لشركة الشحن... تقدر تقفل وتكمّل شغلك — العلامة جنب الحالة هتتحدث لوحدها</div>';
-  }else if(reason){
+  var noTrk = !((o.tracking_no || '').trim());
+  var reason = (noTrk && shipFail[o.id]) || null;
+  if(reason){
     h += '<div class="ship-chip warn" id="ship-chip">⚠️ ' + esc(reason) + '</div>';
-  }else if(req && req.stale){
-    h += '<div class="ship-chip warn" id="ship-chip">⚠️ فيه محاولة شحن ماكملتش — راجع العنوان وجرّب تاني. الحالة ماتغيّرتش ومفيش بوليصة اتعملت.</div>';
-  }
-  if(isJt() && !reason && !(req && !req.stale) && (o.jt_ship_error || '').trim() && !((o.tracking_no || '').trim())){
+  }else if(isJt() && noTrk && (o.jt_ship_error || '').trim()){
     h += '<div class="ship-chip warn" id="ship-chip">⚠️ آخر محاولة J&T: ' + esc(o.jt_ship_error) + '</div>';
   }
-  if(shippable(o) && hasShipApi() && !(req && !req.stale)){
-    h += '<button class="ship-auto-btn" id="ship-auto">' + (isJt() ? '🚚 شحن J&T — إنشاء بوليصة' : '🚚 شحن أوتوماتيك — إنشاء بوليصة') + '</button>';
+  if(shippable(o) && isJt()){
+    h += '<button class="ship-auto-btn" id="ship-auto">🚚 شحن J&T — إنشاء بوليصة</button>';
   }
   return h;
 }
 
 export function wireShipControls(){
   var b = $id('ship-auto');
-  if(b) b.addEventListener('click', function(){ autoShipFlow(); });
+  if(b) b.addEventListener('click', function(){ jtShipStart(); });
 }
 
 // ── المسار اليدوي — من زرار «📦 اتشحن يدوي» (da-bs) ─────────────────
@@ -160,7 +122,7 @@ export function manualShipFlow(){
           else toast('خطأ: ' + m,'er');
           return;
         }
-        // «الموظف يدوس ويمشي» — نفس عقد الأوتوماتيك: النافذة بتتقفل مع
+        // «الموظف يدوس ويمشي» (بلاغ المالك 15 أغسطس): النافذة بتتقفل مع
         // التأكيد. القفل لازم يسبق applyShipped: لو sel لسه شايل الأوردر،
         // applyShipped هترندر التفاصيل تاني والنافذة تفضل مفتوحة
         if(sel && sel.id === ord.id){
@@ -188,99 +150,12 @@ function blockIfProductsDirty(){
   return true;
 }
 
-// ── المسار الأوتوماتيك — بوليصة حقيقية بفلوس ────────────────────────
-function autoShipFlow(){
+// ── مسار J&T — بوليصة حقيقية بفلوس ───────────────────────────────────
+function jtShipStart(){
   var ord = sel;
-  if(!ord || !shippable(ord)) return;
+  if(!ord || !shippable(ord) || !isJt()) return;
   if(blockIfProductsDirty()) return;
-  if(isJt()){ jtShipFlow(ord); return; }
-  showModal({
-    icon: '🚚',
-    title: 'إنشاء بوليصة حقيقية',
-    sub: 'هيتبعت لشركة الشحن على حسابك وهتتعمل بوليصة بفلوس حقيقية.\nالنظام هيحلل العنوان ويأكدلك النتيجة هنا — الحالة مش هتتغير غير لما البوليصة تتعمل فعلاً.',
-    okLabel: 'اشحن الأوردر',
-    okColor: 'linear-gradient(135deg,#10b981,#059669)',
-    onOk: function(){ callShipFunction(ord); }
-  });
-}
-
-async function callShipFunction(ord){
-  // النافذة بتتقفل فوراً والموظف يكمّل شغله — **من غير أي toast ولا أي
-  // إعادة رسم للجدول** (طلب المالك بعد التجربة الحية التالتة): العلامة
-  // جنب الحالة هي القناة الوحيدة، وبتتحدث بتحديث جراحي لخلية الصف بس.
-  // الرسم الكامل محجوز لتغيير الحالة الفعلي (البوليصة وصلت).
-  if(sel && sel.id === ord.id){
-    $id('ovl').classList.remove('open');
-    ordersSetSelected(null);
-    detailAbort();
-  }
-  delete shipFail[ord.id];
-  delete staleShown[ord.id];
-  var row = findRow(ord.id);
-  var optimistic = new Date().toISOString();
-  if(row) row.shipping_requested_at = optimistic;
-  updateRowIndicator(ord.id);
-  var out = {};
-  try{
-    var sess = await sb.auth.getSession();
-    var tk = sess && sess.data && sess.data.session ? sess.data.session.access_token : null;
-    if(!tk) throw new Error('جلسة الدخول انتهت. سجّل دخول تاني.');
-    // 🔴 مفيش tenant_id في الطلب — السيرفر بياخده من الـJWT (نفس ثابت tenant-staff)
-    var res = await fetch(SUPABASE_URL + '/functions/v1/order-ship', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + tk },
-      body: JSON.stringify({ order_id: ord.id })
-    });
-    out = await res.json().catch(function(){ return {}; });
-    if(!res.ok || !out.ok) throw new Error(out.message || 'حصلت مشكلة — حاول تاني');
-  }catch(e){
-    // الطلب اترفض قبل ما يتبعت أصلاً — العلامة بتتقلب صفرا فوراً والسبب
-    // الحقيقي جوّاها (تلميح الماوس + شارة النافذة لو اتفتح) — مفيش toast
-    if(row && row.shipping_requested_at === optimistic) row.shipping_requested_at = null;
-    shipFail[ord.id] = String(e.message || e);
-    updateRowIndicator(ord.id);
-    if(sel && sel.id === ord.id) renderDetail();
-    return;
-  }
-  if(row) row.shipping_requested_at = out.requested_at || optimistic;
-  startPoll(ord.id);
-}
-
-function startPoll(orderId){
-  stopPoll();
-  pollOrderId = orderId;
-  var tries = 0;
-  pollTimer = setInterval(function(){
-    tries++;
-    sb.from('orders').select('id,status,tracking_no,shipping_requested_at')
-      .eq('id', orderId).eq('tenant_id', currentTenantId).single()
-      .then(function(r){
-        if(pollOrderId !== orderId) return;         // اتلغى — محاولة أجدد بدأت
-        var d = r && r.data;
-        var row = findRow(orderId);
-        var uid = row && row.order_uid ? ('#' + row.order_uid) : '';
-        if(d && (d.tracking_no || '').trim()){
-          stopPoll();
-          applyShipped(orderId, d.status, d.tracking_no, d.shipping_requested_at);
-          toast('البوليصة اتعملت لأوردر ' + uid + ' ✓ رقم التتبع: ' + d.tracking_no,'ok');
-          return;
-        }
-        if(tries >= POLL_TRIES){
-          // العتبة خلصت من غير بوليصة — العلامة بتتقلب صفرا (تحديث جراحي
-          // للصف بس، من غير toast ولا رسم كامل — قرار المالك)
-          stopPoll();
-          shipFail[orderId] = 'محاولة الشحن الأوتوماتيك ماكملتش — راجع العنوان واشحنه يدوي أو جرّب تاني';
-          staleShown[orderId] = true;
-          updateRowIndicator(orderId);
-          if(sel && sel.id === orderId) renderDetail();
-        }
-      });
-  }, POLL_MS);
-}
-
-function stopPoll(){
-  if(pollTimer){ clearInterval(pollTimer); pollTimer = null; }
-  pollOrderId = null;
+  jtShipFlow(ord);
 }
 
 function findRow(id){
@@ -289,14 +164,13 @@ function findRow(id){
   return null;
 }
 
-// نجاح (يدوي أو أوتوماتيك): تحديث الذاكرة المحلية + الجدول + النافذة
-function applyShipped(orderId, status, tracking, requestedAt){
-  delete shipFail[orderId]; delete staleShown[orderId];
+// نجاح (يدوي أو J&T): تحديث الذاكرة المحلية + الجدول + النافذة
+function applyShipped(orderId, status, tracking){
+  delete shipFail[orderId];
   var row = findRow(orderId);
   if(row){
     row.status = status || row.status;
     if(tracking) row.tracking_no = tracking;
-    if(requestedAt !== undefined) row.shipping_requested_at = requestedAt;
     row.status_changed_at = new Date().toISOString();
   }
   if(sel && sel.id === orderId){
@@ -528,10 +402,8 @@ async function jtSubmit(ord){
 }
 
 // ── تيكر الجدول ─────────────────────────────────────────────────────
-// نافذة المتابعة: من لحظة الطلب لحد ما يبقى قديم بمدة كافية إن العلامة
-// الصفرا تكون اترسمت — بعدها مفيش داعي لإعادة الجلب كل 30 ثانية
+// كل 30 ثانية: شحنات J&T اللي لسه في السكة على الصفحة المعروضة (شبكة أمان للريل-تايم).
 var TICK_MS = (typeof window !== 'undefined' && window.__SHIP_TICK_MS) || 30000;
-var WATCH_WINDOW_MIN = STALE_MINUTES + 10;
 
 // حالات نهائية — الشحنة خلصت رحلتها فمفيش مسح جديد جاي ليها.
 // أي حاجة غير دي على أوردر J&T معناها إنه لسه في السكة وتحديثه ممكن ييجي
@@ -551,23 +423,12 @@ export function initShipTicker(){
     if(pgo && pgo.style.display === 'none' && !(ovlEl && ovlEl.classList.contains('open'))) return;
     // صفوف الجدول في fil (الصفحة الحالية من السيرفر) — وall مخزن
     // الماليات الكسول وممكن يبقى فاضي. بنمسح الاتنين.
-    var watch = [], seen = {}, flipped = [];
+    var watch = [], seen = {};
     var scan = fil.concat(all);
     for(var i=0;i<scan.length;i++){
       var o = scan[i];
       if(seen[o.id]) continue;
-      // (أ) محاولة شحن معلّقة — لسه مفيش بوليصة
-      if(o.shipping_requested_at && !(o.tracking_no||'').trim()){
-        var age = (Date.now() - new Date(o.shipping_requested_at).getTime()) / 60000;
-        if(age >= 0 && age < WATCH_WINDOW_MIN){
-          seen[o.id] = true; watch.push(o.id);
-          // العلامة اتقلبت صفرا من آخر رسمة؟ تحديث جراحي للصف ده بس —
-          // الرسم الكامل كان باين للمالك كـ«ريفريش على الفاضي» واترفض
-          if(age >= STALE_MINUTES && !staleShown[o.id]){ staleShown[o.id] = true; flipped.push(o.id); }
-          continue;
-        }
-      }
-      // (ب) 🔴 شحنة J&T لسه في السكة — شبكة أمان للريل-تايم.
+      // 🔴 شحنة J&T لسه في السكة — شبكة أمان للريل-تايم.
       // `postgres_changes` مافيهوش replay: أي تحديث بيوصل والـsocket
       // مقفول (تاب نايمة · نت قطع · الجهاز قفل) بيضيع للأبد، والموظف
       // بيفضل بصّ على حالة قديمة والنقطة خضرا. الجلب ده بيصلّحها لوحده.
@@ -576,10 +437,9 @@ export function initShipTicker(){
         seen[o.id] = true; watch.push(o.id);
       }
     }
-    flipped.forEach(updateRowIndicator);
     if(!watch.length || !sb || !currentTenantId) return;
-    // **صامت**: مفيش أي رسم غير لو فيه تغيير فعلي من السيرفر أو انقلاب علامة.
-    sb.from('orders').select('id,status,tracking_no,shipping_requested_at,carrier_status_raw,carrier_status_at')
+    // **صامت**: مفيش أي رسم غير لو فيه تغيير فعلي من السيرفر.
+    sb.from('orders').select('id,status,tracking_no,carrier_status_raw,carrier_status_at')
       .eq('tenant_id', currentTenantId).in('id', watch)
       .then(function(r){
         var changed = false;
@@ -587,17 +447,12 @@ export function initShipTicker(){
           var row = findRow(d.id);
           if(!row) return;
           if((d.tracking_no||'') !== (row.tracking_no||'') || d.status !== row.status){
-            var hadTracking = (row.tracking_no||'').trim();
             row.status = d.status; row.tracking_no = d.tracking_no;
-            row.shipping_requested_at = d.shipping_requested_at;
             row.carrier_status_raw = d.carrier_status_raw;
             row.carrier_status_at = d.carrier_status_at;
             changed = true;
-            delete staleShown[d.id]; delete shipFail[d.id];
-            if(!hadTracking && (d.tracking_no||'').trim())
-              toast('البوليصة اتعملت لأوردر #' + (row.order_uid || '') + ' ✓ رقم التتبع: ' + d.tracking_no,'ok');
-            else if(hadTracking)
-              toast('🚚 طلب #' + (row.order_uid || '') + ' بقى «' + statusLabel(d.status) + '»','ok');
+            delete shipFail[d.id];
+            toast('🚚 طلب #' + (row.order_uid || '') + ' بقى «' + statusLabel(d.status) + '»','ok');
             // النافذة مفتوحة على نفس الأوردر؟ تتحدث معاه
             if(sel && sel.id === d.id){
               sel.status = d.status;

@@ -2,16 +2,14 @@
 
 import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
-import { normalizeProductName } from '../analytics/product-match.js';
 import { $id, esc } from '../core/dom.js';
-import { fmt, fmtMovementDateParts, num, pad2, short } from '../core/format.js';
+import { fmt, fmtMovementDateParts, num, pad2 } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { showModal } from '../core/modal.js';
 import { tourDemoMovements, tourDemoStock } from '../tour/demo-data.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { showPage } from '../main.js';
 import { currentRole, currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
 import { loadBostaInventoryCard } from '../orders/cards.js';
@@ -630,93 +628,3 @@ export function initStockButtons(){
   $id('add-mov-btn').addEventListener('click',openMovementEditor);
 }
 
-  // ─────────────────────────────────────────────────
-  // SMART STOCK ALERTS + ISSUES CENTER
-  // ─────────────────────────────────────────────────
-
-export function parseMovementDate(m){
-  var raw=m.created_at || m.movement_date;
-  if(!raw)return null;
-  var d=new Date(raw);
-  return isNaN(d.getTime())?null:d;
-}
-
-export function recentQtyOutByProduct(days){
-  var now=Date.now();
-  var windowMs=days*24*60*60*1000;
-  var map={};
-  (stockMovements||[]).forEach(function(m){
-    if(m.movement_type!=='out')return;
-    var d=parseMovementDate(m); if(!d)return;
-    if(now-d.getTime()>windowMs)return;
-    var name=normalizeProductName(m.product_name);
-    var key=name.toLowerCase();
-    map[key]=(map[key]||0)+(Number(m.qty_out||0)||0);
-  });
-  return map;
-}
-
-export function stockForecastRows(){
-  var out7=recentQtyOutByProduct(7);
-  // أم ليها خصائص بتتستبعد: كميتها «غير موزع» مش مخزون بيع، وصفرها حالة
-  // طبيعية بعد التوزيع الكامل — من غير الاستبعاد كل عيلة موزعة بالكامل
-  // كانت هتطلع «نفد من المخزون» بالغلط. الإشارة الحقيقية على البنات نفسها.
-  var rows=(stockProducts||[]).filter(function(p){
-    return !(!p.parent_id && hasVariants(p.id));
-  }).map(function(p){
-    var name=normalizeProductName(p.name);
-    var qty=Number(p.current_qty||0)||0;
-    var sold7=out7[name.toLowerCase()]||0;
-    var avg=sold7/7;
-    var daysLeft=avg>0 ? qty/avg : null;
-    var level='ok', msg='مخزون مستقر';
-    if(qty<=0){level='critical';msg='نفد من المخزون';daysLeft=0;}
-    else if(avg>0 && daysLeft<=3){level='critical';msg='هينفد خلال 3 أيام أو أقل';}
-    else if(avg>0 && daysLeft<=7){level='warn';msg='هينفد خلال أسبوع تقريبًا';}
-    else if(avg===0 && qty>0 && qty<10){level='warn';msg='مخزون قليل لكن مفيش سحب حديث';}
-    return {product:p,name:name,qty:qty,sold7:sold7,avg:avg,daysLeft:daysLeft,level:level,msg:msg,wholesale:Number(p.wholesale_price||0)||0};
-  });
-  rows.sort(function(a,b){
-    var pr={critical:0,warn:1,ok:2};
-    if(pr[a.level]!==pr[b.level])return pr[a.level]-pr[b.level];
-    var da=a.daysLeft===null?9999:a.daysLeft, db=b.daysLeft===null?9999:b.daysLeft;
-    return da-db;
-  });
-  return rows;
-}
-
-export function renderSmartStockAlerts(targetId, limit){
-  var target=$id(targetId);
-  if(!target)return;
-  var rows=stockForecastRows().filter(function(r){return r.level!=='ok';}).slice(0,limit||6);
-  if(!rows.length){
-    target.innerHTML='<div class="smart-alert-card info"><div class="alert-head"><span>✅</span><span class="alert-title">المخزون مستقر حاليًا</span></div><div class="alert-sub">مفيش منتجات متوقعة تنفد قريبًا بناءً على حركات الخروج آخر 7 أيام.</div></div>';
-    return;
-  }
-  target.innerHTML=rows.map(function(r){
-    var cls=r.level==='critical'?'critical':'warn';
-    var icon=r.level==='critical'?'🚨':'⚠️';
-    var daysTxt=r.daysLeft===null?'غير محسوب':(r.daysLeft<=0?'نفد':r.daysLeft.toFixed(1)+' يوم');
-    return '<div class="smart-alert-card '+cls+'">'
-      + '<div class="alert-head"><span>'+icon+'</span><span class="alert-title">'+esc(short(r.name,34))+'</span><span class="alert-badge">'+esc(r.msg)+'</span></div>'
-      + '<div class="alert-main">'+daysTxt+'</div>'
-      + '<div class="alert-sub">المتاح: '+num(r.qty)+' قطعة · سحب آخر 7 أيام: '+num(r.sold7)+' · متوسط يومي: '+(r.avg?r.avg.toFixed(1):'0')+' قطعة</div>'
-      + '<div class="alert-actions"><button class="alert-action" data-stock-search="'+esc(r.name)+'">افتح المنتج</button></div>'
-      + '</div>';
-  }).join('')
-  + (stockMovementsCapped?'<div class="cap-note">⚠ التنبؤ مبني على آخر 500 حركة بس — الأقدم مش محمّل فالتقدير ممكن يكون متفائل</div>':'');
-  target.querySelectorAll('[data-stock-search]').forEach(function(b){
-    b.addEventListener('click',function(){openStockProductByName(b.getAttribute('data-stock-search'));});
-  });
-}
-
-export function openStockProductByName(name){
-  showPage('stock');
-  currentStockTab='products';
-  document.querySelectorAll('.stock-tab[data-tab]').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-tab')==='products');});
-  $id('stock-products-tab').style.display='block';
-  $id('stock-movements-tab').style.display='none';
-  if($id('prod-search'))$id('prod-search').value=name||'';
-  renderProducts();
-  window.scrollTo({top:0,behavior:'smooth'});
-}

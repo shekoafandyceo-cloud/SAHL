@@ -70,7 +70,7 @@ export function renderMergeAlert(){
       $id('fst').value = ''; $id('fpl').value = ''; $id('fpy').value = '';
       if(window.__syncFilterUI)window.__syncFilterUI();
       doFilter();
-      window.scrollTo({top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth'});
+      window.scrollTo({top: 200, behavior:'smooth'});
       toast('عرض أوردرات هذا العميل','ok');
     });
   });

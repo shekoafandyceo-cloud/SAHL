@@ -45,7 +45,6 @@ export var DEFAULT_PAGE = 'orders';
 
 // عنوان التاب لكل صفحة — **نفس تسميات القايمة بالحرف** عشان اللي في التاب
 // يطابق اللي التاجر دايس عليه. المفتاح اسم الصفحة الداخلي مش الـslug.
-// (صفحة `issues` الميتة مالهاش عنوان — بتقع على الافتراضي.)
 var PAGE_TITLES = {
   orders:       'الطلبات',
   stock:        'المخزون',
@@ -224,8 +223,7 @@ export function syncUrl(page, replace){
   // ريفريش. اللوحة بتفضل شغالة عادي على المسار اللي هي فيه.
   if(!deepLinksOk) return;
   var url = routeUrl(page);
-  // صفحة مالهاش slug (زي `issues` الميتة) — بنسيب الـURL زي ما هو بدل ما
-  // نخترعله مسار مايفتحش
+  // صفحة مالهاش slug — بنسيب الـURL زي ما هو بدل ما نخترعله مسار مايفتحش
   if(!url) return;
   try{
     if(typeof location !== 'undefined' && (location.pathname + location.search) === url) {

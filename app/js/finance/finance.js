@@ -15,7 +15,6 @@ import { BOSTA_EXPECTED_STATUSES, CANCELLED_STATUSES } from '../core/constants.j
 import { pad2 } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { loadIssues, renderIssuesTable } from '../issues/issues.js';
 import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { tourDemoExpenses, tourDemoStock } from '../tour/demo-data.js';
 import { currentTenantId, currentUser } from '../auth/auth.js';
@@ -555,10 +554,6 @@ export function initFinanceAndIssues(){
   $id('exp-search').addEventListener('input', renderExpenses);
   $id('exp-filter-cat').addEventListener('change', renderExpenses);
   $id('add-expense-btn').addEventListener('click', function(){ openExpenseEditor(null); });
-  if($id('issues-refresh'))$id('issues-refresh').addEventListener('click',loadIssues);
-  if($id('issues-search'))$id('issues-search').addEventListener('input',renderIssuesTable);
-  if($id('issues-filter-prio'))$id('issues-filter-prio').addEventListener('change',renderIssuesTable);
-  if($id('issues-filter-scope'))$id('issues-filter-scope').addEventListener('change',renderIssuesTable);
 
   // ═══════════════════ END FINANCE SECTION ═══════════════════════
 

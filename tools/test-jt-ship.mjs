@@ -184,6 +184,32 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   ok(await p.$eval('#jt-done', d => d.style.display === 'none'), 'ومفيش زرار طباعة — مفيش نجاح كاذب');
   const row = await p.evaluate((id) => (window.__ORDERS || []).filter(x => x.id === id)[0], id);
   ok(!(row.tracking_no || '').trim(), 'والصف من غير بوليصة');
+  // v80: علامة الفشل الصفرا على صف الجدول بالسبب (اللي فضل من نظام العلامات بعد شيل مسار بوسطة)
+  const ind = await p.evaluate((id) => { const e = document.querySelector('#tbody tr[data-id="' + id + '"] .badge .ship-ind.warn'); return e ? e.getAttribute('title') : null; }, id);
+  ok(ind && ind.indexOf('نطاق J&T') >= 0, `وعلامة صفرا على صف الجدول بالسبب في التلميح — ${ind}`);
+  await p.close();
+}
+
+// ════ 5ب) معايرة: شيل تسجيل الفشل في jtSubmit → فحص العلامة بيقع ════
+{
+  const src = fs.readFileSync(new URL('../app/js/orders/ship.js', import.meta.url), 'utf8');
+  const ANCHOR = "shipFail[ord.id] = String(e.message || e); updateRowIndicator(ord.id);";
+  if(src.split(ANCHOR).length !== 2) throw new Error('المعايرة مالقتش المرساة (أو لقتها أكتر من مرة)');
+  const tampered = src.replace(ANCHOR, '');
+  const p = await openApp(FN_OK + " window.__JT_FAIL = 'العنوان (x) مش في نطاق J&T المتسجّل';");
+  await p.route('**/js/orders/ship.js', r => r.fulfill({ status: 200, contentType: 'application/javascript', body: tampered }));
+  await p.reload({ waitUntil:'networkidle' });
+  await p.waitForFunction(() => document.querySelectorAll('#tbody tr[data-id]').length > 0);
+  const id = await pickOrder(p);
+  await openDetailOf(p, id);
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  await p.selectOption('#jt-city', 'مدينة نصر'); await p.fill('#jt-area', 'الحي السابع');
+  await p.click('#jt-go');
+  await p.waitForFunction(() => document.getElementById('jt-err').textContent.length > 0, { timeout: 8000 });
+  const ind = await p.evaluate((id) => !!document.querySelector('#tbody tr[data-id="' + id + '"] .badge .ship-ind.warn'), id);
+  ok(!ind, 'معايرة: من غير تسجيل الفشل مفيش علامة — فحص (5) كان هيقع');
   await p.close();
 }
 

@@ -47,7 +47,7 @@ html.dark input::placeholder,html.dark textarea::placeholder{color:var(--muted2)
 /* ── الأزرار/الشيبس البيضا المتكررة ── */
 html.dark .bbtn,html.dark .pbtn,html.dark .abtn,html.dark .period-btn,html.dark .aperiod-btn,
 html.dark .stock-tab,html.dark .fdrop-btn,html.dark .prod-edit-btn,html.dark .exp-edit-btn,
-html.dark .exp-del-btn,html.dark .issue-action-btn,html.dark .alert-action,html.dark .copy-btn,
+html.dark .exp-del-btn,html.dark .copy-btn,
 html.dark .prod-del,html.dark .xcls,html.dark .auth-secondary-btn{background:#1a2233;border-color:var(--brd);color:var(--txt);}
 html.dark .stock-tab{color:var(--muted);}
 html.dark .stock-tab.active{background:#e6ebf5;color:#0d1220;border-color:#e6ebf5;}
@@ -57,7 +57,7 @@ html.dark .pe-var-btn:hover{background:rgba(255,255,255,.06);color:var(--txt);}
 html.dark .pe-var-btn.ok{background:rgba(16,185,129,.12);color:#6ee7b7;border-color:rgba(16,185,129,.35);}
 html.dark .period-btn.active,html.dark .aperiod-btn.active{background:var(--acc);color:#000;border-color:var(--acc);}
 html.dark .prod-add-btn{background:#151d30;border-color:#3a4763;color:var(--muted);}
-html.dark .prod-add-btn:hover,html.dark .prod-edit-btn:hover,html.dark .issue-action-btn:hover{color:var(--acc);border-color:var(--acc);background:rgba(255,159,28,.08);}
+html.dark .prod-add-btn:hover,html.dark .prod-edit-btn:hover{color:var(--acc);border-color:var(--acc);background:rgba(255,159,28,.08);}
 html.dark .fbar,html.dark .bulkbar{background:var(--card);}
 html.dark .fcnt,html.dark .pcnt,html.dark .pdate,html.dark .bcnt{background:#1a2233;border-color:var(--brd);color:var(--muted);}
 html.dark .bcnt{color:var(--acc);background:rgba(255,159,28,.10);border-color:rgba(255,159,28,.30);}
@@ -126,9 +126,6 @@ html.dark .bbtn.cn{background:rgba(239,68,68,.12);color:#f87171;border-color:rgb
 html.dark .abtn.ok{background:rgba(16,185,129,.12);color:#34d399;border-color:rgba(16,185,129,.35);}
 html.dark .abtn.bs{background:rgba(59,130,246,.12);color:#60a5fa;border-color:rgba(59,130,246,.35);}
 html.dark .abtn.cn{background:rgba(239,68,68,.12);color:#f87171;border-color:rgba(239,68,68,.35);}
-html.dark .issue-prio.high{background:rgba(239,68,68,.13);color:#f87171;border-color:rgba(239,68,68,.35);}
-html.dark .issue-prio.medium{background:rgba(249,115,22,.13);color:#fb923c;border-color:rgba(249,115,22,.35);}
-html.dark .issue-prio.low{background:rgba(59,130,246,.13);color:#60a5fa;border-color:rgba(59,130,246,.35);}
 html.dark .exp-cat-مرتبات{background:rgba(245,158,11,.14);color:#fbbf24;}
 html.dark .exp-cat-إعلانات{background:rgba(59,130,246,.14);color:#60a5fa;}
 html.dark .exp-cat-تغليف{background:rgba(124,58,237,.16);color:#a78bfa;}
@@ -141,7 +138,6 @@ html.dark .wa-verify-badge.bad{background:rgba(239,68,68,.13);color:#f87171;bord
 
 /* ── الماليات والتنبيهات ── */
 html.dark .info-i{background:#1a2233;border-color:var(--brd2);color:var(--muted);}
-html.dark .alert-badge{background:#1a2233;border-color:var(--brd);}
 html.dark .cost-row.profit{background:rgba(16,185,129,.07);}
 html.dark .movement-cost.zero{background:rgba(239,68,68,.12);}
 
@@ -256,7 +252,6 @@ html.dark .cm-rate-note{background:rgba(124,58,237,.12);border-color:rgba(167,13
 html.dark .sval.cm-pos-val{color:#34d399;}
 html.dark tr.cm-ev-row:hover td{background:rgba(255,159,28,.09);}
 
-html.dark .ship-chip.wait{background:rgba(37,99,235,.14);border-color:rgba(59,130,246,.35);color:#93c5fd;}
 html.dark .ship-chip.warn{background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#fbbf24;}
 
 html.dark .prod-price{background:#1a2233;border-color:var(--brd);color:var(--txt);}

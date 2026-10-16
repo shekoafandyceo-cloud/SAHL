@@ -26,7 +26,7 @@ export function loadSettings(){
   if(!ensureTenant()){veilDone('settings');return;}
   // Pull fresh tenant row + platform settings (bot username) in parallel
   Promise.all([
-    sb.from('v_my_tenant').select('store_name,webhook_secret,wa_webhook_secret,plan,whatsapp_phone_id,whatsapp_token,shipping_api_key,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
+    sb.from('v_my_tenant').select('store_name,webhook_secret,wa_webhook_secret,plan,whatsapp_phone_id,whatsapp_token,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
       .eq('id', currentTenantId).maybeSingle(),
     sb.from('platform_settings').select('key,value').eq('key','telegram_bot_username').maybeSingle(),
     // حالة توثيق رقم الواتساب. بتتحمّل هنا عشان saveWhatsApp بتنادي
@@ -113,8 +113,6 @@ export function renderSettings(t){
   if($id('set-wa-verify-token'))
     $id('set-wa-verify-token').value = waSecret || SECRET_NOT_READY;
 
-  // Bosta
-  if($id('set-bosta-key')) $id('set-bosta-key').value = t.shipping_api_key || '';
 
   // WhatsApp
   if($id('set-wa-phone-id')) $id('set-wa-phone-id').value = t.whatsapp_phone_id || '';
@@ -293,12 +291,6 @@ export function saveIntegrations(payload, sectionLabel, btn, onDone){
   });
 }
 
-export function saveBosta(){
-  var btn = $id('set-save-bosta');
-  var key = ($id('set-bosta-key').value || '').trim();
-  saveIntegrations({ p_shipping_api_key: key }, 'شركة الشحن', btn);
-}
-
 // Auto-save the WhatsApp-confirmation on/off toggle. Reverts visual state on failure.
 export function saveWaConfirmToggle(){
   var el = $id('set-wa-confirm-toggle'); if(!el) return;
@@ -429,7 +421,6 @@ export function wireSettingsEvents(){
   if($id('set-webhook-copy')) $id('set-webhook-copy').addEventListener('click', copyWebhookUrl);
   if($id('set-wa-callback-copy')) $id('set-wa-callback-copy').addEventListener('click', copyWaCallbackUrl);
   if($id('set-wa-verify-copy'))   $id('set-wa-verify-copy').addEventListener('click', copyWaVerifyToken);
-  if($id('set-save-bosta'))   $id('set-save-bosta').addEventListener('click', saveBosta);
   if($id('set-save-wa'))      $id('set-save-wa').addEventListener('click', saveWhatsApp);
   if($id('set-wa-confirm-toggle')) $id('set-wa-confirm-toggle').addEventListener('change', saveWaConfirmToggle);
   if($id('set-save-tg'))      $id('set-save-tg').addEventListener('click', saveTelegram);

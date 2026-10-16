@@ -97,7 +97,8 @@
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
     if(table === 'v_stock_products' && window.__STOCK) rows = window.__STOCK.slice();
     if(table === 'v_my_tenant'){
-      // زرار «شحن أوتوماتيك» بيقرا العمود ده — الاختبار بيطفيه بـ__SHIP_API=false
+      // ⚠️ الواجهة مابقتش بتقرا العمود ده من v80 (مسار بوسطة الأوتوماتيك اتشال) — فاضل هنا
+      // عشان test-ship يثبت إن تاجر بمفتاح بوسطة قديم مابيشوفش زرار أوتوماتيك
       rows = rows.map(function(t){ return Object.assign({}, t, { has_shipping_api: window.__SHIP_API !== false }); });
       // إعدادات المتجر اللي الاختبار عايز يزوّدها (قالب المتابعة مثلاً).
       // الافتراضي **فاضي** عن قصد: من غيره كل اختبار قديم كان هيلاقي إعداد

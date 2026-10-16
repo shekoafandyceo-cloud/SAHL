@@ -29,18 +29,20 @@ export function initReadyCard(){
       if(fst){ fst.value = 'bosta_assigned'; }
       if(window.__syncFilterUI) window.__syncFilterUI();
       try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
-      window.scrollTo({ top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth' });
+      window.scrollTo({ top: 200, behavior:'smooth' });
     });
   })();
 
-  // زرار "حدد غير المطبوع" — يحدّد كل الأوردرات اللي لسه ماتطبعش في القايمة الحالية
+  // زرار "حدد غير المطبوع" — يحدّد بوالص J&T اللي لسه ماتطبعتش في القايمة الحالية
+  // (الطباعة J&T بس من v80 — بوليصة شركة قديمة أو شحن يدوي مابتتطبعش من هنا، فلو اتحددت
+  //  كانت هتفضل «غير مطبوعة» للأبد)
   (function(){
     var btn = document.getElementById('bb-sel-unprinted');
     if(!btn) return;
     btn.addEventListener('click', function(){
       var added = 0;
       (fil||[]).forEach(function(o){
-        if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
+        if(o.shipping_carrier === 'jt' && o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
           selectedIds.add(o.id);
           added++;
         }
