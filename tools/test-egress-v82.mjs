@@ -117,6 +117,7 @@ const snap = p => p.evaluate(MC => { const c = window.__calls; return {
   convFull: c.filter(x => x.table === 'wa_conversations' && x.order === 'last_message_at' && x.limit === 200).length,
   convDelta: c.filter(x => x.table === 'wa_conversations' && x.order === 'updated_at' && (x.f || []).some(f => f.op === 'gt' && f.col === 'updated_at')).length,
   convRow: c.filter(x => x.table === 'wa_conversations' && x.eqId !== undefined && !x.payload && x.cols === '*').length,
+  waOrders: c.filter(x => x.table === 'orders' && x.limit === 25 && String(x.cols || '').indexOf('id,order_uid,status') === 0).length,
   msgFull: c.filter(x => x.table === 'wa_messages' && x.limit === 500).length,
   msgDelta: c.filter(x => x.table === 'wa_messages' && x.limit === 100 && (x.f || []).some(f => f.op === 'gte' && f.col === 'created_at')).length,
   jxFull: c.filter(x => x.table === 'v_jt_issues' && (x.f || []).some(f => f.op === 'gte' && f.col === 'event_at')).length,
@@ -287,16 +288,47 @@ async function probeJxBadge(o){
 
 // ── من المراجعة العدائية (v82) ────────────────────────────────────────
 // 18) الصفحة في السكة (رد بطيء = snapshot قبل الحدث) وحدث وصل وهي في السكة → الصفحة بتتجاب تاني والصف على الحالة الجديدة
-async function probeFlight(o){
-  const T = await open('/orders', o);
+const PROD_UPDATED = `window.__ORDERS.forEach(function(o){ o.updated_at = '2026-10-01T08:00:00.000Z'; });`;
+// وقت بمنطقة «+00» من غير دقايق — V8 بيفهمه بالمسافة («… 10:00:00+00») بس **مابيفهمهوش بالـT** («…T10:00:00.123+00») — rtTime بيطبّع الاتنين
+const RT_STAMP = () => { const d = new Date(); return d.toISOString().replace('Z', '+00'); };
+async function probeFlight(o, late){
+  const T = await open('/orders', Object.assign({ pre: PROD_UPDATED }, o));
   await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.from !== undefined) ? 1200 : 0; });
   const a = await snap(T.p);
   await T.p.evaluate(async () => (await import('/js/orders/orders.js')).fetchOrdersPage());
   await T.p.waitForTimeout(100);
-  await fireOrder(T.p, 'UPDATE', 'o2', { status: 'Delivered', updated_at: STAMP() });
+  // late: الحدث وصل بعد 16ث من بداية الجلب (نت بطيء) — كان بيتساب برّه الـbuffer (حد 15ث) والصف بيرجع للقديم لما الصفحة تنزل
+  if(late){ const t0 = await T.p.evaluate(() => Date.now()); await T.ctx.clock.setFixedTime(new Date(t0 + 16000)); }
+  await fireOrder(T.p, 'UPDATE', 'o2', { status: 'Delivered', updated_at: RT_STAMP() });
   await T.p.waitForTimeout(2600);
   const d = diff(a, await snap(T.p)); const bd = await badge(T.p, 'o2'); await T.ctx.close();
   return { d, bd };
+}
+// 18ج) حدث **أقدم** من الـsnapshot وصل والصفحة في السكة (push متأخر) = الـsnapshot الأحدث بيكسب
+async function probeStaleEvent(o){
+  const T = await open('/orders', Object.assign({ pre: PROD_UPDATED }, o));
+  await T.p.evaluate(() => { const o2 = window.__ORDERS.filter(x => x.id === 'o2')[0]; o2.status = 'Delivered'; o2.updated_at = '2026-10-10T10:00:00.000Z';
+    window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.from !== undefined) ? 1200 : 0; });
+  await T.p.evaluate(async () => (await import('/js/orders/orders.js')).fetchOrdersPage());
+  await T.p.waitForTimeout(100);
+  await T.p.evaluate(async () => { const m = await import('/js/orders/orders.js'); const base = window.__ORDERS.filter(x => x.id === 'o2')[0];
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, base, { status: 'Out for delivery', updated_at: '2026-10-05 10:00:00+00' }), old: { id: 'o2' } }); });
+  await T.p.waitForTimeout(2600);
+  const bd = await badge(T.p, 'o2'); await T.ctx.close(); return { bd };
+}
+// 18د) الفلتر اتغيّر (الصفحة الجديدة في السكة) وحدث ختم على صف من الصفحة القديمة = الـskeleton فاضل (مش الصفحة القديمة فوقه)
+async function probeSkeleton(o){
+  const T = await open('/orders', o);
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.from !== undefined) ? 3000 : 0; });
+  await T.p.evaluate(() => { const el = document.getElementById('fst'); el.value = 'pending'; el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await T.p.waitForTimeout(150);
+  await T.p.evaluate(async () => { const m = await import('/js/orders/orders.js'); const base = window.__ORDERS.filter(x => x.id === 'o1')[0]; const t = new Date().toISOString();
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, base, { ship_rank: 90, ship_rank_at: t, updated_at: t }), old: { id: 'o1' } }); });
+  await T.p.waitForTimeout(1300);
+  const mid = await T.p.evaluate(() => !!document.querySelector('#tbody tr[data-id="o1"]'));
+  await T.p.waitForTimeout(2500);
+  const end = await T.p.evaluate(() => Array.from(document.querySelectorAll('#tbody tr[data-id]')).map(e => e.getAttribute('data-id')));
+  await T.ctx.close(); return { mid, end };
 }
 // 18ب) صدى تعديل الموظف نفسه: السيرفر اتكتب **قبل** ما الصفحة تتطلب (doFilter بعد رد الـRPC) والصدى وصل وهي في السكة = مفيش جلب تاني
 async function probeOwnEcho(o){
@@ -325,6 +357,26 @@ async function probeDetailOnly(o){
   await T.p.evaluate(() => { const z = window.__ORDERS.filter(x => x.id === 'zd1')[0]; z.phone = '01000000003'; });
   await fireOrder(T.p, 'UPDATE', 'zd1', { phone: '01000000003', updated_at: STAMP() });
   const d = diff(a, await snap(T.p)); await T.ctx.close(); return { d, inFil };
+}
+// 19ج) نسخة السيرفر من التفاصيل وصلت **بعد** حدث أحدث (select('*') بطيء) = مابتدوسش عليه — الصدى التاني «مفيش تغيير»
+async function probeDetailLate(o){
+  const T = await open('/orders', Object.assign({ pre: `window.__ORDERS.push(Object.assign({}, window.__ORDERS[0], { id: 'zd2', order_uid: '7803', status: 'BOSTA AUTO',
+    phone: '01044445555', created_at: '2026-01-05T10:00:00.000Z', updated_at: '2026-01-05T10:00:00.000Z' }));` }, o));
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.single && st.eqId === 'zd2') ? 1200 : 0; });
+  await T.p.evaluate(async () => (await import('/js/orders/detail.js')).openDetail('zd2'));
+  await T.p.waitForTimeout(150);
+  const t = new Date().toISOString();
+  // ⚠️ السيرفر بيتكتب بصف **جديد** مكان القديم: select('*') في الستب بيرجّع نفس الـobject (مش نسخة)، فالتعديل في مكانه كان بيوصل للرد
+  // المتأخر نفسه ومفيش «نسخة أقدم» خالص (المعايرة كانت بتعدّي على الفاضي)
+  const fire = () => T.p.evaluate(async tt => { const i = window.__ORDERS.findIndex(x => x.id === 'zd2');
+    window.__ORDERS[i] = Object.assign({}, window.__ORDERS[i], { status: 'bosta_assigned', updated_at: tt });
+    (await import('/js/orders/orders.js')).handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, window.__ORDERS[i]), old: { id: 'zd2' } }); }, t);
+  await fire();
+  await T.p.waitForTimeout(1300);   // التفاصيل نزلت بالنسخة الأقدم (BOSTA AUTO)
+  const a = await snap(T.p);
+  await fire();   // صدى تاني بنفس القيم
+  await T.p.waitForTimeout(1300);
+  const d = diff(a, await snap(T.p)); await T.ctx.close(); return d;
 }
 // 21ب) أوردر برّه الصفحة **معروف** (ختم قبل كده) واتغيّر تليفونه لرقم صف في الصفحة = عدّ الرقم ده
 async function probeKnownPhone(o){
@@ -361,6 +413,26 @@ async function probeDoUpdate(o){
   await T.p.waitForTimeout(1500);
   const d = diff(a, await snap(T.p)); const s1 = await jxBadgeTxt(T.p); await T.ctx.close();
   return { s0, s1, d };
+}
+// 29ج) فلتر شغّال والموظف غيّر حالة أوردر (doUpdate) والصدى وصل والصفحة اللي طلبها في السكة = صفحة واحدة ودمج واحد
+async function probeDoUpdateFiltered(o){
+  const T = await open('/orders', Object.assign({ pre: `var _h = window.__RPC_HOOK;
+    window.__RPC_HOOK = function(n, a){
+      if(n === 'set_order_status'){ var o = window.__ORDERS.filter(function(x){ return x.id === a.p_order_id; })[0]; o.status = a.p_status; o.updated_at = new Date().toISOString();
+        return { data: [{ at: new Date().toISOString(), to: a.p_status, by: a.p_by }], error: null }; }
+      return _h(n, a);
+    };` }, o));
+  await setFilter(T.p, 'fst', '__operation__');
+  await T.p.evaluate(async () => (await import('/js/orders/detail.js')).openDetail('o2'));
+  await T.p.waitForTimeout(700);
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.from !== undefined) ? 1200 : 0; });
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/orders/mutations.js')).doUpdate('cancelled', 'اختبار'));
+  await T.p.waitForTimeout(150);
+  await T.p.evaluate(async () => { const m = await import('/js/orders/orders.js'); const base = window.__ORDERS.filter(x => x.id === 'o2')[0];
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, base), old: { id: 'o2' } }); });
+  await T.p.waitForTimeout(2800);
+  const d = diff(a, await snap(T.p)); await T.ctx.close(); return d;
 }
 // 30) الكامل الدوري للرسايل في السكة وحالة «اتقرت» وصلت = اتطبّقت على نتيجته (الـsnapshot القديم مايرجّعهاش «اتبعتت»)
 async function probeFlightPatch(o){
@@ -400,6 +472,19 @@ async function probeOpenFlight(o, kind){
   const d = diff(a, await snap(T.p));
   const ids = await T.p.evaluate(() => Array.from(document.querySelectorAll('#wa-msgs .wa-msg[data-mid]')).map(e => e.getAttribute('data-mid')));
   await T.ctx.close(); return { d, ids };
+}
+// 25ج) المحادثة اتفتحت (مش في القايمة) وقايمة جابتها **قبل** الجلب برقمها = الهيدر واللوحات مرة واحدة (أوردرات العميل مرة)
+async function probeOpenRace(o){
+  const T = await openChat(o);
+  await T.p.evaluate(() => { const n = new Date().toISOString();
+    window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: 'cQ', wa_id: '201011112222', customer_phone: '01011112222', customer_name: 'سباق', last_message_at: n, updated_at: n }));
+    window.__TABLE_DELAY = (t, st) => (t === 'wa_conversations' && st.eqId === 'cQ') ? 1000 : 0; });
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js'); m.openConversation('cQ'); m.waRefreshConvos(); });
+  await T.p.waitForTimeout(1800);
+  const d = diff(a, await snap(T.p));
+  const name = await T.p.evaluate(() => document.getElementById('wa-chat-name').textContent);
+  await T.ctx.close(); return { d, name };
 }
 // 25ب) المحادثة اتفتحت قبل ما صفها يتلاقي (الجلب برقمها مالقاهاش) ووصلت بعدين في الدلتا = الهيدر اتملى
 async function probeOpenLate(o){
@@ -495,21 +580,27 @@ async function probeOpenUnknown(o){
   await T.ctx.close(); return r;
 }
 // 26) التاب مخفية ورسالة من محادثة مش في القايمة = الدلتا الصغيرة (عشان الإشعار وفتحه)
-async function probeHiddenUnknown(o){
-  const T = await open('/chats', o);
-  await T.p.evaluate(HIDE('true'));
+// إشعار المتصفح مزيّف: الإذن «granted» والعنوان بيتسجّل (الإشعار الحقيقي مابيظهرش في headless)
+const FAKE_NOTIF = `window.__NOTES = []; window.Notification = function(t, o){ window.__NOTES.push(t); this.close = function(){}; }; window.Notification.permission = 'granted';`;
+async function probeHiddenUnknown(o, v){
+  v = v || {};
+  const T = await open('/chats', Object.assign({ pre: FAKE_NOTIF }, o));
+  if(!v.visible) await T.p.evaluate(HIDE('true'));
   // التاب مخفية من 11 دقيقة (آخر كامل قديم) — الشكل اللي كانت الدلتا فيه بتقع على الكامل (230 KB)
   const t0 = await T.p.evaluate(() => Date.now());
   await T.ctx.clock.setFixedTime(new Date(t0 + 11 * 60000));
+  if(v.visible) await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).waFetchConvos(false));   // الظاهرة بيتعمل لها كامل مع الـpoll
+  await T.p.waitForTimeout(300);
   const a = await snap(T.p);
-  await T.p.evaluate(async () => { const n = new Date().toISOString();
+  await T.p.evaluate(async n0 => { const n = new Date().toISOString();
     window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: 'cY', wa_id: '201066667777', customer_name: 'جديد', last_message_at: n, updated_at: n }));
     const m = await import('/js/inbox/inbox.js');
-    m.handleWaRealtime({ eventType: 'INSERT', new: { id: 'my', conversation_id: 'cY', direction: 'in', type: 'text', body: 'سلام', created_at: n } }); });
+    for(let i = 0; i < n0; i++) m.handleWaRealtime({ eventType: 'INSERT', new: { id: 'my' + i, conversation_id: 'cY', direction: 'in', type: 'text', body: 'سلام', created_at: n } }); }, v.burst || 1);
   await T.p.waitForTimeout(900);
   const d = diff(a, await snap(T.p));
   const has = await T.p.evaluate(async () => !!(await import('/js/inbox/inbox.js')).waConvById('cY'));
-  await T.ctx.close(); return { d, has };
+  const notes = await T.p.evaluate(() => window.__NOTES);
+  await T.ctx.close(); return { d, has, notes };
 }
 // 27) جلب كامل للمحادثات في السكة ودلتا رسمت نسخة أحدث = الكامل مابيرجّعش القديم
 async function probeConvFlight(o){
@@ -668,7 +759,19 @@ console.log('\n── شارة الاستثناءات');
 console.log('\n── من المراجعة العدائية');
 {
   const r = await probeFlight();
-  ok(r.d.page === 1 && r.bd === 'تم التسليم', '18) الصفحة في السكة وحدث أحدث وصل = الصف من الحدث (مش الـsnapshot القديم) ومن غير جلب تاني — ' + JSON.stringify(r));
+  ok(r.d.page === 1 && r.bd === 'تم التسليم', '18) الصفحة في السكة وحدث أحدث وصل (وقت الريل-تايم «+00») = الصف من الحدث (مش الـsnapshot القديم) ومن غير جلب تاني — ' + JSON.stringify(r));
+}
+{
+  const r = await probeFlight(undefined, true);
+  ok(r.bd === 'تم التسليم', '18هـ) الحدث وصل بعد 16ث من بداية الجلب (نت بطيء) = اتحفظ برضه والصف من الحدث — ' + JSON.stringify(r));
+}
+{
+  const r = await probeStaleEvent();
+  ok(r.bd === 'تم التسليم', '18ج) حدث أقدم من الـsnapshot وصل والصفحة في السكة = الـsnapshot الأحدث كسب — ' + JSON.stringify(r));
+}
+{
+  const r = await probeSkeleton();
+  ok(!r.mid && r.end.indexOf('o3') >= 0 && r.end.indexOf('o1') < 0, '18د) الفلتر اتغيّر وحدث ختم على صف قديم = الـskeleton فاضل لحد ما الصفحة الجديدة تنزل — ' + JSON.stringify(r));
 }
 {
   const r = await probeOwnEcho();
@@ -677,6 +780,10 @@ console.log('\n── من المراجعة العدائية');
 {
   const r = await probeDetailOnly();
   ok(!r.inFil && r.d.merge >= 1 && r.d.stats >= 1, '19ب) أوردر مش في الصفحة اتفتح في التفاصيل واتعدّل محلي = الصدى اتقارن بنسخة السيرفر (الدمج والكروت) — ' + JSON.stringify(r));
+}
+{
+  const d = await probeDetailLate();
+  ok(d.merge === 0 && d.stats === 0, '19ج) التفاصيل نزلت بنسخة أقدم من حدث وصل قبلها = مادستش عليه — الصدى التاني «مفيش تغيير» — ' + JSON.stringify(d));
 }
 {
   const d = await probeLocalPatch();
@@ -717,7 +824,19 @@ console.log('\n── من المراجعة العدائية');
 }
 {
   const r = await probeHiddenUnknown();
-  ok(r.d.convDelta + r.d.convFull === 0 && r.d.convRow === 1 && r.has, '26) التاب مخفية من 11 دقيقة ورسالة من عميل جديد = صف المحادثة دي بس (مش القايمة) — ' + JSON.stringify(r));
+  ok(r.d.convDelta + r.d.convFull === 0 && r.d.convRow === 1 && r.has && r.notes.join('|') === '💬 رسالة من جديد', '26) التاب مخفية من 11 دقيقة ورسالة من عميل جديد = صف المحادثة دي بس (مش القايمة) والإشعار باسمه — ' + JSON.stringify(r));
+}
+{
+  const r = await probeHiddenUnknown(undefined, { visible: true });
+  ok(r.d.convRow === 0 && r.d.convDelta === 1 && r.has, '26ب) التاب ظاهرة ورسالة من عميل جديد = الدلتا بس (مفيش طلب تاني للصف) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeHiddenUnknown(undefined, { burst: 3 });
+  ok(r.d.convRow === 1 && r.notes.length === 3, '26ج) رشقة 3 رسايل من عميل جديد والتاب مخفية = طلب واحد للصف و3 إشعارات — ' + JSON.stringify(r));
+}
+{
+  const r = await probeOpenRace();
+  ok(r.d.waOrders === 1 && r.name === 'سباق', '25ج) القايمة جابت المحادثة قبل الجلب برقمها = الهيدر واللوحات مرة واحدة (أوردرات العميل مرة) — ' + JSON.stringify(r));
 }
 {
   const r = await probeConvFlight();
@@ -734,7 +853,11 @@ console.log('\n── من المراجعة العدائية');
 }
 {
   const r = await probeDoUpdate();
-  ok(r.s0 === '1' && r.s1 === '0' && r.d.merge >= 1 && r.d.jxDelta >= 1, '29ب) الموظف لغى أوردر في الصفحة ليه استثناء والصفحة نزلت قبل الصدى = الدمج والشارة (1 ← 0) اتحدّثوا — ' + JSON.stringify(r));
+  ok(r.s0 === '1' && r.s1 === '0' && r.d.merge === 1 && r.d.jxDelta >= 1, '29ب) الموظف لغى أوردر في الصفحة ليه استثناء والصفحة نزلت قبل الصدى = الدمج والشارة (1 ← 0) اتحدّثوا — ' + JSON.stringify(r));
+}
+{
+  const d = await probeDoUpdateFiltered();
+  ok(d.page === 1 && d.merge === 1, '29ج) فلتر شغّال والموظف غيّر الحالة والصدى وصل والصفحة في السكة = صفحة واحدة ودمج واحد (الصدى «مفيش تغيير») — ' + JSON.stringify(d));
 }
 {
   const r = await probeFlightPatch();
@@ -810,7 +933,7 @@ await cal('(ع) الحدث الأحدث مابيتطبّقش على الصفحة
   [P('orders/orders.js', '    if(flight) rtOverlayFlight(flight);\n', '')],
   probeFlight, r => r.bd !== 'تم التسليم');
 await cal('(عع) أي حدث وقت ما الصفحة في السكة = جلب تاني (إصلاح الجولة الأولى) → فحص 18ب كان هيقع',
-  [P('orders/orders.js', "  if(ev === 'UPDATE' && pageFlightRows && pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) pageFlightRows[row.id] = row;", '  if(pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) need.page = true;')],
+  [P('orders/orders.js', "  if(ev === 'UPDATE' && pageFlightRows) pageFlightRows[row.id] = row;", '  if(pageFlightRows) need.page = true;')],
   probeOwnEcho, r => r.d.page > 1);
 await cal('(فف) التفاصيل مابتسجّلش نسخة السيرفر → فحص 19ب كان هيقع',
   [P('orders/detail.js', "    try{ rtNoteServerRow(r.data); }catch(e){ swallow('openDetail/rtNoteServerRow', e); }\n", '')],
@@ -863,12 +986,43 @@ await cal('(ت) الدلتا مابتستناش الكامل اللي في ال�
 await cal('(ث) المحادثة المش معروفة مابتتجابش برقمها → فحص 25 كان هيقع',
   [P('inbox/inbox.js', '  if(!c && sb && currentTenantId){', '  if(false){')],
   probeOpenUnknown, r => r.name !== 'هالة الجديدة');
+const ROWCOND = '    if(inboxOpen && document.hidden && willNotify && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });';
 await cal('(خ) التاب المخفية مابتجيبش صف المحادثة الجديدة → فحص 26 كان هيقع',
-  [P('inbox/inbox.js', '    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });\n    else waNotify(m);', '    waNotify(m);')],
-  probeHiddenUnknown, r => !r.has);
+  [P('inbox/inbox.js', ROWCOND + '\n    else waNotify(m);', '    waNotify(m);')],
+  probeHiddenUnknown, r => !r.has || r.notes[0] !== '💬 رسالة من جديد');
 await cal('(خخ) التاب المخفية بتجيب القايمة (الدلتا ← الكامل بعد 10 دقايق) → فحص 26 كان هيقع',
-  [P('inbox/inbox.js', '    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });', '    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)){ waRefreshConvos(); waNotify(m); }')],
+  [P('inbox/inbox.js', ROWCOND, '    if(inboxOpen && document.hidden && willNotify && m.conversation_id && !waConvById(m.conversation_id)){ waRefreshConvos(); waNotify(m); }')],
   probeHiddenUnknown, r => r.d.convDelta + r.d.convFull > 0);
+await cal('(خ2) الصف بيتجاب في التاب الظاهرة كمان → فحص 26ب كان هيقع',
+  [P('inbox/inbox.js', 'if(inboxOpen && document.hidden && willNotify && m.conversation_id', 'if(inboxOpen && willNotify && m.conversation_id')],
+  o => probeHiddenUnknown(o, { visible: true }), r => r.d.convRow > 0);
+await cal('(خ3) مفيش منع تكرار للصف → فحص 26ج كان هيقع',
+  [P('inbox/inbox.js', '  if(waConvRowFlight[id]){ if(done) waConvRowFlight[id].push(done); return; }\n', '')],
+  o => probeHiddenUnknown(o, { burst: 3 }), r => r.d.convRow > 1);
+await cal('(خ4) فتح المحادثة بيعيد الهيدر واللوحات بعد ما القايمة سبقت → فحص 25ج كان هيقع',
+  [P('inbox/inbox.js', "      if(!row || waActiveId!==id || waHdrPendingId!==id) return;", "      if(!row || waActiveId!==id) return;")],
+  probeOpenRace, r => r.d.waOrders > 1);
+await cal('(ع2) الـsnapshot بيكسب دايماً (المقارنة اتشالت) → فحص 18 كان هيقع',
+  [P('orders/orders.js', '    if(!isNaN(ts) && (isNaN(te) || te <= ts)) continue;', '    if(!isNaN(ts)) continue;')],
+  probeFlight, r => r.bd !== 'تم التسليم');
+await cal('(ع3) المقارنة بالمقلوب (الأقدم بيكسب) → فحص 18ج كان هيقع',
+  [P('orders/orders.js', '    if(!isNaN(ts) && (isNaN(te) || te <= ts)) continue;', '    if(!isNaN(ts) && (isNaN(te) || te >= ts)) continue;')],
+  probeStaleEvent, r => r.bd !== 'تم التسليم');
+await cal('(ع4) rtTime = Date.parse لوحده (الوقت «+00» من الريل-تايم بيبقى NaN) → فحص 18 كان هيقع',
+  [P('orders/orders.js', "  return Date.parse(String(v).trim().replace(' ', 'T').replace(/([+-]\\d{2})$/, '$1:00'));", '  return Date.parse(v);')],
+  probeFlight, r => r.bd !== 'تم التسليم');
+await cal('(ع5) الـbuffer بحد 15ث تاني → فحص 18هـ كان هيقع',
+  [P('orders/orders.js', "  if(ev === 'UPDATE' && pageFlightRows) pageFlightRows[row.id] = row;", "  if(ev === 'UPDATE' && pageFlightRows && Date.now() - pageFlightAt < 15000) pageFlightRows[row.id] = row;")],
+  o => probeFlight(o, true), r => r.bd !== 'تم التسليم');
+await cal('(ع6) الرسم وقت ما الصفحة في السكة → فحص 18د كان هيقع',
+  [P('orders/orders.js', '    if(render && !fetched && !pageInFlight()){', '    if(render && !fetched){')],
+  probeSkeleton, r => r.mid);
+await cal('(ف2) نسخة أقدم بتدوس على الأحدث في rtSeen → فحص 19ج كان هيقع',
+  [P('orders/orders.js', '  if(!isNaN(to) && !isNaN(tn) && tn < to) return;\n', '')],
+  probeDetailLate, d => d.merge > 0);
+await cal('(طط2) doUpdate مابيحدّثش نسخة السيرفر → فحص 29ج كان هيقع (صفحة/دمج مرتين)',
+  [P('orders/mutations.js', '    rtNoteLocalCommit(id, { status: ns });\n', '')],
+  probeDoUpdateFiltered, d => d.page > 1 || d.merge > 1);
 // الحمايتين (الأحدث بيكسب + دلتا بعد الكامل) بيغطّوا الصف المتعدّل مع بعض — كل معايرة بتشيل الاتنين للحالة اللي بتختبرها
 await cal('(ذ) الكامل بيكتب فوق الأحدث (من غير الحمايتين) → فحص 27 كان هيقع',
   [P('inbox/inbox.js', '      for(var di=0;di<data.length;di++){ var o=cur[data[di].id]; if(o && !waConvNewer(data[di], o)) data[di]=o; }\n', ''),

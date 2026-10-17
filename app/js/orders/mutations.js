@@ -10,7 +10,7 @@ import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './
 import { jxNoteOrderChange } from '../exceptions/exceptions.js';
 import { renderDetail } from './detail.js';
 import { ensureTenant } from './guards.js';
-import { doFilter } from './orders.js';
+import { doFilter, rtNoteLocalCommit } from './orders.js';
 import { all, allLoaded, fil, ordersSetSelected, sel, selectedIds } from './state.js';
 import { updateBulkBar } from './table.js';
 
@@ -101,6 +101,7 @@ export function doUpdate(ns,cancelReason){
     for(var i=0;i<all.length;i++){if(all[i].id===id){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(ns==='cancelled'&&cancelReason)all[i].cancel_reason=cancelReason;break;}}
     if(sel===ord){ $id('ovl').classList.remove('open'); ordersSetSelected(null); }
     toast('تم تحديث الحالة ✓','ok');
+    rtNoteLocalCommit(id, { status: ns });
     // v82: الصفحة اللي doFilter بيجيبها ممكن تنزل قبل صدى الحدث فتتسجّل نسخة السيرفر بالحالة الجديدة والصدى يبان «مفيش تغيير»
     // — فالدمج ونتيجة الاستثناء بيتحدّثوا من هنا مش من الصدى
     loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();
@@ -131,7 +132,10 @@ export function doBulkUpdate(ns){
     sb.rpc('set_order_status',{p_order_id:oid, p_status:ns, p_by:byLabel, p_cancel_reason:bulkReason}).then(function(r){
       done++;
       if(r.error || !r.data){errors++;}
-      else if(allLoaded){ for(var i=0;i<all.length;i++){if(all[i].id===oid){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(bulkReason)all[i].cancel_reason=bulkReason;break;}} }
+      else{
+        rtNoteLocalCommit(oid, { status: ns });
+        if(allLoaded){ for(var i=0;i<all.length;i++){if(all[i].id===oid){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(bulkReason)all[i].cancel_reason=bulkReason;break;}} }
+      }
       if(done===n){
         selectedIds.clear();updateBulkBar();
         if(errors)toast('تم تحديث '+(n-errors)+' من '+count+' (فيه '+errors+' خطأ)','er');

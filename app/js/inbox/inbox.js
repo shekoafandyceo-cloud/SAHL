@@ -764,7 +764,9 @@ export function openConversation(id){
   waHdrPendingId = c ? null : id;
   if(!c && sb && currentTenantId){
     waFetchConvRow(id, function(row){
-      if(!row || waActiveId!==id) return;   // ماوصلش (نت · لسه مااتعملش) = أول ما الصف يوصل أي قايمة renderConvos بيكمّل
+      // ماوصلش (نت · لسه مااتعملش) = أول ما الصف يوصل أي قايمة renderConvos بيكمّل · ولو renderConvos سبق (قايمة جابته) = مانعيدش
+      // (كان بيعيد تحميل الأوردرات ويقفل خانة الملاحظة اللي الموظف بيكتب فيها)
+      if(!row || waActiveId!==id || waHdrPendingId!==id) return;
       waHdrPendingId=null;
       var cr=waConvById(id) || row;
       waFillChatHeader(cr); waUpdateCtwa(cr); waUpdateWindow(cr); waLoadConvMeta(cr); waLoadOrders(cr);
@@ -1439,18 +1441,25 @@ export function handleWaRealtime(payload){
   if(!isUpdate && m.direction==='in'){
     // 🔴 رسالة من محادثة مش في القايمة (عميل جديد) والصندوق مفتوح: صف المحادثة دي بس (~1 KB) والإشعار بعده عشان يقول اسمها.
     // مش waRefreshConvos — في التاب المخفية آخر كامل بيبقى أقدم من 10 دقايق فكان بيجيب الـ200 كلهم (~230 KB) مع كل عميل جديد
-    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });
+    // التاب الظاهرة: الدلتا المجدولة فوق بتجيبه أصلاً — الصف لوحده للمخفية بس ولما الإشعار هيظهر فعلاً (إذن المتصفح)
+    var willNotify = ('Notification' in window) && Notification.permission==='granted';
+    if(inboxOpen && document.hidden && willNotify && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });
     else waNotify(m);
   }
 }
 // صف محادثة واحدة برقمها — بيدخل waSearchExtra (منفصلة · بتتفلتر بالبحث) لو لسه مش في أي قايمة
+// رشقة (رسالة + صورتين من عميل جديد) = طلب واحد — الطلبات اللي جت وهو في السكة بتستنى نفس الرد
+var waConvRowFlight={};
 function waFetchConvRow(id, done){
   if(!sb || !currentTenantId){ if(done) done(null); return; }
+  if(waConvRowFlight[id]){ if(done) waConvRowFlight[id].push(done); return; }
+  waConvRowFlight[id]=done ? [done] : [];
+  function finish(row){ var cbs=waConvRowFlight[id]||[]; delete waConvRowFlight[id]; for(var i=0;i<cbs.length;i++){ try{ cbs[i](row); }catch(e){ swallow('waFetchConvRow/cb', e); } } }
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('id',id).limit(1).then(function(r){
     var row=(!r.error && r.data && r.data[0]) || null;
     if(row && !waConvById(row.id)) waSearchExtra.push(row);
-    if(done) done(row);
-  }, function(e){ swallow('waFetchConvRow', e); if(done) done(null); });
+    finish(row);
+  }, function(e){ swallow('waFetchConvRow', e); finish(null); });
 }
 
 export function waEnsureNotifyPermission(){

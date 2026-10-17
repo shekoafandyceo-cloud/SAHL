@@ -380,7 +380,8 @@ function scheduleRealtimeRefresh(){
         else refreshCancelBar();                          // fetchOrdersPage بتعمله لوحدها
       } else ordersStale = true;
     }
-    if(render && !fetched){
+    // صفحة في السكة = الـskeleton فاضل لحد ما تنزل (هي بترسم والحدث بيتطبّق عليها) — الرسم هنا كان بيرجّع الصفحة/الفلتر القديم فوقه
+    if(render && !fetched && !pageInFlight()){
       try{ renderTable(); }catch(e){ swallow('scheduleRealtimeRefresh/renderTable', e); }
       try{ updateUnprintedBtn(); }catch(e){ swallow('scheduleRealtimeRefresh/updateUnprintedBtn', e); }   // awb_print_count اتغيّر من تاب تانية
     }
@@ -421,6 +422,13 @@ function rtOverlayFlight(flight){
 // نسخة السيرفر من نافذة التفاصيل (select('*')) — أوردر مش في الصفحة اتفتح من تاب الاستثناءات واتعدّل محلي، فصدى الحدث لازم
 // يتقارن بالنسخة اللي قبل التعديل مش بـsel المعدّل
 export function rtNoteServerRow(row){ rtRemember(row); }
+// تعديل الموظف نفسه اتكتب على السيرفر (الـRPC رجع) — نسخة السيرفر بتاخد القيم الجديدة (من غير updated_at) فصدى الحدث يبان «مفيش تغيير»
+// والتحديث الوحيد يبقى اللي الموظف عمله بنفسه (الكروت · الدمج · الصفحة) — كان الصدى بيعيدهم كلهم (ومع فلتر = الصفحة مرتين)
+export function rtNoteLocalCommit(id, patch){
+  var e = id && rtSeen.get(id);
+  if(!e || !patch) return;
+  for(var k in patch){ if(Object.prototype.hasOwnProperty.call(patch, k) && k !== 'updated_at') e[k] = patch[k]; }
+}
 function rtRemember(row){
   if(!row || !row.id) return;
   // نسخة أقدم من اللي معانا (جلب صفحة طلع قبل حدث وصل) مابتدوسش عليها
@@ -525,7 +533,7 @@ export function handleRealtimeChange(payload){
       });
     }
     phs = phs.filter(function(x){ return !!x; });
-    if(phs.length) fetchPhoneCounts(phs, function(){ try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/phoneCounts', e); } });
+    if(phs.length) fetchPhoneCounts(phs, function(){ if(pageInFlight()) return; try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/phoneCounts', e); } });
     // 🔴 REPLICA IDENTITY على `orders` = default، يعني `payload.old` فيه
     // المفتاح بس — الحالة القديمة بتتقرا من الصف اللي في الذاكرة مش من
     // الحدث. لو الصف مش معروض، مفيش مقارنة ومفيش toast (وده صح: الجدول
@@ -544,7 +552,7 @@ export function handleRealtimeChange(payload){
       if(byName !== (currentUser && currentUser.name) && !whOpen){
         rtStatusChanges.push({ uid: row.order_uid || (row.id || '').slice(0,8), to: statusLabel(row.status), wh: wh });
       }
-      try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/renderTable', e); }
+      if(!pageInFlight()){ try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/renderTable', e); } }
     }
     if(sel && sel.id === row.id){
       // `sel` جاي من `select('*')` والحدث كمان بيحمل كل الأعمدة — بس الدمج
@@ -570,7 +578,7 @@ export function handleRealtimeChange(payload){
     if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
     rtSeen.delete(oldRow.id);
   }
-  if(ev === 'UPDATE' && pageFlightRows && pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) pageFlightRows[row.id] = row;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
+  if(ev === 'UPDATE' && pageFlightRows) pageFlightRows[row.id] = row;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
   if(need.light) rtNeedLight = true;
   if(need.page) rtNeedPage = true;
   if(need.render) rtNeedRender = true;
@@ -733,7 +741,9 @@ var fetchGen = 0;
 // 🔴 ومش جلب تاني على طول (المراجعة التانية): صدى تعديل الموظف نفسه بيوصل والصفحة اللي doFilter طلبها في السكة، والـsnapshot
 // بتاعها **بعد** الـcommit — فالجلب التاني كان على الفاضي. الحدث بيتحفظ (pageFlightRows) ولما الصفحة تنزل بيتقارن بـupdated_at:
 // أحدث من الـsnapshot = الصف من الحدث · غير كده = ولا حاجة. خروج/دخول الفلتر اتحكم عليه وقت الحدث (rtNeeds) زي أي حدث.
-var pageFlightAt = 0, pageFlightRows = null, PAGE_FLIGHT_MS = 15000;
+// الـbuffer طول ما الجلب لسه مارجعش (من غير حد زمني — المقارنة بالوقت هي الحارس) · pageFlightAt للرسم بس (جلب علّق = الرسم يرجع بعد 30ث)
+var pageFlightAt = 0, pageFlightRows = null, PAGE_FLIGHT_RENDER_MS = 30000;
+function pageInFlight(){ return !!(pageFlightRows && pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_RENDER_MS); }
 
 export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()

@@ -23,7 +23,7 @@ import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './
 import { detailAbort, renderDetail } from './detail.js';
 import { all, fil, ordersSetSelected, sel } from './state.js';
 import { renderTable } from './table.js';
-import { doFilter } from './orders.js';
+import { doFilter, rtNoteLocalCommit } from './orders.js';
 import { printJtAwb } from './jt-awb.js';
 import { productsEditorDirty } from './products-editor.js';
 import { cleanShipNote, composeRemark, NOTE_PREFIX, REMARK_MAX } from './jt-remark.js';
@@ -167,6 +167,8 @@ function findRow(id){
 // نجاح (يدوي أو J&T): تحديث الذاكرة المحلية + الجدول + النافذة
 function applyShipped(orderId, status, tracking){
   delete shipFail[orderId];
+  var cp = {}; if(status) cp.status = status; if(tracking) cp.tracking_no = tracking;
+  rtNoteLocalCommit(orderId, cp);
   var row = findRow(orderId);
   if(row){
     row.status = status || row.status;
@@ -178,7 +180,7 @@ function applyShipped(orderId, status, tracking){
     if(tracking) sel.tracking_no = tracking;
     renderDetail();
   }
-  // الدمج كمان (v82): صدى الشحن بيتقارن بالصف اللي اتعدّل هنا فبيبان «مفيش تغيير» — والشحن بيشيل الأوردر من «جاهز للشحن»
+  // الدمج كمان (v82): نسخة السيرفر اتحدّثت فوق فصدى الشحن بيبان «مفيش تغيير» — والشحن بيشيل الأوردر من «جاهز للشحن»
   loadOrdersCards(); loadBostaInventoryCard(); loadMergeCandidates(); doFilter();
 }
 
