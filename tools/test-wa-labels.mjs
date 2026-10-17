@@ -429,7 +429,12 @@ console.log('──── المعايرات ────');
     routeInbox: async r => {
       const res = await r.fetch();
       let body = await res.text();
+      const before = body;
       body = body.replace(/for\(var m=0;m<waLabelExtra\.length;m\+\+\)\{[^\n]*\n/, '');
+      // v82: فتح محادثة مش في أي قايمة بقى بيجيبها برقمها — حماية تانية للهيدر، فالمعايرة بتشيل الاتنين (والمرساة لازم تتلاقي)
+      const FALLBACK = '  if(!c && sb && currentTenantId){';
+      if(body === before || body.indexOf(FALLBACK) < 0) throw new Error('المعايرة مالقتش المرساة');
+      body = body.replace(FALLBACK, '  if(false){');
       await r.fulfill({ response: res, body });
     }
   });

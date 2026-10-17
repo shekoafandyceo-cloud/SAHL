@@ -160,7 +160,14 @@ console.log('──── المعايرات ────');
   await p.close();
 }
 {
-  const p = await openInbox({ patch: s => s.replace("  for(var n=0;n<waSearchExtra.length;n++){ if(waSearchExtra[n].id===id) return waSearchExtra[n]; }\n", '') });
+  // v82: فتح محادثة مش في أي قايمة بقى بيجيبها برقمها (openConversation) — حماية تانية للهيدر، فالمعايرة بتشيل الاتنين
+  // عشان تثبت إن الفحص لسه بيمسك waConvById من غير waSearchExtra (كل حقنة لازم تلاقي مرساتها — درس 47)
+  const FALLBACK = '  if(!c && sb && currentTenantId){';
+  const p = await openInbox({ patch: s => {
+    const a = s.replace("  for(var n=0;n<waSearchExtra.length;n++){ if(waSearchExtra[n].id===id) return waSearchExtra[n]; }\n", '');
+    if(a === s || a.indexOf(FALLBACK) < 0) throw new Error('المعايرة مالقتش المرساة');
+    return a.replace(FALLBACK, '  if(false){');
+  } });
   await search(p, '01551234614');
   await p.click('.wa-conv[data-id="c240"]');
   await p.waitForTimeout(400);
