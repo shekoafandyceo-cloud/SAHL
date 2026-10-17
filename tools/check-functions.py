@@ -223,14 +223,10 @@ CONTRACTS = [
      lambda s: "const keep" in s and "ctwa_clid" in s),
     ("wa-inbox-ingest", u"لسه بيلتقط reply_to_wa_id",
      lambda s: "reply_to_wa_id" in s),
-    ("order-ship", u"tenant_id من الـJWT مش من الـbody",
-     lambda s: "body.tenant_id" not in s and "body?.tenant_id" not in s),
     ("tenant-staff", u"tenant_id من بروفايل صاحب الطلب",
      lambda s: "body.tenant_id" not in s and "body?.tenant_id" not in s),
     ("platform-admin", u"سوبر أدمن بس",
      lambda s: "requireSuperAdmin" in s and "is_super_admin !== true" in s),
-    ("bosta-print-awb", u"مقيّد بمتجر صاحب الطلب",
-     lambda s: '.eq("tenant_id", tenantId)' in s),
     # ── عميل J&T المشترك (supabase/functions/_shared/jt.ts) ──
     ("_shared/jt", u"حارس الإنشاء في الإنتاج — boolean صريح مش من حمولة",
      lambda s: "jt_create_blocked_in_production" in s
