@@ -1057,6 +1057,17 @@
     }
     if(String(name).indexOf('wh_') === 0){ var whr = whRpc(name, args || {}); if(whr) return Promise.resolve({ data: whr, error:null }); }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
+    // تنبيه الدمج (v82): أوردرات «جاهز للشحن» اللي تليفونها متكرر بس — نفس تطبيع normalizePhone (زي الـSQL)
+    if(name === 'merge_candidates_v1'){
+      var MS = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'], AR = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
+      var np = function(p){ return String(p || '').replace(/[٠-٩۰-۹]/g, function(d){ return String(AR.indexOf(d) % 10); })
+        .replace(/\D/g, '').replace(/^20/, '').replace(/^0+/, ''); };
+      var mc = {}, mrows = TABLES.orders.filter(function(o){ return MS.indexOf(o.status) >= 0 && np(o.phone); });
+      mrows.forEach(function(o){ mc[np(o.phone)] = (mc[np(o.phone)] || 0) + 1; });
+      return Promise.resolve({ data: mrows.filter(function(o){ return mc[np(o.phone)] >= 2; }).map(function(o){
+        return { order_uid:o.order_uid, tracking_no:o.tracking_no, customer_name:o.customer_name, city:o.city, phone:o.phone, total_cost:o.total_cost, status:o.status };
+      }), error:null });
+    }
     if(name === 'jt_sync_health') return Promise.resolve({ data:{ enabled:false, ofd:{ mode:'off' } }, error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.

@@ -178,10 +178,20 @@
         var ecol = st.not.col;
         rows = rows.filter(function(c){ return Array.isArray(c[ecol]) && c[ecol].length > 0; });
       }
-      if(st.order === 'last_message_at'){
-        var asc = !!(st.orderOpts && st.orderOpts.ascending);
+      // 🔴 v82: الجلب التدريجي (`.gt('updated_at', x)` + order updated_at) بيتطبّق فعلاً — من غيره الدلتا بترجّع **كل**
+      // المحادثات والفحص «جاب اللي اتغيّر بس» بيعدّي أعمى (درس 33). الفيكستشر القديم مالوش updated_at فمابيوصلش هنا أصلاً.
+      (st.f || []).forEach(function(f){
+        if(f.col !== 'updated_at') return;
+        rows = rows.filter(function(c){
+          if(c.updated_at == null) return false;
+          var a = Date.parse(c.updated_at), b = Date.parse(f.val);
+          return f.op === 'gt' ? a > b : (f.op === 'gte' ? a >= b : true);
+        });
+      });
+      if(st.order === 'last_message_at' || st.order === 'updated_at'){
+        var asc = !!(st.orderOpts && st.orderOpts.ascending), ocol0 = st.order;
         rows.sort(function(a,b){
-          var r = String(a.last_message_at||'').localeCompare(String(b.last_message_at||''));
+          var r = String(a[ocol0]||'').localeCompare(String(b[ocol0]||''));
           return asc ? r : -r;
         });
       }
@@ -218,6 +228,15 @@
       (st.f || []).forEach(function(f){
         if(f.op === 'in' && f.col === 'wa_message_id') rows = rows.filter(function(r){ return (f.val || []).map(String).indexOf(String(r.wa_message_id)) >= 0; });
       });
+      // v82: جلب الرسايل الجديدة بس (`.gte('created_at')`) — المحادثة والوقت والترتيب والحد بيتطبّقوا زي PostgREST.
+      // الجلب الكامل القديم مالوش gte فبيفضل بسلوكه القديم بالحرف (الاختبارات القديمة بتعتمد عليه)
+      var mg = (st.f || []).filter(function(f){ return f.op === 'gte' && f.col === 'created_at'; })[0];
+      if(mg){
+        (st.f || []).forEach(function(f){ if(f.op === 'eq' && f.col === 'conversation_id') rows = rows.filter(function(r){ return r.conversation_id === f.val; }); });
+        rows = rows.filter(function(r){ return r.created_at && Date.parse(r.created_at) >= Date.parse(mg.val); });
+        rows.sort(function(a,b){ var r = String(a.created_at).localeCompare(String(b.created_at)); return (st.orderOpts && st.orderOpts.ascending) ? r : -r; });
+        if(st.limit) rows = rows.slice(0, st.limit);
+      }
     }
     return rows;
   }
@@ -335,6 +354,19 @@
       // ⚠ الاسم __RPC_HOOK عمداً — الاختبارات القديمة بتستخدم __RPC كمصفوفة تسجيل
       if(typeof window.__RPC_HOOK === 'function'){ var hooked = window.__RPC_HOOK(name, args); if(hooked) return Promise.resolve(hooked); }
       if(name === 'sahl_orders_stats') return Promise.resolve({data: statsFor(args), error:null});
+      // تنبيه الدمج (v82): أوردرات «جاهز للشحن» اللي تليفونها متكرر بس — نفس الـSQL (التطبيع = normalizePhone).
+      // `__MERGE_RPC_MISSING` = السيرفر لسه مافيهوش الدالة (PGRST202) → الواجهة لازم ترجع للاستعلام القديم
+      if(name === 'merge_candidates_v1'){
+        if(window.__MERGE_RPC_MISSING) return Promise.resolve({data:null, error:{code:'PGRST202', message:'Could not find the function public.merge_candidates_v1(p_tenant) in the schema cache'}});
+        var MS = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'], AR = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
+        var np = function(p){ return String(p || '').replace(/[٠-٩۰-۹]/g, function(d){ return String(AR.indexOf(d) % 10); })
+          .replace(/\D/g, '').replace(/^20/, '').replace(/^0+/, ''); };
+        var mc = {}, mrows = (window.__ORDERS || []).filter(function(o){ return MS.indexOf(o.status) >= 0 && np(o.phone); });
+        mrows.forEach(function(o){ mc[np(o.phone)] = (mc[np(o.phone)] || 0) + 1; });
+        return Promise.resolve({data: mrows.filter(function(o){ return mc[np(o.phone)] >= 2; }).map(function(o){
+          return { order_uid:o.order_uid, tracking_no:o.tracking_no, customer_name:o.customer_name, city:o.city, phone:o.phone, total_cost:o.total_cost, status:o.status };
+        }), error:null});
+      }
       if(name === 'wa_inbox_status')   return Promise.resolve({data:{verified:false}, error:null});
       return Promise.resolve({data:null, error:null});
     },

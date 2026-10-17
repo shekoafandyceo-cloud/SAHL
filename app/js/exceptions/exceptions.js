@@ -1093,9 +1093,38 @@ export function jtRefreshNavBadge(){
       for(var i = 0; i < rows.length; i++) jxPrep(rows[i]);
       jxSeeRows(rows);
       jxWatchReported(rows);
+      jxBadgeRows = {};
+      for(var j = 0; j < rows.length; j++) jxBadgeRows[rows[j].id] = rows[j];
       jxBadgeAll(rows, Date.now());
       jxEnsureRealtime();
     });
+}
+
+// 🔴 v82: الشارة والتاب لسه ماتفتحتش — حدث ريل-تايم بيجيب **بوالص الحدث بس** (كل صفوفها — زي jxFetchTrackings في التاب)
+// ويدمجها في صفوف الشارة اللي في الذاكرة، بدل ما يعيد الـ30 يوم كلهم (~260 صف) مع كل رشقة. التحميل الكامل للشارة:
+// الدخول · ↻ · رجوع الاتصال. نفس مسار التنبيه والصوت (jxSeeRows) ومتابعة البلاغات (jxWatchReported) بالظبط.
+var jxBadgeRows = null;   // id → صف خفيف (JX_BADGE_COLS) — null = لسه ماتحمّلتش
+function jxBadgeFetch(list){
+  if(!sb || !currentTenantId) return;
+  jxLoadSoundPref();   // زي jtRefreshNavBadge: إعداد الفريق بيتقري تاني لو أقدم من 5 دقايق قبل أي رنّة
+  for(var i = 0; i < list.length; i += 80){
+    sb.from('v_jt_issues').select(JX_BADGE_COLS)
+      .eq('tenant_id', currentTenantId)
+      .in('tracking_no', list.slice(i, i + 80))
+      .limit(JX_LIMIT)
+      .then(function(r){
+        if(jxLoadedAt || !jxBadgeRows) return;   // التاب اتفتح في النص — التحميل الكامل هو اللي بيحسب
+        if(r.error || !r.data) return;
+        var rows = r.data;
+        for(var a = 0; a < rows.length; a++) jxPrep(rows[a]);
+        jxSeeRows(rows);
+        jxWatchReported(rows);
+        for(var b = 0; b < rows.length; b++) jxBadgeRows[rows[b].id] = rows[b];
+        var allRows = [];
+        for(var k in jxBadgeRows){ if(Object.prototype.hasOwnProperty.call(jxBadgeRows, k)) allRows.push(jxBadgeRows[k]); }
+        jxBadgeAll(allRows, Date.now());
+      }, function(e){ swallow('exceptions/badge-delta', e); });
+  }
 }
 
 // ── الريل-تايم ───────────────────────────────────────────────────────
@@ -1137,6 +1166,7 @@ export function jxHandleRealtime(payload){
     var list = Object.keys(jxRtQueue);
     jxRtQueue = {};
     if(jxLoadedAt) jxFetchTrackings(list);
+    else if(jxBadgeRows && list.length) jxBadgeFetch(list);
     else jtRefreshNavBadge();
   }, 600);
 }

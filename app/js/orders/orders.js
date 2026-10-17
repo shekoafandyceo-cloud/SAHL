@@ -183,8 +183,15 @@ function ordersShown(){ var p=$id('page-orders'); return !!(p && p.style.display
 export function refreshOrdersIfStale(){
   if(!ordersStale || tourActive || !ordersShown()) return;
   ordersStale = false;
-  loadOrdersCards(); loadMergeCandidates(); loadBostaInventoryCard();
+  refreshOrdersLight();
   if(fil.length) fetchOrdersPage(); else doFilter();   // fetchOrdersPage بيحافظ على الصفحة اللي الموظف واقف عليها
+}
+
+// الكروت (sahl_orders_stats) + تنبيه الدمج + كارت البضاعة — «الخفيف» (بضع KB) من غير صفحة الجدول (~320 KB لـ200 صف)
+var rtLastLightAt = 0;
+function refreshOrdersLight(){
+  rtLastLightAt = Date.now();
+  loadOrdersCards(); loadMergeCandidates(); loadBostaInventoryCard();
 }
 
 export function loadAll(){
@@ -202,9 +209,8 @@ export function loadAll(){
   if(myCommissionEnabled()){ refreshMyCommissionNav(); loadMyCommission(); }
   if(ordersShown()){
     ordersStale = false;
-    loadOrdersCards();         // s0..s7 + الإيرادات + عدّاد المدة من RPC
-    loadMergeCandidates();     // تنبيه الدمج من كويري مخصّص
-    loadBostaInventoryCard();  // كارت بضاعة بوسطة من كويري مخصّص (بيحمّل المخزون عند اللزوم)
+    // الكروت (s0..s7 + الإيرادات + عدّاد المدة من RPC) · تنبيه الدمج (merge_candidates_v1) · كارت البضاعة
+    refreshOrdersLight();
     doFilter();                // الجدول: صفحة واحدة من السيرفر
   } else ordersStale = true;   // بتتجاب أول ما صفحة الأوردرات تبان
   startRealtime();
@@ -312,7 +318,7 @@ export function startRealtime(){
         // على حالات قديمة والنقطة خضرا، وده أسوأ من نقطة حمرا.
         var wasOff = rtEverOff;
         showRealtimeDot(true);
-        if(wasOff){ rtEverOff = false; scheduleRealtimeRefresh(); loadWalletState(); }   // tenants مالهاش replay — المحفظة بتتقرا تاني بعد القطع
+        if(wasOff){ rtEverOff = false; rtNeedLight = true; rtNeedPage = true; scheduleRealtimeRefresh(); loadWalletState(); }   // tenants مالهاش replay — المحفظة بتتقرا تاني بعد القطع
       } else if(status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
         rtEverOff = true;
         showRealtimeDot(false);
@@ -328,6 +334,17 @@ var rtTimer = null, rtInserts = 0, rtFirstAt = 0;
 // تغييرات الحالة اللي وصلت من الريل-تايم في الرشقة الحالية — بتتجمّع في
 // toast واحد زي الأوردرات الجديدة بالظبط. الشكل: [{uid, to}]
 var rtStatusChanges = [];
+// 🔴 v82 — احتياجات الرشقة: كل حدث بيتصنّف (rtNeeds) وبيقول محتاج إيه، والتنفيذ مرة واحدة في آخر الرشقة.
+// قبل كده **كل** حدث على orders — حتى ختم وقت من مزامنة J&T أو نسبة الاستلام — كان بيجيب صفحة الجدول كاملة
+// (200 صف ≈ 320 KB) + الدمج (768 صف) + الكروت في كل تاب أوردرات ظاهرة: ~نص الـEgress الشهري (قياس 17 أكتوبر —
+// الـgrace period بتاع Supabase بيخلص 8 نوفمبر). الصف المعروض بيتحدّث من الحدث نفسه (fil[k]=row) فمش محتاج جلب.
+//   light  = الكروت + الدمج + البضاعة + شريط الإلغاء (بضع KB) — لما الحدث غيّر حاجة بيقروها
+//   page   = صفحة الجدول من السيرفر — أوردر جديد/اتمسح، أو تغيير بيخرّج/يدخّل صف في الفلتر النشط
+//   render = صف في الصفحة اتحدّث من الحدث ومحتاج يترسم
+var rtNeedLight = false, rtNeedPage = false, rtNeedRender = false;
+// شبكة أمان: حدث اتصنّف «مالوش أثر» غلط (نادر — عمود مش في النسخة اللي في الذاكرة) = الكروت (الرخيصة) بتتجاب
+// على الأكثر كل 5 دقايق مع أي حدث، فأي فرق مايعيشش أكتر من كده.
+var RT_LIGHT_SAFETY_MS = 5 * 60 * 1000;
 function scheduleRealtimeRefresh(){
   // debounce بحد أقصى: رشقة مستمرة بفواصل أقل من 800ms كانت بتأجّل
   // التحديث لما الرشقة تخلص خالص — دلوقتي بنفضفض على الأكثر كل ~3 ثواني
@@ -352,13 +369,90 @@ function scheduleRealtimeRefresh(){
         : ('📦 ' + w.length + ' طرد اتضرب في سكانر المخزن'), 'ok');
       rtStatusChanges = [];
     }
-    if(ordersShown()){
-      loadOrdersCards();
-      loadMergeCandidates();
-      loadBostaInventoryCard();
-      fetchOrdersPage();   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
-    } else ordersStale = true;
+    var light = rtNeedLight, page = rtNeedPage, render = rtNeedRender;
+    rtNeedLight = false; rtNeedPage = false; rtNeedRender = false;
+    if(!light && Date.now() - rtLastLightAt > RT_LIGHT_SAFETY_MS) light = true;
+    var fetched = false;
+    if(light || page){
+      if(ordersShown()){
+        if(light) refreshOrdersLight();
+        if(page){ fetchOrdersPage(); fetched = true; }   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
+        else refreshCancelBar();                          // fetchOrdersPage بتعمله لوحدها
+      } else ordersStale = true;
+    }
+    if(render && !fetched){
+      try{ renderTable(); }catch(e){ swallow('scheduleRealtimeRefresh/renderTable', e); }
+      try{ updateUnprintedBtn(); }catch(e){ swallow('scheduleRealtimeRefresh/updateUnprintedBtn', e); }   // awb_print_count اتغيّر من تاب تانية
+    }
   }, (_now - rtFirstAt >= 3000) ? 0 : 800);
+}
+
+// ── تصنيف الحدث (v82) ─────────────────────────────────────────────────────
+// الأعمدة اللي الكروت (sahl_orders_stats: status · total_cost · payment_stage · created_at) والدمج
+// (merge_candidates_v1: الحالة · التليفون · والأعمدة المعروضة) والبضاعة (loadBostaInventoryCard) وشريط الإلغاء بيقروها.
+// ⚠️ أي كارت/تنبيه جديد بيقرا عمود تاني من orders لازم العمود يتضاف هنا — وإلا تغييره مش هيحدّث الكارت غير
+// مع شبكة الأمان (5 دقايق) أو ↻.
+var RT_LIGHT_COLS = ['status','total_cost','payment_stage','created_at','phone','customer_name','city','order_uid','tracking_no',
+  'product_name','inventory_cost_snapshot','inventory_value_snapshot','inventory_value_at_bosta','cancel_requested_at','cancel_resolved_at'];
+var RT_CANCEL_COLS = ['cancel_requested_at','cancel_resolved_at'];
+// ختم وقت بيتكتب بـnow() في **نفس الترانزاكشن** مع updated_at (تريجر orders_updated_at = now()) — UPDATE كل اللي فيه
+// الختم ده: مزامنة رسوم J&T (app.jt_apply_fee) · مبلغ التحصيل (app.jt_set_cod) · نسبة الاستلام (ship_rank_apply_v1) ·
+// customer_ranking_at (n8n القديم). ولا واحد منهم بيلمس عمود من RT_LIGHT_COLS.
+var RT_STAMP_COLS = ['jt_fee_synced_at','jt_cod_synced_at','ship_rank_at','customer_ranking_at'];
+// آخر نسخة شفناها من كل أوردر في الريل-تايم (الأعمدة اللي بنقارن بيها بس) — أوردر مش في الصفحة اتلمس مرتين
+// (رسوم J&T كل نص ساعة على نفس الأوردرات) = المرة التانية بتتقارن بدل ما تتحسب «مش معروف»
+var rtSeen = new Map(), RT_SEEN_MAX = 1500;
+function rtTrackCols(){ return RT_LIGHT_COLS.concat(ORDER_SEARCH_COLS, ['updated_at']); }
+function rtRemember(row){
+  if(!row || !row.id) return;
+  var o = {}, cols = rtTrackCols();
+  for(var i=0;i<cols.length;i++){ if(Object.prototype.hasOwnProperty.call(row, cols[i])) o[cols[i]] = row[cols[i]]; }
+  rtSeen.delete(row.id); rtSeen.set(row.id, o);
+  if(rtSeen.size > RT_SEEN_MAX) rtSeen.delete(rtSeen.keys().next().value);
+}
+// النسخة اللي في الذاكرة **قبل** الحدث: الصفحة ← نافذة التفاصيل ← آخر حدث ← مخزن الماليات
+function rtKnownRow(id){
+  if(!id) return null;
+  for(var i=0;i<fil.length;i++){ if(fil[i].id === id) return fil[i]; }
+  if(sel && sel.id === id) return sel;
+  var s = rtSeen.get(id); if(s) return s;
+  if(allLoaded){ for(var j=0;j<all.length;j++){ if(all[j].id === id) return all[j]; } }
+  return null;
+}
+function rtActiveFilters(){
+  function g(id){ var el = $id(id); return el ? String(el.value || '').trim() : ''; }
+  var f = { st: g('fst'), pl: g('fpl'), py: g('fpy'), q: g('qinp') };
+  f.any = !!(f.st || f.pl || f.py || f.q);
+  return f;
+}
+// عمود ناقص من أي ناحية = مانقدرش نحكم عليه فبيتساب (شبكة الأمان بتغطّيه)
+function rtChanged(prev, row, cols){
+  for(var i=0;i<cols.length;i++){
+    var k = cols[i];
+    if(!Object.prototype.hasOwnProperty.call(prev, k) || !Object.prototype.hasOwnProperty.call(row, k)) continue;
+    if(!rtSameValue(prev[k], row[k])) return true;
+  }
+  return false;
+}
+export function rtStampOnly(row){
+  var u = row && row.updated_at;
+  if(!u) return false;
+  for(var i=0;i<RT_STAMP_COLS.length;i++){ var v = row[RT_STAMP_COLS[i]]; if(v && rtSameValue(v, u)) return true; }
+  return false;
+}
+export function rtNeeds(row, prev){
+  var f = rtActiveFilters();
+  if(!prev){
+    // أوردر مش في الذاكرة ومانعرفش اتغيّر فيه إيه: ختم وقت = ولا حاجة · غير كده = الخفيف (رخيص) + الصفحة لو فيه فلتر
+    if(rtStampOnly(row)) return { light: false, page: false };
+    return { light: true, page: f.any };
+  }
+  var page = false;
+  if(f.st) page = rtChanged(prev, row, f.st === '__cancelreq__' ? RT_CANCEL_COLS : ['status']);
+  if(!page && f.pl) page = rtChanged(prev, row, ['platform']);
+  if(!page && f.py) page = rtChanged(prev, row, ['payment_stage']);
+  if(!page && f.q) page = rtChanged(prev, row, ORDER_SEARCH_COLS);
+  return { light: rtChanged(prev, row, RT_LIGHT_COLS), page: page };
 }
 
 export function handleRealtimeChange(payload){
@@ -369,11 +463,16 @@ export function handleRealtimeChange(payload){
   var ev = payload.eventType;
   var row = payload.new || {};
   var oldRow = payload.old || {};
+  var need = { light: true, page: true, render: false };   // INSERT/DELETE (وأي نوع مش معروف) = كل حاجة زي الأول
 
   if(ev === 'INSERT'){
     if(allLoaded) all.unshift(row);
     rtInserts++;
+    rtRemember(row);
   } else if(ev === 'UPDATE'){
+    // التصنيف **قبل** ما أي نسخة في الذاكرة تتحدّث — هي اللي بنقارن بيها
+    need = rtNeeds(row, rtKnownRow(row.id));
+    rtRemember(row);
     if(allLoaded){
       for(var i=0;i<all.length;i++){ if(all[i].id === row.id){ all[i] = row; break; } }
     }
@@ -383,6 +482,7 @@ export function handleRealtimeChange(payload){
     // فتغيير الحالة من شركة الشحن كان بيستنى الرحلة دي.
     var prev = null;
     for(var k=0;k<fil.length;k++){ if(fil[k].id === row.id){ prev = fil[k]; fil[k] = row; break; } }
+    if(prev) need.render = true;   // الصف المعروض اتحدّث — بيترسم في آخر الرشقة لو مفيش جلب للصفحة
     // 🔴 REPLICA IDENTITY على `orders` = default، يعني `payload.old` فيه
     // المفتاح بس — الحالة القديمة بتتقرا من الصف اللي في الذاكرة مش من
     // الحدث. لو الصف مش معروض، مفيش مقارنة ومفيش toast (وده صح: الجدول
@@ -425,7 +525,11 @@ export function handleRealtimeChange(payload){
     }
   } else if(ev === 'DELETE'){
     if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
+    rtSeen.delete(oldRow.id);
   }
+  if(need.light) rtNeedLight = true;
+  if(need.page) rtNeedPage = true;
+  if(need.render) rtNeedRender = true;
 
   if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
   scheduleRealtimeRefresh();
@@ -524,6 +628,9 @@ export function ordersPeriodRangeISO(){
   return null;
 }
 
+// أعمدة البحث في جدول الأوردرات — مصدر واحد للاستعلام (fetchOrdersPage) ولتصنيف أحداث الريل-تايم (rtNeeds)
+export var ORDER_SEARCH_COLS = ['customer_name','phone','alt_phone','tracking_no','order_uid','city','address','product_name','campaign_name','platform'];
+
 // جلب صفحة واحدة من الأوردرات من Supabase بكل الفلاتر مطبّقة على مستوى الـ query.
 // شريط تنبيه طلبات الإلغاء — بيعدّ كل الأوردرات اللي العميل طلب إلغاءها
 export function refreshCancelBar(){
@@ -601,7 +708,7 @@ export function fetchOrdersPage(){
     var qs=q.replace(/[,()*\\%]/g,' ').trim();
     if(qs){
       var lk='*'+qs+'*';
-      query=query.or(['customer_name','phone','alt_phone','tracking_no','order_uid','city','address','product_name','campaign_name','platform'].map(function(c){return c+'.ilike.'+lk;}).join(','));
+      query=query.or(ORDER_SEARCH_COLS.map(function(c){return c+'.ilike.'+lk;}).join(','));
     }
   }
   var rng=ordersPeriodRangeISO();
