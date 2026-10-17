@@ -18,7 +18,7 @@ import { askCancelReason } from './cancel-reason.js';
 import { orderInventoryCost, orderInventoryCostSource } from './costs.js';
 import { isAdmin } from './guards.js';
 import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from './mutations.js';
-import { doFilter } from './orders.js';
+import { doFilter, rtNoteServerRow } from './orders.js';
 import { addEmptyProductRow, EX_LOCK_MSG, exchangeLocked, jtWaybillLocked, renderProductsEditor, saveProducts } from './products-editor.js';
 import { ofExchangeAllowed, openOrderForm } from './order-form.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
@@ -291,6 +291,7 @@ export function openDetail(id){
     if(walletStateCache && walletStateCache.is_depleted && !tourActive){ $id('ovl').classList.remove('open'); return; }
     if(r.error || !r.data){ toast('حصلت مشكلة في تحميل تفاصيل الطلب','er'); $id('ovl').classList.remove('open'); return; }
     ordersSetSelected(r.data);
+    try{ rtNoteServerRow(r.data); }catch(e){ swallow('openDetail/rtNoteServerRow', e); }
     loadDetailHistory(sel, function(){ if(detailReqId === id) renderDetail(); });
   });
 }

@@ -19,7 +19,7 @@ import { CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn, st
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { loadBostaInventoryCard, loadOrdersCards } from './cards.js';
+import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './cards.js';
 import { detailAbort, renderDetail } from './detail.js';
 import { all, fil, ordersSetSelected, sel } from './state.js';
 import { renderTable } from './table.js';
@@ -178,7 +178,8 @@ function applyShipped(orderId, status, tracking){
     if(tracking) sel.tracking_no = tracking;
     renderDetail();
   }
-  loadOrdersCards(); loadBostaInventoryCard(); doFilter();
+  // الدمج كمان (v82): صدى الشحن بيتقارن بالصف اللي اتعدّل هنا فبيبان «مفيش تغيير» — والشحن بيشيل الأوردر من «جاهز للشحن»
+  loadOrdersCards(); loadBostaInventoryCard(); loadMergeCandidates(); doFilter();
 }
 
 

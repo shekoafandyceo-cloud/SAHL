@@ -42,6 +42,8 @@ var WA_MSG_FULL_MS=5*60000, WA_MSG_DELTA_LIMIT=100;
 // جلب كامل في السكة: الدلتا بتستناه (بتتعمل بعده — snapshot قديم كان بيرجّع اللي اتجاب بعده) وحالات الحدث اللي وصلت
 // وهو في السكة بتتطبّق على نتيجته (الأعلى في الترتيب بيكسب). أكتر من 15ث = اعتبره ضاع (مفيش timeout في supabase-js)
 var waMsgFlight=null, WA_MSG_FLIGHT_MS=15000;
+// اللي حدث UPDATE بيغيّره في رسالة معروضة: الحالة · اتقرت · الميديا (بتتنزل بعد الإدخال) · النص — مش المفاتيح ولا وقت الإنشاء
+var WA_MSG_PATCH_COLS=['wa_message_id','type','body','media_path','media_filename','is_read','status','sent_by_name','reply_to_wa_id'];
 // 🔴 أعمدة صريحة (v79 — كان '*' بالـreferral jsonb): أي عمود جديد الشات بيعرضه لازم يتضاف هنا (درس 33)
 var WA_MSG_COLS='id,tenant_id,conversation_id,wa_message_id,direction,type,body,media_path,media_filename,wa_timestamp,is_read,created_at,status,sent_by_name,reply_to_wa_id';
 
@@ -736,12 +738,15 @@ export function renderConvos(){
   // **عكس** اللي الموظف شايفه (يدوس عشان يضيف تصنيف فيتشال).
   // زرار بيعمل عكس اللي بيوعد بيه أسوأ من زرار مايعملش حاجة (درس 16).
   if(waActiveId){ var ac=waConvById(waActiveId); if(ac){
+    // المحادثة اتفتحت قبل ما صفها يوصل (الجلب برقمها وقع) — الهيدر واللوحات مرة واحدة أول ما يوصل
+    if(waHdrPendingId===waActiveId){ waHdrPendingId=null; waFillChatHeader(ac); waLoadConvMeta(ac); waLoadOrders(ac); }
     waUpdateWindow(ac); waUpdateCtwa(ac); waRenderConvLabels(ac);
     var lp=$id('wa-label-picker'); if(lp && lp.style.display!=='none') waRenderLabelPicker(ac);
   } }
 }
 
 // الهيدر من صف المحادثة — مفيش صف (لسه بيتجاب) = «…» مش اسم العميل اللي قبله
+var waHdrPendingId=null;
 function waFillChatHeader(c){
   $id('wa-chat-name').textContent=c ? (c.customer_name||c.customer_phone||c.wa_id) : '…';
   $id('wa-chat-phone').textContent=c ? (c.customer_phone||c.wa_id) : '';
@@ -756,12 +761,13 @@ export function openConversation(id){
   waFillChatHeader(c);
   // 🔴 محادثة مش في أي قايمة (إشعار لعميل جديد والقايمة لسه ماتحدّثتش — التاب كانت مخفية أو على صفحة تانية): بنجيبها
   // برقمها. من غيرها الهيدر كان بيفضل على العميل اللي قبلها ولوحة التصنيف والأوردرات مستخبية لحد ما الموظف يدوس الصف تاني
+  waHdrPendingId = c ? null : id;
   if(!c && sb && currentTenantId){
-    sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('id',id).limit(1).then(function(r){
-      var row=(!r.error && r.data && r.data[0]) || null;
-      if(!row || waActiveId!==id) return;
-      if(!waConvById(row.id)) waSearchExtra.push(row);
-      waFillChatHeader(row); waUpdateCtwa(row); waUpdateWindow(row); waLoadConvMeta(row); waLoadOrders(row);
+    waFetchConvRow(id, function(row){
+      if(!row || waActiveId!==id) return;   // ماوصلش (نت · لسه مااتعملش) = أول ما الصف يوصل أي قايمة renderConvos بيكمّل
+      waHdrPendingId=null;
+      var cr=waConvById(id) || row;
+      waFillChatHeader(cr); waUpdateCtwa(cr); waUpdateWindow(cr); waLoadConvMeta(cr); waLoadOrders(cr);
       renderConvos();
     });
   }
@@ -834,6 +840,8 @@ export function waFetchMessages(convId,scroll,isPoll){
 // نفس عقد waFetchMessages: isPoll + مفيش جديد = مفيش رسم · رسالة جديدة في الـpoll = علّمها مقروءة.
 export function waRefreshMessages(convId, isPoll){
   if(!sb || !convId) return;
+  // كامل للمحادثة دي في السكة (فتح محادثة · الكامل الدوري) = الدلتا بعده — كل حدث وقت الفتح (حتى waMarkRead بتاعنا) كان بيبدأ كامل تاني
+  if(waMsgFlight && waMsgFlight.conv===convId && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS){ waMsgFlight.delta=true; return; }
   var last=waLastMsgs||[];
   if(!last.length || last[0].conversation_id!==convId || !waMsgFullAt || Date.now()-waMsgFullAt>WA_MSG_FULL_MS){
     waFetchMessages(convId,false,isPoll); return;
@@ -841,7 +849,6 @@ export function waRefreshMessages(convId, isPoll){
   var maxT=0;
   for(var i=0;i<last.length;i++){ var t=Date.parse(last[i].created_at||''); if(t>maxT) maxT=t; }
   if(!maxT){ waFetchMessages(convId,false,isPoll); return; }
-  if(waMsgFlight && waMsgFlight.conv===convId && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS){ waMsgFlight.delta=true; return; }
   var fullGen=waMsgGen, myGen=++waMsgDeltaGen;
   sb.from('wa_messages').select(WA_MSG_COLS).eq('conversation_id',convId)
     .gte('created_at',new Date(maxT-60000).toISOString())
@@ -860,15 +867,17 @@ export function waRefreshMessages(convId, isPoll){
 // حدث UPDATE لرسالة في المحادثة المفتوحة (✓✓ · اتقرت · فشلت): الحالة من الحدث نفسه من غير جلب.
 // localOnly (التاب مخفية): مفيش جلب خالص — رسالة مش معروضة = الكامل لما التاب ترجع
 function waPatchMessage(row, localOnly){
-  if(waMsgFlight && waMsgFlight.conv===row.conversation_id && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS) waMsgFlight.patches[row.id]=row;
+  var inFlight=!!(waMsgFlight && waMsgFlight.conv===row.conversation_id && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS);
+  if(inFlight) waMsgFlight.patches[row.id]=row;
   var list=waLastMsgs||[], idx=-1;
   for(var i=0;i<list.length;i++){ if(list[i].id===row.id){ idx=i; break; } }
   if(idx<0){
+    if(inFlight) return;   // الكامل اللي في السكة هيجيبها والحالة بتتطبّق على نتيجته
     if(localOnly){ waMsgFullAt=0; return; }
     waRefreshMessages(waActiveId,false); return;   // مش معروضة (لسه مااتجابتش) — نجيب الجديد
   }
   var n=Object.assign({}, list[idx]);
-  WA_MSG_COLS.split(',').forEach(function(k){ if(Object.prototype.hasOwnProperty.call(row,k)) n[k]=row[k]; });
+  WA_MSG_PATCH_COLS.forEach(function(k){ if(Object.prototype.hasOwnProperty.call(row,k)) n[k]=row[k]; });
   if(!waMsgDiffers(list[idx], n)) return;
   var out=list.slice(); out[idx]=n;
   renderMessages(out,false);
@@ -888,7 +897,7 @@ function waApplyFlightPatches(data, patches){
     if(!p) continue;
     if((WA_STATUS_RANK[p.status]||0) <= (WA_STATUS_RANK[data[i].status]||0)) continue;
     var n=Object.assign({}, data[i]);
-    WA_MSG_COLS.split(',').forEach(function(k){ if(Object.prototype.hasOwnProperty.call(p,k)) n[k]=p[k]; });
+    WA_MSG_PATCH_COLS.forEach(function(k){ if(Object.prototype.hasOwnProperty.call(p,k)) n[k]=p[k]; });
     data[i]=n;
   }
 }
@@ -1417,8 +1426,6 @@ export function handleWaRealtime(payload){
       waPollMissed=true;
       // حالة رسالة في المحادثة المفتوحة = من الحدث نفسه من غير جلب (كانت بتضيع لحد ما الشات يتفتح تاني)
       if(isUpdate && m.id && m.conversation_id && m.conversation_id===waActiveId) waPatchMessage(m, true);
-      // محادثة مش في القايمة (عميل جديد) = الدلتا الصغيرة — الإشعار وفتحه محتاجين اسمها
-      if(!isUpdate && m.conversation_id && !waConvById(m.conversation_id)) waScheduleConvRefresh();
     }
     else {
       if(m.conversation_id && m.conversation_id===waActiveId){
@@ -1429,7 +1436,21 @@ export function handleWaRealtime(payload){
   } else if(!isUpdate && m.direction==='in'){
     waRefreshNavBadge();
   }
-  if(!isUpdate && m.direction==='in') waNotify(m);
+  if(!isUpdate && m.direction==='in'){
+    // 🔴 رسالة من محادثة مش في القايمة (عميل جديد) والصندوق مفتوح: صف المحادثة دي بس (~1 KB) والإشعار بعده عشان يقول اسمها.
+    // مش waRefreshConvos — في التاب المخفية آخر كامل بيبقى أقدم من 10 دقايق فكان بيجيب الـ200 كلهم (~230 KB) مع كل عميل جديد
+    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });
+    else waNotify(m);
+  }
+}
+// صف محادثة واحدة برقمها — بيدخل waSearchExtra (منفصلة · بتتفلتر بالبحث) لو لسه مش في أي قايمة
+function waFetchConvRow(id, done){
+  if(!sb || !currentTenantId){ if(done) done(null); return; }
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('id',id).limit(1).then(function(r){
+    var row=(!r.error && r.data && r.data[0]) || null;
+    if(row && !waConvById(row.id)) waSearchExtra.push(row);
+    if(done) done(row);
+  }, function(e){ swallow('waFetchConvRow', e); if(done) done(null); });
 }
 
 export function waEnsureNotifyPermission(){

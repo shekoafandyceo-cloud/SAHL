@@ -116,6 +116,7 @@ const snap = p => p.evaluate(MC => { const c = window.__calls; return {
   inv: c.filter(x => x.table === 'orders' && String(x.cols || '').indexOf('product_name,inventory_cost_snapshot') === 0).length,
   convFull: c.filter(x => x.table === 'wa_conversations' && x.order === 'last_message_at' && x.limit === 200).length,
   convDelta: c.filter(x => x.table === 'wa_conversations' && x.order === 'updated_at' && (x.f || []).some(f => f.op === 'gt' && f.col === 'updated_at')).length,
+  convRow: c.filter(x => x.table === 'wa_conversations' && x.eqId !== undefined && !x.payload && x.cols === '*').length,
   msgFull: c.filter(x => x.table === 'wa_messages' && x.limit === 500).length,
   msgDelta: c.filter(x => x.table === 'wa_messages' && x.limit === 100 && (x.f || []).some(f => f.op === 'gte' && f.col === 'created_at')).length,
   jxFull: c.filter(x => x.table === 'v_jt_issues' && (x.f || []).some(f => f.op === 'gte' && f.col === 'event_at')).length,
@@ -213,10 +214,14 @@ async function probeConvFull10(o){
   const T = await open('/chats', o);
   const t0 = await T.p.evaluate(() => Date.now());
   await T.ctx.clock.setFixedTime(new Date(t0 + 11 * 60000));
+  // صف اتغيّر على السيرفر (updated_at أحدث) والحدث ضاع — الكامل لازم يجيبه مش يسيب النسخة القديمة اللي في الذاكرة
+  await T.p.evaluate(() => { const c4 = window.__WA_CONVOS.filter(c => c.id === 'c4')[0]; c4.last_message_text = 'اتصلحت في الكامل'; c4.updated_at = new Date().toISOString(); });
   const a = await snap(T.p);
   await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).waRefreshConvos());
   await T.p.waitForTimeout(600);
-  const d = diff(a, await snap(T.p)); await T.ctx.close(); return d;
+  const d = diff(a, await snap(T.p));
+  d.c4 = await T.p.evaluate(() => { const e = document.querySelector('#wa-list-body .wa-conv[data-id="c4"] .wa-conv-prev'); return e ? e.textContent : null; });
+  await T.ctx.close(); return d;
 }
 async function probeConv200(o){
   const T = await open('/chats', o);
@@ -293,6 +298,123 @@ async function probeFlight(o){
   const d = diff(a, await snap(T.p)); const bd = await badge(T.p, 'o2'); await T.ctx.close();
   return { d, bd };
 }
+// 18ب) صدى تعديل الموظف نفسه: السيرفر اتكتب **قبل** ما الصفحة تتطلب (doFilter بعد رد الـRPC) والصدى وصل وهي في السكة = مفيش جلب تاني
+async function probeOwnEcho(o){
+  const T = await open('/orders', o);
+  const t = new Date().toISOString();
+  await T.p.evaluate(tt => { const o2 = window.__ORDERS.filter(x => x.id === 'o2')[0]; o2.status = 'Delivered'; o2.updated_at = tt;
+    window.__TABLE_DELAY = (tb, st) => (tb === 'orders' && st.from !== undefined) ? 1200 : 0; }, t);
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/orders/orders.js')).fetchOrdersPage());
+  await T.p.waitForTimeout(100);
+  await T.p.evaluate(async tt => { const m = await import('/js/orders/orders.js'); const base = window.__ORDERS.filter(x => x.id === 'o2')[0];
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, base, { updated_at: tt }), old: { id: 'o2' } }); }, t);
+  await T.p.waitForTimeout(2600);
+  const d = diff(a, await snap(T.p)); const bd = await badge(T.p, 'o2'); await T.ctx.close();
+  return { d, bd };
+}
+// 19ب) أوردر مش في الصفحة اتفتح في التفاصيل (من تاب الاستثناءات) واتعدّل تليفونه محلي (sel) = صدى الحدث بيتقارن بنسخة السيرفر
+async function probeDetailOnly(o){
+  const T = await open('/orders', Object.assign({ pre: `window.__ORDERS.push(Object.assign({}, window.__ORDERS[0], { id: 'zd1', order_uid: '7801', status: 'BOSTA AUTO',
+    phone: '01033334444', created_at: '2026-01-05T10:00:00.000Z', updated_at: '2026-01-05T10:00:00.000Z' }));` }, o));
+  await T.p.evaluate(async () => (await import('/js/orders/detail.js')).openDetail('zd1'));
+  await T.p.waitForTimeout(700);
+  const inFil = await T.p.evaluate(async () => (await import('/js/orders/state.js')).fil.some(x => x.id === 'zd1'));
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => { const st = await import('/js/orders/state.js'); st.sel.phone = '01000000003'; });
+  await T.p.evaluate(() => { const z = window.__ORDERS.filter(x => x.id === 'zd1')[0]; z.phone = '01000000003'; });
+  await fireOrder(T.p, 'UPDATE', 'zd1', { phone: '01000000003', updated_at: STAMP() });
+  const d = diff(a, await snap(T.p)); await T.ctx.close(); return { d, inFil };
+}
+// 21ب) أوردر برّه الصفحة **معروف** (ختم قبل كده) واتغيّر تليفونه لرقم صف في الصفحة = عدّ الرقم ده
+async function probeKnownPhone(o){
+  const T = await open('/orders', o);
+  await fireOrder(T.p, 'UPDATE', 'zk1', { order_uid: '7802', status: 'Delivered', phone: '01088887777', updated_at: '2026-10-01T10:00:00.000Z', jt_fee_synced_at: '2026-10-01T10:00:00.000Z' });
+  const before = await T.p.evaluate(() => window.__calls.filter(x => x.table === 'orders' && x.cols === 'phone').length);
+  await fireOrder(T.p, 'UPDATE', 'zk1', { order_uid: '7802', status: 'Delivered', phone: '01000000003', updated_at: STAMP() });
+  const calls = await T.p.evaluate(() => window.__calls.filter(x => x.table === 'orders' && x.cols === 'phone'));
+  await T.ctx.close();
+  const last = calls[calls.length - 1];
+  return { n: calls.length - before, phones: last ? ((last.f || []).filter(f => f.op === 'in' && f.col === 'phone')[0] || {}).val : null };
+}
+// 29ب) الموظف لغى أوردر **في الصفحة** ليه استثناء من نافذة التفاصيل (doUpdate) والصفحة نزلت **قبل** صدى الحدث = الدمج والشارة اتحدّثوا برضه
+async function probeDoUpdate(o){
+  const T = await open('/orders', Object.assign({ pre: `window.__JT_ISSUES = [{ id: 811, tenant_id: 't-test-1', tracking_no: 'TRK002', kind: 'exception',
+      event_at: new Date(Date.now() - 2 * 3600000).toISOString(), verdict: null, outcome: null, order_status: 'Exception', review_state: null, staff_rev: 0, reviewed_rev: null,
+      updated_at: new Date(Date.now() - 3600000).toISOString() }];
+    var _h = window.__RPC_HOOK;
+    window.__RPC_HOOK = function(n, a){
+      if(n === 'set_order_status'){ var o = window.__ORDERS.filter(function(x){ return x.id === a.p_order_id; })[0]; o.status = a.p_status; o.updated_at = new Date().toISOString();
+        window.__JT_ISSUES.forEach(function(r){ if(r.tracking_no === o.tracking_no) r.order_status = a.p_status; });
+        return { data: [{ at: new Date().toISOString(), to: a.p_status, by: a.p_by }], error: null }; }
+      return _h(n, a);
+    };` }, o));
+  await T.p.waitForTimeout(500);
+  const s0 = await jxBadgeTxt(T.p);
+  await T.p.evaluate(async () => (await import('/js/orders/detail.js')).openDetail('o2'));
+  await T.p.waitForTimeout(700);
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/orders/mutations.js')).doUpdate('cancelled', 'اختبار'));
+  await T.p.waitForTimeout(1200);   // الصفحة نزلت (من غير تأخير) قبل الصدى
+  await T.p.evaluate(async () => { const m = await import('/js/orders/orders.js'); const base = window.__ORDERS.filter(x => x.id === 'o2')[0];
+    m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, base), old: { id: 'o2' } }); });
+  await T.p.waitForTimeout(1500);
+  const d = diff(a, await snap(T.p)); const s1 = await jxBadgeTxt(T.p); await T.ctx.close();
+  return { s0, s1, d };
+}
+// 30) الكامل الدوري للرسايل في السكة وحالة «اتقرت» وصلت = اتطبّقت على نتيجته (الـsnapshot القديم مايرجّعهاش «اتبعتت»)
+async function probeFlightPatch(o){
+  const T = await openChat(o);
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'wa_messages' && st.limit === 500) ? 1200 : 0; });
+  const t0 = await T.p.evaluate(() => Date.now());
+  await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000));
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).waRefreshMessages('c5', true));
+  await T.p.waitForTimeout(100);
+  await T.p.evaluate(async () => { window.__WA_MSGS[1].status = 'read';
+    (await import('/js/inbox/inbox.js')).handleWaRealtime({ eventType: 'UPDATE', new: Object.assign({}, window.__WA_MSGS[1], { status: 'read' }) }); });
+  await T.p.waitForTimeout(200);
+  const st = async () => T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js'); const x = (m.waLastMsgs || []).filter(r => r.id === 'm2')[0]; return x ? x.status : null; });
+  const mid = await st();
+  await T.p.waitForTimeout(2000);
+  const end = await st(); const d = diff(a, await snap(T.p)); await T.ctx.close();
+  return { mid, end, d };
+}
+// 30ب/ج) المحادثة بتتفتح (الكامل في السكة) وأحداث وصلت ليها: حالة (30ب) أو رسالة جديدة (30ج) = كامل واحد بس
+async function probeOpenFlight(o, kind){
+  const T = await open('/chats', o);
+  // ⚠️ الستب بيرجّع كل __WA_MSGS لأي محادثة في الجلب الكامل — c3 لازم تبقى فاضية فعلاً (من غيرها waLastMsgs = رسايل c5 والسيناريو
+  // «القايمة لسه مش المحادثة دي» عمره ما بيحصل والمعايرة بتعدّي على الفاضي)
+  await T.p.evaluate(() => { window.__MSGS_C5 = window.__WA_MSGS; window.__WA_MSGS = []; });
+  await T.p.click('#wa-list-body .wa-conv[data-id="c3"]');
+  await T.p.waitForTimeout(500);
+  await T.p.evaluate(() => { window.__WA_MSGS = window.__MSGS_C5; window.__TABLE_DELAY = (t, st) => (t === 'wa_messages' && st.limit === 500) ? 1200 : 0; });
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).openConversation('c5'));
+  await T.p.waitForTimeout(150);
+  await T.p.evaluate(async k => { const m = await import('/js/inbox/inbox.js'); const n = new Date().toISOString();
+    if(k === 'upd') m.handleWaRealtime({ eventType: 'UPDATE', new: Object.assign({}, window.__WA_MSGS[0], { is_read: true }) });
+    else { window.__WA_MSGS.push(Object.assign({}, window.__WA_MSGS[2], { id: 'm5', wa_message_id: 'wamid.m5', body: 'وصلت وهي بتفتح', created_at: n, wa_timestamp: n }));
+      m.handleWaRealtime({ eventType: 'INSERT', new: { id: 'm5', conversation_id: 'c5', direction: 'in', type: 'text', body: 'وصلت وهي بتفتح', created_at: n } }); } }, kind);
+  await T.p.waitForTimeout(2200);
+  const d = diff(a, await snap(T.p));
+  const ids = await T.p.evaluate(() => Array.from(document.querySelectorAll('#wa-msgs .wa-msg[data-mid]')).map(e => e.getAttribute('data-mid')));
+  await T.ctx.close(); return { d, ids };
+}
+// 25ب) المحادثة اتفتحت قبل ما صفها يتلاقي (الجلب برقمها مالقاهاش) ووصلت بعدين في الدلتا = الهيدر اتملى
+async function probeOpenLate(o){
+  const T = await openChat(o);
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).openConversation('cL'));
+  await T.p.waitForTimeout(500);
+  const h0 = await T.p.evaluate(() => document.getElementById('wa-chat-name').textContent);
+  await T.p.evaluate(async () => { const n = new Date().toISOString();
+    window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: 'cL', wa_id: '201022223333', customer_phone: '01022223333', customer_name: 'وصلت متأخر', last_message_at: n, updated_at: n }));
+    (await import('/js/inbox/inbox.js')).waRefreshConvos(); });
+  await T.p.waitForTimeout(700);
+  const h1 = await T.p.evaluate(() => document.getElementById('wa-chat-name').textContent);
+  await T.ctx.close(); return { h0, h1 };
+}
+
 // 19) الموظف عدّل التليفون في التفاصيل (patchOrderField بيكتب على صف fil نفسه) وصدى الحدث وصل = الدمج والكروت اتحدّثوا
 async function probeLocalPatch(o){
   const T = await open('/orders', o);
@@ -376,6 +498,9 @@ async function probeOpenUnknown(o){
 async function probeHiddenUnknown(o){
   const T = await open('/chats', o);
   await T.p.evaluate(HIDE('true'));
+  // التاب مخفية من 11 دقيقة (آخر كامل قديم) — الشكل اللي كانت الدلتا فيه بتقع على الكامل (230 KB)
+  const t0 = await T.p.evaluate(() => Date.now());
+  await T.ctx.clock.setFixedTime(new Date(t0 + 11 * 60000));
   const a = await snap(T.p);
   await T.p.evaluate(async () => { const n = new Date().toISOString();
     window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: 'cY', wa_id: '201066667777', customer_name: 'جديد', last_message_at: n, updated_at: n }));
@@ -514,7 +639,7 @@ console.log('\n── المحادثات');
 }
 {
   const d = await probeConvFull10();
-  ok(d.convFull === 1 && d.convDelta === 0, '12) آخر جلب كامل من 11 دقيقة = كامل — ' + JSON.stringify(d));
+  ok(d.convFull === 1 && d.convDelta === 0 && d.c4 === 'اتصلحت في الكامل', '12) آخر جلب كامل من 11 دقيقة = كامل · وصف اتغيّر على السيرفر ظهر بنسخته الجديدة — ' + JSON.stringify(d));
 }
 {
   const d = await probeConv200();
@@ -543,7 +668,15 @@ console.log('\n── شارة الاستثناءات');
 console.log('\n── من المراجعة العدائية');
 {
   const r = await probeFlight();
-  ok(r.d.page >= 2 && r.bd === 'تم التسليم', '18) الصفحة في السكة وحدث وصل = الصفحة اتجابت تاني بعدها والصف على الحالة الجديدة (مش الـsnapshot القديم) — ' + JSON.stringify(r));
+  ok(r.d.page === 1 && r.bd === 'تم التسليم', '18) الصفحة في السكة وحدث أحدث وصل = الصف من الحدث (مش الـsnapshot القديم) ومن غير جلب تاني — ' + JSON.stringify(r));
+}
+{
+  const r = await probeOwnEcho();
+  ok(r.d.page === 1 && r.bd === 'تم التسليم', '18ب) صدى تعديل الموظف وصل والصفحة في السكة (الـsnapshot بعد الـcommit) = مفيش جلب تاني — ' + JSON.stringify(r));
+}
+{
+  const r = await probeDetailOnly();
+  ok(!r.inFil && r.d.merge >= 1 && r.d.stats >= 1, '19ب) أوردر مش في الصفحة اتفتح في التفاصيل واتعدّل محلي = الصدى اتقارن بنسخة السيرفر (الدمج والكروت) — ' + JSON.stringify(r));
 }
 {
   const d = await probeLocalPatch();
@@ -557,6 +690,10 @@ console.log('\n── من المراجعة العدائية');
   const r = await probePhoneCounts();
   ok(r.n >= 1 && Array.isArray(r.phones) && r.phones.indexOf('01000000001') >= 0 && r.phones.indexOf('01000000002') >= 0,
     '21) تليفون صف في الصفحة اتغيّر من تاب تانية = عدّ الرقمين (الجديد والقديم) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeKnownPhone();
+  ok(r.n === 1 && Array.isArray(r.phones) && r.phones.indexOf('01000000003') >= 0, '21ب) أوردر برّه الصفحة معروف (ختم قبل كده) واتغيّر لرقم صف في الصفحة = عدّ الرقم ده — ' + JSON.stringify(r));
 }
 {
   const r = await probeHiddenPatch();
@@ -575,8 +712,12 @@ console.log('\n── من المراجعة العدائية');
   ok(r.name === 'هالة الجديدة' && r.phone === '01055554444', '25) محادثة مش في القايمة اتفتحت = الهيدر من المحادثة نفسها — ' + JSON.stringify(r));
 }
 {
+  const r = await probeOpenLate();
+  ok(r.h0 === '…' && r.h1 === 'وصلت متأخر', '25ب) اتفتحت قبل ما صفها يتلاقي ووصل بعدين في الدلتا = الهيدر اتملى (مش «…» للأبد) — ' + JSON.stringify(r));
+}
+{
   const r = await probeHiddenUnknown();
-  ok(r.d.convDelta === 1 && r.has, '26) التاب مخفية ورسالة من محادثة مش في القايمة = الدلتا جابتها — ' + JSON.stringify(r));
+  ok(r.d.convDelta + r.d.convFull === 0 && r.d.convRow === 1 && r.has, '26) التاب مخفية من 11 دقيقة ورسالة من عميل جديد = صف المحادثة دي بس (مش القايمة) — ' + JSON.stringify(r));
 }
 {
   const r = await probeConvFlight();
@@ -590,6 +731,22 @@ console.log('\n── من المراجعة العدائية');
   const r = await probeJxOrderChange();
   ok(r.s0 === '3' && r.s1 === '2' && r.d.jxDelta === 1 && r.d.jxFull === 0 && r.d2.jxDelta + r.d2.jxFull === 0,
     '29) أوردر ليه استثناء اتلغى = البوليصة دي اتعادت والشارة 3 ← 2 · ضابط: بوليصة مالهاش استثناء = ولا نداء — ' + JSON.stringify(r));
+}
+{
+  const r = await probeDoUpdate();
+  ok(r.s0 === '1' && r.s1 === '0' && r.d.merge >= 1 && r.d.jxDelta >= 1, '29ب) الموظف لغى أوردر في الصفحة ليه استثناء والصفحة نزلت قبل الصدى = الدمج والشارة (1 ← 0) اتحدّثوا — ' + JSON.stringify(r));
+}
+{
+  const r = await probeFlightPatch();
+  ok(r.mid === 'read' && r.end === 'read' && r.d.msgFull === 1, '30) الكامل الدوري في السكة و«اتقرت» وصلت = اتطبّقت على نتيجته (مارجعتش «اتبعتت») — ' + JSON.stringify(r));
+}
+{
+  const r = await probeOpenFlight(undefined, 'upd');
+  ok(r.d.msgFull === 1 && r.d.msgDelta === 0, '30ب) المحادثة بتتفتح وحالة رسالة فيها وصلت = كامل واحد ومفيش دلتا بعده — ' + JSON.stringify(r));
+}
+{
+  const r = await probeOpenFlight(undefined, 'ins');
+  ok(r.d.msgFull === 1 && r.d.msgDelta === 1 && r.ids.indexOf('m5') >= 0, '30ج) المحادثة بتتفتح ورسالة جديدة وصلت = كامل واحد + دلتا بعده والرسالة ظاهرة — ' + JSON.stringify(r));
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -649,9 +806,42 @@ await cal('(س) الشارة بالجلب الكامل مع كل حدث → فح
   [P('exceptions/exceptions.js', '    else if(jxBadgeRows && list.length) jxBadgeFetch(list);\n', '')],
   probeJxBadge, r => r.d.jxFull > 0);
 
-await cal('(ع) الحدث وقت ما الصفحة في السكة مابيجيبهاش تاني → فحص 18 كان هيقع',
-  [P('orders/orders.js', '  if(pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) need.page = true;', '')],
+await cal('(ع) الحدث الأحدث مابيتطبّقش على الصفحة اللي نزلت → فحص 18 كان هيقع',
+  [P('orders/orders.js', '    if(flight) rtOverlayFlight(flight);\n', '')],
   probeFlight, r => r.bd !== 'تم التسليم');
+await cal('(عع) أي حدث وقت ما الصفحة في السكة = جلب تاني (إصلاح الجولة الأولى) → فحص 18ب كان هيقع',
+  [P('orders/orders.js', "  if(ev === 'UPDATE' && pageFlightRows && pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) pageFlightRows[row.id] = row;", '  if(pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) need.page = true;')],
+  probeOwnEcho, r => r.d.page > 1);
+await cal('(فف) التفاصيل مابتسجّلش نسخة السيرفر → فحص 19ب كان هيقع',
+  [P('orders/detail.js', "    try{ rtNoteServerRow(r.data); }catch(e){ swallow('openDetail/rtNoteServerRow', e); }\n", '')],
+  probeDetailOnly, r => r.d.merge === 0);
+await cal('(قق) الأوردر المعروف برّه الصفحة مابيتعدّش → فحص 21ب كان هيقع',
+  [P('orders/orders.js', '    else if(!prev && !rtStampOnly(row) && (!known || phoneMoved)){', '    else if(!prev && !rtStampOnly(row) && !known){')],
+  probeKnownPhone, r => r.n === 0);
+await cal('(ثث) الهيدر مابيتصلّحش لما الصف يوصل → فحص 25ب كان هيقع',
+  [P('inbox/inbox.js', '    if(waHdrPendingId===waActiveId){ waHdrPendingId=null; waFillChatHeader(ac); waLoadConvMeta(ac); waLoadOrders(ac); }\n', '')],
+  probeOpenLate, r => r.h1 !== 'وصلت متأخر');
+await cal('(طط) doUpdate مابيبلّغش الدمج والاستثناءات → فحص 29ب كان هيقع',
+  [P('orders/mutations.js', 'loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();\n    if(ord.tracking_no) jxNoteOrderChange(ord.tracking_no);\n', 'loadOrdersCards();loadBostaInventoryCard();doFilter();\n')],
+  probeDoUpdate, r => r.s1 !== '0');
+await cal('(حح) حالات الأحداث وقت الكامل مابتتطبّقش على نتيجته → فحص 30 كان هيقع',
+  [P('inbox/inbox.js', '      if(fl) waApplyFlightPatches(data, fl.patches);\n', '')],
+  probeFlightPatch, r => r.end !== 'read');
+await cal('(حح2) ترتيب الحالة بالمقلوب → فحص 30 كان هيقع',
+  [P('inbox/inbox.js', '<= (WA_STATUS_RANK[data[i].status]||0)) continue;', '>= (WA_STATUS_RANK[data[i].status]||0)) continue;')],
+  probeFlightPatch, r => r.end !== 'read');
+await cal('(حح3) الحالة مابتتسجّلش وقت الكامل → فحص 30 كان هيقع',
+  [P('inbox/inbox.js', '  if(inFlight) waMsgFlight.patches[row.id]=row;', '  if(inFlight) void 0;')],
+  probeFlightPatch, r => r.end !== 'read');
+await cal('(ضض) الحالة وقت الفتح بتجيب دلتا بعده → فحص 30ب كان هيقع',
+  [P('inbox/inbox.js', '    if(inFlight) return;   // الكامل اللي في السكة هيجيبها والحالة بتتطبّق على نتيجته\n', '')],
+  o => probeOpenFlight(o, 'upd'), r => r.d.msgDelta > 0);
+await cal('(ظظ) فحص الكامل في السكة بعد «القايمة مش المحادثة دي» → فحص 30ج كان هيقع (كامل تاني)',
+  [P('inbox/inbox.js', '  if(waMsgFlight && waMsgFlight.conv===convId && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS){ waMsgFlight.delta=true; return; }\n  var last=waLastMsgs||[];', '  var last=waLastMsgs||[];')],
+  o => probeOpenFlight(o, 'ins'), r => r.d.msgFull > 1);
+await cal('(يي) الكامل بيسيب النسخة القديمة اللي في الذاكرة (المقارنة بالمقلوب) → فحص 12 كان هيقع',
+  [P('inbox/inbox.js', 'if(o && !waConvNewer(data[di], o)) data[di]=o;', 'if(o && waConvNewer(data[di], o)) data[di]=o;')],
+  probeConvFull10, d => d.c4 !== 'اتصلحت في الكامل');
 await cal('(ف) المقارنة بصف fil المعدّل محلي → فحص 19 كان هيقع',
   [P('orders/orders.js', '    for(var ri=0; ri<fil.length; ri++) rtRemember(fil[ri]);\n', '')],
   probeLocalPatch, d => d.merge === 0);
@@ -673,9 +863,12 @@ await cal('(ت) الدلتا مابتستناش الكامل اللي في ال�
 await cal('(ث) المحادثة المش معروفة مابتتجابش برقمها → فحص 25 كان هيقع',
   [P('inbox/inbox.js', '  if(!c && sb && currentTenantId){', '  if(false){')],
   probeOpenUnknown, r => r.name !== 'هالة الجديدة');
-await cal('(خ) التاب المخفية مابتجيبش المحادثة الجديدة → فحص 26 كان هيقع',
-  [P('inbox/inbox.js', '      if(!isUpdate && m.conversation_id && !waConvById(m.conversation_id)) waScheduleConvRefresh();\n', '')],
-  probeHiddenUnknown, r => r.d.convDelta === 0);
+await cal('(خ) التاب المخفية مابتجيبش صف المحادثة الجديدة → فحص 26 كان هيقع',
+  [P('inbox/inbox.js', '    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });\n    else waNotify(m);', '    waNotify(m);')],
+  probeHiddenUnknown, r => !r.has);
+await cal('(خخ) التاب المخفية بتجيب القايمة (الدلتا ← الكامل بعد 10 دقايق) → فحص 26 كان هيقع',
+  [P('inbox/inbox.js', '    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });', '    if(inboxOpen && m.conversation_id && !waConvById(m.conversation_id)){ waRefreshConvos(); waNotify(m); }')],
+  probeHiddenUnknown, r => r.d.convDelta + r.d.convFull > 0);
 // الحمايتين (الأحدث بيكسب + دلتا بعد الكامل) بيغطّوا الصف المتعدّل مع بعض — كل معايرة بتشيل الاتنين للحالة اللي بتختبرها
 await cal('(ذ) الكامل بيكتب فوق الأحدث (من غير الحمايتين) → فحص 27 كان هيقع',
   [P('inbox/inbox.js', '      for(var di=0;di<data.length;di++){ var o=cur[data[di].id]; if(o && !waConvNewer(data[di], o)) data[di]=o; }\n', ''),

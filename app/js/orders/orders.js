@@ -403,8 +403,29 @@ var RT_STAMP_COLS = ['jt_fee_synced_at','jt_cod_synced_at','ship_rank_at','custo
 // (رسوم J&T كل نص ساعة على نفس الأوردرات) = المرة التانية بتتقارن بدل ما تتحسب «مش معروف»
 var rtSeen = new Map(), RT_SEEN_MAX = 1500;
 function rtTrackCols(){ return RT_LIGHT_COLS.concat(ORDER_SEARCH_COLS, ['updated_at']); }
+// وقت من PostgREST أو الريل-تايم ("2026-10-17 10:00:00.123+00" — Date.parse مابيفهمش ±HH من غير دقايق)
+function rtTime(v){
+  if(v == null || v === '') return NaN;
+  return Date.parse(String(v).trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
+}
+// الصفحة نزلت والأحداث اللي وصلت وهي في السكة: الأحدث من الـsnapshot (updated_at) بيكسب — الـsnapshot من غير updated_at = الحدث
+function rtOverlayFlight(flight){
+  for(var k=0;k<fil.length;k++){
+    var ev = flight[fil[k].id];
+    if(!ev) continue;
+    var te = rtTime(ev.updated_at), ts = rtTime(fil[k].updated_at);
+    if(!isNaN(ts) && (isNaN(te) || te <= ts)) continue;
+    fil[k] = ev;
+  }
+}
+// نسخة السيرفر من نافذة التفاصيل (select('*')) — أوردر مش في الصفحة اتفتح من تاب الاستثناءات واتعدّل محلي، فصدى الحدث لازم
+// يتقارن بالنسخة اللي قبل التعديل مش بـsel المعدّل
+export function rtNoteServerRow(row){ rtRemember(row); }
 function rtRemember(row){
   if(!row || !row.id) return;
+  // نسخة أقدم من اللي معانا (جلب صفحة طلع قبل حدث وصل) مابتدوسش عليها
+  var old = rtSeen.get(row.id), to = old ? rtTime(old.updated_at) : NaN, tn = rtTime(row.updated_at);
+  if(!isNaN(to) && !isNaN(tn) && tn < to) return;
   var o = {}, cols = rtTrackCols();
   for(var i=0;i<cols.length;i++){ if(Object.prototype.hasOwnProperty.call(row, cols[i])) o[cols[i]] = row[cols[i]]; }
   rtSeen.delete(row.id); rtSeen.set(row.id, o);
@@ -492,11 +513,16 @@ export function handleRealtimeChange(payload){
     if(prev) need.render = true;   // الصف المعروض اتحدّث — بيترسم في آخر الرشقة لو مفيش جلب للصفحة
     // شارة العميل المتكرر (phoneCounts) كانت بتتحدّث مع جلب الصفحة اللي كان بيحصل مع كل حدث — التليفون اتغيّر = عدّ الرقمين
     // أوردر مش معروف (مش في الصفحة) ومش ختم وتليفونه زي صف في الصفحة = ممكن يكون اتغيّر للرقم ده — عدّ الرقم ده بس
+    // أوردر برّه الصفحة (معروف أو لأ) ومش ختم: الرقمين (الجديد والقديم) لو واحد منهم زي صف في الصفحة
     var phs = [];
     if(prev && phoneMoved) phs = [row.phone, known.phone];
-    else if(!known && !rtStampOnly(row) && row.phone){
-      var np = normalizePhone(row.phone);
-      for(var q=0; q<fil.length; q++){ if(fil[q].id !== row.id && np && normalizePhone(fil[q].phone) === np){ phs = [row.phone]; break; } }
+    else if(!prev && !rtStampOnly(row) && (!known || phoneMoved)){
+      var cand = [row.phone, known && known.phone].filter(function(x){ return !!x; });
+      phs = cand.filter(function(ph){
+        var np = normalizePhone(ph);
+        for(var q=0; q<fil.length; q++){ if(fil[q].id !== row.id && np && normalizePhone(fil[q].phone) === np) return true; }
+        return false;
+      });
     }
     phs = phs.filter(function(x){ return !!x; });
     if(phs.length) fetchPhoneCounts(phs, function(){ try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/phoneCounts', e); } });
@@ -544,7 +570,7 @@ export function handleRealtimeChange(payload){
     if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
     rtSeen.delete(oldRow.id);
   }
-  if(pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) need.page = true;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
+  if(ev === 'UPDATE' && pageFlightRows && pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) pageFlightRows[row.id] = row;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
   if(need.light) rtNeedLight = true;
   if(need.page) rtNeedPage = true;
   if(need.render) rtNeedRender = true;
@@ -572,7 +598,7 @@ function rtSameValue(a, b){
   var na = Number(a), nb = Number(b);
   if(String(a).trim() !== '' && String(b).trim() !== '' && !isNaN(na) && !isNaN(nb)) return na === nb;
   if(typeof a === 'string' && typeof b === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d/.test(a) && /^\d{4}-\d{2}-\d{2}[T ]\d/.test(b)){
-    var ta = Date.parse(a.replace(' ', 'T')), tb = Date.parse(b.replace(' ', 'T'));
+    var ta = rtTime(a), tb = rtTime(b);
     return !isNaN(ta) && ta === tb;
   }
   return false;
@@ -631,7 +657,7 @@ export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bost
 // عمود نصي قصير فمالوش أثر يُذكر على حجم النقل (درس 32 عن الـJSONB).
 // ship_rank_raw (jsonb ~295 بايت · أقصى 362 — اتقاس 10 أكتوبر): الشارة محتاجاه عشان تعرف الرقم اللي اتسأل فعلاً
 // (التليفون اتعدّل بعده = النسبة مش بتاعته) — من غيره الجدول يعرض نسبة رقم قديم والتفاصيل تقول غير كده.
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,ship_rank,ship_rank_n,ship_rank_at,ship_rank_alt,ship_rank_alt_n,ship_rank_raw,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,ship_rank,ship_rank_n,ship_rank_at,ship_rank_alt,ship_rank_alt_n,ship_rank_raw,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of,updated_at';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){
@@ -704,13 +730,16 @@ export function showCancelRequested(){
 var fetchGen = 0;
 // v82: الصفحة في السكة من إمتى (0 = مفيش) — حدث ريل-تايم وصل وهي في السكة ممكن يكون اتعمل بعد الـsnapshot بتاعها،
 // فالرد كان هيرجّع الصف القديم والحدث مش هيتعاد (قبل v82 كل حدث كان بيجيب الصفحة). فالحدث ده بيجيب الصفحة تاني بعدها.
-var pageFlightAt = 0, PAGE_FLIGHT_MS = 15000;
+// 🔴 ومش جلب تاني على طول (المراجعة التانية): صدى تعديل الموظف نفسه بيوصل والصفحة اللي doFilter طلبها في السكة، والـsnapshot
+// بتاعها **بعد** الـcommit — فالجلب التاني كان على الفاضي. الحدث بيتحفظ (pageFlightRows) ولما الصفحة تنزل بيتقارن بـupdated_at:
+// أحدث من الـsnapshot = الصف من الحدث · غير كده = ولا حاجة. خروج/دخول الفلتر اتحكم عليه وقت الحدث (rtNeeds) زي أي حدث.
+var pageFlightAt = 0, pageFlightRows = null, PAGE_FLIGHT_MS = 15000;
 
 export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()
   if(!ensureTenant()) return;
   var myGen = ++fetchGen;
-  pageFlightAt = Date.now();
+  pageFlightAt = Date.now(); pageFlightRows = {};
   $id('tbody').innerHTML=skelTable(8);
   var st=$id('fst').value, pl=$id('fpl').value, py=$id('fpy').value;
   var q=$id('qinp').value.trim();
@@ -737,7 +766,8 @@ export function fetchOrdersPage(){
   if(rng) query=query.gte('created_at',rng.fromTs).lt('created_at',rng.toTs);
   query.order('created_at',{ascending:false}).range(fromIdx,toIdx).then(function(r){
     if(myGen !== fetchGen) return;   // طلب أحدث خرج بعدنا — الرد ده بقى قديم
-    pageFlightAt = 0;
+    var flight = pageFlightRows;
+    pageFlightAt = 0; pageFlightRows = null;
     refreshCancelBar();
     if(r.error){
       toast('خطأ في تحميل الأوردرات: '+r.error.message,'er');
@@ -751,6 +781,7 @@ export function fetchOrdersPage(){
     var maxPage=Math.max(1,Math.ceil(srvCount/PS));
     if(cur>maxPage){ ordersSetPage(maxPage); fetchOrdersPage(); return; }
     ordersSetFiltered(r.data||[]);
+    if(flight) rtOverlayFlight(flight);
     // نسخة السيرفر للمقارنة في الريل-تايم — التعديل المحلي (تليفون · شحن يدوي) بيكتب على صفوف fil نفسها، فصدى
     // الحدث كان بيتقارن بالنسخة المعدّلة ويبان «مفيش تغيير» والدمج والكروت مايتحدّثوش عند الموظف اللي عدّل
     for(var ri=0; ri<fil.length; ri++) rtRemember(fil[ri]);

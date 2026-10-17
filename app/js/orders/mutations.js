@@ -6,11 +6,12 @@ import { $id } from '../core/dom.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { loadBostaInventoryCard, loadOrdersCards } from './cards.js';
+import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './cards.js';
+import { jxNoteOrderChange } from '../exceptions/exceptions.js';
 import { renderDetail } from './detail.js';
 import { ensureTenant } from './guards.js';
 import { doFilter } from './orders.js';
-import { all, allLoaded, ordersSetSelected, sel, selectedIds } from './state.js';
+import { all, allLoaded, fil, ordersSetSelected, sel, selectedIds } from './state.js';
 import { updateBulkBar } from './table.js';
 
 export function saveInternalNotes(){
@@ -100,7 +101,10 @@ export function doUpdate(ns,cancelReason){
     for(var i=0;i<all.length;i++){if(all[i].id===id){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(ns==='cancelled'&&cancelReason)all[i].cancel_reason=cancelReason;break;}}
     if(sel===ord){ $id('ovl').classList.remove('open'); ordersSetSelected(null); }
     toast('تم تحديث الحالة ✓','ok');
-    loadOrdersCards();loadBostaInventoryCard();doFilter();
+    // v82: الصفحة اللي doFilter بيجيبها ممكن تنزل قبل صدى الحدث فتتسجّل نسخة السيرفر بالحالة الجديدة والصدى يبان «مفيش تغيير»
+    // — فالدمج ونتيجة الاستثناء بيتحدّثوا من هنا مش من الصدى
+    loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();
+    if(ord.tracking_no) jxNoteOrderChange(ord.tracking_no);
   });
 }
 
@@ -132,7 +136,11 @@ export function doBulkUpdate(ns){
         selectedIds.clear();updateBulkBar();
         if(errors)toast('تم تحديث '+(n-errors)+' من '+count+' (فيه '+errors+' خطأ)','er');
         else toast('تم تحديث '+count+' طلب ✓','ok');
-        loadOrdersCards();loadBostaInventoryCard();doFilter();
+        loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();
+        ids.forEach(function(oid){
+          var o = fil.filter(function(x){ return x.id===oid; })[0] || all.filter(function(x){ return x.id===oid; })[0];
+          if(o && o.tracking_no) jxNoteOrderChange(o.tracking_no);
+        });
       }
     });
   });
