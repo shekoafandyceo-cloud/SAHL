@@ -3,7 +3,8 @@
 //
 // على السيرفر: ship-rank-sync بيكتب ship_rank/ship_rank_n/ship_rank_at/ship_rank_raw (اتجرّب بترانزاكشن راجعة على الحي).
 // هنا الواجهة بس (الستب — من غير شبكة). الفيكستشر **لسه فيه eo_rate** على أوردرات كتير عن قصد: العمود موجود على الجدول
-// والـn8n لسه بيكتبه، فلو أي حتة رجعت تقراه الفحوص بتقع.
+// والـn8n لسه بيكتبه. ⚠️ صفوف الجدول بتتقطع زي PostgREST (eo_rate مش في ORDER_LIST_COLS) — فشارة الجدول من التحميل عمرها ما بتشوف
+// العمود؛ استقلال الشارة عنه بيتحرس بفحوص 36–37 على **صف كامل** (نفس شكل الريل-تايم و select('*')). النافذة بتجيب الصف كامل أصلاً.
 //  1–6) الجدول: الشارة من شركة الشحن بس · eo_rate مالوش أي أثر (low + شحن 90% = جامد · high + مفيش شحن = مفيش شارة ·
 //       unknown لوحده = مفيش «جديد») · شارة واحدة بس · «EasyOrders» مش في أي تلميح
 //  7–14) التفاصيل: سطر شركة الشحن بالعدّ · مفيش سطر EasyOrders ولا متوسط ولا شريط · القسم ظاهر دايماً · «سمعة العميل» القديم اتشال
@@ -17,6 +18,7 @@
 //  (د) شيل القسم من التفاصيل · (هـ) شارتين في خانة الاسم · (و) حدث النسبة = رسم كامل (الكلام ضاع)
 //  (ح) القديم يكسب الجديد · (ط) شيل ship_rank من ORDER_LIST_COLS · (ي) أعمدة شركة الشحن مش في RT_SCORE_COLS
 //  (ك) شيل الإضافي · (ل) شيل كشف التليفون المتعدّل · (م) الدرجة من المقرّب (الشكل القديم)
+//  (ن) الشارة لوحدها بتوزن EasyOrders والتلميح زي ما هو (orders.js مااتلمسش) → 36/37 يقعوا (من المراجعة العدائية 17 أكتوبر)
 import { chromium } from 'playwright';
 import fs from 'fs';
 
@@ -189,6 +191,31 @@ const EXP = await (async () => {
 })();
 ok(EXP === 'deliveryScoreBadges,deliveryScoreSection,shipInfo,shipP10', '35) الموديول مابقاش بيصدّر أي حاجة EasyOrders (EO_RATES · eoRateCell · deliveryScore) — ' + EXP);
 
+// 36–37 (المراجعة العدائية 17 أكتوبر): شارة الجدول على **صف كامل** — صفوف التحميل متقطّعة فمابتشوفش eo_rate، بس حدث الريل-تايم
+// بيحط الصف كامل في fil ويرسم الجدول (orders.js: fil[k] = row → renderTable) — فلو الشارة رجعت تقرا eo_rate هتتقلب هناك
+async function fullRow(patches){
+  const p = await openApp(patches);
+  const direct = await p.evaluate(async () => {
+    const m = await import('./js/orders/delivery-score.js');
+    const o8 = Object.assign({}, window.__ORDERS.find(x => x.id === 'o8'));   // eo_rate 'high' + شحن 30.4%
+    return { low90: m.deliveryScoreBadges({ eo_rate: 'low', customer_ranking: 90 }), o8: m.deliveryScoreBadges(o8) };
+  });
+  await p.evaluate(async () => {
+    const m = await import('./js/orders/orders.js');
+    const base = window.__ORDERS.find(x => x.id === 'o8');
+    m.handleRealtimeChange({ eventType: 'UPDATE', old: { id: 'o8' }, new: Object.assign({}, base, { status: 'Out for delivery', eo_rate: 'high' }) });
+  });
+  await p.waitForTimeout(100);   // قبل إعادة الجلب (~800ms) — اللي بيترسم من الحدث نفسه
+  const rt = await p.evaluate(() => { const b = document.querySelector('#tbody tr[data-id="o8"] td.nm .ds-badge'); return b ? b.className + '|' + b.textContent + '|' + b.title : null; });
+  await p.close();
+  return { direct, rt };
+}
+const FR = await fullRow();
+ok(/rk-good/.test(FR.direct.low90) && /جامد/.test(FR.direct.low90) && /rk-bad\b/.test(FR.direct.o8) && !/EasyOrders/.test(FR.direct.low90 + FR.direct.o8),
+  '36) صف كامل فيه eo_rate: «منخفضة» + شحن 90% = «جامد» · o8 («مرتفعة» + 30.4%) = «زبالة» — ومفيش «EasyOrders» في التلميح');
+ok(FR.rt && /rk-bad\b/.test(FR.rt) && /زبالة/.test(FR.rt) && !/EasyOrders/.test(FR.rt),
+  '37) حدث ريل-تايم بتغيير الحالة (الصف كامل بـeo_rate «مرتفعة» يدخل الجدول) = الشارة فاضلة «زبالة» — ' + FR.rt);
+
 console.log('— الريل-تايم (سحب شركة الشحن)');
 async function rtScore(patches){
   const p = await openApp(patches);
@@ -293,6 +320,12 @@ const cL = await runAll({ score: s => s.replace("    if(partStale(o, 'primary', 
 ok(/rk-bad\b/.test(cL.b.o14.eo || ''), '(ل) من غير كشف التليفون المتعدّل → o14 «زبالة» من نسبة الرقم القديم (الفحص 30 كان هيقع) — ' + cL.b.o14.eo);
 const cM = await runAll({ score: s => s.replace('  var t = tierOf(s.rate);\n  return', '  var t = tierOf(Math.round(s.rate));\n  return') });
 ok(/rk-good/.test(cM.b.o15.eo || ''), '(م) الدرجة من المقرّب (الشكل القديم) → 79.6% «جامد» في الشارة و«متوسط» في التفاصيل (الفحص 31 كان هيقع)');
+
+// (ن) الشارة لوحدها بتوزن EasyOrders والتلميح زي ما هو — orders.js مااتلمسش (الأعمدة لسه متقطّعة في التحميل)
+const W = "  var EOW = { high: 100, moderate: 60, low: 20 };\n  var eo = o && Object.prototype.hasOwnProperty.call(EOW, o.eo_rate) ? EOW[o.eo_rate] : null;\n  var t = tierOf(eo === null ? s.rate : (s.rate + eo) / 2);\n  return";
+const cN = await fullRow({ score: s => s.replace('  var t = tierOf(s.rate);\n  return', W) });
+ok(!/rk-good/.test(cN.direct.low90) && !/rk-bad\b/.test(cN.direct.o8) && cN.rt && !/rk-bad\b/.test(cN.rt),
+  '(ن) الشارة بتوزن EasyOrders (والتلميح زي ما هو) → 36 و37 كانوا هيقعوا — ' + cN.rt);
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
