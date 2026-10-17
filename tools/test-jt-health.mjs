@@ -11,8 +11,10 @@
 // معايرات: (أ) parseStatusLog القديمة · (ب) العمر من ساعة الجهاز · (ج) شيل العتبة ·
 //          (د) الإقفال (×) مابيعملش حاجة · (هـ) مشاكل الحسابات مش في شرط الظهور.
 //  (3) 1 أكتوبر: «حسابات J&T محتاجة مراجعة» — تكلفة ماتقفلتش · مسح مش في الخريطة · COD مختلف.
-//  (4) 10 أكتوبر: «سحب نسبة استلام العميل واقف» — rank_stale (شركة الشحن) · eo_stale (EasyOrders) — بيبان حتى لو
-//      المتجر مش على J&T. معايرات: (و) شيل rate من شرط الظهور · (ز) المتجر مش على J&T بيخفيه.
+//  (4) 10 أكتوبر: «سحب نسبة استلام العميل واقف» — rank_stale (شركة الشحن) — بيبان حتى لو المتجر مش على J&T.
+//      معايرات: (و) شيل rate من شرط الظهور · (ز) المتجر مش على J&T بيخفيه.
+//      17 أكتوبر: تقييم EasyOrders اتشال (قرار المالك) — eo_stale لو وصل من سيرفر قديم مايطلّعش سطر ولا بانر.
+//      معايرة (ي) بترجّع سطر EasyOrders القديم بالحرف.
 //  (5) 11 أكتوبر: «رسايل المندوب في الطريق» (h.ofd من app.wa_ofd_health) — إيقاف بتجربة لوحدها/يدوي · آخر خطأ أحدث من آخر
 //      نجاح حتى لو stale=0 · mode=off = ولا سطر · health_error = سطر · عنوان لوحده (مش تحت «سحب نسبة الاستلام»).
 //      معايرات: (ح) سطر الخطأ مشروط بـstale>0 · (ط) سطور الرسايل متلزّقة في rate.
@@ -184,11 +186,12 @@ const H_RATE = Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 4, r
   ok(s && /سحب نسبة استلام العميل واقف/.test(s.text) && /4 أوردر ماتسألش/.test(s.text), '23) 🔴 rank_stale = بانر «سحب نسبة استلام العميل واقف» بالعدد — ' + (s && s.text.slice(0, 90)));
   ok(s && /auth_401/.test(s.text) && !/مزامنة حالات J&T واقفة/.test(s.text), '24) آخر خطأ السحب ظاهر · J&T شغّالة = مفيش «واقفة»');
   ok(s && !/بوسطة/.test(s.text), '25) اسم الشركة مش في النص (check_carrier_naming)');
+  ok(s && /من غير شارة نسبة الاستلام/.test(s.text) && !/EasyOrders/.test(s.text), '25ب) السطر بيقول إن الأوردرات دي من غير شارة — مفيش «من EasyOrders لوحدها»');
   await p.close();
 
+  // سيرفر قديم (قبل eo_rate_retire) لسه بيبعت eo_stale — السحب اتوقف بقصد، فده مش عطل يتقال
   p = await openApp({ health: Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 0, eo_stale: 3 }) });
-  const e = await banner(p);
-  ok(e && /EasyOrders: 3 أوردر/.test(e.text) && !/شركة الشحن: /.test(e.text), '26) eo_stale = سطر EasyOrders لوحده');
+  ok(!(await banner(p)) && !(await p.evaluate(() => /EasyOrders/.test(document.body.innerText))), '26) eo_stale (EasyOrders) = مفيش سطر ولا بانر (التقييم اتشال 17 أكتوبر)');
   await p.close();
 
   p = await openApp({ health: Object.assign({}, H_RATE, { rank_enabled: false }) });
@@ -292,6 +295,14 @@ function __unused_new(val){`;
     patchHealth: s => s.replace('  var ofd = ofdIssues(h);', '  var ofd = []; rate = rate.concat(ofdIssues(h));') });
   const s = await banner(p);
   ok(s && /سحب نسبة استلام العميل واقف/.test(s.text), 'معايرة ط: سطور الرسايل تحت عنوان السحب — فحص 31 بيمسكها');
+  await p.close();
+}
+{
+  // الشكل القديم بالحرف (قبل 17 أكتوبر) — لازم فحص 26 يقع عليه
+  const p = await openApp({ health: Object.assign({}, H_FRESH, { rank_enabled: true, rank_stale: 0, eo_stale: 3 }),
+    patchHealth: s => s.replace("  return out;\n}\n\n// (11 أكتوبر)", "  var es = Number(h.eo_stale || 0);\n  if(es > 0)\n    out.push('نسبة الاستلام من EasyOrders: ' + es + ' أوردر تقييمه ماتسحبش بقاله أكتر من ربع ساعة — السحب واقف.');\n  return out;\n}\n\n// (11 أكتوبر)") });
+  const s = await banner(p);
+  ok(s && /EasyOrders: 3 أوردر/.test(s.text), 'معايرة ي: سطر EasyOrders رجع = بانر «السحب واقف» على سحب اتوقف بقصد — فحص 26 بيمسكها');
   await p.close();
 }
 

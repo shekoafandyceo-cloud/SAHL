@@ -446,7 +446,7 @@ export function renderDetail(){
     +dr('العنوان',fieldEditable(o.address,'العنوان','address'))
     +'</div>'
 
-    // 📊 نسبة استلام العميل — EasyOrders + شركة الشحن (orders/delivery-score.js)
+    // 📊 نسبة استلام العميل — شركة الشحن (orders/delivery-score.js)
     +deliveryScoreSection(o)
 
     +'<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">\uD83E\uDDFE</span>بيانات الطلب</div>'

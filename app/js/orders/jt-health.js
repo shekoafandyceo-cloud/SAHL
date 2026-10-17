@@ -39,7 +39,8 @@ export function jtSyncState(h){
 }
 
 // (10 أكتوبر) سحب «نسبة استلام العميل» واقف — الطبيعي إن الأوردر يتسأل خلال 1–3 دقايق من نزوله، فـ>15 دقيقة = السحب
-// نفسه واقف (مفتاح · cron · شركة الشحن قافلة · EasyOrders). من غير التنبيه ده الشارة بتختفي في صمت (درس 51).
+// نفسه واقف (مفتاح · cron · شركة الشحن قافلة). من غير التنبيه ده الشارة بتختفي في صمت (درس 51).
+// (17 أكتوبر) سطر EasyOrders (`eo_stale`) اتشال مع التقييم نفسه — والسيرفر بطّل يبعته (migration `eo_rate_retire`).
 export function rateSyncIssues(h){
   var out = [];
   if(!h) return out;
@@ -47,10 +48,7 @@ export function rateSyncIssues(h){
   if(h.rank_enabled && rs > 0)
     out.push('نسبة الاستلام من شركة الشحن: ' + rs + ' أوردر ماتسألش بقاله أكتر من ربع ساعة — السحب واقف'
       + (h.rank_last_error ? ' (آخر خطأ: ' + String(h.rank_last_error).slice(0, 120) + ')' : '')
-      + '. الشارة على الأوردرات دي من EasyOrders لوحدها لحد ما يرجع.');
-  var es = Number(h.eo_stale || 0);
-  if(es > 0)
-    out.push('نسبة الاستلام من EasyOrders: ' + es + ' أوردر تقييمه ماتسحبش بقاله أكتر من ربع ساعة — السحب واقف.');
+      + '. الأوردرات دي من غير شارة نسبة الاستلام لحد ما يرجع.');
   return out;
 }
 

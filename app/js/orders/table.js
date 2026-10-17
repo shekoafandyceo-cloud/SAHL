@@ -130,7 +130,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     var noteIcon=(o.customer_notes&&o.customer_notes.trim())?'<span class="note-icon" title="يوجد ملاحظة من العميل">📝</span>':'';
     var vipCount=customerOrderCount(o);
     var vipBadge=vipCount>1?'<span class="vip-badge" title="عميل متكرر — '+vipCount+' طلبات">×'+vipCount+'</span>':'';
-    // نسبة استلام العميل: EasyOrders (تصنيف) + شركة الشحن (نسبة %) — orders/delivery-score.js
+    // نسبة استلام العميل من شركة الشحن (نسبة %) — orders/delivery-score.js
     var rankBadge=deliveryScoreBadges(o);
     // شارة الـupsell — الأوردر اتزوّد فيه منتج بعد ما اتسجّل. العلامة جاية
     // من عمود `has_upsell` على السيرفر (بيتحط جوّه save_order_products)

@@ -411,8 +411,8 @@ export function handleRealtimeChange(payload){
       ordersSetSelected(merged);
       // النافذة مفتوحة قدام الموظف؟ لازم تتحدث هي كمان — من غير ده الحالة
       // في الجدول بتتغيّر والنافذة فاضلة على القديم.
-      // 🔴 إلا لو اللي اتغيّر نسبة الاستلام بس: سحب EasyOrders (eo-rate-sync) بيعمل UPDATE بعد
-      // ~45ث–3د من نزول الأوردر، والرسم الكامل كان بيمسح أي حاجة الموظف بيكتبها ومحفظهاش
+      // 🔴 إلا لو اللي اتغيّر نسبة الاستلام بس: سحب شركة الشحن (ship-rank-sync) بيعمل UPDATE بعد
+      // ~0–3د من نزول الأوردر، والرسم الكامل كان بيمسح أي حاجة الموظف بيكتبها ومحفظهاش
       // (المنتجات · التليفون · ملاحظة المكالمة · الملاحظات الداخلية). فالقسم بتاعها بس بيتبدّل.
       try{
         if($id('ovl').classList.contains('open')){
@@ -431,8 +431,9 @@ export function handleRealtimeChange(payload){
   scheduleRealtimeRefresh();
 }
 
-// أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE)
-// + شركة الشحن (ship-rank-sync — 10 أكتوبر): بيعمل UPDATE تاني بعد ~0–2 دقيقة من نزول الأوردر بنفس الشكل
+// أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE): شركة الشحن (ship-rank-sync — 10 أكتوبر)
+// بيعمل UPDATE بعد ~0–2 دقيقة من نزول الأوردر · و`eo_*` (EasyOrders — اتشالت من الواجهة 17 أكتوبر والسحب اتوقف) لسه
+// على الجدول ومابتتعرضش، فتغييرها لو حصل مايستاهلش رسم كامل
 // + ختم مزامنة J&T (`jt_cod_synced_at`/`jt_fee_synced_at` — v79): ختم وقت بس من غير أي تغيير في الأوردر
 // + سكانر المخزن (14 أكتوبر): السكان بيختم `stock_deducted_at`/`stock_returned_at` بس — مايتحسبش تعديل في
 //   الأوردر، فنافذة التفاصيل المفتوحة مابتترسمش من جديد (وكلام الموظف اللي مااتحفظش مابيضيعش)
@@ -508,7 +509,7 @@ export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bost
 // عمود نصي قصير فمالوش أثر يُذكر على حجم النقل (درس 32 عن الـJSONB).
 // ship_rank_raw (jsonb ~295 بايت · أقصى 362 — اتقاس 10 أكتوبر): الشارة محتاجاه عشان تعرف الرقم اللي اتسأل فعلاً
 // (التليفون اتعدّل بعده = النسبة مش بتاعته) — من غيره الجدول يعرض نسبة رقم قديم والتفاصيل تقول غير كده.
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,eo_rate,eo_rate_alt,ship_rank,ship_rank_n,ship_rank_at,ship_rank_alt,ship_rank_alt_n,ship_rank_raw,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,ship_rank,ship_rank_n,ship_rank_at,ship_rank_alt,ship_rank_alt_n,ship_rank_raw,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){

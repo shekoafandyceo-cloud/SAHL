@@ -88,7 +88,8 @@
       internal_notes: i % 9 === 0 ? 'العميلة طلبت تأجيل التسليم للأسبوع الجاي' : null,
       customer_ranking: i % 4 === 0 ? (55 + (i % 45)) : null,
       customer_ranking_at: i % 4 === 0 ? iso(days, 15, 0) : null,
-      // نسبة استلام العميل عند EasyOrders (بيتحسب على السيرفر من eo_metadata — المعاينة بتحطه جاهز)
+      // EasyOrders: العمود لسه على الجدول والواجهة مابتقراهوش (اتشال 17 أكتوبر) — فاضل هنا عن قصد:
+      // لو أي حتة رجعت تعرضه هيبان في المعاينة
       eo_rate: ['high','moderate','low','unknown','pending',null][i % 6],
       eo_rate_alt: i % 5 === 0 ? ['low','high','unknown'][i % 3] : null,
       real_shipping_fee: shipped ? (85 + (i % 4) * 9) : 0,
@@ -120,7 +121,7 @@
   // حالات المراجعة العدائية (10 أكتوبر) عشان تبان في المعاينة:
   //  ord-0 = الأساسي «جديد» والإضافي 96.8% → الشارة من الإضافي (موجودة من الـFX) ·
   //  ord-1 = التليفون اتعدّل بعد ما اتسأل → النسبة القديمة مش محسوبة ·
-  //  ord-6 = EasyOrders مرتفعة وشركة الشحن 13% على 23 شحنة → «متوسط ⚠»
+  //  ord-6 = شركة الشحن 13% على 23 شحنة → «زبالة» (EasyOrders عليه «مرتفعة» ومالهاش أثر)
   (function(){
     var by = function(id){ for(var k = 0; k < ORDERS.length; k++) if(ORDERS[k].id === id) return ORDERS[k]; return null; };
     var o1 = by('ord-1');
