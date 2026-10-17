@@ -34,11 +34,14 @@ var waPollMissed=false;   // الـpoll اتخطّى وهو في الخلفية 
 // تعديل: رسالة · unread · تصنيف · ملاحظة زميل) ويدمجوها. الكامل: الدخول · ↻ · كل 10 دقايق (شبكة أمان) · لو مفيش علامة
 // (`updated_at` مش راجع = الـSQL لسه ماتطبّقش) · لو اللي اتغيّر 200+.
 // هامش دقيقة على العلامة: ترانزاكشن بدأت قبل الجلب وخلصت بعده بيبقى updated_at بتاعها أقدم من آخر صف شفناه.
-var waConvWm=0, waConvFullAt=0, waConvDeltaGen=0, waConvRtTimer=null;
+var waConvWm=0, waConvFullAt=0, waConvDeltaGen=0, waConvDeltaDraws=0, waConvRtTimer=null;
 var WA_CONV_FULL_MS=10*60000, WA_CONV_MARGIN_MS=60000, WA_CONV_DELTA_LIMIT=200;
 // نفس الفكرة للمحادثة المفتوحة: الرسايل الجديدة بس · حالة رسالة (✓✓/اتقرت) من الحدث نفسه · الكامل عند الفتح وكل 5 دقايق
 var waMsgFullAt=0, waMsgDeltaGen=0;
 var WA_MSG_FULL_MS=5*60000, WA_MSG_DELTA_LIMIT=100;
+// جلب كامل في السكة: الدلتا بتستناه (بتتعمل بعده — snapshot قديم كان بيرجّع اللي اتجاب بعده) وحالات الحدث اللي وصلت
+// وهو في السكة بتتطبّق على نتيجته (الأعلى في الترتيب بيكسب). أكتر من 15ث = اعتبره ضاع (مفيش timeout في supabase-js)
+var waMsgFlight=null, WA_MSG_FLIGHT_MS=15000;
 // 🔴 أعمدة صريحة (v79 — كان '*' بالـreferral jsonb): أي عمود جديد الشات بيعرضه لازم يتضاف هنا (درس 33)
 var WA_MSG_COLS='id,tenant_id,conversation_id,wa_message_id,direction,type,body,media_path,media_filename,wa_timestamp,is_read,created_at,status,sent_by_name,reply_to_wa_id';
 
@@ -112,16 +115,23 @@ export function waFetchConvos(showLoading){
   if(!sb||!currentTenantId) return;
   // النفاد: الـRLS بترجّع صفر صفوف — الرد كان بيستبدل رسالة القفل بحالة فاضية عادية
   if(walletStateCache && walletStateCache.is_depleted) return;
-  var myGen=++waConvGen;
+  var myGen=++waConvGen, draws0=waConvDeltaDraws;
   if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
       if(myGen!==waConvGen) return;   // طلب أحدث خرج بعدنا
       if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل المحادثات</div>'; veilDone('inbox'); return; }
-      waConvos=r.data||[];
+      var data=r.data||[];
+      // 🔴 v82: دلتا خرجت **بعد** الكامل ده ورجعت قبله = نسختها أحدث من الـsnapshot ده — الصف الأحدث (updated_at) بيفضل،
+      // والمحادثة اللي الدلتا جابتها ومش في الـsnapshot بتيجي من دلتا تانية بعده على طول
+      var cur={};
+      for(var ci=0;ci<waConvos.length;ci++) cur[waConvos[ci].id]=waConvos[ci];
+      for(var di=0;di<data.length;di++){ var o=cur[data[di].id]; if(o && !waConvNewer(data[di], o)) data[di]=o; }
+      waConvos=data;
       waConvosCapped=(waConvos.length===200);
       waConvFullAt=Date.now(); waConvWm=0; waNoteConvWm(waConvos);
       renderConvos();
+      if(waConvDeltaDraws!==draws0) waFetchConvosDelta();
       veilDone('inbox');
       // طلب «افتح شات العميل ده» جاي من تاب الاستثناءات — بعد ما القايمة اتحمّلت
       waConsumeOpenRequest();
@@ -146,6 +156,7 @@ function waFetchConvosDelta(){
       var rows=r.data||[];
       if(rows.length>=WA_CONV_DELTA_LIMIT){ waFetchConvos(false); return; }   // اتغيّر كتير — الكامل أصح
       if(!rows.length) return;
+      waConvDeltaDraws++;
       waMergeConvRows(rows);
       renderConvos();
     });
@@ -730,16 +741,29 @@ export function renderConvos(){
   } }
 }
 
+// الهيدر من صف المحادثة — مفيش صف (لسه بيتجاب) = «…» مش اسم العميل اللي قبله
+function waFillChatHeader(c){
+  $id('wa-chat-name').textContent=c ? (c.customer_name||c.customer_phone||c.wa_id) : '…';
+  $id('wa-chat-phone').textContent=c ? (c.customer_phone||c.wa_id) : '';
+  $id('wa-chat-avatar').textContent=c ? waInitials(c.customer_name,c.customer_phone||c.wa_id) : '…';
+}
 export function openConversation(id){
   waActiveId=id; waRenderedCount=0;
   var c=waConvById(id);
   $id('wa-chat-empty').style.display='none';
   $id('wa-chat-inner').style.display='flex';
   $id('wa-wrap').classList.add('show-chat');
-  if(c){
-    $id('wa-chat-name').textContent=c.customer_name||c.customer_phone||c.wa_id;
-    $id('wa-chat-phone').textContent=c.customer_phone||c.wa_id;
-    $id('wa-chat-avatar').textContent=waInitials(c.customer_name,c.customer_phone||c.wa_id);
+  waFillChatHeader(c);
+  // 🔴 محادثة مش في أي قايمة (إشعار لعميل جديد والقايمة لسه ماتحدّثتش — التاب كانت مخفية أو على صفحة تانية): بنجيبها
+  // برقمها. من غيرها الهيدر كان بيفضل على العميل اللي قبلها ولوحة التصنيف والأوردرات مستخبية لحد ما الموظف يدوس الصف تاني
+  if(!c && sb && currentTenantId){
+    sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('id',id).limit(1).then(function(r){
+      var row=(!r.error && r.data && r.data[0]) || null;
+      if(!row || waActiveId!==id) return;
+      if(!waConvById(row.id)) waSearchExtra.push(row);
+      waFillChatHeader(row); waUpdateCtwa(row); waUpdateWindow(row); waLoadConvMeta(row); waLoadOrders(row);
+      renderConvos();
+    });
   }
   // محادثة مش موجودة في القايمة = مفيش شارة، مش شارة اللي قبليها
   waUpdateCtwa(c);
@@ -775,23 +799,33 @@ var waMsgGen=0;
 export function waFetchMessages(convId,scroll,isPoll){
   if(!sb) return;
   var myGen=++waMsgGen;
+  waMsgFlight={ gen: myGen, conv: convId, at: Date.now(), patches: {}, delta: false };
   // descending + reverse = أحدث 500 — الترتيب التصاعدي كان بيجيب أقدم 500
   // والمحادثة اللي عدّت الحد كانت بتتجمد على القديم للأبد
   sb.from('wa_messages').select(WA_MSG_COLS).eq('conversation_id',convId)
     .order('created_at',{ascending:false}).limit(500).then(function(r){
       if(convId!==waActiveId) return;
       if(myGen!==waMsgGen) return;   // رد أقدم لنفس المحادثة
+      var fl=(waMsgFlight && waMsgFlight.gen===myGen) ? waMsgFlight : null;
+      waMsgFlight=null;
       if(r.error){ if(!isPoll)$id('wa-msgs').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل الرسائل</div>'; return; }
       waMsgFullAt=Date.now();
       var data=(r.data||[]).reverse();
+      if(fl) waApplyFlightPatches(data, fl.patches);
       // مقارنة الطول لوحدها بتفشل لما العدد ثابت على الحد (500) والنافذة
       // بتنزلق — آخر id هو الفيصل
       var lastRendered = waRenderedState.length ? waRenderedState[waRenderedState.length-1].id : null;
       var lastNew = data.length ? data[data.length-1].id : null;
-      if(isPoll && data.length===waRenderedCount && lastNew===lastRendered) return;
+      // 🔴 v82: والحالات كمان (✓✓ · اتقرت · فشلت) — الجلب الكامل الدوري (كل 5 دقايق) هو اللي بيصلّح حالة حدث ضاع
+      // (التاب كانت مخفية · الاتصال قطع)، والرجوع بدري هنا كان بيرميها من غير رسم
+      if(isPoll && data.length===waRenderedCount && lastNew===lastRendered && waSameMsgs(data, waLastMsgs)){
+        if(fl && fl.delta) waRefreshMessages(convId,false);
+        return;
+      }
       var newArrived = isPoll && !!data.length && lastNew!==lastRendered;
       renderMessages(data, scroll);
       if(newArrived) waMarkRead(convId);
+      if(fl && fl.delta) waRefreshMessages(convId,false);   // رسالة وصلت والكامل في السكة — بعد ما نزل
     });
 }
 
@@ -807,6 +841,7 @@ export function waRefreshMessages(convId, isPoll){
   var maxT=0;
   for(var i=0;i<last.length;i++){ var t=Date.parse(last[i].created_at||''); if(t>maxT) maxT=t; }
   if(!maxT){ waFetchMessages(convId,false,isPoll); return; }
+  if(waMsgFlight && waMsgFlight.conv===convId && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS){ waMsgFlight.delta=true; return; }
   var fullGen=waMsgGen, myGen=++waMsgDeltaGen;
   sb.from('wa_messages').select(WA_MSG_COLS).eq('conversation_id',convId)
     .gte('created_at',new Date(maxT-60000).toISOString())
@@ -822,16 +857,40 @@ export function waRefreshMessages(convId, isPoll){
       if(isPoll && m.added) waMarkRead(convId);
     });
 }
-// حدث UPDATE لرسالة في المحادثة المفتوحة (✓✓ · اتقرت · فشلت): الحالة من الحدث نفسه من غير جلب
-function waPatchMessage(row){
+// حدث UPDATE لرسالة في المحادثة المفتوحة (✓✓ · اتقرت · فشلت): الحالة من الحدث نفسه من غير جلب.
+// localOnly (التاب مخفية): مفيش جلب خالص — رسالة مش معروضة = الكامل لما التاب ترجع
+function waPatchMessage(row, localOnly){
+  if(waMsgFlight && waMsgFlight.conv===row.conversation_id && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS) waMsgFlight.patches[row.id]=row;
   var list=waLastMsgs||[], idx=-1;
   for(var i=0;i<list.length;i++){ if(list[i].id===row.id){ idx=i; break; } }
-  if(idx<0){ waRefreshMessages(waActiveId,false); return; }   // مش معروضة (لسه مااتجابتش) — نجيب الجديد
+  if(idx<0){
+    if(localOnly){ waMsgFullAt=0; return; }
+    waRefreshMessages(waActiveId,false); return;   // مش معروضة (لسه مااتجابتش) — نجيب الجديد
+  }
   var n=Object.assign({}, list[idx]);
   WA_MSG_COLS.split(',').forEach(function(k){ if(Object.prototype.hasOwnProperty.call(row,k)) n[k]=row[k]; });
   if(!waMsgDiffers(list[idx], n)) return;
   var out=list.slice(); out[idx]=n;
   renderMessages(out,false);
+}
+// نفس الرسايل بنفس الترتيب ومفيش ولا عمود معروض اتغيّر
+function waSameMsgs(a, b){
+  if(!a || !b || a.length!==b.length) return false;
+  for(var i=0;i<a.length;i++){ if(a[i].id!==b[i].id || waMsgDiffers(a[i], b[i])) return false; }
+  return true;
+}
+// ترتيب الحالة: الحالة مابترجعش لورا (اتبعتت ← وصلت ← اتقرت · فشلت نهائية) — حدث وصل والكامل في السكة وحالته
+// أعلى من الـsnapshot = هو الأحدث. مجهول = 0 (الـsnapshot بيكسب)
+var WA_STATUS_RANK={ sent:1, delivered:2, read:3, failed:4 };
+function waApplyFlightPatches(data, patches){
+  for(var i=0;i<data.length;i++){
+    var p=patches[data[i].id];
+    if(!p) continue;
+    if((WA_STATUS_RANK[p.status]||0) <= (WA_STATUS_RANK[data[i].status]||0)) continue;
+    var n=Object.assign({}, data[i]);
+    WA_MSG_COLS.split(',').forEach(function(k){ if(Object.prototype.hasOwnProperty.call(p,k)) n[k]=p[k]; });
+    data[i]=n;
+  }
 }
 function waMsgDiffers(a, b){
   var cols=WA_MSG_COLS.split(',');
@@ -1354,7 +1413,13 @@ export function handleWaRealtime(payload){
   if(inboxOpen){
     // 🔴 v82: التاب في الخلفية = علامة بس (بتتجاب مرة لما ترجع — نفس waPollMissed بتاع الـpoll). قبل كده كل رسالة
     // واتساب كانت بتجيب القايمة كاملة (233 KB) في كل تاب محادثات مفتوحة حتى المخفية.
-    if(document.hidden){ waPollMissed=true; }
+    if(document.hidden){
+      waPollMissed=true;
+      // حالة رسالة في المحادثة المفتوحة = من الحدث نفسه من غير جلب (كانت بتضيع لحد ما الشات يتفتح تاني)
+      if(isUpdate && m.id && m.conversation_id && m.conversation_id===waActiveId) waPatchMessage(m, true);
+      // محادثة مش في القايمة (عميل جديد) = الدلتا الصغيرة — الإشعار وفتحه محتاجين اسمها
+      if(!isUpdate && m.conversation_id && !waConvById(m.conversation_id)) waScheduleConvRefresh();
+    }
     else {
       if(m.conversation_id && m.conversation_id===waActiveId){
         if(isUpdate && m.id) waPatchMessage(m); else waRefreshMessages(waActiveId,false);

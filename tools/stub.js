@@ -141,6 +141,8 @@
       rows = rows.map(function(c){ return Object.assign({}, c); });
       // فتح شات برقم العميل (تاب الاستثناءات) — `.eq('wa_id', x)` لازم يتطبّق فعلاً
       if(st.eqWa !== undefined) rows = rows.filter(function(c){ return c.wa_id === st.eqWa; });
+      // v82: فتح محادثة مش في القايمة برقمها (`.eq('id', x)` — إشعار لعميل جديد) — لازم يتطبّق فعلاً
+      if(st.eqId !== undefined && !st.payload) rows = rows.filter(function(c){ return c.id === st.eqId; });
       // 🔴 والستب لازم يقطع **زي السيرفر**: من غير ده فلتر بيقرا من المحمّل
       // وفلتر بيستعلم من السيرفر بيدّوا نفس النتيجة، والاختبار مايثبتش حاجة
       // (درس 33 — ستب بيرجّع كل حاجة مهما طلب الكود = فحص أعمى).

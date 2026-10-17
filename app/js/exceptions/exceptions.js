@@ -1155,6 +1155,17 @@ function jxCatchUp(){
 }
 
 // الأحداث بتيجي رشقات (المسح الواحد بيلمس كذا صف + النتيجة) — بنجمّعها 600ms في استعلام واحد
+// v82: حالة الأوردر (اتلغى · اتسلّم بإيد موظف) بتغيّر نتيجة الاستثناء (jxOutcome بيقع على order_status لو J&T مالهاش نتيجة)
+// من غير أي حدث على jt_issues — قبل v82 أي حدث على أي بوليصة كان بيعيد الشارة كلها فبتتصلّح بالصدفة، والتاب نفسها عمرها
+// ما اتصلّحت. ريل-تايم الأوردرات بيبلّغ هنا والبوليصة بتتعاد زي حدثها بالظبط — بس لو ليها استثناء محمّل (بوالص تانية = ولا نداء)
+export function jxNoteOrderChange(trk){
+  if(!trk || tourActive) return;
+  var rows = jxLoadedAt ? jxRows : null, known = false;
+  if(rows){ for(var i = 0; i < rows.length; i++){ if(rows[i].tracking_no === trk){ known = true; break; } } }
+  else if(jxBadgeRows){ for(var k in jxBadgeRows){ if(Object.prototype.hasOwnProperty.call(jxBadgeRows, k) && jxBadgeRows[k].tracking_no === trk){ known = true; break; } } }
+  if(known) jxHandleRealtime({ new: { tracking_no: trk } });
+}
+
 export function jxHandleRealtime(payload){
   if(tourActive) return;
   var n = (payload && (payload.new || payload.old)) || {};

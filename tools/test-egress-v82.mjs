@@ -49,7 +49,9 @@ let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if(!c) bad++; };
 
 // ── الفيكستشر ──────────────────────────────────────────────────────────
-const NOW = Date.now();
+// ساعة المتصفح وساعة الفيكستشر لازم يبقوا واحد: مع CLOCK (أول يومين في الشهر — درس 52) الصفحة على CLOCK والكتابة في
+// الفيكستشر من جوّه المتصفح (new Date()) — فالفيكستشر نفسه لازم يتبني على نفس الساعة
+const NOW = process.env.CLOCK ? Date.parse(process.env.CLOCK) : Date.now();
 const isoAgo = mins => new Date(NOW - mins * 60000).toISOString();
 // تنبيه الدمج: 3 صيغ لنفس الرقم (محلي · +20 · أرقام هندية) + رقم تاني لوحده — كلهم «جاهز للشحن»
 const MERGE_ORDERS = `
@@ -86,10 +88,16 @@ async function open(path, o){
     window.__WA_CONVOS = ${JSON.stringify(CONVOS)}; window.__WA_MSGS = ${JSON.stringify(MSGS)}; window.__JT_ISSUES = [];
     window.__RPC_HOOK = function(n){ if(n === 'wa_inbox_status') return { data:{ verified:true }, error:null }; return null; };
     ${o.merge ? MERGE_ORDERS : ''} ${o.pre || ''}`);
+  // أكتر من حقنة على نفس الملف بتتطبّق ورا بعض (route واحد للملف) — وكل حقنة لازم تلاقي مرساتها
+  const byFile = {};
   for(const pt of (o.patches || [])){
-    const src = SRC(pt.file), out = pt.fn(src);
+    const src = byFile[pt.file] || SRC(pt.file), out = pt.fn(src);
     if(out === src) throw new Error('المعايرة مالقتش المرساة: ' + pt.file);
-    await p.route('**/js/' + pt.file, r => r.fulfill({ status: 200, contentType: 'application/javascript; charset=utf-8', body: out }));
+    byFile[pt.file] = out;
+  }
+  for(const f of Object.keys(byFile)){
+    const body = byFile[f];
+    await p.route('**/js/' + f, r => r.fulfill({ status: 200, contentType: 'application/javascript; charset=utf-8', body }));
   }
   await p.goto(ORIGIN + path, { waitUntil: 'networkidle' });
   if(path === '/chats') await p.waitForSelector('#wa-list-body .wa-conv', { timeout: 10000 });
@@ -271,6 +279,172 @@ async function probeJxBadge(o){
   const d = diff(a, await snap(T.p)); await T.ctx.close(); return { d, base: a };
 }
 
+
+// ── من المراجعة العدائية (v82) ────────────────────────────────────────
+// 18) الصفحة في السكة (رد بطيء = snapshot قبل الحدث) وحدث وصل وهي في السكة → الصفحة بتتجاب تاني والصف على الحالة الجديدة
+async function probeFlight(o){
+  const T = await open('/orders', o);
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.from !== undefined) ? 1200 : 0; });
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/orders/orders.js')).fetchOrdersPage());
+  await T.p.waitForTimeout(100);
+  await fireOrder(T.p, 'UPDATE', 'o2', { status: 'Delivered', updated_at: STAMP() });
+  await T.p.waitForTimeout(2600);
+  const d = diff(a, await snap(T.p)); const bd = await badge(T.p, 'o2'); await T.ctx.close();
+  return { d, bd };
+}
+// 19) الموظف عدّل التليفون في التفاصيل (patchOrderField بيكتب على صف fil نفسه) وصدى الحدث وصل = الدمج والكروت اتحدّثوا
+async function probeLocalPatch(o){
+  const T = await open('/orders', o);
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => { const st = await import('/js/orders/state.js'); const r = st.fil.filter(x => x.id === 'o2')[0]; r.phone = '01011112222'; });
+  await fireOrder(T.p, 'UPDATE', 'o2', { phone: '01011112222', updated_at: STAMP() });
+  const d = diff(a, await snap(T.p)); await T.ctx.close(); return d;
+}
+// 20) أوردر معروف من مخزن الماليات بس (all — ALL_COLS من غير أعمدة الإلغاء) والعميل طلب إلغاء = الكروت وشريط الإلغاء اتحدّثوا
+async function probeAllOnly(o){
+  const T = await open('/orders', o);
+  await T.p.evaluate(async () => { const st = await import('/js/orders/state.js');
+    st.ordersSetAll([{ id: 'zall', status: 'Delivered', total_cost: 900, created_at: new Date(Date.now() - 86400000).toISOString(), payment_stage: 'cod', platform: 'fb' }]);
+    st.ordersSetAllLoaded(true); });
+  const a = await snap(T.p);
+  await fireOrder(T.p, 'UPDATE', 'zall', { order_uid: '7790', status: 'Delivered', cancel_requested_at: STAMP(), updated_at: STAMP() });
+  const d = diff(a, await snap(T.p)); await T.ctx.close(); return d;
+}
+// 21) تليفون صف في الصفحة اتغيّر من تاب تانية = عدّ الرقمين (شارة العميل المتكرر)
+async function probePhoneCounts(o){
+  const T = await open('/orders', o);
+  const before = await T.p.evaluate(() => window.__calls.filter(x => x.table === 'orders' && x.cols === 'phone').length);
+  await fireOrder(T.p, 'UPDATE', 'o2', { phone: '01000000001', updated_at: STAMP() });
+  const calls = await T.p.evaluate(() => window.__calls.filter(x => x.table === 'orders' && x.cols === 'phone'));
+  await T.ctx.close();
+  const last = calls[calls.length - 1];
+  return { n: calls.length - before, phones: last ? ((last.f || []).filter(f => f.op === 'in' && f.col === 'phone')[0] || {}).val : null };
+}
+// 22) التاب مخفية وحالة رسالة في المحادثة المفتوحة اتغيّرت = اتطبّقت من الحدث (صفر جلب)
+async function probeHiddenPatch(o){
+  const T = await openChat(o);
+  await T.p.evaluate(HIDE('true'));
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js');
+    m.handleWaRealtime({ eventType: 'UPDATE', new: Object.assign({}, window.__WA_MSGS[1], { status: 'read' }) }); });
+  await T.p.waitForTimeout(500);
+  const d = diff(a, await snap(T.p));
+  const st = await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js'); const x = (m.waLastMsgs || []).filter(r => r.id === 'm2')[0]; return x ? x.status : null; });
+  await T.ctx.close(); return { d, st };
+}
+// 23) حالة اتغيّرت على السيرفر والحدث ضاع (قطع اتصال) = الجلب الكامل الدوري (5 دقايق — مسار الـpoll) بيصلّحها
+async function probeFullRepair(o){
+  const T = await openChat(o);
+  await T.p.evaluate(() => { window.__WA_MSGS[1].status = 'read'; });
+  const t0 = await T.p.evaluate(() => Date.now());
+  await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000));
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).waRefreshMessages('c5', true));
+  await T.p.waitForTimeout(700);
+  const r = await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js'); const x = (m.waLastMsgs || []).filter(r => r.id === 'm2')[0];
+    return { st: x ? x.status : null, full: window.__calls.filter(c => c.table === 'wa_messages' && c.limit === 500).length }; });
+  await T.ctx.close(); return r;
+}
+// 24) جلب كامل للرسايل في السكة (بطيء) ورسالة جديدة وصلت = الدلتا بتستناه وبتتعمل بعده — الرسالة مابتختفيش
+async function probeMsgFlight(o){
+  const T = await openChat(o);
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'wa_messages' && st.limit === 500) ? 1200 : 0; });
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).waFetchMessages('c5', false, false));
+  await T.p.waitForTimeout(100);
+  await T.p.evaluate(async () => { const n = new Date().toISOString();
+    window.__WA_MSGS.push(Object.assign({}, window.__WA_MSGS[2], { id: 'm4', wa_message_id: 'wamid.m4', body: 'جديدة', created_at: n, wa_timestamp: n }));
+    const m = await import('/js/inbox/inbox.js');
+    m.handleWaRealtime({ eventType: 'INSERT', new: { id: 'm4', conversation_id: 'c5', direction: 'in', type: 'text', body: 'جديدة', created_at: n } }); });
+  await T.p.waitForTimeout(300);
+  const mid = diff(a, await snap(T.p));
+  await T.p.waitForTimeout(2000);
+  const d = diff(a, await snap(T.p));
+  const ids = await T.p.evaluate(() => Array.from(document.querySelectorAll('#wa-msgs .wa-msg[data-mid]')).map(e => e.getAttribute('data-mid')));
+  await T.ctx.close(); return { mid, d, ids };
+}
+// 25) إشعار لعميل جديد مش في القايمة واتفتح = الهيدر بيتملى من المحادثة نفسها (مش العميل اللي قبلها)
+async function probeOpenUnknown(o){
+  const T = await openChat(o);
+  await T.p.evaluate(() => { window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: 'cZ', wa_id: '201055554444', customer_phone: '01055554444', customer_name: 'هالة الجديدة', updated_at: new Date().toISOString() })); });
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).openConversation('cZ'));
+  await T.p.waitForTimeout(700);
+  const r = await T.p.evaluate(() => ({ name: document.getElementById('wa-chat-name').textContent, phone: document.getElementById('wa-chat-phone').textContent }));
+  await T.ctx.close(); return r;
+}
+// 26) التاب مخفية ورسالة من محادثة مش في القايمة = الدلتا الصغيرة (عشان الإشعار وفتحه)
+async function probeHiddenUnknown(o){
+  const T = await open('/chats', o);
+  await T.p.evaluate(HIDE('true'));
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => { const n = new Date().toISOString();
+    window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: 'cY', wa_id: '201066667777', customer_name: 'جديد', last_message_at: n, updated_at: n }));
+    const m = await import('/js/inbox/inbox.js');
+    m.handleWaRealtime({ eventType: 'INSERT', new: { id: 'my', conversation_id: 'cY', direction: 'in', type: 'text', body: 'سلام', created_at: n } }); });
+  await T.p.waitForTimeout(900);
+  const d = diff(a, await snap(T.p));
+  const has = await T.p.evaluate(async () => !!(await import('/js/inbox/inbox.js')).waConvById('cY'));
+  await T.ctx.close(); return { d, has };
+}
+// 27) جلب كامل للمحادثات في السكة ودلتا رسمت نسخة أحدث = الكامل مابيرجّعش القديم
+async function probeConvFlight(o){
+  const T = await open('/chats', o);
+  await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'wa_conversations' && st.order === 'last_message_at') ? 1200 : 0; });
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).waFetchConvos(false));
+  await T.p.waitForTimeout(100);
+  await T.p.evaluate(async () => { const n = new Date().toISOString(), c7 = window.__WA_CONVOS.filter(c => c.id === 'c7')[0];
+    c7.last_message_text = 'نسخة أحدث'; c7.updated_at = n; c7.last_message_at = n;
+    window.__WA_CONVOS.push(Object.assign({}, c7, { id: 'cF', wa_id: '201077778888', customer_name: 'جت وهو في السكة', last_message_text: 'جديدة' }));
+    (await import('/js/inbox/inbox.js')).waRefreshConvos(); });
+  await T.p.waitForTimeout(400);
+  const mid = await T.p.evaluate(() => { const e = document.querySelector('#wa-list-body .wa-conv[data-id="c7"] .wa-conv-prev'); return e ? e.textContent : null; });
+  await T.p.waitForTimeout(1600);
+  const end = await T.p.evaluate(() => { const e = document.querySelector('#wa-list-body .wa-conv[data-id="c7"] .wa-conv-prev'); return e ? e.textContent : null; });
+  const hasF = await T.p.evaluate(() => !!document.querySelector('#wa-list-body .wa-conv[data-id="cF"]'));
+  await T.ctx.close(); return { mid, end, hasF };
+}
+// 28) شارة الاستثناءات على مسار الحدث: العدد بيتحسب على **كل** صفوف الشارة مش صفوف الحدث بس
+const JX_ROWS = `window.__JT_ISSUES = ['B1','B2','B3'].map(function(b, i){ return { id: 700 + i, tenant_id: 't-test-1', tracking_no: b, kind: 'exception',
+  event_at: new Date(Date.now() - (i + 2) * 3600000).toISOString(), verdict: null, outcome: null, order_status: 'Exception', review_state: null,
+  staff_rev: 0, reviewed_rev: null, updated_at: new Date(Date.now() - 3600000).toISOString() }; });`;
+const jxBadgeTxt = p => p.evaluate(() => { const b = document.getElementById('jx-nav-badge'); return b && b.style.display !== 'none' ? b.textContent : '0'; });
+async function jxEvent(p, bill){
+  await p.evaluate(async b => (await import('/js/exceptions/exceptions.js')).jxHandleRealtime({ eventType: 'UPDATE', new: { id: 1, tracking_no: b } }), bill);
+  await p.waitForTimeout(1000);
+}
+async function probeJxCount(o){
+  const T = await open('/orders', Object.assign({ pre: JX_ROWS }, o));
+  await T.p.waitForTimeout(500);
+  const s0 = await jxBadgeTxt(T.p);
+  await jxEvent(T.p, 'B1');
+  const s1 = await jxBadgeTxt(T.p);
+  await T.p.evaluate(() => { window.__JT_ISSUES[1].outcome = 'delivered'; });
+  await jxEvent(T.p, 'B2');
+  const s2 = await jxBadgeTxt(T.p);
+  await T.p.evaluate(() => { const r = Object.assign({}, window.__JT_ISSUES[0], { id: 799, tracking_no: 'B4', event_at: new Date().toISOString() }); window.__JT_ISSUES.push(r); });
+  await jxEvent(T.p, 'B4');
+  const s3 = await jxBadgeTxt(T.p);
+  const sn = await snap(T.p);
+  await T.ctx.close(); return { s: [s0, s1, s2, s3], jxFull: sn.jxFull };
+}
+// 29) الموظف لغى أوردر ليه استثناء (حالة الأوردر بتغيّر النتيجة من غير أي حدث على jt_issues) = ريل-تايم الأوردرات بيعيد البوليصة
+// دي بس والشارة نزلت · ضابط: أوردر بوليصته مالهاش استثناء = ولا نداء للاستثناءات
+async function probeJxOrderChange(o){
+  const T = await open('/orders', Object.assign({ pre: JX_ROWS }, o));
+  await T.p.waitForTimeout(500);
+  const s0 = await jxBadgeTxt(T.p);
+  const a = await snap(T.p);
+  await T.p.evaluate(() => { window.__JT_ISSUES[1].order_status = 'cancelled'; });
+  await fireOrder(T.p, 'UPDATE', 'zb2', { order_uid: '7795', tracking_no: 'B2', status: 'cancelled', updated_at: STAMP() });
+  await T.p.waitForTimeout(800);
+  const d = diff(a, await snap(T.p)); const s1 = await jxBadgeTxt(T.p);
+  const a2 = await snap(T.p);
+  await fireOrder(T.p, 'UPDATE', 'zb9', { order_uid: '7796', tracking_no: 'JEGNOEXC', status: 'cancelled', updated_at: STAMP() });
+  await T.p.waitForTimeout(800);
+  const d2 = diff(a2, await snap(T.p));
+  await T.ctx.close(); return { s0, s1, d, d2 };
+}
+
 // ════════════════════════════════════════════════════════════════════
 console.log('\n── الأوردرات: تصنيف الحدث');
 {
@@ -365,6 +539,59 @@ console.log('\n── شارة الاستثناءات');
   ok(r.base.jxFull >= 1 && r.d.jxDelta === 1 && r.d.jxFull === 0, '17) حدث jt_issues والتاب لسه ماتفتحتش = بوالص الحدث بس (in tracking_no) مش الـ30 يوم — ' + JSON.stringify(r));
 }
 
+
+console.log('\n── من المراجعة العدائية');
+{
+  const r = await probeFlight();
+  ok(r.d.page >= 2 && r.bd === 'تم التسليم', '18) الصفحة في السكة وحدث وصل = الصفحة اتجابت تاني بعدها والصف على الحالة الجديدة (مش الـsnapshot القديم) — ' + JSON.stringify(r));
+}
+{
+  const d = await probeLocalPatch();
+  ok(d.merge >= 1 && d.stats >= 1, '19) التليفون اتعدّل محلي (fil نفسه) وصدى الحدث = الدمج والكروت اتحدّثوا عند الموظف اللي عدّل — ' + JSON.stringify(d));
+}
+{
+  const d = await probeAllOnly();
+  ok(d.stats >= 1 && d.merge >= 1, '20) أوردر معروف من مخزن الماليات بس وطلب إلغاء = الكروت وشريط الإلغاء اتحدّثوا — ' + JSON.stringify(d));
+}
+{
+  const r = await probePhoneCounts();
+  ok(r.n >= 1 && Array.isArray(r.phones) && r.phones.indexOf('01000000001') >= 0 && r.phones.indexOf('01000000002') >= 0,
+    '21) تليفون صف في الصفحة اتغيّر من تاب تانية = عدّ الرقمين (الجديد والقديم) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeHiddenPatch();
+  ok(r.st === 'read' && r.d.msgFull + r.d.msgDelta === 0, '22) التاب مخفية وحالة رسالة اتغيّرت = اتطبّقت من الحدث (صفر جلب) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeFullRepair();
+  ok(r.st === 'read' && r.full >= 2, '23) الحالة اتغيّرت والحدث ضاع = الكامل الدوري (مسار الـpoll) صلّحها — ' + JSON.stringify(r));
+}
+{
+  const r = await probeMsgFlight();
+  ok(r.mid.msgDelta === 0 && r.d.msgDelta === 1 && r.ids.indexOf('m4') >= 0, '24) الكامل في السكة ورسالة وصلت = الدلتا استنته واتعملت بعده والرسالة ظاهرة — ' + JSON.stringify(r));
+}
+{
+  const r = await probeOpenUnknown();
+  ok(r.name === 'هالة الجديدة' && r.phone === '01055554444', '25) محادثة مش في القايمة اتفتحت = الهيدر من المحادثة نفسها — ' + JSON.stringify(r));
+}
+{
+  const r = await probeHiddenUnknown();
+  ok(r.d.convDelta === 1 && r.has, '26) التاب مخفية ورسالة من محادثة مش في القايمة = الدلتا جابتها — ' + JSON.stringify(r));
+}
+{
+  const r = await probeConvFlight();
+  ok(r.mid === 'نسخة أحدث' && r.end === 'نسخة أحدث' && r.hasF, '27) الكامل في السكة والدلتا رسمت الأحدث = الكامل مارجّعش القديم · والمحادثة اللي جت في الدلتا فضلت (دلتا بعد الكامل) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeJxCount();
+  ok(r.s.join(',') === '3,3,2,3', '28) شارة الاستثناءات على مسار الحدث: حدث من غير تغيير = 3 · اتسلّمت = 2 · بوليصة جديدة = 3 — ' + JSON.stringify(r));
+}
+{
+  const r = await probeJxOrderChange();
+  ok(r.s0 === '3' && r.s1 === '2' && r.d.jxDelta === 1 && r.d.jxFull === 0 && r.d2.jxDelta + r.d2.jxFull === 0,
+    '29) أوردر ليه استثناء اتلغى = البوليصة دي اتعادت والشارة 3 ← 2 · ضابط: بوليصة مالهاش استثناء = ولا نداء — ' + JSON.stringify(r));
+}
+
 // ════════════════════════════════════════════════════════════════════
 console.log('\n── المعايرات (كل واحدة لازم توقّع فحص)');
 const P = (file, from, to) => ({ file, fn: s => s.replace(from, to) });
@@ -380,7 +607,7 @@ await cal('(أ) الختم مش متشاف → فحص 1 كان هيقع',
   [P('orders/orders.js', '    if(rtStampOnly(row)) return { light: false, page: false };\n', '')],
   probeStampUnknown, d => d.stats > 0);
 await cal('(ب) التصنيف القديم (كل حدث = كروت + صفحة) → فحص 3 كان هيقع',
-  [P('orders/orders.js', '    need = rtNeeds(row, rtKnownRow(row.id));', '    need = { light: true, page: true, render: false };')],
+  [P('orders/orders.js', '    need = rtNeeds(row, known);', '    need = { light: true, page: true, render: false };')],
   probeKnownStatus, r => r.d.page > 0);
 await cal('(ج) الصف المعروض مابيترسمش → فحص 4 كان هيقع',
   [P('orders/orders.js', '    if(prev) need.render = true;', '    if(false) need.render = true;')],
@@ -410,7 +637,7 @@ await cal('(ك) مفيش كامل بعد 200 → فحص 13 كان هيقع',
   [P('inbox/inbox.js', '      if(rows.length>=WA_CONV_DELTA_LIMIT){ waFetchConvos(false); return; }', '')],
   probeConv200, d => d.convFull === 0);
 await cal('(ل) التاب المخفية بتجيب → فحص 14 كان هيقع',
-  [P('inbox/inbox.js', '    if(document.hidden){ waPollMissed=true; }', '    if(false){ waPollMissed=true; }')],
+  [P('inbox/inbox.js', '    if(document.hidden){\n      waPollMissed=true;', '    if(false){\n      waPollMissed=true;')],
   probeHidden, r => r.hid.convDelta + r.hid.convFull > 0);
 await cal('(م) الرسايل كامل دايماً → فحص 15 كان هيقع',
   [P('inbox/inbox.js', '  var fullGen=waMsgGen, myGen=++waMsgDeltaGen;', '  waFetchMessages(convId,false,isPoll); return;\n  var fullGen=waMsgGen, myGen=++waMsgDeltaGen;')],
@@ -421,6 +648,51 @@ await cal('(ن) حالة الرسالة بجلب → فحص 16 كان هيقع',
 await cal('(س) الشارة بالجلب الكامل مع كل حدث → فحص 17 كان هيقع',
   [P('exceptions/exceptions.js', '    else if(jxBadgeRows && list.length) jxBadgeFetch(list);\n', '')],
   probeJxBadge, r => r.d.jxFull > 0);
+
+await cal('(ع) الحدث وقت ما الصفحة في السكة مابيجيبهاش تاني → فحص 18 كان هيقع',
+  [P('orders/orders.js', '  if(pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) need.page = true;', '')],
+  probeFlight, r => r.bd !== 'تم التسليم');
+await cal('(ف) المقارنة بصف fil المعدّل محلي → فحص 19 كان هيقع',
+  [P('orders/orders.js', '    for(var ri=0; ri<fil.length; ri++) rtRemember(fil[ri]);\n', '')],
+  probeLocalPatch, d => d.merge === 0);
+await cal('(ص) المقارنة بمخزن الماليات (all) → فحص 20 كان هيقع',
+  [P('orders/orders.js', '  if(sel && sel.id === id) return sel;\n  return null;', '  if(sel && sel.id === id) return sel;\n  if(allLoaded){ for(var j=0;j<all.length;j++){ if(all[j].id === id) return all[j]; } }\n  return null;')],
+  probeAllOnly, d => d.stats === 0);
+await cal('(ق) مفيش عدّ للتليفون اللي اتغيّر → فحص 21 كان هيقع',
+  [P('orders/orders.js', '    if(prev && phoneMoved) phs = [row.phone, known.phone];', '    if(false) phs = [];')],
+  probePhoneCounts, r => r.n === 0);
+await cal('(ر) التاب المخفية بترمي حالة الرسالة → فحص 22 كان هيقع',
+  [P('inbox/inbox.js', '      if(isUpdate && m.id && m.conversation_id && m.conversation_id===waActiveId) waPatchMessage(m, true);\n', '')],
+  probeHiddenPatch, r => r.st !== 'read');
+await cal('(ش) الكامل الدوري بيرجع بدري من غير ما يقارن الحالات → فحص 23 كان هيقع',
+  [P('inbox/inbox.js', ' && waSameMsgs(data, waLastMsgs)){', '){')],
+  probeFullRepair, r => r.st !== 'read');
+await cal('(ت) الدلتا مابتستناش الكامل اللي في السكة → فحص 24 كان هيقع',
+  [P('inbox/inbox.js', '  if(waMsgFlight && waMsgFlight.conv===convId && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS){ waMsgFlight.delta=true; return; }\n', '')],
+  probeMsgFlight, r => r.mid.msgDelta > 0 || r.ids.indexOf('m4') < 0);
+await cal('(ث) المحادثة المش معروفة مابتتجابش برقمها → فحص 25 كان هيقع',
+  [P('inbox/inbox.js', '  if(!c && sb && currentTenantId){', '  if(false){')],
+  probeOpenUnknown, r => r.name !== 'هالة الجديدة');
+await cal('(خ) التاب المخفية مابتجيبش المحادثة الجديدة → فحص 26 كان هيقع',
+  [P('inbox/inbox.js', '      if(!isUpdate && m.conversation_id && !waConvById(m.conversation_id)) waScheduleConvRefresh();\n', '')],
+  probeHiddenUnknown, r => r.d.convDelta === 0);
+// الحمايتين (الأحدث بيكسب + دلتا بعد الكامل) بيغطّوا الصف المتعدّل مع بعض — كل معايرة بتشيل الاتنين للحالة اللي بتختبرها
+await cal('(ذ) الكامل بيكتب فوق الأحدث (من غير الحمايتين) → فحص 27 كان هيقع',
+  [P('inbox/inbox.js', '      for(var di=0;di<data.length;di++){ var o=cur[data[di].id]; if(o && !waConvNewer(data[di], o)) data[di]=o; }\n', ''),
+   P('inbox/inbox.js', '      if(waConvDeltaDraws!==draws0) waFetchConvosDelta();', '')],
+  probeConvFlight, r => r.end !== 'نسخة أحدث');
+await cal('(أأ) مفيش دلتا بعد الكامل → المحادثة اللي جت وهو في السكة اختفت (فحص 27 كان هيقع)',
+  [P('inbox/inbox.js', '      if(waConvDeltaDraws!==draws0) waFetchConvosDelta();', '')],
+  probeConvFlight, r => !r.hasF);
+await cal('(ض) الشارة بتتحسب على صفوف الحدث بس → فحص 28 كان هيقع',
+  [P('exceptions/exceptions.js', '        jxBadgeAll(allRows, Date.now());', '        jxBadgeAll(rows, Date.now());')],
+  probeJxCount, r => r.s.join(',') !== '3,3,2,3');
+await cal('(ظ) الأوردرات مابتبلّغش الاستثناءات بتغيير الحالة → فحص 29 كان هيقع',
+  [P('orders/orders.js', '      try{ jxNoteOrderChange(row.tracking_no); }catch(e){', '      try{ void 0; }catch(e){')],
+  probeJxOrderChange, r => r.s1 !== '2');
+await cal('(غ) البلاغ لأي بوليصة حتى اللي مالهاش استثناء → ضابط فحص 29 كان هيقع',
+  [P('exceptions/exceptions.js', '  if(known) jxHandleRealtime({ new: { tracking_no: trk } });', '  jxHandleRealtime({ new: { tracking_no: trk } });')],
+  probeJxOrderChange, r => r.d2.jxDelta + r.d2.jxFull > 0);
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

@@ -27,7 +27,7 @@ import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from '
 import { initShipTicker } from './ship.js';
 import { initJtHealth } from './jt-health.js';
 import { initOrderForm } from './order-form.js';
-import { jtRefreshNavBadge } from '../exceptions/exceptions.js';
+import { jtRefreshNavBadge, jxNoteOrderChange } from '../exceptions/exceptions.js';
 import { whRefreshNavBadge } from '../warehouse/warehouse.js';
 
 export function ordersInPeriod(){
@@ -410,13 +410,14 @@ function rtRemember(row){
   rtSeen.delete(row.id); rtSeen.set(row.id, o);
   if(rtSeen.size > RT_SEEN_MAX) rtSeen.delete(rtSeen.keys().next().value);
 }
-// النسخة اللي في الذاكرة **قبل** الحدث: الصفحة ← نافذة التفاصيل ← آخر حدث ← مخزن الماليات
+// النسخة اللي بنقارن بيها **قبل** الحدث: نسخة السيرفر (آخر جلب للصفحة أو آخر حدث — مش التعديل المحلي) ← الصفحة ← نافذة
+// التفاصيل. 🔴 مخزن الماليات (all) مش منهم: أعمدته (ALL_COLS) ناقصة أعمدة الكروت (طلب الإلغاء · الاسم · المدينة) فالتغيير
+// فيها كان بيعدّي «مفيش تغيير» — الأوردر اللي مش معروف بيتعامل «مش معروف» (light لو مش ختم)
 function rtKnownRow(id){
   if(!id) return null;
+  var s = rtSeen.get(id); if(s) return s;
   for(var i=0;i<fil.length;i++){ if(fil[i].id === id) return fil[i]; }
   if(sel && sel.id === id) return sel;
-  var s = rtSeen.get(id); if(s) return s;
-  if(allLoaded){ for(var j=0;j<all.length;j++){ if(all[j].id === id) return all[j]; } }
   return null;
 }
 function rtActiveFilters(){
@@ -471,7 +472,13 @@ export function handleRealtimeChange(payload){
     rtRemember(row);
   } else if(ev === 'UPDATE'){
     // التصنيف **قبل** ما أي نسخة في الذاكرة تتحدّث — هي اللي بنقارن بيها
-    need = rtNeeds(row, rtKnownRow(row.id));
+    var known = rtKnownRow(row.id);
+    need = rtNeeds(row, known);
+    var phoneMoved = !!(known && Object.prototype.hasOwnProperty.call(known, 'phone') && !rtSameValue(known.phone, row.phone));
+    // حالة أوردر ليه استثناء اتغيّرت = نتيجة الاستثناء ممكن تتغيّر (اتلغى · اتسلّم) — الشارة والتاب بيعيدوا البوليصة دي بس
+    if(row.tracking_no && !rtStampOnly(row) && (!known || !rtSameValue(known.status, row.status))){
+      try{ jxNoteOrderChange(row.tracking_no); }catch(e){ swallow('handleRealtimeChange/jxNoteOrderChange', e); }
+    }
     rtRemember(row);
     if(allLoaded){
       for(var i=0;i<all.length;i++){ if(all[i].id === row.id){ all[i] = row; break; } }
@@ -483,6 +490,16 @@ export function handleRealtimeChange(payload){
     var prev = null;
     for(var k=0;k<fil.length;k++){ if(fil[k].id === row.id){ prev = fil[k]; fil[k] = row; break; } }
     if(prev) need.render = true;   // الصف المعروض اتحدّث — بيترسم في آخر الرشقة لو مفيش جلب للصفحة
+    // شارة العميل المتكرر (phoneCounts) كانت بتتحدّث مع جلب الصفحة اللي كان بيحصل مع كل حدث — التليفون اتغيّر = عدّ الرقمين
+    // أوردر مش معروف (مش في الصفحة) ومش ختم وتليفونه زي صف في الصفحة = ممكن يكون اتغيّر للرقم ده — عدّ الرقم ده بس
+    var phs = [];
+    if(prev && phoneMoved) phs = [row.phone, known.phone];
+    else if(!known && !rtStampOnly(row) && row.phone){
+      var np = normalizePhone(row.phone);
+      for(var q=0; q<fil.length; q++){ if(fil[q].id !== row.id && np && normalizePhone(fil[q].phone) === np){ phs = [row.phone]; break; } }
+    }
+    phs = phs.filter(function(x){ return !!x; });
+    if(phs.length) fetchPhoneCounts(phs, function(){ try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/phoneCounts', e); } });
     // 🔴 REPLICA IDENTITY على `orders` = default، يعني `payload.old` فيه
     // المفتاح بس — الحالة القديمة بتتقرا من الصف اللي في الذاكرة مش من
     // الحدث. لو الصف مش معروض، مفيش مقارنة ومفيش toast (وده صح: الجدول
@@ -527,6 +544,7 @@ export function handleRealtimeChange(payload){
     if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
     rtSeen.delete(oldRow.id);
   }
+  if(pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_MS) need.page = true;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
   if(need.light) rtNeedLight = true;
   if(need.page) rtNeedPage = true;
   if(need.render) rtNeedRender = true;
@@ -684,11 +702,15 @@ export function showCancelRequested(){
 
 // رقم جيل الجلب — رد بحث قديم وصل متأخر مايستبدلش نتيجة بحث أحدث
 var fetchGen = 0;
+// v82: الصفحة في السكة من إمتى (0 = مفيش) — حدث ريل-تايم وصل وهي في السكة ممكن يكون اتعمل بعد الـsnapshot بتاعها،
+// فالرد كان هيرجّع الصف القديم والحدث مش هيتعاد (قبل v82 كل حدث كان بيجيب الصفحة). فالحدث ده بيجيب الصفحة تاني بعدها.
+var pageFlightAt = 0, PAGE_FLIGHT_MS = 15000;
 
 export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()
   if(!ensureTenant()) return;
   var myGen = ++fetchGen;
+  pageFlightAt = Date.now();
   $id('tbody').innerHTML=skelTable(8);
   var st=$id('fst').value, pl=$id('fpl').value, py=$id('fpy').value;
   var q=$id('qinp').value.trim();
@@ -715,6 +737,7 @@ export function fetchOrdersPage(){
   if(rng) query=query.gte('created_at',rng.fromTs).lt('created_at',rng.toTs);
   query.order('created_at',{ascending:false}).range(fromIdx,toIdx).then(function(r){
     if(myGen !== fetchGen) return;   // طلب أحدث خرج بعدنا — الرد ده بقى قديم
+    pageFlightAt = 0;
     refreshCancelBar();
     if(r.error){
       toast('خطأ في تحميل الأوردرات: '+r.error.message,'er');
@@ -728,6 +751,9 @@ export function fetchOrdersPage(){
     var maxPage=Math.max(1,Math.ceil(srvCount/PS));
     if(cur>maxPage){ ordersSetPage(maxPage); fetchOrdersPage(); return; }
     ordersSetFiltered(r.data||[]);
+    // نسخة السيرفر للمقارنة في الريل-تايم — التعديل المحلي (تليفون · شحن يدوي) بيكتب على صفوف fil نفسها، فصدى
+    // الحدث كان بيتقارن بالنسخة المعدّلة ويبان «مفيش تغيير» والدمج والكروت مايتحدّثوش عند الموظف اللي عدّل
+    for(var ri=0; ri<fil.length; ri++) rtRemember(fil[ri]);
     ordersSetTotalCount((typeof r.count==='number')?r.count:fil.length);
     var hasFilter=!!(st||pl||py||q);
     $id('fcnt').textContent=num(totalCount)+(hasFilter?' نتيجة':' طلب');
