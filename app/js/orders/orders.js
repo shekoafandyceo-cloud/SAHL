@@ -348,6 +348,9 @@ var rtNeedLight = false, rtNeedPage = false, rtNeedRender = false;
 // شبكة أمان: حدث اتصنّف «مالوش أثر» غلط (نادر — عمود مش في النسخة اللي في الذاكرة) = الكروت (الرخيصة) بتتجاب
 // على الأكثر كل 5 دقايق مع أي حدث، فأي فرق مايعيشش أكتر من كده.
 var RT_LIGHT_SAFETY_MS = 5 * 60 * 1000;
+// حدود created_at اللي الصفحة المعروضة اتجابت بيها — null = لسه ماتجابتش
+var pageRangeKey = null;
+function rangeKey(rng){ return rng ? rng.fromTs + '|' + rng.toTs : ''; }
 function scheduleRealtimeRefresh(){
   // debounce بحد أقصى: رشقة مستمرة بفواصل أقل من 800ms كانت بتأجّل
   // التحديث لما الرشقة تخلص خالص — دلوقتي بنفضفض على الأكثر كل ~3 ثواني
@@ -375,6 +378,9 @@ function scheduleRealtimeRefresh(){
     var light = rtNeedLight, page = rtNeedPage, render = rtNeedRender;
     rtNeedLight = false; rtNeedPage = false; rtNeedRender = false;
     if(!light && Date.now() - rtLastLightAt > RT_LIGHT_SAFETY_MS) light = true;
+    // المدة النسبية (آخر 3 · آخر 30 · الشهر) بتلف نص الليل: الكروت بتتحسب بالمدة الجديدة — الجدول لازم يلحقها
+    // (قبل v82 كل حدث كان بيجيب الصفحة فبتلحق لوحدها؛ دلوقتي ختم المزامنة بيحدّث الكروت بس)
+    if(light && !page && pageRangeKey !== null && rangeKey(ordersPeriodRangeISO()) !== pageRangeKey) page = true;
     var fetched = false;
     if(light || page){
       if(ordersShown()){
@@ -799,6 +805,7 @@ export function fetchOrdersPage(){
     }
   }
   var rng=ordersPeriodRangeISO();
+  pageRangeKey=rangeKey(rng);
   if(rng) query=query.gte('created_at',rng.fromTs).lt('created_at',rng.toTs);
   query.order('created_at',{ascending:false}).range(fromIdx,toIdx).then(function(r){
     if(myGen !== fetchGen) return;   // طلب أحدث خرج بعدنا — الرد ده بقى قديم

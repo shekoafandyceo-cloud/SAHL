@@ -1129,7 +1129,7 @@ console.log('\n── من المراجعة العدائية');
 // ── المراجعة الأخيرة ─────────────────────────────────────────────────
 const TOAST_REC = () => { window.__TOASTS = []; const t = document.getElementById('toast');
   if(t) new MutationObserver(function(){ window.__TOASTS.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); };
-// 33) دلتا الشارة وقعت (5xx · timeout) والـsocket شغّال = البوليصة بتركب مع الدلتا الجاية لأي بوليصة (العدّ والـtoast مايضيعوش)
+// 35) دلتا الشارة وقعت (5xx · timeout) والـsocket شغّال = البوليصة بتركب مع الدلتا الجاية لأي بوليصة (العدّ والـtoast مايضيعوش)
 async function probeJxRetry(o){
   const T = await open('/orders', Object.assign({ pre: JX_ROWS }, o));
   await T.p.waitForTimeout(500);
@@ -1146,7 +1146,7 @@ async function probeJxRetry(o){
     rode: window.__calls.filter(x => x.table === 'v_jt_issues' && (x.f || []).some(f => f.op === 'in' && f.col === 'tracking_no' && (f.val || []).indexOf('B4') >= 0)).length }));
   await T.ctx.close(); return { s0, s1, s2, toast: /استثناء جديد/.test(r.toasts), rode: r.rode };
 }
-// 34) استثناء نزل وقت الجولة (أحداث jt_issues بتتطنش وقتها) = الجولة خلصت والشارة اتعدّت كاملة مرة
+// 36) استثناء نزل وقت الجولة (أحداث jt_issues بتتطنش وقتها) = الجولة خلصت والشارة اتعدّت كاملة مرة
 async function probeJxTour(o){
   const T = await open('/orders', Object.assign({ pre: JX_ROWS }, o));
   await T.p.waitForTimeout(500);
@@ -1164,11 +1164,29 @@ async function probeJxTour(o){
 
 {
   const r = await probeJxRetry();
-  ok(r.s0 === '3' && r.s1 === '3' && r.s2 === '4' && r.toast && r.rode >= 2, '33) دلتا الشارة وقعت لاستثناء جديد وبعدها حدث على بوليصة تانية = البوليصة ركبت مع الدلتا · الشارة 3 ← 3 ← 4 · toast «استثناء جديد» — ' + JSON.stringify(r));
+  ok(r.s0 === '3' && r.s1 === '3' && r.s2 === '4' && r.toast && r.rode >= 2, '35) دلتا الشارة وقعت لاستثناء جديد وبعدها حدث على بوليصة تانية = البوليصة ركبت مع الدلتا · الشارة 3 ← 3 ← 4 · toast «استثناء جديد» — ' + JSON.stringify(r));
 }
 {
   const r = await probeJxTour();
-  ok(r.s0 === '3' && r.s1 === '4' && r.jxFull === 1, '34) استثناء نزل وقت الجولة (الحدث اتطنش) = بعد الجولة الشارة اتعدّت كاملة مرة (3 ← 4) — ' + JSON.stringify(r));
+  ok(r.s0 === '3' && r.s1 === '4' && r.jxFull === 1, '36) استثناء نزل وقت الجولة (الحدث اتطنش) = بعد الجولة الشارة اتعدّت كاملة مرة (3 ← 4) — ' + JSON.stringify(r));
+}
+
+// 37) المدة النسبية لفّت نص الليل (أول الشهر) وجه ختم مزامنة والشبكة ولّعت = الكروت **والجدول** بالمدة الجديدة (قبل v82 كل حدث كان بيجيب الصفحة)
+async function probeMidnight(o){
+  const T = await open('/orders', o);
+  const t1 = await T.p.evaluate(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth() + 1, 1, 0, 30).getTime(); });
+  await T.ctx.clock.setFixedTime(new Date(t1));
+  const a = await snap(T.p); const t = new Date(t1).toISOString();
+  await fireOrder(T.p, 'UPDATE', 'zz2', { order_uid: '7778', status: 'Delivered', updated_at: t, jt_cod_synced_at: t });
+  const d = diff(a, await snap(T.p));
+  const lastFrom = await T.p.evaluate(() => { const c = window.__calls.filter(x => x.table === 'orders' && x.from !== undefined); const g = c.length && (c[c.length - 1].f || []).filter(f => f.op === 'gte' && f.col === 'created_at')[0]; return g ? g.val : null; });
+  const want = new Date(new Date(t1).getFullYear(), new Date(t1).getMonth(), 1).toISOString();
+  await T.ctx.close(); return { d, lastFrom, want };
+}
+
+{
+  const r = await probeMidnight();
+  ok(r.d.stats >= 1 && r.d.page === 1 && r.lastFrom === r.want, '37) أول الشهر الجديد والشبكة ولّعت على ختم = الكروت والجدول بالمدة الجديدة سوا (الجدول ماتسابش على الشهر اللي فات) — ' + JSON.stringify(r));
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1419,12 +1437,15 @@ await cal('(ج13) doBulkUpdate مابيختمش شبكة الأمان → فحص
 
 
 // المراجعة الأخيرة
-await cal('(ج14) دلتا الشارة اللي وقعت مابتتعادش → فحص 33 كان هيقع (الشارة 3 والـtoast ضاع)',
+await cal('(ج14) دلتا الشارة اللي وقعت مابتتعادش → فحص 35 كان هيقع (الشارة 3 والـtoast ضاع)',
   [P('exceptions/exceptions.js', 'if(r.error || !r.data){ retryLater(); return; }', 'if(r.error || !r.data){ return; }')],
   o => probeJxRetry(o), r => !(r.s2 === '4' && r.toast));
-await cal('(ج15) tourRestore مابيعدّش الشارة → فحص 34 كان هيقع',
+await cal('(ج15) tourRestore مابيعدّش الشارة → فحص 36 كان هيقع',
   [P('tour/tour.js', "  try{ jxCatchUp(); }catch(e){ swallow('tourRestore/jxCatchUp', e); }", '')],
   o => probeJxTour(o), r => !(r.s1 === '4' && r.jxFull === 1));
+await cal('(ج16) المدة لفّت والجدول مابيلحقش الكروت → فحص 37 كان هيقع',
+  [P('orders/orders.js', '    if(light && !page && pageRangeKey !== null && rangeKey(ordersPeriodRangeISO()) !== pageRangeKey) page = true;\n', '')],
+  o => probeMidnight(o), r => r.d.page !== 1);
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
 process.exit(bad ? 1 : 0);
