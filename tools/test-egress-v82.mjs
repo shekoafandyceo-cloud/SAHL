@@ -394,7 +394,8 @@ async function probeKnownPhone(o){
   return { n: calls.length - before, phones: last ? ((last.f || []).filter(f => f.op === 'in' && f.col === 'phone')[0] || {}).val : null };
 }
 // 29ب) الموظف لغى أوردر **في الصفحة** ليه استثناء من نافذة التفاصيل (doUpdate) والصفحة نزلت **قبل** صدى الحدث = الدمج والشارة اتحدّثوا برضه
-async function probeDoUpdate(o){
+async function probeDoUpdate(o, v){
+  v = v || {};
   const T = await open('/orders', Object.assign({ pre: `window.__JT_ISSUES = [{ id: 811, tenant_id: 't-test-1', tracking_no: 'TRK002', kind: 'exception',
       event_at: new Date(Date.now() - 2 * 3600000).toISOString(), verdict: null, outcome: null, order_status: 'Exception', review_state: null, staff_rev: 0, reviewed_rev: null,
       updated_at: new Date(Date.now() - 3600000).toISOString() }];
@@ -409,6 +410,7 @@ async function probeDoUpdate(o){
   const s0 = await jxBadgeTxt(T.p);
   await T.p.evaluate(async () => (await import('/js/orders/detail.js')).openDetail('o2'));
   await T.p.waitForTimeout(700);
+  if(v.idle){ const t0 = await T.p.evaluate(() => Date.now()); await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000)); }   // شبكة الأمان (5 دقايق)
   const a = await snap(T.p);
   await T.p.evaluate(async () => (await import('/js/orders/mutations.js')).doUpdate('cancelled', 'اختبار'));
   await T.p.waitForTimeout(1200);   // الصفحة نزلت (من غير تأخير) قبل الصدى
@@ -613,7 +615,8 @@ async function probeHiddenUnknown(o, v){
   await T.ctx.close(); return { d, has, notes, err, api };
 }
 // 26و–26ط) الإشعار المستني في التاب الظاهرة (الجولة الخامسة): المهلة · مرة واحدة · الأحدث بيكسب · المهلة لكل محادثة
-// الساعة مش متجمّدة هنا (المهلة من Date.now) — آخر كامل اتعمل وقت الفتح فالـpoll/الحدث = دلتا
+// المهلة من Date.now فالساعة لازم تمشي — CLOCK (أول الشهر) بيجمّدها (clock-preload) فكل المهل بتبقى نفس اللحظة وكل re-arm بيأجّل 2.5ث
+// كاملة: بنرجّعها تمشي من نفس اللحظة · آخر كامل اتعمل وقت الفتح فالـpoll/الحدث = دلتا
 const FAKE_NOTIF_B = `window.__NOTES = []; window.__NOTEB = []; window.Notification = function(t, o){ window.__NOTES.push(t); window.__NOTEB.push(o && o.body); this.close = function(){}; }; window.Notification.permission = 'granted';`;
 const notesOf = p => p.evaluate(() => ({ t: window.__NOTES.slice(), b: window.__NOTEB.slice() }));
 async function waIn(p, id, body, push){
@@ -624,6 +627,7 @@ async function waIn(p, id, body, push){
 }
 async function probeNotify(o, kind){
   const T = await open('/chats', Object.assign({ pre: FAKE_NOTIF_B }, o));
+  if(process.env.CLOCK){ const t0 = await T.p.evaluate(() => Date.now()); await T.ctx.clock.setSystemTime(new Date(t0)); }
   await T.p.waitForTimeout(300);
   const DELTA_SLOW = () => T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'wa_conversations' && st.order === 'updated_at') ? 600 : 0; });
   let r = {};
@@ -717,6 +721,7 @@ async function probeManualShip(o, v){
   v = v || {};
   // v.fail = الرد رجع خطأ والشحنة اتعملت (الصدى وصل) · v.late = الصدى وصل بعد 21ث من الضغطة (ساعة الصفحة مزحزحة وقت الحدث بس)
   // v.idle = آخر تحديث للكروت من 6 دقايق (شبكة الأمان) · v.after = حدث حقيقي على نفس الأوردر بعد الشحن (طلب إلغاء)
+  // v.hang = الرد عمره ما رجع (الصدى اتأجّل) وحدث تاني على نفس الأوردر (awb_print_count — مش عمود كروت) بعد 71ث = اللي اتأجّل رجع معاه
   const T = await open('/orders', Object.assign({ pre: `var _h = window.__RPC_HOOK;
     window.__RPC_HOOK = function(n, a){
       if(n === 'mark_shipped_manual'){ var i = window.__ORDERS.findIndex(function(x){ return x.id === a.p_order_id; });
@@ -724,9 +729,10 @@ async function probeManualShip(o, v){
         if(window.__ORD){ var _dn = Date.now; if(window.__ECHO_LATE) Date.now = function(){ return _dn() + window.__ECHO_LATE; };
           try{ window.__ORD.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, window.__ORDERS[i]), old: { id: a.p_order_id } }); }
           finally{ Date.now = _dn; } }
+        if(window.__SHIP_HANG) return { then: function(){} };   // Promise.resolve(thenable) = عمره ما بيرجع
         return window.__SHIP_FAIL ? { data: null, error: { message: 'network' } } : { data: true, error: null }; }
       return _h(n, a);
-    };` + (v.fail ? 'window.__SHIP_FAIL = true;' : '') + (v.late ? 'window.__ECHO_LATE = 21000;' : '') }, o));
+    };` + (v.fail ? 'window.__SHIP_FAIL = true;' : '') + (v.hang ? 'window.__SHIP_HANG = true;' : '') + (v.late ? 'window.__ECHO_LATE = 45000;' : '') }, o));
   await T.p.evaluate(async () => { window.__ORD = await import('/js/orders/orders.js'); await (await import('/js/orders/detail.js')).openDetail('o3'); });
   await T.p.waitForTimeout(700);
   if(v.idle){ const t0 = await T.p.evaluate(() => Date.now()); await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000)); }
@@ -740,6 +746,15 @@ async function probeManualShip(o, v){
   if(v.after){
     const a2 = await snap(T.p);
     await fireOrder(T.p, 'UPDATE', 'o3', { cancel_requested_at: STAMP(), updated_at: STAMP() });
+    d2 = diff(a2, await snap(T.p));
+  }
+  if(v.hang){
+    const a2 = await snap(T.p);
+    await T.p.evaluate(() => { const r = window.__ORDERS.filter(x => x.id === 'o3')[0];
+      r.awb_print_count = (r.awb_print_count || 0) + 1; r.updated_at = new Date().toISOString();
+      const _dn = Date.now; Date.now = function(){ return _dn() + 71000; };
+      try{ window.__ORD.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, r), old: { id: 'o3' } }); } finally{ Date.now = _dn; } });
+    await T.p.waitForTimeout(1300);
     d2 = diff(a2, await snap(T.p));
   }
   await T.ctx.close(); return { d, bd, d2 };
@@ -760,12 +775,14 @@ async function bulk(p, ids, ns){
   await p.waitForTimeout(200);
   await p.click('#cmodal-ok');
 }
-async function probeBulk(o){
+async function probeBulk(o, v){
+  v = v || {};
   const T = await open('/orders', Object.assign({ pre: SET_STATUS_HOOK + `window.__ORDERS.push(Object.assign({}, window.__ORDERS[1], { id: 'o2b', order_uid: '9022',
     status: 'Out for delivery', phone: '01077770000', tracking_no: 'TRK022' }));` }, o));
   await setFilter(T.p, 'fst', '__operation__');
   const ids = await T.p.evaluate(async () => (await import('/js/orders/state.js')).fil.slice(0, 2).map(x => x.id));
   await T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'orders' && st.from !== undefined) ? 1200 : 0; });
+  if(v.idle){ const t0 = await T.p.evaluate(() => Date.now()); await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000)); }
   const a = await snap(T.p);
   await bulk(T.p, ids, 'cancelled');
   await T.p.waitForTimeout(150);
@@ -1089,11 +1106,23 @@ console.log('\n── من المراجعة العدائية');
 }
 {
   const r = await probeManualShip(undefined, { late: true });
-  ok(r.d.merge === 1, '31د) صدى الشحن وصل بعد 21ث من الضغطة (jt-ship ممكن ياخد 40ث) = اتأجّل برضه (الدمج مرة) — ' + JSON.stringify(r));
+  ok(r.d.merge === 1, '31د) صدى الشحن وصل بعد 45ث من الضغطة (jt-ship ممكن ياخد ~40ث) = اتأجّل برضه (الدمج مرة) — ' + JSON.stringify(r));
 }
 {
   const r = await probeManualShip(undefined, { idle: true });
   ok(r.d.merge === 1, '31هـ) آخر تحديث للكروت من 6 دقايق والموظف شحن = الدمج مرة (شبكة الأمان ماجابتهمش تاني مع الصدى) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeManualShip(undefined, { hang: true });
+  ok(r.d.merge === 0 && r.d2.merge === 1, '31و) رد الشحن عمره ما رجع (الصدى اتأجّل) وحدث تاني على الأوردر بعد 71ث = اللي اتأجّل رجع معاه (الدمج مرة) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeDoUpdate(undefined, { idle: true });
+  ok(r.d.merge === 1 && r.d.stats >= 1, '29د) آخر تحديث للكروت من 6 دقايق والموظف غيّر الحالة = الدمج مرة (doUpdate ختم شبكة الأمان) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeBulk(undefined, { idle: true });
+  ok(r.d.merge === 1 && r.d.page === 1, '32ب) آخر تحديث للكروت من 6 دقايق وتغيير جماعي = الدمج مرة (doBulkUpdate ختم شبكة الأمان) — ' + JSON.stringify(r));
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1327,6 +1356,20 @@ await cal('(ج8) نافذة التوقّع 20ث تاني → فحص 31د كان 
 await cal('(ج9) تعديل الموظف مابيختمش شبكة الأمان → فحص 31هـ كان هيقع (الدمج مرتين)',
   [P('orders/ship.js', ' loadMergeCandidates(); rtNoteLightRefresh(); doFilter();\n}', ' loadMergeCandidates(); doFilter();\n}')],
   o => probeManualShip(o, { idle: true }), r => r.d.merge !== 1);
+
+// الجولة السادسة
+await cal('(ج10) الحدث بعد انتهاء التوقّع مابيرجّعش اللي اتأجّل → فحص 31و كان هيقع',
+  [P('orders/orders.js', '    if(ex.light) need.light = true;\n    if(ex.page) need.page = true;\n', '')],
+  o => probeManualShip(o, { hang: true }), r => !(r.d2 && r.d2.merge === 1));
+await cal('(ج11) نافذة التوقّع 40ث (أقل من jt-ship) → فحص 31د كان هيقع',
+  [P('orders/orders.js', 'RT_EXPECT_MS = 70000;', 'RT_EXPECT_MS = 40000;')],
+  o => probeManualShip(o, { late: true }), r => r.d.merge !== 1);
+await cal('(ج12) doUpdate مابيختمش شبكة الأمان → فحص 29د كان هيقع (الدمج مرتين)',
+  [P('orders/mutations.js', 'loadMergeCandidates();rtNoteLightRefresh();doFilter();\n    if(ord.tracking_no)', 'loadMergeCandidates();doFilter();\n    if(ord.tracking_no)')],
+  o => probeDoUpdate(o, { idle: true }), r => r.d.merge !== 1);
+await cal('(ج13) doBulkUpdate مابيختمش شبكة الأمان → فحص 32ب كان هيقع (الدمج مرتين)',
+  [P('orders/mutations.js', '        loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();rtNoteLightRefresh();doFilter();\n      }', '        loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();\n      }')],
+  o => probeBulk(o, { idle: true }), r => r.d.merge !== 1);
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
