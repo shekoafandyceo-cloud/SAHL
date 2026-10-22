@@ -1474,7 +1474,7 @@ await cal('(ج16) المدة لفّت والجدول مابيلحقش الكرو
   o => probeMidnight(o), r => r.d.page !== 1);
 await cal('(ج17) دمج الدلتا بيرجّع الحالة لورا → فحص 38 كان هيقع',
   [P('inbox/inbox.js', "      if((WA_STATUS_RANK[o.status]||0) > (WA_STATUS_RANK[n.status]||0) || (o.is_read && !n.is_read)){", "      if(false){")],
-  o => probeMsgRace(o), r => r.st === 'read');
+  o => probeMsgRace(o), r => !(r.st === 'read' && r.m4));
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
 process.exit(bad ? 1 : 0);
