@@ -1331,7 +1331,7 @@ await cal('(أأ) مفيش دلتا بعد الكامل → المحادثة ا�
   [P('inbox/inbox.js', '      if(waConvDeltaDraws!==draws0) waFetchConvosDelta();', '')],
   probeConvFlight, r => !r.hasF);
 await cal('(ض) الشارة بتتحسب على صفوف الحدث بس → فحص 28 كان هيقع',
-  [P('exceptions/exceptions.js', '        jxBadgeAll(allRows, Date.now());', '        jxBadgeAll(rows, Date.now());')],
+  [P('exceptions/exceptions.js', '      jxBadgeAll(allRows, Date.now());', '      jxBadgeAll(rows, Date.now());')],
   probeJxCount, r => r.s.join(',') !== '3,3,2,3');
 await cal('(ظ) الأوردرات مابتبلّغش الاستثناءات بتغيير الحالة → فحص 29 كان هيقع',
   [P('orders/orders.js', '      try{ jxNoteOrderChange(row.tracking_no); }catch(e){', '      try{ void 0; }catch(e){')],

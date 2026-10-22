@@ -1198,7 +1198,7 @@ await calib('(هه) وقت البلاغ من verdict_set_at (بيتحرك مع �
   b => b !== 'after', { post: EXTRA_REP + EXTRA_REP2 });
 // v82: حدث الريل-تايم والتاب لسه ماتفتحتش بيعدّي على jxBadgeFetch (بوالص الحدث بس) — هو اللي لازم يتابع التسليم
 await calib('(وو) استعلام الشارة مابيتابعش التسليم → الموظف على الأوردرات ماعرفش (الفحص R17 كان هيقع)',
-  { exc: s => s.replace("        jxSeeRows(rows);\n        jxWatchReported(rows);\n        for(var b = 0;", "        jxSeeRows(rows);\n        for(var b = 0;") },
+  { exc: s => s.replace("      jxSeeRows(rows);\n      jxWatchReported(rows);\n      for(var b = 0;", "      jxSeeRows(rows);\n      for(var b = 0;") },
   async T => { await T.p.waitForTimeout(600); await T.p.evaluate(() => { const r = window.__JT_ISSUES.find(x => x.id === 13); r.outcome = 'delivered'; r.outcome_at = new Date(Date.now() - 5 * 60000).toISOString(); r.order_status = 'Delivered'; r.updated_at = new Date().toISOString();
       (window.__RT_ON || []).find(h => h.opts && h.opts.table === 'jt_issues').cb({ eventType: 'UPDATE', new: { id: 13, tracking_no: 'JEG011' } }); });
     await T.p.waitForTimeout(1300); return T.p.evaluate(() => document.getElementById('toast').textContent); },
