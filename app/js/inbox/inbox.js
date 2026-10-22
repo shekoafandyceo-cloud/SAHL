@@ -1452,20 +1452,29 @@ export function handleWaRealtime(payload){
     else waNotify(m);
   }
 }
-var waNotifyPending={}, waNotifyTimer=null;
+var waNotifyPending={}, waNotifyTimer=null, WA_NOTIFY_WAIT_MS=2500;
 function waNotifyAfterList(m){
-  waNotifyPending[m.conversation_id]=m;   // رشقة = إشعار واحد بآخر رسالة (نفس الـtag)
-  if(!waNotifyTimer) waNotifyTimer=setTimeout(function(){ waNotifyTimer=null; waFlushNotify(true); }, 2500);
+  var k=m.conversation_id, prev=waNotifyPending[k];
+  // رشقة = إشعار واحد بآخر رسالة (نفس الـtag) — والمهلة لكل محادثة من أول رسالة فيها
+  waNotifyPending[k]={ m:m, due: prev ? prev.due : Date.now()+WA_NOTIFY_WAIT_MS };
+  waArmNotifyTimer();
 }
-// بعد كل رسم للقايمة: اللي محادثته بقت معروفة بيطلع — دلتا قديمة رجعت من غيرها = بيستنى الجاية (أو المهلة)
-function waFlushNotify(force){
-  var left=0;
+function waArmNotifyTimer(){
+  if(waNotifyTimer){ clearTimeout(waNotifyTimer); waNotifyTimer=null; }
+  var next=Infinity;
+  for(var k in waNotifyPending){ if(Object.prototype.hasOwnProperty.call(waNotifyPending,k) && waNotifyPending[k].due<next) next=waNotifyPending[k].due; }
+  if(next===Infinity) return;
+  // الحد بيتبعت للمهلة نفسها (مش Date.now وقت ما ترنّ) — ساعة الجهاز لو رجعت لورا مابتأجّلش الإشعار للأبد
+  waNotifyTimer=setTimeout(function(){ waNotifyTimer=null; waFlushNotify(next); }, Math.max(0, next-Date.now()));
+}
+// بعد كل رسم للقايمة: اللي محادثته بقت معروفة بيطلع — دلتا قديمة رجعت من غيرها = بيستنى الجاية · المهلة (upTo) = اللي وقته جه بس
+function waFlushNotify(upTo){
   for(var k in waNotifyPending){
     if(!Object.prototype.hasOwnProperty.call(waNotifyPending,k)) continue;
-    if(force || waConvById(k)){ var m=waNotifyPending[k]; delete waNotifyPending[k]; waNotify(m); }
-    else left++;
+    var e=waNotifyPending[k];
+    if(waConvById(k) || (upTo && e.due<=upTo)){ delete waNotifyPending[k]; waNotify(e.m); }
   }
-  if(!left && waNotifyTimer){ clearTimeout(waNotifyTimer); waNotifyTimer=null; }
+  waArmNotifyTimer();
 }
 // صف محادثة واحدة برقمها — بيدخل waSearchExtra (منفصلة · بتتفلتر بالبحث) لو لسه مش في أي قايمة
 // رشقة (رسالة + صورتين من عميل جديد) = طلب واحد — الطلبات اللي جت وهو في السكة بتستنى نفس الرد
@@ -1488,6 +1497,8 @@ export function waEnsureNotifyPermission(){
 }
 
 export function waNotify(m){
+  // رسالة أحدث اتبلّغت (التاب اتخفت أو الصندوق اتقفل وهي مستنية القايمة) = المستنية الأقدم ماتطلعش بعدها وتحل محلها (نفس الـtag)
+  if(m && m.conversation_id) delete waNotifyPending[m.conversation_id];
   if(!('Notification' in window) || Notification.permission!=='granted') return;
   var inboxOpen=$id('page-inbox') && $id('page-inbox').style.display!=='none';
   var viewing = !document.hidden && inboxOpen && m.conversation_id===waActiveId;

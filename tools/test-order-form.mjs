@@ -579,7 +579,7 @@ console.log('\n  المعايرات:');
   await p.context().close();
 }
 {
-  const p = await openApp([['ship.js', "  }catch(e){\n    keepNote();\n", "  }catch(e){\n"]]);
+  const p = await openApp([['ship.js', "    rtExpectEnd(ord.id, false);\n    keepNote();\n    btn.disabled = false;", "    rtExpectEnd(ord.id, false);\n    btn.disabled = false;"]]);
   const r = await scenarioClearedNote(p);
   ok(r.val !== '', 'معايرة ك) من غير حفظ الاختيار بعد الفشل → فحص F6 بيقع');
   await p.context().close();

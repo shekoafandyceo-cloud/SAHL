@@ -612,6 +612,46 @@ async function probeHiddenUnknown(o, v){
   const notes = await T.p.evaluate(() => window.__NOTES);
   await T.ctx.close(); return { d, has, notes, err, api };
 }
+// 26و–26ط) الإشعار المستني في التاب الظاهرة (الجولة الخامسة): المهلة · مرة واحدة · الأحدث بيكسب · المهلة لكل محادثة
+// الساعة مش متجمّدة هنا (المهلة من Date.now) — آخر كامل اتعمل وقت الفتح فالـpoll/الحدث = دلتا
+const FAKE_NOTIF_B = `window.__NOTES = []; window.__NOTEB = []; window.Notification = function(t, o){ window.__NOTES.push(t); window.__NOTEB.push(o && o.body); this.close = function(){}; }; window.Notification.permission = 'granted';`;
+const notesOf = p => p.evaluate(() => ({ t: window.__NOTES.slice(), b: window.__NOTEB.slice() }));
+async function waIn(p, id, body, push){
+  await p.evaluate(async a => { const n = new Date().toISOString();
+    if(a.push) window.__WA_CONVOS.push(Object.assign({}, window.__WA_CONVOS[0], { id: a.id, wa_id: a.push.wa, customer_name: a.push.name, last_message_at: n, updated_at: n }));
+    (await import('/js/inbox/inbox.js')).handleWaRealtime({ eventType: 'INSERT', new: { id: 'n' + Math.random(), conversation_id: a.id, direction: 'in', type: 'text', body: a.body, created_at: n } });
+  }, { id, body, push: push || null });
+}
+async function probeNotify(o, kind){
+  const T = await open('/chats', Object.assign({ pre: FAKE_NOTIF_B }, o));
+  await T.p.waitForTimeout(300);
+  const DELTA_SLOW = () => T.p.evaluate(() => { window.__TABLE_DELAY = (t, st) => (t === 'wa_conversations' && st.order === 'updated_at') ? 600 : 0; });
+  let r = {};
+  if(kind === 'noRow'){            // الدلتا رجعت من غير المحادثة = المهلة هي اللي بتطلّعه («عميل»)
+    await waIn(T.p, 'cX', 'سلام');
+    await T.p.waitForTimeout(900); r.early = await notesOf(T.p);
+    await T.p.waitForTimeout(2300); r.end = await notesOf(T.p);
+  } else if(kind === 'once'){      // اتبلّغ مع الدلتا · الـpoll والكامل بعده مابيعيدوهوش
+    await waIn(T.p, 'cY', 'سلام', { wa: '201066667777', name: 'جديد' });
+    await T.p.waitForTimeout(900); r.early = await notesOf(T.p);
+    await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js'); m.waRefreshConvos(); m.waFetchConvos(false); });
+    await T.p.waitForTimeout(3000); r.end = await notesOf(T.p);
+  } else if(kind === 'stale'){     // m1 مستنية القايمة والتاب اتخفت ← m2 اتبلّغت على طول = m1 ماتطلعش بعدها (نفس الـtag)
+    await DELTA_SLOW();
+    await waIn(T.p, 'cY', 'أولى', { wa: '201066667777', name: 'جديد' });
+    await T.p.waitForTimeout(100);
+    await T.p.evaluate(HIDE('true'));
+    await waIn(T.p, 'cY', 'تانية');
+    await T.p.waitForTimeout(3300); r.end = await notesOf(T.p);
+  } else if(kind === 'two'){       // A مستنية (الدلتا مش بتجيبها) · B جت بعدها بـ1.8ث = B بمهلتها (باسمها) مش بمهلة A
+    await DELTA_SLOW();
+    await waIn(T.p, 'cA', 'من أ');
+    await T.p.waitForTimeout(1800);
+    await waIn(T.p, 'cB', 'من ب', { wa: '201088889999', name: 'بي' });
+    await T.p.waitForTimeout(2600); r.end = await notesOf(T.p);
+  }
+  await T.ctx.close(); return r;
+}
 // 27) جلب كامل للمحادثات في السكة ودلتا رسمت نسخة أحدث = الكامل مابيرجّعش القديم
 async function probeConvFlight(o){
   const T = await open('/chats', o);
@@ -673,23 +713,36 @@ async function probeJxOrderChange(o){
 
 // ── الجولة الرابعة من المراجعة ────────────────────────────────────────
 // 31) شحن يدوي والصدى وصل **قبل** رد الـRPC (الريل-تايم أسرع من رد الـHTTP) = الكروت والدمج مرة واحدة (من applyShipped) مش مرتين
-async function probeManualShip(o){
+async function probeManualShip(o, v){
+  v = v || {};
+  // v.fail = الرد رجع خطأ والشحنة اتعملت (الصدى وصل) · v.late = الصدى وصل بعد 21ث من الضغطة (ساعة الصفحة مزحزحة وقت الحدث بس)
+  // v.idle = آخر تحديث للكروت من 6 دقايق (شبكة الأمان) · v.after = حدث حقيقي على نفس الأوردر بعد الشحن (طلب إلغاء)
   const T = await open('/orders', Object.assign({ pre: `var _h = window.__RPC_HOOK;
     window.__RPC_HOOK = function(n, a){
       if(n === 'mark_shipped_manual'){ var i = window.__ORDERS.findIndex(function(x){ return x.id === a.p_order_id; });
         window.__ORDERS[i] = Object.assign({}, window.__ORDERS[i], { status: 'bosta_assigned', tracking_no: a.p_tracking, updated_at: new Date().toISOString() });
-        if(window.__ORD) window.__ORD.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, window.__ORDERS[i]), old: { id: a.p_order_id } });
-        return { data: true, error: null }; }
+        if(window.__ORD){ var _dn = Date.now; if(window.__ECHO_LATE) Date.now = function(){ return _dn() + window.__ECHO_LATE; };
+          try{ window.__ORD.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, window.__ORDERS[i]), old: { id: a.p_order_id } }); }
+          finally{ Date.now = _dn; } }
+        return window.__SHIP_FAIL ? { data: null, error: { message: 'network' } } : { data: true, error: null }; }
       return _h(n, a);
-    };` }, o));
+    };` + (v.fail ? 'window.__SHIP_FAIL = true;' : '') + (v.late ? 'window.__ECHO_LATE = 21000;' : '') }, o));
   await T.p.evaluate(async () => { window.__ORD = await import('/js/orders/orders.js'); await (await import('/js/orders/detail.js')).openDetail('o3'); });
   await T.p.waitForTimeout(700);
+  if(v.idle){ const t0 = await T.p.evaluate(() => Date.now()); await T.ctx.clock.setFixedTime(new Date(t0 + 6 * 60000)); }
   const a = await snap(T.p);
   await T.p.evaluate(async () => (await import('/js/orders/ship.js')).manualShipFlow());
   await T.p.waitForTimeout(200);
   await T.p.click('#cmodal-ok');
   await T.p.waitForTimeout(2500);
-  const d = diff(a, await snap(T.p)); const bd = await badge(T.p, 'o3'); await T.ctx.close(); return { d, bd };
+  const d = diff(a, await snap(T.p)); const bd = await badge(T.p, 'o3');
+  let d2 = null;
+  if(v.after){
+    const a2 = await snap(T.p);
+    await fireOrder(T.p, 'UPDATE', 'o3', { cancel_requested_at: STAMP(), updated_at: STAMP() });
+    d2 = diff(a2, await snap(T.p));
+  }
+  await T.ctx.close(); return { d, bd, d2 };
 }
 // 32) تغيير جماعي بفلتر والصفحة اللي طلبها في السكة وصدى الأوردرين وصل = صفحة واحدة ودمج واحد
 const SET_STATUS_HOOK = `var _h = window.__RPC_HOOK;
@@ -1010,6 +1063,38 @@ console.log('\n── من المراجعة العدائية');
   const c = await probeSaveProducts(undefined, false);
   ok(c.total === 900 && c.d.merge === 1, '34ب) ضابط: الإجمالي اتغيّر (1000 ← 900) = الدمج مرة — ' + JSON.stringify(c));
 }
+{
+  const r = await probeNotify(undefined, 'noRow');
+  ok(r.early.t.length === 0 && r.end.t.join('|') === '💬 رسالة من عميل', '26و) التاب الظاهرة والدلتا رجعت من غير المحادثة = مفيش إشعار قبل المهلة وإشعار واحد («عميل») بعدها — ' + JSON.stringify(r));
+}
+{
+  const r = await probeNotify(undefined, 'once');
+  ok(r.early.t.join('|') === '💬 رسالة من جديد' && r.end.t.length === 1, '26ز) اتبلّغ مع الدلتا · الـpoll والكامل بعده = مفيش إشعار تاني — ' + JSON.stringify(r));
+}
+{
+  const r = await probeNotify(undefined, 'stale');
+  ok(r.end.b.length >= 1 && r.end.b[r.end.b.length - 1] === 'تانية', '26ح) رسالة مستنية القايمة والتاب اتخفت ورسالة أحدث اتبلّغت = الأقدم ماطلعتش بعدها (آخر إشعار = الأحدث) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeNotify(undefined, 'two');
+  ok(r.end.t.indexOf('💬 رسالة من بي') >= 0 && r.end.t.length === 2, '26ط) محادثتين جداد ورا بعض والأولى مستنية = التانية بمهلتها هي (طلعت باسمها مش «عميل») — ' + JSON.stringify(r));
+}
+{
+  const r = await probeManualShip(undefined, { fail: true });
+  ok(r.d.merge === 1, '31ب) الشحن اليدوي رجع خطأ والصدى كان وصل = اللي اتأجّل رجع (الدمج مرة) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeManualShip(undefined, { after: true });
+  ok(r.d.merge === 1 && r.d2.merge >= 1 && r.d2.stats >= 1, '31ج) بعد الشحن حدث حقيقي على نفس الأوردر (طلب إلغاء) = الكروت والدمج اتحدّثوا (التوقّع اتشال مع الرد) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeManualShip(undefined, { late: true });
+  ok(r.d.merge === 1, '31د) صدى الشحن وصل بعد 21ث من الضغطة (jt-ship ممكن ياخد 40ث) = اتأجّل برضه (الدمج مرة) — ' + JSON.stringify(r));
+}
+{
+  const r = await probeManualShip(undefined, { idle: true });
+  ok(r.d.merge === 1, '31هـ) آخر تحديث للكروت من 6 دقايق والموظف شحن = الدمج مرة (شبكة الأمان ماجابتهمش تاني مع الصدى) — ' + JSON.stringify(r));
+}
 
 // ════════════════════════════════════════════════════════════════════
 console.log('\n── المعايرات (كل واحدة لازم توقّع فحص)');
@@ -1084,7 +1169,7 @@ await cal('(ثث) الهيدر مابيتصلّحش لما الصف يوصل →
   [P('inbox/inbox.js', '    if(waHdrPendingId===waActiveId){ waHdrPendingId=null; waFillChatHeader(ac); waLoadConvMeta(ac); waLoadOrders(ac); }\n', '')],
   probeOpenLate, r => r.h1 !== 'وصلت متأخر');
 await cal('(طط) doUpdate مابيبلّغش الدمج والاستثناءات → فحص 29ب كان هيقع',
-  [P('orders/mutations.js', 'loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();\n    if(ord.tracking_no) jxNoteOrderChange(ord.tracking_no);\n', 'loadOrdersCards();loadBostaInventoryCard();doFilter();\n')],
+  [P('orders/mutations.js', 'loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();rtNoteLightRefresh();doFilter();\n    if(ord.tracking_no) jxNoteOrderChange(ord.tracking_no);\n', 'loadOrdersCards();loadBostaInventoryCard();rtNoteLightRefresh();doFilter();\n')],
   probeDoUpdate, r => r.s1 !== '0');
 await cal('(حح) حالات الأحداث وقت الكامل مابتتطبّقش على نتيجته → فحص 30 كان هيقع',
   [P('inbox/inbox.js', '      if(fl) waApplyFlightPatches(data, fl.patches);\n', '')],
@@ -1212,6 +1297,36 @@ await cal('(ب9) البوليصة من fil/all بس → فحص 33 كان هيق�
 await cal('(ب10) saveProducts بيحمّل الدمج من غير ما الإجمالي يتغيّر → فحص 34 كان هيقع',
   [P('orders/products-editor.js', 'if(sendTotal != null && savedTotal !== prevTotal && MERGE_QUERY_STATUSES.indexOf(ord.status) >= 0) loadMergeCandidates();', 'if(MERGE_QUERY_STATUSES.indexOf(ord.status) >= 0) loadMergeCandidates();')],
   o => probeSaveProducts(o, true), r => r.d.merge !== 0);
+
+// الجولة الخامسة
+await cal('(ج1) مفيش مهلة للإشعار المستني → فحص 26و كان هيقع',
+  [P('inbox/inbox.js', '  waNotifyTimer=setTimeout(function(){ waNotifyTimer=null; waFlushNotify(next); }, Math.max(0, next-Date.now()));', '  void next;')],
+  o => probeNotify(o, 'noRow'), r => r.end.t.length !== 1);
+await cal('(ج2) المهلة مابتطلّعش المحادثة المش معروفة → فحص 26و كان هيقع',
+  [P('inbox/inbox.js', '    if(waConvById(k) || (upTo && e.due<=upTo)){', '    if(waConvById(k)){')],
+  o => probeNotify(o, 'noRow'), r => r.end.t.length !== 1);
+await cal('(ج3) المستني مابيتشالش بعد ما يطلع → فحص 26ز كان هيقع (إشعار مع كل رسم)',
+  [P('inbox/inbox.js', '{ delete waNotifyPending[k]; waNotify(e.m); }', '{ waNotify(e.m); }'),
+   P('inbox/inbox.js', '  if(m && m.conversation_id) delete waNotifyPending[m.conversation_id];\n', '')],
+  o => probeNotify(o, 'once'), r => r.end.t.length !== 1);
+await cal('(ج4) الإشعار المباشر مابيشيلش المستني → فحص 26ح كان هيقع (الأقدم آخر واحد)',
+  [P('inbox/inbox.js', '  if(m && m.conversation_id) delete waNotifyPending[m.conversation_id];\n', '')],
+  o => probeNotify(o, 'stale'), r => r.end.b[r.end.b.length - 1] !== 'تانية');
+await cal('(ج5) مهلة واحدة للكل (أول ما ترنّ بتطلّع كل المستني) → فحص 26ط كان هيقع',
+  [P('inbox/inbox.js', '    if(waConvById(k) || (upTo && e.due<=upTo)){', '    if(waConvById(k) || upTo){')],
+  o => probeNotify(o, 'two'), r => r.end.t.indexOf('💬 رسالة من بي') < 0);
+await cal('(ج6) الشحن اليدوي اللي فشل مابيرجّعش اللي اتأجّل → فحص 31ب كان هيقع',
+  [P('orders/ship.js', '        if(r.error){\n          rtExpectEnd(ord.id, false);\n', '        if(r.error){\n')],
+  o => probeManualShip(o, { fail: true }), r => r.d.merge !== 1);
+await cal('(ج7) التوقّع مابيتشالش مع الرد → فحص 31ج كان هيقع (حدث حقيقي اتبلع)',
+  [P('orders/orders.js', '  if(!e) return;\n  delete rtExpect[id];\n', '  if(!e) return;\n')],
+  o => probeManualShip(o, { after: true }), r => !(r.d2.merge >= 1 && r.d2.stats >= 1));
+await cal('(ج8) نافذة التوقّع 20ث تاني → فحص 31د كان هيقع (الدمج مرتين)',
+  [P('orders/orders.js', 'RT_EXPECT_MS = 70000;', 'RT_EXPECT_MS = 20000;')],
+  o => probeManualShip(o, { late: true }), r => r.d.merge !== 2);
+await cal('(ج9) تعديل الموظف مابيختمش شبكة الأمان → فحص 31هـ كان هيقع (الدمج مرتين)',
+  [P('orders/ship.js', ' loadMergeCandidates(); rtNoteLightRefresh(); doFilter();\n}', ' loadMergeCandidates(); doFilter();\n}')],
+  o => probeManualShip(o, { idle: true }), r => r.d.merge !== 2);
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');

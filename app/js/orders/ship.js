@@ -23,7 +23,7 @@ import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './
 import { detailAbort, renderDetail } from './detail.js';
 import { all, fil, ordersSetSelected, sel } from './state.js';
 import { renderTable } from './table.js';
-import { doFilter, rtExpectEnd, rtExpectLocal, rtNoteLocalCommit } from './orders.js';
+import { doFilter, rtExpectEnd, rtExpectLocal, rtNoteLightRefresh, rtNoteLocalCommit } from './orders.js';
 import { printJtAwb } from './jt-awb.js';
 import { productsEditorDirty } from './products-editor.js';
 import { cleanShipNote, composeRemark, NOTE_PREFIX, REMARK_MAX } from './jt-remark.js';
@@ -184,7 +184,7 @@ function applyShipped(orderId, status, tracking){
     renderDetail();
   }
   // الدمج كمان (v82): الصدى مابيعيدش التحديث (نسخة السيرفر اتحدّثت فوق · أو rtExpectLocal لو وصل قبل الرد) — والشحن بيشيل الأوردر من «جاهز للشحن»
-  loadOrdersCards(); loadBostaInventoryCard(); loadMergeCandidates(); doFilter();
+  loadOrdersCards(); loadBostaInventoryCard(); loadMergeCandidates(); rtNoteLightRefresh(); doFilter();
 }
 
 

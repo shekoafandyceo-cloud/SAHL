@@ -193,6 +193,9 @@ function refreshOrdersLight(){
   rtLastLightAt = Date.now();
   loadOrdersCards(); loadMergeCandidates(); loadBostaInventoryCard();
 }
+// تعديل الموظف (الحالة · الجماعي · الشحن) بيجيب الكروت والدمج والبضاعة بنفسه — من غير الختم ده شبكة الأمان (5 دقايق)
+// كانت بتجيبهم تاني مع صداه لو مفيش light قبلها
+export function rtNoteLightRefresh(){ rtLastLightAt = Date.now(); }
 
 export function loadAll(){
   // بانر «مزامنة J&T واقفة» للأدمن — بعد الدخول (initNav بيشتغل قبل ما sb يجهز) ومع كل ↻
@@ -434,8 +437,9 @@ export function rtNoteLocalCommit(id, patch){
 }
 // 🔴 تعديل جاي من الموظف ده نفسه والسيرفر لسه مارجعش (شحن J&T: jt-ship بيكتب الشحنة وبعدين بيكمّل شغل ~0.3–0.7ث قبل ما يرد،
 // فالصدى بيوصل **قبل** الرد): الصدى مابيعيدش الكروت/الدمج/الصفحة — الرد هو اللي بيعملهم (applyShipped). لو الطلب فشل بعد ما
-// الصدى اتأجّل (الرد ضاع والشحنة اتعملت) = اللي اتأجّل بيرجع (rtExpectEnd(id, false)). أقصى 20ث.
-var rtExpect = {};
+// الصدى اتأجّل (الرد ضاع والشحنة اتعملت) = اللي اتأجّل بيرجع (rtExpectEnd(id, false)). أقصى 70ث — jt-ship ممكن ياخد 25ث في addOrder
+// + 15ث استعلام قبل ما يسجّل (كل مسار رد بينادي rtExpectEnd · السقف للطلب اللي عمره ما رجع بس)
+var rtExpect = {}, RT_EXPECT_MS = 70000;
 export function rtExpectLocal(id){ if(id) rtExpect[id] = { at: Date.now(), light: false, page: false }; }
 export function rtExpectEnd(id, ok){
   var e = id && rtExpect[id];
@@ -594,7 +598,13 @@ export function handleRealtimeChange(payload){
   }
   if(ev === 'UPDATE' && pageFlightRows) pageFlightRows[row.id] = row;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
   var ex = ev === 'UPDATE' && rtExpect[row.id];
-  if(ex && Date.now() - ex.at < 20000){ ex.light = ex.light || need.light; ex.page = ex.page || need.page; need.light = false; need.page = false; }
+  if(ex && Date.now() - ex.at >= RT_EXPECT_MS){   // انتهت من غير رد = اللي اتأجّل بيرجع مع الحدث ده
+    delete rtExpect[row.id];
+    if(ex.light) need.light = true;
+    if(ex.page) need.page = true;
+    ex = null;
+  }
+  if(ex){ ex.light = ex.light || need.light; ex.page = ex.page || need.page; need.light = false; need.page = false; }
   if(need.light) rtNeedLight = true;
   if(need.page) rtNeedPage = true;
   if(need.render) rtNeedRender = true;
