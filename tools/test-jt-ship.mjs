@@ -272,6 +272,66 @@ const FN_OK = `window.__FNCALLS = []; window.__FETCH_BODIES = [];
   await p.close();
 }
 
+// ════ 9) v82: صدى الشحنة بيوصل **قبل** رد jt-ship (الـEF بتكتب الشحنة وتكمّل شغل قبل ما ترد) ════
+// من غير rtExpectLocal الصدى بيعمل light (كروت + دمج) والرد بيعمله تاني = الدمج مرتين · الرد وقع والشحنة اتعملت = اللي اتأجّل بيرجع
+const FN_ECHO = (fail) => `window.__FNCALLS = []; window.__FETCH_BODIES = [];
+  (function(){ var of = window.fetch; window.fetch = function(u, init){
+    if(String(u).indexOf('/functions/v1/jt-ship') >= 0){
+      var body = JSON.parse(init.body); window.__FETCH_BODIES.push(body);
+      var o = (window.__ORDERS || []).filter(function(x){ return x.id === body.order_id; })[0];
+      if(o){ o.tracking_no = 'UEG088902573105'; o.status = 'BOSTA AUTO'; o.shipping_carrier = 'jt'; o.jt_sorting_code = '20,J01-01,000'; o.updated_at = new Date().toISOString(); }
+      return import('/js/orders/orders.js').then(function(m){
+        if(o) m.handleRealtimeChange({ eventType: 'UPDATE', new: Object.assign({}, o), old: { id: o.id } });
+        return new Promise(function(res){ setTimeout(res, 1500); });
+      }).then(function(){
+        ${fail ? "return new Response(JSON.stringify({ error: 'timeout', message: 'انقطع الاتصال' }), { status: 504, headers:{ 'Content-Type':'application/json' } });"
+               : "return new Response(JSON.stringify({ ok:true, tracking_no:'UEG088902573105', sorting_code:'20,J01-01,000', record:{ status:'BOSTA AUTO' } }), { status: 200, headers:{ 'Content-Type':'application/json' } });"}
+      });
+    }
+    return of.apply(this, arguments);
+  }; })();`;
+const mergeN = p => p.evaluate(() => (window.__calls || []).filter(x => x.rpc === 'merge_candidates_v1').length);
+async function echoShip(fail, tampered){
+  const p = await openApp(FN_ECHO(fail));
+  if(tampered){
+    await p.route('**/js/orders/ship.js', r => r.fulfill({ status: 200, contentType: 'application/javascript', body: tampered }));
+    await p.reload({ waitUntil:'networkidle' });
+    await p.waitForFunction(() => document.querySelectorAll('#tbody tr[data-id]').length > 0);
+  }
+  const id = await pickOrder(p);
+  await openDetailOf(p, id);
+  await p.click('#ship-auto');
+  await p.waitForSelector('#jt-modal.open');
+  await p.waitForFunction(() => !document.getElementById('jt-go').disabled);
+  await p.selectOption('#jt-city', 'مدينة نصر'); await p.fill('#jt-area', 'الحي السابع');
+  await p.waitForTimeout(1200);   // أي تحميل من فتح التفاصيل يخلص الأول
+  const a = await mergeN(p);
+  await p.click('#jt-go');
+  if(fail) await p.waitForFunction(() => document.getElementById('jt-err').textContent.length > 0, { timeout: 8000 });
+  else await p.waitForFunction(() => document.getElementById('jt-done').style.display !== 'none', { timeout: 8000 });
+  await p.waitForTimeout(2000);   // نافذة التجميع (800ms) + الجلب
+  const n = (await mergeN(p)) - a;
+  await p.close();
+  return n;
+}
+{
+  const n = await echoShip(false);
+  ok(n === 1, `9) v82: صدى الشحنة وصل قبل رد jt-ship = الدمج اتجاب مرة واحدة (من applyShipped) — ${n}`);
+  const nf = await echoShip(true);
+  ok(nf === 1, `9ب) v82: الرد وقع (504) بعد ما الصدى وصل = الدمج اللي اتأجّل رجع (مرة واحدة) — ${nf}`);
+}
+{
+  const src = fs.readFileSync(new URL('../app/js/orders/ship.js', import.meta.url), 'utf8');
+  const A1 = "    rtExpectLocal(ord.id);\n    var res = await fetch(";
+  if(src.split(A1).length !== 2) throw new Error('المعايرة مالقتش المرساة 9ج');
+  const n = await echoShip(false, src.replace(A1, "    var res = await fetch("));
+  ok(n > 1, `معايرة 9ج: من غير rtExpectLocal الدمج بيتجاب مرتين — فحص 9 كان هيقع (${n})`);
+  const A2 = "    rtExpectEnd(ord.id, false);\n    keepNote();";
+  if(src.split(A2).length !== 2) throw new Error('المعايرة مالقتش المرساة 9د');
+  const nf = await echoShip(true, src.replace(A2, "    keepNote();"));
+  ok(nf === 0, `معايرة 9د: من غير rtExpectEnd(false) اللي اتأجّل بيضيع — فحص 9ب كان هيقع (${nf})`);
+}
+
 await b.close();
 console.log(bad ? `\n✗ ${bad} فحص وقع` : '\n✅ تمام');
 process.exit(bad ? 1 : 0);

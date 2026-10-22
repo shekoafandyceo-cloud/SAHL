@@ -133,6 +133,7 @@ export function waFetchConvos(showLoading){
       waConvosCapped=(waConvos.length===200);
       waConvFullAt=Date.now(); waConvWm=0; waNoteConvWm(waConvos);
       renderConvos();
+      waFlushNotify();
       if(waConvDeltaDraws!==draws0) waFetchConvosDelta();
       veilDone('inbox');
       // طلب «افتح شات العميل ده» جاي من تاب الاستثناءات — بعد ما القايمة اتحمّلت
@@ -157,10 +158,11 @@ function waFetchConvosDelta(){
       if(r.error) return;   // القايمة بتفضل على آخر نسخة — الـpoll الجاي بيحاول تاني
       var rows=r.data||[];
       if(rows.length>=WA_CONV_DELTA_LIMIT){ waFetchConvos(false); return; }   // اتغيّر كتير — الكامل أصح
-      if(!rows.length) return;
+      if(!rows.length){ waFlushNotify(); return; }
       waConvDeltaDraws++;
       waMergeConvRows(rows);
       renderConvos();
+      waFlushNotify();
     });
 }
 function waNoteConvWm(rows){
@@ -1443,9 +1445,27 @@ export function handleWaRealtime(payload){
     // مش waRefreshConvos — في التاب المخفية آخر كامل بيبقى أقدم من 10 دقايق فكان بيجيب الـ200 كلهم (~230 KB) مع كل عميل جديد
     // التاب الظاهرة: الدلتا المجدولة فوق بتجيبه أصلاً — الصف لوحده للمخفية بس ولما الإشعار هيظهر فعلاً (إذن المتصفح)
     var willNotify = ('Notification' in window) && Notification.permission==='granted';
-    if(inboxOpen && document.hidden && willNotify && m.conversation_id && !waConvById(m.conversation_id)) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });
+    var unknownConv = !!(m.conversation_id && !waConvById(m.conversation_id));
+    if(inboxOpen && document.hidden && willNotify && unknownConv) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });
+    // الظاهرة: الدلتا المجدولة بتجيب الصف — الإشعار بعدها عشان يقول الاسم (من غير طلب زيادة · أقصى 2.5ث)
+    else if(inboxOpen && !document.hidden && willNotify && unknownConv) waNotifyAfterList(m);
     else waNotify(m);
   }
+}
+var waNotifyPending={}, waNotifyTimer=null;
+function waNotifyAfterList(m){
+  waNotifyPending[m.conversation_id]=m;   // رشقة = إشعار واحد بآخر رسالة (نفس الـtag)
+  if(!waNotifyTimer) waNotifyTimer=setTimeout(function(){ waNotifyTimer=null; waFlushNotify(true); }, 2500);
+}
+// بعد كل رسم للقايمة: اللي محادثته بقت معروفة بيطلع — دلتا قديمة رجعت من غيرها = بيستنى الجاية (أو المهلة)
+function waFlushNotify(force){
+  var left=0;
+  for(var k in waNotifyPending){
+    if(!Object.prototype.hasOwnProperty.call(waNotifyPending,k)) continue;
+    if(force || waConvById(k)){ var m=waNotifyPending[k]; delete waNotifyPending[k]; waNotify(m); }
+    else left++;
+  }
+  if(!left && waNotifyTimer){ clearTimeout(waNotifyTimer); waNotifyTimer=null; }
 }
 // صف محادثة واحدة برقمها — بيدخل waSearchExtra (منفصلة · بتتفلتر بالبحث) لو لسه مش في أي قايمة
 // رشقة (رسالة + صورتين من عميل جديد) = طلب واحد — الطلبات اللي جت وهو في السكة بتستنى نفس الرد

@@ -133,7 +133,10 @@ export function doBulkUpdate(ns){
       done++;
       if(r.error || !r.data){errors++;}
       else{
-        rtNoteLocalCommit(oid, { status: ns });
+        // الاستثناءات من هنا لكل أوردر (البوليصة من نسخة السيرفر — الأوردر ممكن يكون متختار من صفحة/بحث تاني ومش في fil)
+        var was = rtNoteLocalCommit(oid, { status: ns });
+        var trk0 = (was && was.tracking_no) || ((fil.filter(function(x){ return x.id===oid; })[0] || all.filter(function(x){ return x.id===oid; })[0] || {}).tracking_no);
+        if(trk0) jxNoteOrderChange(trk0);
         if(allLoaded){ for(var i=0;i<all.length;i++){if(all[i].id===oid){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(bulkReason)all[i].cancel_reason=bulkReason;break;}} }
       }
       if(done===n){
@@ -141,10 +144,6 @@ export function doBulkUpdate(ns){
         if(errors)toast('تم تحديث '+(n-errors)+' من '+count+' (فيه '+errors+' خطأ)','er');
         else toast('تم تحديث '+count+' طلب ✓','ok');
         loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();
-        ids.forEach(function(oid){
-          var o = fil.filter(function(x){ return x.id===oid; })[0] || all.filter(function(x){ return x.id===oid; })[0];
-          if(o && o.tracking_no) jxNoteOrderChange(o.tracking_no);
-        });
       }
     });
   });

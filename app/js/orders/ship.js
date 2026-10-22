@@ -23,7 +23,7 @@ import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './
 import { detailAbort, renderDetail } from './detail.js';
 import { all, fil, ordersSetSelected, sel } from './state.js';
 import { renderTable } from './table.js';
-import { doFilter, rtNoteLocalCommit } from './orders.js';
+import { doFilter, rtExpectEnd, rtExpectLocal, rtNoteLocalCommit } from './orders.js';
 import { printJtAwb } from './jt-awb.js';
 import { productsEditorDirty } from './products-editor.js';
 import { cleanShipNote, composeRemark, NOTE_PREFIX, REMARK_MAX } from './jt-remark.js';
@@ -110,12 +110,14 @@ export function manualShipFlow(){
     okColor: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
     onOk: function(val){
       var trk = String(val || '').trim();
+      rtExpectLocal(ord.id);
       sb.rpc('mark_shipped_manual', {
         p_order_id: ord.id,
         p_tracking: trk || null,
         p_by: currentUser ? currentUser.name : 'يدوي'
       }).then(function(r){
         if(r.error){
+          rtExpectEnd(ord.id, false);
           var m = r.error.message || '';
           if(m.indexOf('already_has_tracking') >= 0) toast('الأوردر له بوليصة بالفعل — حدّث الصفحة','er');
           else if(m.indexOf('bad_status') >= 0) toast('الأوردر في حالة نهائية — لو محتاج ترجّعه غيّر الحالة من القايمة الأول','er');
@@ -130,6 +132,7 @@ export function manualShipFlow(){
           ordersSetSelected(null);
           detailAbort();
         }
+        rtExpectEnd(ord.id, true);
         applyShipped(ord.id, 'bosta_assigned', trk || null);
         toast('اتعلّم «شحن»' + (trk ? ' ورقم التتبع اتسجل ✓' : ' ✓'),'ok');
       });
@@ -180,7 +183,7 @@ function applyShipped(orderId, status, tracking){
     if(tracking) sel.tracking_no = tracking;
     renderDetail();
   }
-  // الدمج كمان (v82): نسخة السيرفر اتحدّثت فوق فصدى الشحن بيبان «مفيش تغيير» — والشحن بيشيل الأوردر من «جاهز للشحن»
+  // الدمج كمان (v82): الصدى مابيعيدش التحديث (نسخة السيرفر اتحدّثت فوق · أو rtExpectLocal لو وصل قبل الرد) — والشحن بيشيل الأوردر من «جاهز للشحن»
   loadOrdersCards(); loadBostaInventoryCard(); loadMergeCandidates(); doFilter();
 }
 
@@ -364,6 +367,7 @@ async function jtSubmit(ord){
     var sess = await sb.auth.getSession();
     var tk = sess && sess.data && sess.data.session ? sess.data.session.access_token : null;
     if(!tk) throw new Error('جلسة الدخول انتهت. سجّل دخول تاني.');
+    rtExpectLocal(ord.id);
     var res = await fetch(SUPABASE_URL + '/functions/v1/jt-ship', {
       method: 'POST',
       headers: { 'Content-Type':'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': 'Bearer ' + tk },
@@ -372,6 +376,7 @@ async function jtSubmit(ord){
     out = await res.json().catch(function(){ return {}; });
     if(!res.ok || !out.ok) throw new Error(out.message || 'حصلت مشكلة — حاول تاني');
   }catch(e){
+    rtExpectEnd(ord.id, false);
     keepNote();
     btn.disabled = false; btn.textContent = 'إنشاء البوليصة عند J&T';
     err.textContent = String(e.message || e);
@@ -384,6 +389,7 @@ async function jtSubmit(ord){
   var row = findRow(ord.id);
   if(row){ row.shipping_carrier = 'jt'; row.jt_sorting_code = out.sorting_code || null; row.jt_ship_error = null; row.ship_prov = prov; row.ship_city = city; row.ship_area = area; row.shipping_weight_kg = w; }
   if(sel && sel.id === ord.id){ sel.shipping_carrier = 'jt'; sel.jt_sorting_code = out.sorting_code || null; sel.jt_ship_error = null; }
+  rtExpectEnd(ord.id, true);
   applyShipped(ord.id, (out.record && out.record.status) || 'BOSTA AUTO', out.tracking_no);
   // 🔴 jt-ship v7: الشحنة اللي اتلقت من محاولة سابقة ممكن تكون بمبلغ/منتجات قديمة (الموظف عدّل بين
   // المحاولتين) — السيرفر سجّل اللي عند J&T، والموظف لازم يعرف دلوقتي مش من البانر بعدين

@@ -424,10 +424,24 @@ function rtOverlayFlight(flight){
 export function rtNoteServerRow(row){ rtRemember(row); }
 // تعديل الموظف نفسه اتكتب على السيرفر (الـRPC رجع) — نسخة السيرفر بتاخد القيم الجديدة (من غير updated_at) فصدى الحدث يبان «مفيش تغيير»
 // والتحديث الوحيد يبقى اللي الموظف عمله بنفسه (الكروت · الدمج · الصفحة) — كان الصدى بيعيدهم كلهم (ومع فلتر = الصفحة مرتين)
+// بترجّع النسخة اللي اتعدّلت (قبل التعديل: tracking_no · الحالة القديمة) أو null — للي محتاج البوليصة (الاستثناءات)
 export function rtNoteLocalCommit(id, patch){
   var e = id && rtSeen.get(id);
-  if(!e || !patch) return;
+  if(!e || !patch) return null;
+  var before = Object.assign({}, e);
   for(var k in patch){ if(Object.prototype.hasOwnProperty.call(patch, k) && k !== 'updated_at') e[k] = patch[k]; }
+  return before;
+}
+// 🔴 تعديل جاي من الموظف ده نفسه والسيرفر لسه مارجعش (شحن J&T: jt-ship بيكتب الشحنة وبعدين بيكمّل شغل ~0.3–0.7ث قبل ما يرد،
+// فالصدى بيوصل **قبل** الرد): الصدى مابيعيدش الكروت/الدمج/الصفحة — الرد هو اللي بيعملهم (applyShipped). لو الطلب فشل بعد ما
+// الصدى اتأجّل (الرد ضاع والشحنة اتعملت) = اللي اتأجّل بيرجع (rtExpectEnd(id, false)). أقصى 20ث.
+var rtExpect = {};
+export function rtExpectLocal(id){ if(id) rtExpect[id] = { at: Date.now(), light: false, page: false }; }
+export function rtExpectEnd(id, ok){
+  var e = id && rtExpect[id];
+  if(!e) return;
+  delete rtExpect[id];
+  if(!ok && (e.light || e.page)){ if(e.light) rtNeedLight = true; if(e.page) rtNeedPage = true; scheduleRealtimeRefresh(); }
 }
 function rtRemember(row){
   if(!row || !row.id) return;
@@ -579,6 +593,8 @@ export function handleRealtimeChange(payload){
     rtSeen.delete(oldRow.id);
   }
   if(ev === 'UPDATE' && pageFlightRows) pageFlightRows[row.id] = row;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
+  var ex = ev === 'UPDATE' && rtExpect[row.id];
+  if(ex && Date.now() - ex.at < 20000){ ex.light = ex.light || need.light; ex.page = ex.page || need.page; need.light = false; need.page = false; }
   if(need.light) rtNeedLight = true;
   if(need.page) rtNeedPage = true;
   if(need.render) rtNeedRender = true;
