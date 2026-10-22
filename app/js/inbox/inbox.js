@@ -917,7 +917,17 @@ function waMergeMsgs(list, rows){
   for(var j=0;j<rows.length;j++){
     var n=rows[j], at=byId[n.id];
     if(at===undefined){ out.push(n); byId[n.id]=out.length-1; added++; changed=true; }
-    else if(waMsgDiffers(out[at], n)){ out[at]=n; changed=true; }
+    else {
+      // الحالة مابترجعش لورا (نفس ترتيب waApplyFlightPatches): دلتا خرجت قبل حدث «اتقرت/فشلت» ورجعت بعده = الحدث هو الأحدث —
+      // من غيره الـ✓✓ الزرقا كانت بترجع رمادي لحد الكامل (5 دقايق) والرسالة برّه نافذة الدلتا الجاية
+      var o=out[at];
+      if((WA_STATUS_RANK[o.status]||0) > (WA_STATUS_RANK[n.status]||0) || (o.is_read && !n.is_read)){
+        n=Object.assign({}, n);
+        if((WA_STATUS_RANK[o.status]||0) > (WA_STATUS_RANK[n.status]||0)) n.status=o.status;
+        if(o.is_read) n.is_read=true;
+      }
+      if(waMsgDiffers(o, n)){ out[at]=n; changed=true; }
+    }
   }
   if(added){
     out.sort(function(a,b){ var ta=Date.parse(a.created_at||''), tb=Date.parse(b.created_at||''); return (ta||0)-(tb||0); });

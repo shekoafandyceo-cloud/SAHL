@@ -1189,6 +1189,32 @@ async function probeMidnight(o){
   ok(r.d.stats >= 1 && r.d.page === 1 && r.lastFrom === r.want, '37) أول الشهر الجديد والشبكة ولّعت على ختم = الكروت والجدول بالمدة الجديدة سوا (الجدول ماتسابش على الشهر اللي فات) — ' + JSON.stringify(r));
 }
 
+// 38) دلتا الرسايل خرجت (رد العميل) وحدث «اتقرت» لرسالتنا وصل قبل ما ترجع = الحالة فضلت «اتقرت» (الـsnapshot القديم مايرجّعهاش «وصلت»)
+async function probeMsgRace(o){
+  const pre = 'window.__WA_MSGS = ' + JSON.stringify([msg('m1', 30), msg('m3', 3), msg('m2', 1, 'out', 'delivered')]) + ';';
+  const T = await openChat(Object.assign({ pre }, o));
+  await T.p.waitForSelector('#wa-msgs .wa-msg[data-mid="m2"]', { timeout: 8000 });
+  await T.p.evaluate(() => {
+    window.__TABLE_DELAY = (t, s) => (t === 'wa_messages' && s.limit === 100) ? 800 : 0;
+    const n = new Date().toISOString();
+    window.__WA_MSGS.push({ id: 'm4', tenant_id: 't-test-1', conversation_id: 'c5', wa_message_id: 'wamid.m4', direction: 'in', type: 'text', body: 'رد العميل', media_path: null, media_filename: null, wa_timestamp: n, is_read: false, created_at: n, status: null, sent_by_name: null, reply_to_wa_id: null });
+  });
+  await T.p.evaluate(async () => (await import('/js/inbox/inbox.js')).handleWaRealtime({ eventType: 'INSERT', new: window.__WA_MSGS[3] }));
+  await T.p.waitForTimeout(100);
+  await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js');
+    window.__WA_MSGS[2] = Object.assign({}, window.__WA_MSGS[2], { status: 'read' });
+    m.handleWaRealtime({ eventType: 'UPDATE', new: Object.assign({}, window.__WA_MSGS[2]) }); });
+  await T.p.waitForTimeout(1500);
+  const r = await T.p.evaluate(async () => { const m = await import('/js/inbox/inbox.js'); const x = (m.waLastMsgs || []).filter(r => r.id === 'm2')[0];
+    return { st: x && x.status, m4: !!document.querySelector('#wa-msgs .wa-msg[data-mid="m4"]') }; });
+  await T.ctx.close(); return r;
+}
+
+{
+  const r = await probeMsgRace();
+  ok(r.st === 'read' && r.m4, '38) دلتا خرجت قبل حدث «اتقرت» ورجعت بعده = الرسالة فضلت «اتقرت» والرد الجديد اتضاف — ' + JSON.stringify(r));
+}
+
 // ════════════════════════════════════════════════════════════════════
 console.log('\n── المعايرات (كل واحدة لازم توقّع فحص)');
 const P = (file, from, to) => ({ file, fn: s => s.replace(from, to) });
@@ -1446,6 +1472,9 @@ await cal('(ج15) tourRestore مابيعدّش الشارة → فحص 36 كان
 await cal('(ج16) المدة لفّت والجدول مابيلحقش الكروت → فحص 37 كان هيقع',
   [P('orders/orders.js', '    if(light && !page && pageRangeKey !== null && rangeKey(ordersPeriodRangeISO()) !== pageRangeKey) page = true;\n', '')],
   o => probeMidnight(o), r => r.d.page !== 1);
+await cal('(ج17) دمج الدلتا بيرجّع الحالة لورا → فحص 38 كان هيقع',
+  [P('inbox/inbox.js', "      if((WA_STATUS_RANK[o.status]||0) > (WA_STATUS_RANK[n.status]||0) || (o.is_read && !n.is_read)){", "      if(false){")],
+  o => probeMsgRace(o), r => r.st === 'read');
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
 process.exit(bad ? 1 : 0);
