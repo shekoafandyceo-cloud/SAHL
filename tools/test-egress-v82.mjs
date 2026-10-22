@@ -1125,6 +1125,52 @@ console.log('\n── من المراجعة العدائية');
   ok(r.d.merge === 1 && r.d.page === 1, '32ب) آخر تحديث للكروت من 6 دقايق وتغيير جماعي = الدمج مرة (doBulkUpdate ختم شبكة الأمان) — ' + JSON.stringify(r));
 }
 
+
+// ── المراجعة الأخيرة ─────────────────────────────────────────────────
+const TOAST_REC = () => { window.__TOASTS = []; const t = document.getElementById('toast');
+  if(t) new MutationObserver(function(){ window.__TOASTS.push(t.textContent); }).observe(t, { childList: true, characterData: true, subtree: true }); };
+// 33) دلتا الشارة وقعت (5xx · timeout) والـsocket شغّال = البوليصة بتركب مع الدلتا الجاية لأي بوليصة (العدّ والـtoast مايضيعوش)
+async function probeJxRetry(o){
+  const T = await open('/orders', Object.assign({ pre: JX_ROWS }, o));
+  await T.p.waitForTimeout(500);
+  await T.p.evaluate(TOAST_REC);
+  const s0 = await jxBadgeTxt(T.p);
+  await T.p.evaluate(() => { const r = Object.assign({}, window.__JT_ISSUES[0], { id: 799, tracking_no: 'B4', event_at: new Date().toISOString() }); window.__JT_ISSUES.push(r); window.__JT_FAIL = true; });
+  await jxEvent(T.p, 'B4');
+  await T.p.evaluate(() => { window.__JT_FAIL = false; });
+  const s1 = await jxBadgeTxt(T.p);
+  await jxEvent(T.p, 'B1');
+  await T.p.waitForTimeout(400);
+  const s2 = await jxBadgeTxt(T.p);
+  const r = await T.p.evaluate(() => ({ toasts: window.__TOASTS.join(' | '),
+    rode: window.__calls.filter(x => x.table === 'v_jt_issues' && (x.f || []).some(f => f.op === 'in' && f.col === 'tracking_no' && (f.val || []).indexOf('B4') >= 0)).length }));
+  await T.ctx.close(); return { s0, s1, s2, toast: /استثناء جديد/.test(r.toasts), rode: r.rode };
+}
+// 34) استثناء نزل وقت الجولة (أحداث jt_issues بتتطنش وقتها) = الجولة خلصت والشارة اتعدّت كاملة مرة
+async function probeJxTour(o){
+  const T = await open('/orders', Object.assign({ pre: JX_ROWS }, o));
+  await T.p.waitForTimeout(500);
+  const s0 = await jxBadgeTxt(T.p);
+  await T.p.evaluate(async () => (await import('/js/tour/tour.js')).tourStart());
+  await T.p.waitForTimeout(500);
+  await T.p.evaluate(() => { const r = Object.assign({}, window.__JT_ISSUES[0], { id: 799, tracking_no: 'B4', event_at: new Date().toISOString() }); window.__JT_ISSUES.push(r); });
+  await jxEvent(T.p, 'B4');
+  const a = await snap(T.p);
+  await T.p.evaluate(async () => (await import('/js/tour/tour.js')).tourFinish());
+  await T.p.waitForTimeout(1500);
+  const d = diff(a, await snap(T.p)); const s1 = await jxBadgeTxt(T.p);
+  await T.ctx.close(); return { s0, s1, jxFull: d.jxFull };
+}
+
+{
+  const r = await probeJxRetry();
+  ok(r.s0 === '3' && r.s1 === '3' && r.s2 === '4' && r.toast && r.rode >= 2, '33) دلتا الشارة وقعت لاستثناء جديد وبعدها حدث على بوليصة تانية = البوليصة ركبت مع الدلتا · الشارة 3 ← 3 ← 4 · toast «استثناء جديد» — ' + JSON.stringify(r));
+}
+{
+  const r = await probeJxTour();
+  ok(r.s0 === '3' && r.s1 === '4' && r.jxFull === 1, '34) استثناء نزل وقت الجولة (الحدث اتطنش) = بعد الجولة الشارة اتعدّت كاملة مرة (3 ← 4) — ' + JSON.stringify(r));
+}
+
 // ════════════════════════════════════════════════════════════════════
 console.log('\n── المعايرات (كل واحدة لازم توقّع فحص)');
 const P = (file, from, to) => ({ file, fn: s => s.replace(from, to) });
@@ -1371,6 +1417,14 @@ await cal('(ج13) doBulkUpdate مابيختمش شبكة الأمان → فحص
   [P('orders/mutations.js', '        loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();rtNoteLightRefresh();doFilter();\n      }', '        loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();doFilter();\n      }')],
   o => probeBulk(o, { idle: true }), r => r.d.merge !== 1);
 
+
+// المراجعة الأخيرة
+await cal('(ج14) دلتا الشارة اللي وقعت مابتتعادش → فحص 33 كان هيقع (الشارة 3 والـtoast ضاع)',
+  [P('exceptions/exceptions.js', 'if(r.error || !r.data){ retryLater(); return; }', 'if(r.error || !r.data){ return; }')],
+  o => probeJxRetry(o), r => !(r.s2 === '4' && r.toast));
+await cal('(ج15) tourRestore مابيعدّش الشارة → فحص 34 كان هيقع',
+  [P('tour/tour.js', "  try{ jxCatchUp(); }catch(e){ swallow('tourRestore/jxCatchUp', e); }", '')],
+  o => probeJxTour(o), r => !(r.s1 === '4' && r.jxFull === 1));
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
 process.exit(bad ? 1 : 0);

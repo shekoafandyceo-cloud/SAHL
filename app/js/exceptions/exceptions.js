@@ -1094,6 +1094,7 @@ export function jtRefreshNavBadge(){
       jxSeeRows(rows);
       jxWatchReported(rows);
       jxBadgeRows = {};
+      jxBadgeRetry = {};   // التحميل الكامل غطّاهم
       for(var j = 0; j < rows.length; j++) jxBadgeRows[rows[j].id] = rows[j];
       jxBadgeAll(rows, Date.now());
       jxEnsureRealtime();
@@ -1104,27 +1105,39 @@ export function jtRefreshNavBadge(){
 // ويدمجها في صفوف الشارة اللي في الذاكرة، بدل ما يعيد الـ30 يوم كلهم (~260 صف) مع كل رشقة. التحميل الكامل للشارة:
 // الدخول · ↻ · رجوع الاتصال. نفس مسار التنبيه والصوت (jxSeeRows) ومتابعة البلاغات (jxWatchReported) بالظبط.
 var jxBadgeRows = null;   // id → صف خفيف (JX_BADGE_COLS) — null = لسه ماتحمّلتش
+// بوالص دلتتها وقعت (5xx · timeout · النت) والـsocket فضل شغّال فمفيش jxCatchUp — بتركب مع الدلتا الجاية لأي بوليصة.
+// قبل v82 أي حدث كان بيعيد الشارة كلها فبتتصلّح لوحدها؛ من غير ده الاستثناء الجديد كان بيفضل برّه العدّ ومن غير toast ولا صوت لساعات
+var jxBadgeRetry = {};
 function jxBadgeFetch(list){
   if(!sb || !currentTenantId) return;
   jxLoadSoundPref();   // زي jtRefreshNavBadge: إعداد الفريق بيتقري تاني لو أقدم من 5 دقايق قبل أي رنّة
+  var want = {};
+  for(var w = 0; w < list.length; w++) want[list[w]] = 1;
+  for(var rk in jxBadgeRetry){ if(Object.prototype.hasOwnProperty.call(jxBadgeRetry, rk)) want[rk] = 1; }
+  jxBadgeRetry = {};
+  list = Object.keys(want);
   for(var i = 0; i < list.length; i += 80){
-    sb.from('v_jt_issues').select(JX_BADGE_COLS)
-      .eq('tenant_id', currentTenantId)
-      .in('tracking_no', list.slice(i, i + 80))
-      .limit(JX_LIMIT)
-      .then(function(r){
-        if(jxLoadedAt || !jxBadgeRows) return;   // التاب اتفتح في النص — التحميل الكامل هو اللي بيحسب
-        if(r.error || !r.data) return;
-        var rows = r.data;
-        for(var a = 0; a < rows.length; a++) jxPrep(rows[a]);
-        jxSeeRows(rows);
-        jxWatchReported(rows);
-        for(var b = 0; b < rows.length; b++) jxBadgeRows[rows[b].id] = rows[b];
-        var allRows = [];
-        for(var k in jxBadgeRows){ if(Object.prototype.hasOwnProperty.call(jxBadgeRows, k)) allRows.push(jxBadgeRows[k]); }
-        jxBadgeAll(allRows, Date.now());
-      }, function(e){ swallow('exceptions/badge-delta', e); });
+    jxBadgeChunk(list.slice(i, i + 80));
   }
+}
+function jxBadgeChunk(chunk){
+  function retryLater(){ for(var c = 0; c < chunk.length; c++) jxBadgeRetry[chunk[c]] = 1; }
+  sb.from('v_jt_issues').select(JX_BADGE_COLS)
+    .eq('tenant_id', currentTenantId)
+    .in('tracking_no', chunk)
+    .limit(JX_LIMIT)
+    .then(function(r){
+      if(jxLoadedAt || !jxBadgeRows) return;   // التاب اتفتح في النص — التحميل الكامل هو اللي بيحسب
+      if(r.error || !r.data){ retryLater(); return; }
+      var rows = r.data;
+      for(var a = 0; a < rows.length; a++) jxPrep(rows[a]);
+      jxSeeRows(rows);
+      jxWatchReported(rows);
+      for(var b = 0; b < rows.length; b++) jxBadgeRows[rows[b].id] = rows[b];
+      var allRows = [];
+      for(var k in jxBadgeRows){ if(Object.prototype.hasOwnProperty.call(jxBadgeRows, k)) allRows.push(jxBadgeRows[k]); }
+      jxBadgeAll(allRows, Date.now());
+    }, function(e){ retryLater(); swallow('exceptions/badge-delta', e); });
 }
 
 // ── الريل-تايم ───────────────────────────────────────────────────────
@@ -1148,8 +1161,9 @@ function jxEnsureRealtime(){
   }catch(e){ swallow('exceptions/realtime', e); jxChannel = null; }
 }
 
-// رجوع الاتصال بعد قطع = فترة عمياء — نجيب اللي فاتنا
-function jxCatchUp(){
+// رجوع الاتصال بعد قطع = فترة عمياء — نجيب اللي فاتنا. ونفس الحاجة بعد الجولة (tourRestore): أحداث jt_issues بتتطنش وقتها،
+// وقبل v82 أول حدث بعدها كان بيعيد الشارة كلها — دلوقتي الدلتا بتجيب بوالص الحدث بس، فاللي نزل وقت الجولة كان هيفضل برّه
+export function jxCatchUp(){
   if(jxLoadedAt) jxIncremental();
   else jtRefreshNavBadge();
 }

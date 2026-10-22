@@ -14,6 +14,7 @@ import { buildIndexes, doFilter } from '../orders/orders.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, updateRevenueStats, updateStats } from '../orders/cards.js';
 import { openDetail } from '../orders/detail.js';
 import { isAdmin } from '../orders/guards.js';
+import { jxCatchUp } from '../exceptions/exceptions.js';
 import { all, ordersPeriod, ordersSetAll, ordersSetAllLoaded } from '../orders/state.js';
 
 export var tourActive=false, tourStep=0;
@@ -104,6 +105,7 @@ export function tourRestore(){
   try{ loadMergeCandidates(); }catch(e){ swallow('tourRestore/loadMergeCandidates', e); }
   try{ loadBostaInventoryCard(); }catch(e){ swallow('tourRestore/loadBostaInventoryCard', e); }
   try{ doFilter(); }catch(e){ swallow('tourRestore/doFilter', e); }                        // الجدول: صفحة من السيرفر
+  try{ jxCatchUp(); }catch(e){ swallow('tourRestore/jxCatchUp', e); }                      // استثناءات نزلت وقت الجولة (أحداثها اتطنشت)
 }
 
 // ---- the steps ----
