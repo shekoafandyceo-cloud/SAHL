@@ -1323,10 +1323,10 @@ await cal('(ج7) التوقّع مابيتشالش مع الرد → فحص 31ج
   o => probeManualShip(o, { after: true }), r => !(r.d2.merge >= 1 && r.d2.stats >= 1));
 await cal('(ج8) نافذة التوقّع 20ث تاني → فحص 31د كان هيقع (الدمج مرتين)',
   [P('orders/orders.js', 'RT_EXPECT_MS = 70000;', 'RT_EXPECT_MS = 20000;')],
-  o => probeManualShip(o, { late: true }), r => r.d.merge !== 2);
+  o => probeManualShip(o, { late: true }), r => r.d.merge !== 1);
 await cal('(ج9) تعديل الموظف مابيختمش شبكة الأمان → فحص 31هـ كان هيقع (الدمج مرتين)',
   [P('orders/ship.js', ' loadMergeCandidates(); rtNoteLightRefresh(); doFilter();\n}', ' loadMergeCandidates(); doFilter();\n}')],
-  o => probeManualShip(o, { idle: true }), r => r.d.merge !== 2);
+  o => probeManualShip(o, { idle: true }), r => r.d.merge !== 1);
 
 await b.close();
 console.log(bad ? `\n✗ ${bad} فشل` : '\n✓ كله تمام');
