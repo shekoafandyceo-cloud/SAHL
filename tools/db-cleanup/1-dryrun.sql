@@ -104,16 +104,17 @@ drop view public.daily_summary;                 -- ai.daily_summary (البوت)
 drop view public.platform_stats;
 drop view public.orders_needing_shipping_fee;   -- كان لـn8n «Bosta - Capture Real Shipping Fee» (متوقف من يوليو)
 drop view ai.platform_settings;                 -- 🔴 كان بيكشف كل الأسرار لـSQL اللي البوت بيكتبه (مش في الـprompt)
-drop table public.wa_topics;
 
--- ── 5) indexes ميتة على جداول هادية (جوّه الترانزاكشن)
-drop index public.stock_movements_order_product_out_uniq;   -- order_id فاضي في كل الصفوف = مابيمنعش حاجة · _type_uniq مكانه
-drop index public.idx_expenses_category;                    -- صفر استخدام
+-- ── 5) 🔴 مفيش هنا أي حاجة بتقفل جدول شغّال (orders · tenants · stock_movements):
+--     جدول wa_topics (ليه FK على tenants = مسحه بيقفل tenants) والـindexes في ملف 3 — كل سطر لوحده
 
 -- ── 6) إعداد ميت (قارئه الوحيد كان order-ship اللي اتمسحت 17 أكتوبر)
 delete from public.platform_settings where key = 'ship_webhook_url';
 
 -- ── 7) الـcron بتاع المحاسبة الليلية (اتلغت 19 سبتمبر) — بيرجع بسطر واحد لو احتجناه
+--     ⚠️ رسالة التلجرام الليلية «ملخص الفوترة اليومي» هتوقف — ده طبيعي مش عطل.
+--     علامة إن الـcron واقف من هنا ورايح = البانر الأحمر «مزامنة حالات J&T واقفة» في اللوحة.
+--     الرجوع: select cron.alter_job((select jobid from cron.job where jobname = 'sahl-daily-billing'), active := true);
 select cron.alter_job(job_id := (select jobid from cron.job where jobname = 'sahl-daily-billing'), active := false);
 
 -- ── 8) جدول في الريل-تايم ومحدش بيسمعه
@@ -209,25 +210,8 @@ begin
 end
 $post$;
 
--- ── 11) الجداول الساخنة في الآخر عن قصد: القفل بيتاخد هنا وبيتساب مع آخر سطر على طول
---     تريجر المحاسبة (اتلغت 19 سبتمبر) كان بيكتب سطر wallet_transactions + تحديثين على tenants
---     مع كل أوردر بيتأكد (كل تحديث = حدث ريل-تايم لكل تاب + قراية wallet_state).
---     قفل النفاد في الـRLS مالوش دعوة بيه. الرجوع: alter table public.orders enable trigger trg_charge_order_on_status_change;
-alter table public.orders disable trigger trg_charge_order_on_status_change;
-drop index public.tenants_wa_webhook_secret_idx;   -- نسخة من tenants_wa_webhook_secret_uniq (هو اللي هيشيل الشغل بعدها)
-
-do $final$
-declare n int;
-begin
-  if (select tgenabled from pg_trigger where tgname = 'trg_charge_order_on_status_change') is distinct from 'D' then
-    raise exception 'تريجر المحاسبة مااتقفلش'; end if;
-  select count(*) into n from pg_trigger t join pg_class c on c.oid = t.tgrelid
-   where c.relname = 'orders' and not t.tgisinternal and t.tgenabled = 'O';
-  if n <> 10 then raise exception 'تريجرات orders الشغّالة بقت % مش 10', n; end if;
-  if to_regclass('public.tenants_wa_webhook_secret_uniq') is null then
-    raise exception 'الـunique index بتاع tenants راح'; end if;
-end
-$final$;
+-- (الترانزاكشن دي مابتاخدش أي قفل قوي على orders ولا tenants ولا stock_movements —
+--  مسح wa_topics والـindexes في ملف 3، وتريجر المحاسبة اتقفل في خطوة لوحدها)
 
 -- ── تجربة بس: السطر ده بيرجّع كل اللي فوق. لو ظهرلك «تجربة ناجحة» = كل الفحوص عدّت ومفيش حاجة اتغيّرت.
-do $dry$ begin raise exception 'تجربة ناجحة — كل الفحوص عدّت ومفيش ولا حاجة اتغيّرت. شغّل ملف 2 دلوقتي.'; end $dry$;
+do $dry$ begin raise exception 'تجربة ناجحة — كل الفحوص عدّت ومفيش ولا حاجة اتغيّرت. شغّل ملف 2 دلوقتي (2-apply.sql).'; end $dry$;
