@@ -354,53 +354,17 @@ CONTRACTS = [
     ("_shared/wa-ofd", u"المبلغ: مش رقم/سالب/فاضي = bad_amount (مفيش رسالة بمبلغ غلط) · صفر = «0 جنيه» · القالب بالمراسي مش بالمكان بس",
      lambda s: 'throw new Error("bad_amount")' in s and u'if (n === 0) return "0 جنيه";' in s and "Number.isFinite(n) || n < 0" in s
      and "a.every((x) => b.includes(x))" in s),
-    # ── رسالة تجربة «المندوب في الطريق» على رقم المالك (11 أكتوبر) ──
-    ("wa-ofd-test", u"service/diag بس — مفيش مسار للموظف",
-     lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
-    ("wa-ofd-test", u"المستلم من platform_settings('wa_ofd_test') مش pilot_wa_ids (قايمة الإنتاج) — الحمولة send/order_uid/replay بس",
-     lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"send", "order_uid", "replay"} and 'eq("key", "wa_ofd_test")' in s
-     and "pilot_wa_ids\")" not in s and not re.search(r"select\([^)]*pilot_wa_ids", s)
-     and "to: waId" in s and "body.to" not in s
-     # (12 أكتوبر — المراجعة) المستلم والحجز بنفس الرقم ومن `to` بس (من cfg.wa_ids) — من غيرهم «c.wa_id» (رقم العميل) كان بيعدّي العقد
-     and s.count("for (const waId of ") == 1 and "for (const waId of to) {" in s
-     and "const to = [...new Set((Array.isArray(cfg.wa_ids) ? cfg.wa_ids : [])" in s
-     and re.search(r'rpc\("wa_ofd_test_reserve", \{[^}]*p_wa_id: waId[,\s}]', s) is not None),
-    ("wa-ofd-test", u"صفر لمس للإنتاجية: مفيش حجز/ختم/نتيجة ولا كتابة في wa_ofd_sends/wa_auto_templates/wa_ofd_runs/orders (orders وwa_ofd_sends قراية بس)",
-     lambda s: not any(w in s for w in ('"wa_ofd_claim_v1"', '"wa_ofd_dispatch_v1"', '"wa_ofd_mark_v1"', 'from("wa_ofd_runs")'))
-     and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]wa_ofd_sends[\'"`]\s*\)', s))
-     and not re.search(r'from\("wa_auto_templates"\)\s*\.(update|upsert|insert|delete)', s)
-     and all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]orders[\'"`]\s*\)', s))
-     and "ofdTemplateOk(c.body, nParams)" in s),
-    ("wa-ofd-test", u"المعاينة قبل الإرسال (send=true + order_uid اللي اتعاين) + حجز ذري قبل fetch بيقفل لو وقع",
-     lambda s: "const send = body?.send === true" in s and "if (send && !uidRaw)" in s
-     and s.index("if (!send)") < s.index("fetch(`${GRAPH}")
-     and '"wa_ofd_test_reserve"' in s and s.index('"wa_ofd_test_reserve"') < s.index("fetch(`${GRAPH}")
-     and "if (rErr || !rsv)" in s and "if (rsv.ok !== true)" in s),
-    ("wa-ofd-test", u"بيانات حقيقية بالمعاينة ونص القالب من الداتابيز (renderTemplate(c.body))",
-     lambda s: "p_shadow: true" in s and "buildOfdParams(c, nParams)" in s and "renderTemplate(c.body" in s and u"خرج النهارده" not in s),
-    # (12 أكتوبر) replay: أوردر اتبعتله فعلاً — order_uid إجباري · المتجر من الإعداد في القرايتين · آخر رسالة sent/unknown بس
-    ("wa-ofd-test", u"replay بـorder_uid بس · orders وwa_ofd_sends بمتجر الإعداد · آخر رسالة اتبعتت (sent/unknown) · قبل fetch",
-     lambda s: "const replay = body?.replay === true;" in s and "if (replay && !uidRaw)" in s
-     and s.index("if (replay && !uidRaw)") < s.index("fetch(`${GRAPH}")
-     and re.search(r'from\("orders"\)\s*\.select\([^)]*\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_uid", uidRaw\)', s) is not None
-     and re.search(r'from\("wa_ofd_sends"\)\s*\.select\("id, courier_name, courier_phone"\)\s*\.eq\("tenant_id", cfg\.tenant_id\)\.eq\("order_id", ord\.id\)\.in\("status", \["sent", "unknown"\]\)\s*\.order\("id", \{ ascending: false \}\)\.limit\(1\)\.maybeSingle\(\)', s) is not None
-     and 'if (c.tenant_id !== cfg.tenant_id)' in s),
     # (12 أكتوبر — المراجعة) القالب 7: الخاصية اللي العميل اختارها (manufacturer_note ← var) جنب المنتج — «تيربو بريمو 5 دور»
-    # لعميل طالب «4 أدوار مدور» = رسالة بتناقض البوليصة. القرايتين (الإنتاج والتجربة) لازم يجيبوها
+    # لعميل طالب «4 أدوار مدور» = رسالة بتناقض البوليصة. قراية الإنتاج لازم تجيبها
+    # (أداة التجربة wa-ofd-test وعقودها اتشالت 23 أكتوبر — التنضيف)
     ("wa-ofd-notify", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders)",
      lambda s: "select(\"id, tenant_id, product_name, manufacturer_note, var, line_prices, has_upsell, jt_cod_amount, total_cost\")" in s
      and "r.manufacturer_note = o.manufacturer_note; r.var = o.var;" in s and "r.line_prices = o.line_prices; r.has_upsell = o.has_upsell;" in s),
-    ("wa-ofd-test", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders) · رقم المحل = wa_ofd_candidates_v1 في replay",
-     lambda s: "select(\"tenant_id, product_name, manufacturer_note, var, line_prices, has_upsell, jt_cod_amount, total_cost\")" in s
-     and "c.manufacturer_note = o.manufacturer_note; c.var = o.var;" in s and "c.line_prices = o.line_prices; c.has_upsell = o.has_upsell;" in s
-     and "store_phone: nb(tpl.store_phone) || nb(ten?.support_phone) || nb(ten?.sender_phone)" in s),
     ("_shared/wa-ofd", u"المنتج بالخاصية (ofdProps) · نص فيه «\\n» حرفي أو \\r = مرفوض قبل الإرسال",
      lambda s: "ofdProducts(r.product_name, ofdProps(r))" in s
      and 'return String(r.manufacturer_note ?? "").trim() || String(r.var ?? "").trim();' in s
      and 'if (r.line_prices != null || r.has_upsell === true) return "";' in s
      and '!b.includes("\\\\n") && !b.includes("\\r")' in s),
-    ("wa-ofd-test", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
-     lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
 ]
 
 
