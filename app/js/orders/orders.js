@@ -1,10 +1,10 @@
 // الأوردرات — الحالة والتحميل والجدول والتفاصيل والتحديث الجماعي والريل-تايم
 
 import { skelTable } from '../core/skeleton.js';
-import { loadCommissions, myCommissionEnabled, refreshMyCommissionNav, renderMyCommissionBar } from '../finance/commissions.js';
+import { loadMyCommission, myCommissionEnabled, refreshMyCommissionNav } from '../finance/commissions.js';
 import { currentTenantId, currentUser, forceSuspendLogout } from '../auth/auth.js';
 import { loadWalletState } from '../billing/billing.js';
-import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES } from '../core/constants.js';
+import { BOSTA_OPERATION_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusLabel } from '../core/constants.js';
 import { $id } from '../core/dom.js';
 import { cairoYMD, normalizePhone, num, ymdAddDays } from '../core/format.js';
 import { swallow } from '../core/log.js';
@@ -18,12 +18,17 @@ import { tourActive, tourMaybeAutoStart } from '../tour/tour.js';
 import { printSelectedAwb } from './awb.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './cards.js';
 import { detailAbort, renderDetail } from './detail.js';
+import { deliveryScoreSection } from './delivery-score.js';
 import { reflectStatusCards, wireStatusCards } from './filters-ui.js';
 import { ensureTenant } from './guards.js';
 import { doBulkUpdate } from './mutations.js';
-import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetAllLoaded, ordersSetFiltered, ordersSetLoading, ordersSetPage, ordersSetPageSize, ordersSetPendingBosta, ordersSetPhoneCounts, ordersSetSelected, ordersSetTotalCount, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, totalCount } from './state.js';
-import { renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
+import { all, allLoaded, cur, fil, ordersPeriod, ordersSetAll, ordersSetAllLoaded, ordersSetFiltered, ordersSetPage, ordersSetPageSize, ordersSetPendingBosta, ordersSetPhoneCounts, ordersSetSelected, ordersSetTotalCount, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, totalCount } from './state.js';
+import { parseStatusLog, renderTable, updateBulkBar, updateUnprintedBtn } from './table.js';
 import { initShipTicker } from './ship.js';
+import { initJtHealth } from './jt-health.js';
+import { initOrderForm } from './order-form.js';
+import { jtRefreshNavBadge, jxNoteOrderChange } from '../exceptions/exceptions.js';
+import { whRefreshNavBadge } from '../warehouse/warehouse.js';
 
 export function ordersInPeriod(){
   var p=ordersPeriod;
@@ -80,8 +85,6 @@ export function openOrdersForDay(ymd){
   setPeriod(ordersPeriod, 'custom', ymd, ymd);
   setOrdersPeriod('custom');   // بتظبّط الشريط وبتفتح صف التواريخ — ومابتجيبش (custom بيستنى «تطبيق»)
   refreshOrdersScope();        // فالجلب بيتنادى من هنا صراحةً
-  var anchor=$id('fbar');
-  if(anchor) window.scrollTo({top:Math.max(0,anchor.offsetTop-80),behavior:'smooth'});
 }
 
 // تحميل كل الأوردرات للذاكرة عند الحاجة فقط (الماليات/الإحصائيات بتحسب على كل الفترة).
@@ -169,24 +172,60 @@ export function fetchPhoneCounts(rawPhones, cb){
   });
 }
 
+// 🔴 بيانات صفحة الأوردرات بتتجاب بس وهي ظاهرة (v79): تاب المحادثات وتاب السكانر
+// مفتوحين طول اليوم، وكل رشقة ريل-تايم على orders كانت بتجيب الكروت والدمج
+// والبضاعة والجدول (~8 نداءات) في كل تاب. الصفحة مش ظاهرة (أو التاب في الخلفية) =
+// علامة «قديمة» وبتتجاب أول ما الصفحة تبان (showPage('orders') · رجوع التاب).
+// ⚠️ تحديث `fil` من الحدث نفسه (handleRealtimeChange) زي ما هو — وtoast الحالة بيطلع للصفوف اللي في الجدول
+// المتحمّل بس (تاب فتحت على المحادثات مالهاش جدول لحد ما الأوردرات تتفتح) · toast الأوردر الجديد في كل تاب.
+var ordersStale = false;
+function ordersShown(){ var p=$id('page-orders'); return !!(p && p.style.display!=='none' && !document.hidden); }
+export function refreshOrdersIfStale(){
+  if(!ordersStale || tourActive || !ordersShown()) return;
+  ordersStale = false;
+  refreshOrdersLight();
+  if(fil.length) fetchOrdersPage(); else doFilter();   // fetchOrdersPage بيحافظ على الصفحة اللي الموظف واقف عليها
+}
+
+// الكروت (sahl_orders_stats) + تنبيه الدمج + كارت البضاعة — «الخفيف» (بضع KB) من غير صفحة الجدول (~320 KB لـ200 صف)
+var rtLastLightAt = 0;
+function refreshOrdersLight(){
+  rtLastLightAt = Date.now();
+  loadOrdersCards(); loadMergeCandidates(); loadBostaInventoryCard();
+}
+// تعديل الموظف (الحالة · الجماعي · الشحن) بيجيب الكروت والدمج والبضاعة بنفسه — من غير الختم ده شبكة الأمان (5 دقايق)
+// كانت بتجيبهم تاني مع صداه لو مفيش light قبلها
+export function rtNoteLightRefresh(){ rtLastLightAt = Date.now(); }
+
 export function loadAll(){
+  // بانر «مزامنة J&T واقفة» للأدمن — بعد الدخول (initNav بيشتغل قبل ما sb يجهز) ومع كل ↻
+  initJtHealth();
   if(!ensureTenant())return;
   selectedIds.clear();updateBulkBar();
   // مش بنحمّل كل الأوردرات عند البداية — صفحة الأوردرات كلها من السيرفر.
   // all يتحمّل lazily بس لما الماليات أو الإحصائيات تتفتح.
   ordersSetAll([]); ordersSetAllLoaded(false);
-  loadOrdersCards();         // s0..s7 + الإيرادات + عدّاد المدة من RPC
-  loadMergeCandidates();     // تنبيه الدمج من كويري مخصّص
-  loadBostaInventoryCard();  // كارت بضاعة بوسطة من كويري مخصّص (بيحمّل المخزون عند اللزوم)
   // شريط عمولة الموظف + زرار «عمولتي» — بيتحمّلوا مرة مع أول تحميل للطلبات.
   // بيرجعوا بدري لو العمولة مش مفعّلة، فمفيش نداء زيادة على أغلب التجار.
-  if(myCommissionEnabled()){ refreshMyCommissionNav(); loadCommissions(renderMyCommissionBar); }
-  doFilter();                // الجدول: صفحة واحدة من السيرفر
+  // 🔴 loadMyCommission (الصفحة + الشريط) مش loadCommissions(الشريط بس): applyInitialRoute بقت قبل loadAll (v79)،
+  // فعلى لينك /mycommission نداء الصفحة بيطلع الأول ونداءنا بيبقى الأحدث (cmGen) — لو رسم الشريط بس، الصفحة تفضل «—»
+  if(myCommissionEnabled()){ refreshMyCommissionNav(); loadMyCommission(); }
+  if(ordersShown()){
+    ordersStale = false;
+    // الكروت (s0..s7 + الإيرادات + عدّاد المدة من RPC) · تنبيه الدمج (merge_candidates_v1) · كارت البضاعة
+    refreshOrdersLight();
+    doFilter();                // الجدول: صفحة واحدة من السيرفر
+  } else ordersStale = true;   // بتتجاب أول ما صفحة الأوردرات تبان
   startRealtime();
   waRefreshNavBadge();       // عدّاد المحادثات غير المقروءة على زرار التبويب
+  jtRefreshNavBadge();       // عدّاد «استثناءات الشحن» اللي محتاجة متابعة (وبيفتح الريل-تايم بتاعها)
+  whRefreshNavBadge();       // عدّاد «سكانر المخزن» (اسحب من «جاهز للشحن» · رجع ومااتضربش — والأدمن: خرج من غير سكان)
   loadWalletState();         // للجميع (أدمن + موظف) — للقفل عند نفاد الرصيد
   try{ tourMaybeAutoStart(); }catch(e){ swallow('loadAll/tourMaybeAutoStart', e); }
 }
+
+// الاتصال وقع قبل كده في الجلسة دي؟ — بيحدّد إن رجوعه يستاهل جلب تعويضي
+var rtEverOff = false;
 
 export function startRealtime(){
   // Remove any existing channel before creating a new one
@@ -276,8 +315,15 @@ export function startRealtime(){
     })
     .subscribe(function(status){
       if(status === 'SUBSCRIBED'){
+        // 🔴 رجوع الاتصال بعد قطع = فترة عمياء: كل حدث حصل والـsocket
+        // مقفول ضاع للأبد (مفيش replay في postgres_changes). فأول ما
+        // يرجع بنجيب الصفحة والكروت من السيرفر — من غير ده الموظف بيفضل
+        // على حالات قديمة والنقطة خضرا، وده أسوأ من نقطة حمرا.
+        var wasOff = rtEverOff;
         showRealtimeDot(true);
-      } else if(status === 'CLOSED' || status === 'CHANNEL_ERROR'){
+        if(wasOff){ rtEverOff = false; rtNeedLight = true; rtNeedPage = true; scheduleRealtimeRefresh(); loadWalletState(); }   // tenants مالهاش replay — المحفظة بتتقرا تاني بعد القطع
+      } else if(status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
+        rtEverOff = true;
         showRealtimeDot(false);
       }
     }));
@@ -288,6 +334,23 @@ export function startRealtime(){
 // بتضرب 100 طلب وتوست لكل واحد. بنحدّث الحالة المحلية فوراً، والطلبات
 // بتتجمع في تحديث واحد بعد ما الرشقة تهدى، من غير لمس الصفحة الحالية.
 var rtTimer = null, rtInserts = 0, rtFirstAt = 0;
+// تغييرات الحالة اللي وصلت من الريل-تايم في الرشقة الحالية — بتتجمّع في
+// toast واحد زي الأوردرات الجديدة بالظبط. الشكل: [{uid, to}]
+var rtStatusChanges = [];
+// 🔴 v82 — احتياجات الرشقة: كل حدث بيتصنّف (rtNeeds) وبيقول محتاج إيه، والتنفيذ مرة واحدة في آخر الرشقة.
+// قبل كده **كل** حدث على orders — حتى ختم وقت من مزامنة J&T أو نسبة الاستلام — كان بيجيب صفحة الجدول كاملة
+// (200 صف ≈ 320 KB) + الدمج (768 صف) + الكروت في كل تاب أوردرات ظاهرة: ~نص الـEgress الشهري (قياس 17 أكتوبر —
+// الـgrace period بتاع Supabase بيخلص 8 نوفمبر). الصف المعروض بيتحدّث من الحدث نفسه (fil[k]=row) فمش محتاج جلب.
+//   light  = الكروت + الدمج + البضاعة + شريط الإلغاء (بضع KB) — لما الحدث غيّر حاجة بيقروها
+//   page   = صفحة الجدول من السيرفر — أوردر جديد/اتمسح، أو تغيير بيخرّج/يدخّل صف في الفلتر النشط
+//   render = صف في الصفحة اتحدّث من الحدث ومحتاج يترسم
+var rtNeedLight = false, rtNeedPage = false, rtNeedRender = false;
+// شبكة أمان: حدث اتصنّف «مالوش أثر» غلط (نادر — عمود مش في النسخة اللي في الذاكرة) = الكروت (الرخيصة) بتتجاب
+// على الأكثر كل 5 دقايق مع أي حدث، فأي فرق مايعيشش أكتر من كده.
+var RT_LIGHT_SAFETY_MS = 5 * 60 * 1000;
+// حدود created_at اللي الصفحة المعروضة اتجابت بيها — null = لسه ماتجابتش
+var pageRangeKey = null;
+function rangeKey(rng){ return rng ? rng.fromTs + '|' + rng.toTs : ''; }
 function scheduleRealtimeRefresh(){
   // debounce بحد أقصى: رشقة مستمرة بفواصل أقل من 800ms كانت بتأجّل
   // التحديث لما الرشقة تخلص خالص — دلوقتي بنفضفض على الأكثر كل ~3 ثواني
@@ -300,12 +363,150 @@ function scheduleRealtimeRefresh(){
       toast(rtInserts === 1 ? '📦 طلب جديد وصل!' : ('📦 '+rtInserts+' طلبات جديدة وصلت!'), 'ok');
       rtInserts = 0;
     }
-    loadOrdersCards();
-    loadMergeCandidates();
-    loadBostaInventoryCard();
-    fetchOrdersPage();   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
-    loadWalletState();   // تغيير حالة ممكن يكون سبّب خصم
+    if(rtStatusChanges.length){
+      // سكانر المخزن (📷) لوحده — «من شركة الشحن» كان بيكذب على طرد اتضرب في المخزن
+      var c = rtStatusChanges.filter(function(x){ return !x.wh; });
+      var w = rtStatusChanges.filter(function(x){ return x.wh; });
+      if(c.length) toast(c.length === 1
+        ? ('🚚 طلب #' + c[0].uid + ' بقى «' + c[0].to + '»')
+        : ('🚚 ' + c.length + ' طلبات اتغيّرت حالتهم من شركة الشحن'), 'ok');
+      if(w.length) toast(w.length === 1
+        ? ('📦 طلب #' + w[0].uid + ' بقى «' + w[0].to + '» من سكانر المخزن')
+        : ('📦 ' + w.length + ' طرد اتضرب في سكانر المخزن'), 'ok');
+      rtStatusChanges = [];
+    }
+    var light = rtNeedLight, page = rtNeedPage, render = rtNeedRender;
+    rtNeedLight = false; rtNeedPage = false; rtNeedRender = false;
+    if(!light && Date.now() - rtLastLightAt > RT_LIGHT_SAFETY_MS) light = true;
+    // المدة النسبية (آخر 3 · آخر 30 · الشهر) بتلف نص الليل: الكروت بتتحسب بالمدة الجديدة — الجدول لازم يلحقها
+    // (قبل v82 كل حدث كان بيجيب الصفحة فبتلحق لوحدها؛ دلوقتي ختم المزامنة بيحدّث الكروت بس)
+    if(light && !page && pageRangeKey !== null && rangeKey(ordersPeriodRangeISO()) !== pageRangeKey) page = true;
+    var fetched = false;
+    if(light || page){
+      if(ordersShown()){
+        if(light) refreshOrdersLight();
+        if(page){ fetchOrdersPage(); fetched = true; }   // مش doFilter — بيحافظ على الصفحة اللي الموظف واقف عليها
+        else refreshCancelBar();                          // fetchOrdersPage بتعمله لوحدها
+      } else ordersStale = true;
+    }
+    // صفحة في السكة = الـskeleton فاضل لحد ما تنزل (هي بترسم والحدث بيتطبّق عليها) — الرسم هنا كان بيرجّع الصفحة/الفلتر القديم فوقه
+    if(render && !fetched && !pageInFlight()){
+      try{ renderTable(); }catch(e){ swallow('scheduleRealtimeRefresh/renderTable', e); }
+      try{ updateUnprintedBtn(); }catch(e){ swallow('scheduleRealtimeRefresh/updateUnprintedBtn', e); }   // awb_print_count اتغيّر من تاب تانية
+    }
   }, (_now - rtFirstAt >= 3000) ? 0 : 800);
+}
+
+// ── تصنيف الحدث (v82) ─────────────────────────────────────────────────────
+// الأعمدة اللي الكروت (sahl_orders_stats: status · total_cost · payment_stage · created_at) والدمج
+// (merge_candidates_v1: الحالة · التليفون · والأعمدة المعروضة) والبضاعة (loadBostaInventoryCard) وشريط الإلغاء بيقروها.
+// ⚠️ أي كارت/تنبيه جديد بيقرا عمود تاني من orders لازم العمود يتضاف هنا — وإلا تغييره مش هيحدّث الكارت غير
+// مع شبكة الأمان (5 دقايق) أو ↻.
+var RT_LIGHT_COLS = ['status','total_cost','payment_stage','created_at','phone','customer_name','city','order_uid','tracking_no',
+  'product_name','inventory_cost_snapshot','inventory_value_snapshot','inventory_value_at_bosta','cancel_requested_at','cancel_resolved_at'];
+var RT_CANCEL_COLS = ['cancel_requested_at','cancel_resolved_at'];
+// ختم وقت بيتكتب بـnow() في **نفس الترانزاكشن** مع updated_at (تريجر orders_updated_at = now()) — UPDATE كل اللي فيه
+// الختم ده: مزامنة رسوم J&T (app.jt_apply_fee) · مبلغ التحصيل (app.jt_set_cod) · نسبة الاستلام (ship_rank_apply_v1) ·
+// customer_ranking_at (n8n القديم). ولا واحد منهم بيلمس عمود من RT_LIGHT_COLS.
+var RT_STAMP_COLS = ['jt_fee_synced_at','jt_cod_synced_at','ship_rank_at','customer_ranking_at'];
+// آخر نسخة شفناها من كل أوردر في الريل-تايم (الأعمدة اللي بنقارن بيها بس) — أوردر مش في الصفحة اتلمس مرتين
+// (رسوم J&T كل نص ساعة على نفس الأوردرات) = المرة التانية بتتقارن بدل ما تتحسب «مش معروف»
+var rtSeen = new Map(), RT_SEEN_MAX = 1500;
+function rtTrackCols(){ return RT_LIGHT_COLS.concat(ORDER_SEARCH_COLS, ['updated_at']); }
+// وقت من PostgREST أو الريل-تايم ("2026-10-17 10:00:00.123+00" — Date.parse مابيفهمش ±HH من غير دقايق)
+function rtTime(v){
+  if(v == null || v === '') return NaN;
+  return Date.parse(String(v).trim().replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
+}
+// الصفحة نزلت والأحداث اللي وصلت وهي في السكة: الأحدث من الـsnapshot (updated_at) بيكسب — الـsnapshot من غير updated_at = الحدث
+function rtOverlayFlight(flight){
+  for(var k=0;k<fil.length;k++){
+    var ev = flight[fil[k].id];
+    if(!ev) continue;
+    var te = rtTime(ev.updated_at), ts = rtTime(fil[k].updated_at);
+    if(!isNaN(ts) && (isNaN(te) || te <= ts)) continue;
+    fil[k] = ev;
+  }
+}
+// نسخة السيرفر من نافذة التفاصيل (select('*')) — أوردر مش في الصفحة اتفتح من تاب الاستثناءات واتعدّل محلي، فصدى الحدث لازم
+// يتقارن بالنسخة اللي قبل التعديل مش بـsel المعدّل
+export function rtNoteServerRow(row){ rtRemember(row); }
+// تعديل الموظف نفسه اتكتب على السيرفر (الـRPC رجع) — نسخة السيرفر بتاخد القيم الجديدة (من غير updated_at) فصدى الحدث يبان «مفيش تغيير»
+// والتحديث الوحيد يبقى اللي الموظف عمله بنفسه (الكروت · الدمج · الصفحة) — كان الصدى بيعيدهم كلهم (ومع فلتر = الصفحة مرتين)
+// بترجّع النسخة اللي اتعدّلت (قبل التعديل: tracking_no · الحالة القديمة) أو null — للي محتاج البوليصة (الاستثناءات)
+export function rtNoteLocalCommit(id, patch){
+  var e = id && rtSeen.get(id);
+  if(!e || !patch) return null;
+  var before = Object.assign({}, e);
+  for(var k in patch){ if(Object.prototype.hasOwnProperty.call(patch, k) && k !== 'updated_at') e[k] = patch[k]; }
+  return before;
+}
+// 🔴 تعديل جاي من الموظف ده نفسه والسيرفر لسه مارجعش (شحن J&T: jt-ship بيكتب الشحنة وبعدين بيكمّل شغل ~0.3–0.7ث قبل ما يرد،
+// فالصدى بيوصل **قبل** الرد): الصدى مابيعيدش الكروت/الدمج/الصفحة — الرد هو اللي بيعملهم (applyShipped). لو الطلب فشل بعد ما
+// الصدى اتأجّل (الرد ضاع والشحنة اتعملت) = اللي اتأجّل بيرجع (rtExpectEnd(id, false)). أقصى 70ث — jt-ship ممكن ياخد 25ث في addOrder
+// + 15ث استعلام قبل ما يسجّل (كل مسار رد بينادي rtExpectEnd · السقف للطلب اللي عمره ما رجع بس)
+var rtExpect = {}, RT_EXPECT_MS = 70000;
+export function rtExpectLocal(id){ if(id) rtExpect[id] = { at: Date.now(), light: false, page: false }; }
+export function rtExpectEnd(id, ok){
+  var e = id && rtExpect[id];
+  if(!e) return;
+  delete rtExpect[id];
+  if(!ok && (e.light || e.page)){ if(e.light) rtNeedLight = true; if(e.page) rtNeedPage = true; scheduleRealtimeRefresh(); }
+}
+function rtRemember(row){
+  if(!row || !row.id) return;
+  // نسخة أقدم من اللي معانا (جلب صفحة طلع قبل حدث وصل) مابتدوسش عليها
+  var old = rtSeen.get(row.id), to = old ? rtTime(old.updated_at) : NaN, tn = rtTime(row.updated_at);
+  if(!isNaN(to) && !isNaN(tn) && tn < to) return;
+  var o = {}, cols = rtTrackCols();
+  for(var i=0;i<cols.length;i++){ if(Object.prototype.hasOwnProperty.call(row, cols[i])) o[cols[i]] = row[cols[i]]; }
+  rtSeen.delete(row.id); rtSeen.set(row.id, o);
+  if(rtSeen.size > RT_SEEN_MAX) rtSeen.delete(rtSeen.keys().next().value);
+}
+// النسخة اللي بنقارن بيها **قبل** الحدث: نسخة السيرفر (آخر جلب للصفحة أو آخر حدث — مش التعديل المحلي) ← الصفحة ← نافذة
+// التفاصيل. 🔴 مخزن الماليات (all) مش منهم: أعمدته (ALL_COLS) ناقصة أعمدة الكروت (طلب الإلغاء · الاسم · المدينة) فالتغيير
+// فيها كان بيعدّي «مفيش تغيير» — الأوردر اللي مش معروف بيتعامل «مش معروف» (light لو مش ختم)
+function rtKnownRow(id){
+  if(!id) return null;
+  var s = rtSeen.get(id); if(s) return s;
+  for(var i=0;i<fil.length;i++){ if(fil[i].id === id) return fil[i]; }
+  if(sel && sel.id === id) return sel;
+  return null;
+}
+function rtActiveFilters(){
+  function g(id){ var el = $id(id); return el ? String(el.value || '').trim() : ''; }
+  var f = { st: g('fst'), pl: g('fpl'), py: g('fpy'), q: g('qinp') };
+  f.any = !!(f.st || f.pl || f.py || f.q);
+  return f;
+}
+// عمود ناقص من أي ناحية = مانقدرش نحكم عليه فبيتساب (شبكة الأمان بتغطّيه)
+function rtChanged(prev, row, cols){
+  for(var i=0;i<cols.length;i++){
+    var k = cols[i];
+    if(!Object.prototype.hasOwnProperty.call(prev, k) || !Object.prototype.hasOwnProperty.call(row, k)) continue;
+    if(!rtSameValue(prev[k], row[k])) return true;
+  }
+  return false;
+}
+export function rtStampOnly(row){
+  var u = row && row.updated_at;
+  if(!u) return false;
+  for(var i=0;i<RT_STAMP_COLS.length;i++){ var v = row[RT_STAMP_COLS[i]]; if(v && rtSameValue(v, u)) return true; }
+  return false;
+}
+export function rtNeeds(row, prev){
+  var f = rtActiveFilters();
+  if(!prev){
+    // أوردر مش في الذاكرة ومانعرفش اتغيّر فيه إيه: ختم وقت = ولا حاجة · غير كده = الخفيف (رخيص) + الصفحة لو فيه فلتر
+    if(rtStampOnly(row)) return { light: false, page: false };
+    return { light: true, page: f.any };
+  }
+  var page = false;
+  if(f.st) page = rtChanged(prev, row, f.st === '__cancelreq__' ? RT_CANCEL_COLS : ['status']);
+  if(!page && f.pl) page = rtChanged(prev, row, ['platform']);
+  if(!page && f.py) page = rtChanged(prev, row, ['payment_stage']);
+  if(!page && f.q) page = rtChanged(prev, row, ORDER_SEARCH_COLS);
+  return { light: rtChanged(prev, row, RT_LIGHT_COLS), page: page };
 }
 
 export function handleRealtimeChange(payload){
@@ -316,21 +517,153 @@ export function handleRealtimeChange(payload){
   var ev = payload.eventType;
   var row = payload.new || {};
   var oldRow = payload.old || {};
+  var need = { light: true, page: true, render: false };   // INSERT/DELETE (وأي نوع مش معروف) = كل حاجة زي الأول
 
   if(ev === 'INSERT'){
     if(allLoaded) all.unshift(row);
     rtInserts++;
+    rtRemember(row);
   } else if(ev === 'UPDATE'){
+    // التصنيف **قبل** ما أي نسخة في الذاكرة تتحدّث — هي اللي بنقارن بيها
+    var known = rtKnownRow(row.id);
+    need = rtNeeds(row, known);
+    var phoneMoved = !!(known && Object.prototype.hasOwnProperty.call(known, 'phone') && !rtSameValue(known.phone, row.phone));
+    // حالة أوردر ليه استثناء اتغيّرت = نتيجة الاستثناء ممكن تتغيّر (اتلغى · اتسلّم) — الشارة والتاب بيعيدوا البوليصة دي بس
+    if(row.tracking_no && !rtStampOnly(row) && (!known || !rtSameValue(known.status, row.status))){
+      try{ jxNoteOrderChange(row.tracking_no); }catch(e){ swallow('handleRealtimeChange/jxNoteOrderChange', e); }
+    }
+    rtRemember(row);
     if(allLoaded){
       for(var i=0;i<all.length;i++){ if(all[i].id === row.id){ all[i] = row; break; } }
     }
-    if(sel && sel.id === row.id){ ordersSetSelected(row); }
+    // 🔴 `fil` هو مصدر الجدول (الصفحة الحالية من السيرفر) و`all` مخزن
+    // الماليات الكسول — بيبقى فاضي على طول الوقت. تحديث `all` لوحده كان
+    // معناه إن الصف المعروض مابيتغيّرش غير لما `fetchOrdersPage` ترجع،
+    // فتغيير الحالة من شركة الشحن كان بيستنى الرحلة دي.
+    var prev = null;
+    for(var k=0;k<fil.length;k++){ if(fil[k].id === row.id){ prev = fil[k]; fil[k] = row; break; } }
+    if(prev) need.render = true;   // الصف المعروض اتحدّث — بيترسم في آخر الرشقة لو مفيش جلب للصفحة
+    // شارة العميل المتكرر (phoneCounts) كانت بتتحدّث مع جلب الصفحة اللي كان بيحصل مع كل حدث — التليفون اتغيّر = عدّ الرقمين
+    // أوردر مش معروف (مش في الصفحة) ومش ختم وتليفونه زي صف في الصفحة = ممكن يكون اتغيّر للرقم ده — عدّ الرقم ده بس
+    // أوردر برّه الصفحة (معروف أو لأ) ومش ختم: الرقمين (الجديد والقديم) لو واحد منهم زي صف في الصفحة
+    var phs = [];
+    if(prev && phoneMoved) phs = [row.phone, known.phone];
+    else if(!prev && !rtStampOnly(row) && (!known || phoneMoved)){
+      var cand = [row.phone, known && known.phone].filter(function(x){ return !!x; });
+      phs = cand.filter(function(ph){
+        var np = normalizePhone(ph);
+        for(var q=0; q<fil.length; q++){ if(fil[q].id !== row.id && np && normalizePhone(fil[q].phone) === np) return true; }
+        return false;
+      });
+    }
+    phs = phs.filter(function(x){ return !!x; });
+    if(phs.length) fetchPhoneCounts(phs, function(){ if(pageInFlight()) return; try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/phoneCounts', e); } });
+    // 🔴 REPLICA IDENTITY على `orders` = default، يعني `payload.old` فيه
+    // المفتاح بس — الحالة القديمة بتتقرا من الصف اللي في الذاكرة مش من
+    // الحدث. لو الصف مش معروض، مفيش مقارنة ومفيش toast (وده صح: الجدول
+    // مش شايفه أصلاً). ⚠️ من v79 تاب فتحت على صفحة تانية (المحادثات · السكانر)
+    // جدولها مابيتحمّلش لحد ما الأوردرات تتفتح = مفيش toast حالة فيها خالص
+    // (قبل كده كانت بتطلع للصفوف اللي في أول صفحة بالصدفة). toast الأوردر الجديد زي ما هو.
+    if(prev && prev.status !== row.status){
+      var by = rtChangedBy(row);
+      // سكانر المخزن بيكتب «📷 <الموظف>» — الاسم من غير البادئة هو اللي بيتقارن (كان كل سكان بيعمل toast لصاحبه)
+      var wh = by.indexOf('📷') === 0;
+      var byName = wh ? by.replace(/^📷\s*/, '') : by;
+      // الموظف اللي غيّر الحالة بنفسه شاف النتيجة قدامه — toast على فعله
+      // هو ضوضاء. اللي يستاهل إشعار هو اللي جه من برّه: شركة الشحن أو زميل.
+      // وسكانات المخزن والصفحة بتاعته مفتوحة قدامه = القوايم بتعرضها (toast لكل طرد = ضوضاء)
+      var whOpen = wh && (function(){ var pg = document.getElementById('page-warehouse'); return !!(pg && pg.style.display !== 'none'); })();
+      if(byName !== (currentUser && currentUser.name) && !whOpen){
+        rtStatusChanges.push({ uid: row.order_uid || (row.id || '').slice(0,8), to: statusLabel(row.status), wh: wh });
+      }
+      if(!pageInFlight()){ try{ renderTable(); }catch(e){ swallow('handleRealtimeChange/renderTable', e); } }
+    }
+    if(sel && sel.id === row.id){
+      // `sel` جاي من `select('*')` والحدث كمان بيحمل كل الأعمدة — بس الدمج
+      // بيحمي من أي عمود الريل-تايم ميبعتهوش (صلاحيات بالعمود).
+      var scoreOnly = rtOnlyScoreChanged(sel, row);
+      var merged = Object.assign({}, sel, row);
+      ordersSetSelected(merged);
+      // النافذة مفتوحة قدام الموظف؟ لازم تتحدث هي كمان — من غير ده الحالة
+      // في الجدول بتتغيّر والنافذة فاضلة على القديم.
+      // 🔴 إلا لو اللي اتغيّر نسبة الاستلام بس: سحب شركة الشحن (ship-rank-sync) بيعمل UPDATE بعد
+      // ~0–3د من نزول الأوردر، والرسم الكامل كان بيمسح أي حاجة الموظف بيكتبها ومحفظهاش
+      // (المنتجات · التليفون · ملاحظة المكالمة · الملاحظات الداخلية). فالقسم بتاعها بس بيتبدّل.
+      try{
+        if($id('ovl').classList.contains('open')){
+          var ds = scoreOnly ? $id('ds-sec') : null;
+          if(ds) ds.outerHTML = deliveryScoreSection(merged);
+          else renderDetail();
+        }
+      }
+      catch(e){ swallow('handleRealtimeChange/renderDetail', e); }
+    }
   } else if(ev === 'DELETE'){
     if(allLoaded) ordersSetAll(all.filter(function(o){ return o.id !== oldRow.id; }));
+    rtSeen.delete(oldRow.id);
   }
+  if(ev === 'UPDATE' && pageFlightRows) pageFlightRows[row.id] = row;   // الصفحة اللي في السكة ممكن تكون قبل الحدث
+  var ex = ev === 'UPDATE' && rtExpect[row.id];
+  if(ex && Date.now() - ex.at >= RT_EXPECT_MS){   // انتهت من غير رد = اللي اتأجّل بيرجع مع الحدث ده
+    delete rtExpect[row.id];
+    if(ex.light) need.light = true;
+    if(ex.page) need.page = true;
+    ex = null;
+  }
+  if(ex){ ex.light = ex.light || need.light; ex.page = ex.page || need.page; need.light = false; need.page = false; }
+  if(need.light) rtNeedLight = true;
+  if(need.page) rtNeedPage = true;
+  if(need.render) rtNeedRender = true;
 
   if(allLoaded){ try{ buildIndexes(); }catch(e){ swallow('handleRealtimeChange/buildIndexes', e); } }
   scheduleRealtimeRefresh();
+}
+
+// أعمدة نسبة الاستلام (+ updated_at اللي تريجر orders بيحطه مع أي UPDATE): شركة الشحن (ship-rank-sync — 10 أكتوبر)
+// بيعمل UPDATE بعد ~0–2 دقيقة من نزول الأوردر · و`eo_*` (EasyOrders — اتشالت من الواجهة 17 أكتوبر والسحب اتوقف) لسه
+// على الجدول ومابتتعرضش، فتغييرها لو حصل مايستاهلش رسم كامل
+// + ختم مزامنة J&T (`jt_cod_synced_at`/`jt_fee_synced_at` — v79): ختم وقت بس من غير أي تغيير في الأوردر
+// + سكانر المخزن (14 أكتوبر): السكان بيختم `stock_deducted_at`/`stock_returned_at` بس — مايتحسبش تعديل في
+//   الأوردر، فنافذة التفاصيل المفتوحة مابتترسمش من جديد (وكلام الموظف اللي مااتحفظش مابيضيعش)
+var RT_SCORE_COLS = { eo_metadata: 1, eo_rate: 1, eo_rate_alt: 1, updated_at: 1,
+  ship_rank: 1, ship_rank_n: 1, ship_rank_alt: 1, ship_rank_alt_n: 1, ship_rank_at: 1, ship_rank_raw: 1,
+  jt_cod_synced_at: 1, jt_fee_synced_at: 1,
+  stock_deducted_at: 1, stock_returned_at: 1 };
+// نفس القيمة بشكلين؟ PostgREST والريل-تايم ممكن يختلفوا في كتابة الرقم أو الوقت — والفرق ده
+// مايتحسبش تغيير (ولو اتحسب: رسم كامل زي الأول، يعني الغلط في الاتجاه الآمن).
+function rtSameValue(a, b){
+  if(a === b) return true;
+  if(a == null || b == null) return a == b;
+  if(typeof a === 'object' || typeof b === 'object') return JSON.stringify(a) === JSON.stringify(b);
+  var na = Number(a), nb = Number(b);
+  if(String(a).trim() !== '' && String(b).trim() !== '' && !isNaN(na) && !isNaN(nb)) return na === nb;
+  if(typeof a === 'string' && typeof b === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d/.test(a) && /^\d{4}-\d{2}-\d{2}[T ]\d/.test(b)){
+    var ta = rtTime(a), tb = rtTime(b);
+    return !isNaN(ta) && ta === tb;
+  }
+  return false;
+}
+// الحدث ده غيّر نسبة الاستلام بس؟ (لازم تكون اتغيّرت فعلاً — حدث مكرر = رسم كامل زي الأول)
+export function rtOnlyScoreChanged(prev, row){
+  if(!prev || !row) return false;
+  var scoreMoved = false;
+  for(var k in row){
+    if(!Object.prototype.hasOwnProperty.call(row, k) || rtSameValue(prev[k], row[k])) continue;
+    if(!RT_SCORE_COLS[k]) return false;
+    if(k !== 'updated_at') scoreMoved = true;
+  }
+  return scoreMoved;
+}
+
+// مين آخر واحد غيّر الحالة — من آخر مدخل في سجل الحالة.
+// ⚠️ `status_log` ممكن يبقى متخزّن كـstring (نود n8n بتعمل stringify على
+// عمود jsonb) — `parseStatusLog` بتفكّه، فمانقراهوش مباشرةً.
+function rtChangedBy(row){
+  try{
+    var log = parseStatusLog(row && row.status_log);
+    if(!Array.isArray(log) || !log.length) return '';
+    return String(log[log.length-1].by || '');
+  }catch(e){ return ''; }
 }
 
 export function buildIndexes(){
@@ -362,7 +695,9 @@ export var BOSTA_FILTER_STATUSES = ['bosta_assigned','BOSTA AUTO','BOSTA2','bost
 
 // manufacturer_note = خصائص المنتج كاملة من الويبهوك (لون + مقاس…) — **عرض بس**.
 // عمود نصي قصير فمالوش أثر يُذكر على حجم النقل (درس 32 عن الـJSONB).
-export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_requested_at';
+// ship_rank_raw (jsonb ~295 بايت · أقصى 362 — اتقاس 10 أكتوبر): الشارة محتاجاه عشان تعرف الرقم اللي اتسأل فعلاً
+// (التليفون اتعدّل بعده = النسبة مش بتاعته) — من غيره الجدول يعرض نسبة رقم قديم والتفاصيل تقول غير كده.
+export var ORDER_LIST_COLS = 'id,order_uid,tracking_no,customer_name,phone,alt_phone,city,address,product_name,payment_stage,status,status_changed_at,call_attempts,customer_notes,internal_notes,created_at,total_cost,platform,awb_printed_at,awb_print_count,customer_ranking,ship_rank,ship_rank_n,ship_rank_at,ship_rank_alt,ship_rank_alt_n,ship_rank_raw,cancel_requested_at,cancel_resolved_at,var,manufacturer_note,has_upsell,shipping_carrier,jt_sorting_code,jt_ship_error,ship_prov,ship_city,ship_area,shipping_weight_kg,exchange_of,updated_at';
 
 // المدة (بتوقيت القاهرة) → حدود created_at [from, to). NULL = كل الفترات.
 export function ordersPeriodRangeISO(){
@@ -376,6 +711,9 @@ export function ordersPeriodRangeISO(){
   if(p.type==='custom'){ var fr=p.from,to=p.to; if(fr&&to&&fr>to){var t=fr;fr=to;to=t;} var a=(fr||'2000-01-01').split('-'),b=(to||'2999-12-31').split('-'); return { fromTs:dISO(+a[0],+a[1]-1,+a[2]), toTs:dISO(+b[0],+b[1]-1,+b[2]+1) }; }
   return null;
 }
+
+// أعمدة البحث في جدول الأوردرات — مصدر واحد للاستعلام (fetchOrdersPage) ولتصنيف أحداث الريل-تايم (rtNeeds)
+export var ORDER_SEARCH_COLS = ['customer_name','phone','alt_phone','tracking_no','order_uid','city','address','product_name','campaign_name','platform'];
 
 // جلب صفحة واحدة من الأوردرات من Supabase بكل الفلاتر مطبّقة على مستوى الـ query.
 // شريط تنبيه طلبات الإلغاء — بيعدّ كل الأوردرات اللي العميل طلب إلغاءها
@@ -430,12 +768,20 @@ export function showCancelRequested(){
 
 // رقم جيل الجلب — رد بحث قديم وصل متأخر مايستبدلش نتيجة بحث أحدث
 var fetchGen = 0;
+// v82: الصفحة في السكة من إمتى (0 = مفيش) — حدث ريل-تايم وصل وهي في السكة ممكن يكون اتعمل بعد الـsnapshot بتاعها،
+// فالرد كان هيرجّع الصف القديم والحدث مش هيتعاد (قبل v82 كل حدث كان بيجيب الصفحة). فالحدث ده بيجيب الصفحة تاني بعدها.
+// 🔴 ومش جلب تاني على طول (المراجعة التانية): صدى تعديل الموظف نفسه بيوصل والصفحة اللي doFilter طلبها في السكة، والـsnapshot
+// بتاعها **بعد** الـcommit — فالجلب التاني كان على الفاضي. الحدث بيتحفظ (pageFlightRows) ولما الصفحة تنزل بيتقارن بـupdated_at:
+// أحدث من الـsnapshot = الصف من الحدث · غير كده = ولا حاجة. خروج/دخول الفلتر اتحكم عليه وقت الحدث (rtNeeds) زي أي حدث.
+// الـbuffer طول ما الجلب لسه مارجعش (من غير حد زمني — المقارنة بالوقت هي الحارس) · pageFlightAt للرسم بس (جلب علّق = الرسم يرجع بعد 30ث)
+var pageFlightAt = 0, pageFlightRows = null, PAGE_FLIGHT_RENDER_MS = 30000;
+function pageInFlight(){ return !!(pageFlightRows && pageFlightAt && Date.now() - pageFlightAt < PAGE_FLIGHT_RENDER_MS); }
 
 export function fetchOrdersPage(){
   if(tourActive) return;                 // الجولة بترسم بيانات الديمو عبر doFilter()
   if(!ensureTenant()) return;
   var myGen = ++fetchGen;
-  ordersSetLoading(true);
+  pageFlightAt = Date.now(); pageFlightRows = {};
   $id('tbody').innerHTML=skelTable(8);
   var st=$id('fst').value, pl=$id('fpl').value, py=$id('fpy').value;
   var q=$id('qinp').value.trim();
@@ -455,14 +801,16 @@ export function fetchOrdersPage(){
     var qs=q.replace(/[,()*\\%]/g,' ').trim();
     if(qs){
       var lk='*'+qs+'*';
-      query=query.or(['customer_name','phone','alt_phone','tracking_no','order_uid','city','address','product_name','campaign_name','platform'].map(function(c){return c+'.ilike.'+lk;}).join(','));
+      query=query.or(ORDER_SEARCH_COLS.map(function(c){return c+'.ilike.'+lk;}).join(','));
     }
   }
   var rng=ordersPeriodRangeISO();
+  pageRangeKey=rangeKey(rng);
   if(rng) query=query.gte('created_at',rng.fromTs).lt('created_at',rng.toTs);
   query.order('created_at',{ascending:false}).range(fromIdx,toIdx).then(function(r){
     if(myGen !== fetchGen) return;   // طلب أحدث خرج بعدنا — الرد ده بقى قديم
-    ordersSetLoading(false);
+    var flight = pageFlightRows;
+    pageFlightAt = 0; pageFlightRows = null;
     refreshCancelBar();
     if(r.error){
       toast('خطأ في تحميل الأوردرات: '+r.error.message,'er');
@@ -476,6 +824,10 @@ export function fetchOrdersPage(){
     var maxPage=Math.max(1,Math.ceil(srvCount/PS));
     if(cur>maxPage){ ordersSetPage(maxPage); fetchOrdersPage(); return; }
     ordersSetFiltered(r.data||[]);
+    if(flight) rtOverlayFlight(flight);
+    // نسخة السيرفر للمقارنة في الريل-تايم — التعديل المحلي (تليفون · شحن يدوي) بيكتب على صفوف fil نفسها، فصدى
+    // الحدث كان بيتقارن بالنسخة المعدّلة ويبان «مفيش تغيير» والدمج والكروت مايتحدّثوش عند الموظف اللي عدّل
+    for(var ri=0; ri<fil.length; ri++) rtRemember(fil[ri]);
     ordersSetTotalCount((typeof r.count==='number')?r.count:fil.length);
     var hasFilter=!!(st||pl||py||q);
     $id('fcnt').textContent=num(totalCount)+(hasFilter?' نتيجة':' طلب');
@@ -519,6 +871,8 @@ export function doFilter(){
 }
 
 export function initOrdersUI(){
+  // التاب رجعت قدامك وصفحة الأوردرات ظاهرة = هات اللي فات وهي في الخلفية
+  document.addEventListener('visibilitychange', function(){ if(!document.hidden) refreshOrdersIfStale(); });
   if($id('fst')) $id('fst').addEventListener('change',reflectStatusCards);
   wireStatusCards();
 
@@ -556,6 +910,8 @@ export function initOrdersUI(){
   $id('bb-sel').addEventListener('change',function(){if(this.value){doBulkUpdate(this.value);this.value='';}});
   $id('bclear').addEventListener('click',function(){selectedIds.clear();updateBulkBar();renderTable();});
      $id('bb-print').addEventListener('click', printSelectedAwb);
+  // «➕ أوردر جديد» (فيسبوك/إنستجرام/تليفون) — order-form.js
+  initOrderForm();
 
   // ─────────────────────────────────────────────────
   // STOCK MANAGEMENT
@@ -571,9 +927,7 @@ export function initNav(){
   initShipTicker();   // متابعة علامات الشحن في الجدول — مرة واحدة مع الإقلاع
   $id('nav-orders').addEventListener('click',function(){showPage('orders');});
   $id('nav-stock').addEventListener('click',function(){showPage('stock');});
-  if($id('nav-issues'))$id('nav-issues').addEventListener('click',function(){showPage('issues');});
   $id('nav-finance').addEventListener('click',function(){showPage('finance');});
-  if($id('nav-billing'))$id('nav-billing').addEventListener('click',function(){showPage('billing');});
   if($id('nav-settings'))$id('nav-settings').addEventListener('click',function(){showPage('settings');});
   if($id('nav-analytics'))$id('nav-analytics').addEventListener('click',function(){showPage('analytics');});
   // 🔴 المحادثات ليها **تاب لوحدها** (طلب المالك 6 سبتمبر) — عشان تفضل مفتوحة
@@ -588,4 +942,11 @@ export function initNav(){
   // بالـID واحد واحد، وأي زرار جديد في القايمة **لازم** يتضاف هنا
   // وإلا الضغطة بتروح في الفراغ من غير أي خطأ (حصلت فعلاً)
   if($id('nav-mycommission'))$id('nav-mycommission').addEventListener('click',function(){showPage('mycommission');});
+  // «استثناءات الشحن» (8 أكتوبر) — للأدمن والموظف
+  if($id('nav-exceptions'))$id('nav-exceptions').addEventListener('click',function(){showPage('exceptions');});
+  // «سكانر المخزن» (14 أكتوبر) — للأدمن والموظف · تاب لوحدها زي المحادثات (جهاز المخزن فاتحها طول اليوم)
+  if($id('nav-warehouse'))$id('nav-warehouse').addEventListener('click',function(){
+    if(openOwnTab('warehouse')) return;
+    showPage('warehouse');
+  });
 }

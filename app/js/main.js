@@ -10,81 +10,104 @@
 // الموديول strict تلقائياً — "use strict" تحت زيادة مقصودة عشان الملف
 // يفضل صالح لو اتحمّل كسكربت كلاسيك بالغلط.
 
-import { BOSTA_FILTER_STATUSES, buildIndexes, doFilter, ensureAllLoaded, fetchOrdersPage, fetchPhoneCounts, handleRealtimeChange, initNav, initOrdersUI, loadAll, OPERATION_STATUSES, openOrdersForDay, ORDER_LIST_COLS, ordersInPeriod, ordersPeriodRangeISO, positionPeriodInd, refreshCancelBar, refreshOrdersScope, resolveCancelRequest, setOrdersPeriod, showCancelRequested, showRealtimeDot, startRealtime } from './orders/orders.js';
-import { _b64ToBlob, printAwbForOrders, printSelectedAwb } from './orders/awb.js';
-import { fmtDate, fmtDateTime, fmtMoneyShort, inboxVerified, loadVfcashNumber, lockMaybe, refreshInboxGate, renderBillingSummary, renderInboxLocked, VFCASH_NUMBER } from './orders/billing-summary.js';
-import { applyOrdersStats, initReadyCard, loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, MERGE_QUERY_STATUSES, ordersPeriodCairoDates, updateRevenueStats, updateStats } from './orders/cards.js';
-import { hasCostSnapshot, isDeliveredOrder, isWithBosta, loadStockMovementsForOps, loadStockProductsForCosts, movementWholesalePrice, orderCostSnapshotValue, orderInventoryCost, orderInventoryCostSource, orderLiveInventoryCost, ordersInRange, perfSortBy, productCostByName, productExists, renderProductPerformance, shippedOrOperational } from './orders/costs.js';
-import { daysShift, daysToday, renderDaysCalendar } from './analytics/days.js';
-import { attachFieldEditors, buildWaUrl, computeHistoryFromAll, detailHistory, fieldEditable, intNotesTimer, loadDetailHistory, openDetail, patchOrderField, renderDetail } from './orders/detail.js';
-import { enhanceFilters, fdropCloseAll, initFilterDropdowns, initRefreshAndSearch, reflectStatusCards, wireStatusCards } from './orders/filters-ui.js';
-import { ensureTenant, isAdmin, requireAdmin } from './orders/guards.js';
-import { customerOrderCount, detectMergeable, mergeableCustomers, renderMergeAlert } from './orders/merge.js';
-import { addCallAttempt, deleteCallAttempt, doBulkUpdate, doUpdate, saveInternalNotes } from './orders/mutations.js';
-import { addEmptyProductRow, buildProductOptions, collectProducts, parseProducts, renderProductsEditor, saveProducts } from './orders/products-editor.js';
-import { all, allLoaded, cur, fil, ordersLoading, ordersPeriod, ordersSetAll, ordersSetPageSize, ordersSetSelected, pendingBostaByPhone, phoneCounts, PS, realtimeChannel, realtimeSetChannel, sel, selectedIds, stm, totalCount } from './orders/state.js';
+import { initNav, initOrdersUI, openOrdersForDay, refreshOrdersIfStale } from './orders/orders.js';
+import './orders/awb.js';
+import './orders/billing-summary.js';
+import { initReadyCard } from './orders/cards.js';
+import { perfSortBy } from './orders/costs.js';
+import { daysShift, daysToday } from './analytics/days.js';
+import './orders/detail.js';
+import { initFilterDropdowns, initRefreshAndSearch } from './orders/filters-ui.js';
+import { isAdmin } from './orders/guards.js';
+import './orders/merge.js';
+import './orders/mutations.js';
+import './orders/products-editor.js';
+import { ordersSetPageSize } from './orders/state.js';
 import { refreshSetupChecklist, setupDismiss } from './ui/setup-checklist.js';
 import { veilBegin } from './core/veil.js';
-import { getCallDeadline, goPage, parseStatusLog, RANK_GOOD, RANK_MID, renderTable, updateBulkBar, updateMasterCb, updateUnprintedBtn } from './orders/table.js';
+import './orders/table.js';
 
-import { _suspending, applyTenantBranding, bootstrapTenantIfNeeded, currentRole, currentTenant, currentTenantId, currentUser, doLogin, doLogout, doSignup, fetchProfileAndEnter, forceSuspendLogout, hasTenant, initLoginForm, initSignupForm, loadTenantAndEnter, loginErrorMessage, resetTenantBranding, showAuthView, showSubscriptionLock, signupErrorMessage, tenantDisplayName } from './auth/auth.js';
+import { fetchProfileAndEnter, initLoginForm, initSignupForm } from './auth/auth.js';
 
-import { TOUR_KEY, initTourResize, markTourDone, tourActive, tourBackupAndInject, tourDone, tourFinish, tourMaybeAutoStart, tourNext, tourPrev, tourRender, tourRestore, tourSavedHTML, tourStart, tourStep, tourSteps } from './tour/tour.js';
+import { initTourResize, tourActive, tourFinish, tourNext, tourPrev, tourStart } from './tour/tour.js';
 
-import { deleteExpense, expensesInRange, financeChartInstance, financeChartManual, financeChartPeriod, financeCurrentTab, financeExpenses, financeSetExpenses, fmtMoney, initFinanceAndIssues, isConfirmedForFinance, loadFinance, openExpenseEditor, orderShippingCost, pRange, renderExpenses, renderFinance, renderFinanceChart, renderFinanceOverview, unmatchedCogsItems } from './finance/finance.js';
+import { initFinanceAndIssues, loadFinance } from './finance/finance.js';
 
-import { NOTIFY_KEYS, TG_LOCK_DAYS, loadNotifyPrefs, loadSettings, renderSettings, saveBosta, saveIntegrations, saveNotifyPref, saveTelegram, saveWaConfirmToggle, saveWhatsApp, sendTelegramConfirm, setNotifyGate, settingsBotUsername, tgChatLocked, toggleSecretVisibility, wireSettingsEvents } from './settings/settings.js';
+import { loadSettings, wireSettingsEvents } from './settings/settings.js';
 
-import { analyticsCurrentTab, analyticsPeriod, buildProductPerformance, getAnalyticsRange, initAnalyticsTabs, loadAnalytics, renderAnalyticsActive, renderFinancePlatforms } from './analytics/analytics.js';
+import { initAnalyticsTabs, loadAnalytics } from './analytics/analytics.js';
 
-import { _allIssues, buildIssues, loadIssues, renderIssues, renderIssuesTable } from './issues/issues.js';
+import './billing/billing.js';
 
-import { applyDepletionLock, billingTopupFile, loadBilling, loadMyTopupRequests, loadWalletHistory, loadWalletState, renderPlanCards, selectPlan, submitTopupRequest, switchPlan, updateWalletChip, walletStateCache, wireBillingEvents } from './billing/billing.js';
+import { initStockButtons, initStockTabs, loadStock } from './stock/stock.js';
 
-import { currentStockTab, initStockButtons, initStockTabs, loadStock, openMovementEditor, openProductEditor, openStockProductByName, parseMovementDate, recentQtyOutByProduct, renderMovements, renderProducts, renderSmartStockAlerts, stockForecastRows, stockMovements, stockProducts, stockSetMovements, stockSetProducts, updateStockStats } from './stock/stock.js';
+import { initInbox, loadInbox, waSetReplyTo } from './inbox/inbox.js';
 
-import { WA_LABELS, handleWaRealtime, initInbox, loadInbox, openConversation, renderConvos, renderMessages, waActiveId, waAppendOptimistic, waBuildFilters, waClearImage, waConvMatches, waConvos, waDateShort, waDeleteQuickReply, waEnsureNotifyPermission, waFetchConvos, waFetchMessages, waFilter, waInitials, waLabelColor, waLoadConvMeta, waLoadOrders, waLoadQuickReplies, waMarkRead, waNotify, waPendingDoc, waPendingImage, waPickFile, waPickImage, waPollTimer, waQuickReplies, waRefreshNavBadge, waRenderConvLabels, waRenderLabelPicker, waRenderQuickReplies, waRenderedCount, waRenderedState, waResolveUrls, waSaveNote, waSetReplyTo, waSaveQuickReply, waScrollBottom, waSearchQuery, waSend, waSetFilter, waSetNavBadge, waToggleLabel, waUpdateWindow, waUrlCache } from './inbox/inbox.js';
+import './billing/expiry.js';
 
-import { maybeShowExpiryBanner, subscriptionLockState } from './billing/expiry.js';
+import { initExceptions, loadJtIssues } from './exceptions/exceptions.js';
+import { initWarehouse, loadWarehouse } from './warehouse/warehouse.js';
+import { initAlertSound } from './core/alert-sound.js';
 
-import { copyWebhookUrl } from './settings/webhook.js';
+import './settings/webhook.js';
 
-import { CM_STATUS, commissionBalances, commissionRows, commissionSettlements, commissionsSetBalances, commissionsSetRows, commissionsSetSettlements, loadCommissions, loadMyCommission, myBalance, myCommissionEnabled, openOrderFromCommission, openSettle, refreshMyCommissionNav, renderCommissions, renderMyCommission, renderMyCommissionBar, renderSettlements, reverseSettlement, wireCommissionEvents } from './finance/commissions.js';
+import { loadMyCommission, myCommissionEnabled } from './finance/commissions.js';
 
-import { addStaff, deleteStaff, loadStaff, renderStaff, saveCommission, staffCall, staffSetUsers, staffUsers, toggleCommissionBox, toggleStaff, wireStaffEvents } from './settings/staff.js';
+import './settings/staff.js';
 
-import { askCancelReason } from './orders/cancel-reason.js';
+import './orders/cancel-reason.js';
 
-import { tourPositionFor } from './tour/position.js';
+import './tour/position.js';
 
-import { tourDemoExpenses, tourDemoMovements, tourDemoOrders, tourDemoStock } from './tour/demo-data.js';
+import './tour/demo-data.js';
 
-import { autoChartGran, financePeriod, getPeriodRange, parseLocalYMD } from './finance/period.js';
+import './finance/period.js';
 
-import { cleanProductName, extractProductQty, nameKey, normalizeProductName, parseProductItems, stripAlPrefix, tokenSortKey } from './analytics/product-match.js';
+import './analytics/product-match.js';
 
-import { waMsgInner, waTicks, waTimeShort } from './inbox/message-view.js';
+import './inbox/message-view.js';
 
-import { attachCopyHandlers, copyTextToClipboard, copyable, fallbackCopy } from './ui/clipboard.js';
+import './ui/clipboard.js';
 
-import { CALL_WAIT_MS, startTimerTick, tickTimers, timerInterval } from './orders/call-timer.js';
+import './orders/call-timer.js';
 
-import { showModal } from './core/modal.js';
+import './core/modal.js';
 
-import { SUPABASE_ANON_KEY, SUPABASE_URL, WEBHOOK_BASE_URL } from './core/config.js';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from './core/config.js';
 
 import { toast } from './core/toast.js';
 
-import { cairoYMD, firstName, fmt, fmtD, fmtDT, fmtDateOnly, fmtMovementDate, fmtStoredDateTime, money, normalizePhone, num, pad2, short, toLatinDigits, val, ymdAddDays } from './core/format.js';
+import './core/format.js';
 
-import { BOSTA_EXPECTED_STATUSES, BOSTA_INVENTORY_STATUSES, BOSTA_OPERATION_STATUSES, BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, CR, DELIVERED_STATUSES, RETURNED_STATUSES, SL, STATUS_OPTIONS, normStatus, statusClass, statusIn, statusLabel } from './core/constants.js';
+import './core/constants.js';
 
 import { swallow } from './core/log.js';
 import { DEFAULT_PAGE, claimOwnTab, onPopState, probeDeepLinks, routeFromUrl, setPageTitle, syncUrl } from './core/router.js';
 
 import { sb, setSb } from './core/supabase.js';
 
-import { $id, esc } from './core/dom.js';
+import { $id } from './core/dom.js';
+
+// تحميل مسطّح: الموديولات دي بتتطلب من main.js مباشرةً عشان المتصفح يكتشفها
+// في نفس الدفعة بدل ما يستنى أبوها يتحمّل (Cache-Control: max-age=0 = كل
+// تحميل بيعيد التحقق من كل ملف، فكل مستوى في الشجرة = رحلة شبكة زيادة).
+// مالهاش أثر على ترتيب التنفيذ — كلهم بيتقيّموا قبل كده من الاستيرادات اللي فوق.
+import './core/skeleton.js';
+import './core/empty.js';
+import './core/loaderr.js';
+import './core/code128.js';
+import './analytics/rate.js';
+import './orders/delivery-score.js';
+import './orders/ship.js';
+import './orders/jt-health.js';
+import './orders/jt-remark.js';
+import './orders/jt-awb.js';
+import './orders/order-form.js';
+import './warehouse/scan-code.js';
+import './warehouse/scan-sound.js';
+import './warehouse/wh-sounds.js';
+import './warehouse/wh-unknown.js';
+import './warehouse/wh-admin.js';
 
 // (الموديولات strict تلقائياً — التوجيه القديم اتشال)
 
@@ -114,7 +137,6 @@ var CLICK_ACTIONS = {
   'tour-next':   function(){ tourNext(); },
   'tour-prev':   function(){ tourPrev(); },
   'tour-finish': function(){ tourFinish(); },
-  'plan-select': function(el){ selectPlan(el.getAttribute('data-plan')); },
   // CTAs بتوع الحالات الفاضية (core/empty.js)
   'goto-settings': function(){ showPage('settings'); },
   'goto-stock':    function(){ showPage('stock'); },
@@ -169,7 +191,7 @@ function initSideCollapse(){
 }
 
 // ── الوضع الليلي ────────────────────────────────────────────────────
-// الكلاس على <html> عشان 22-dark.css يمسك كل حاجة، والتفضيل محفوظ.
+// الكلاس على <html> عشان 24-dark.css يمسك كل حاجة، والتفضيل محفوظ.
 // ألوان Chart.js مش CSS فبتتظبط هنا — الرسم البياني بيترندر من جديد
 // مع كل فتح لصفحة الماليات فبياخد القيم الجديدة.
 function applyDark(on){
@@ -344,12 +366,12 @@ function initApp(){
 export function showPage(page, opts){
   var requested = page;   // اللي اتطلب فعلاً — للتفريق بين تنقّل عادي وتصحيح حارس
   // 🔴 المحاسبة اتلغت (19 سبتمبر) — السيستم بقى خاص بـ3ataba وحدها فمفيش
-  // باقات ولا محفظة يتفرّج عليهم. الصفحة والموديول لسه موجودين لأن
-  // `walletStateCache` بتغذّي قفل النفاد في 6 ملفات، بس الوصول ليها اتقفل:
-  // الزرار والشارة اتشالوا من الـmarkup وده الحارس للينك المباشر.
+  // باقات ولا محفظة يتفرّج عليهم. صفحة المحفظة اتشالت من الـmarkup (v79)
+  // والموديول فاضل لأن `walletStateCache` بتغذّي قفل النفاد في 6 ملفات —
+  // ده الحارس للينك المباشر القديم.
   if(page==='billing'){ page='orders'; }
-  // Finance and Issues are admin-only in code as well, not just hidden by CSS.
-  if((page==='finance' || page==='issues' || page==='analytics') && !isAdmin()){
+  // الماليات والإحصائيات للأدمن بس — في الكود كمان مش بس مخفية بالـCSS.
+  if((page==='finance' || page==='analytics') && !isAdmin()){
     toast('القسم ده للأدمن فقط','er');
     page='orders';
   }
@@ -359,25 +381,25 @@ export function showPage(page, opts){
   $id('page-orders').style.display  = page==='orders'  ? 'block' : 'none';
   $id('page-stock').style.display   = page==='stock'   ? 'block' : 'none';
   $id('page-finance').style.display = page==='finance' ? 'block' : 'none';
-  $id('page-billing').style.display = page==='billing' ? 'block' : 'none';
   if($id('page-settings'))$id('page-settings').style.display = page==='settings' ? 'block' : 'none';
-  if($id('page-issues'))$id('page-issues').style.display = page==='issues' ? 'block' : 'none';
   if($id('page-analytics'))$id('page-analytics').style.display = page==='analytics' ? 'block' : 'none';
   if($id('page-inbox'))$id('page-inbox').style.display = page==='inbox' ? 'block' : 'none';
+  if($id('page-exceptions'))$id('page-exceptions').style.display = page==='exceptions' ? 'block' : 'none';
+  if($id('page-warehouse'))$id('page-warehouse').style.display = page==='warehouse' ? 'block' : 'none';
   if($id('page-mycommission'))$id('page-mycommission').style.display = page==='mycommission' ? 'block' : 'none';
   document.querySelectorAll('.tnav-btn').forEach(function(b){
     b.classList.toggle('active', b.getAttribute('data-page')===page);
   });
   // أول دخول للتاب في الجلسة: حجاب تحميل بدل الأصفار الكدابة —
   // كل loader بيشيله بـveilDone لما بياناته الأساسية توصل (core/veil.js)
-  if(page==='orders'){refreshSetupChecklist();}
+  if(page==='orders'){refreshSetupChecklist(); refreshOrdersIfStale();}
   if(page==='stock'){veilBegin('stock');loadStock();}
   if(page==='finance'){veilBegin('finance');loadFinance();}
-  if(page==='billing'){veilBegin('billing');loadBilling();}
   if(page==='settings'){veilBegin('settings');loadSettings();}
-  if(page==='issues'){veilBegin('issues');loadIssues();}
   if(page==='analytics'){veilBegin('analytics');loadAnalytics();}
   if(page==='inbox'){veilBegin('inbox');loadInbox();}
+  if(page==='exceptions'){veilBegin('exceptions');loadJtIssues();}
+  if(page==='warehouse'){veilBegin('warehouse');loadWarehouse();}
   if(page==='mycommission'){loadMyCommission();}
   // بالاستبدال مش بالإضافة في حالتين: تصحيح مسار ممنوع (عشان زرار الرجوع
   // مايرجّعش لنفس المرفوض في حلقة)، والإقلاع.
@@ -496,6 +518,9 @@ initFilterDropdowns();
 initOrdersUI();
   initNav();
   initInbox();
+  initExceptions();
+  initWarehouse();
+  initAlertSound();
   initStockTabs();
   initAnalyticsTabs();
   initStockButtons();

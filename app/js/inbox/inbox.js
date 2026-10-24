@@ -5,7 +5,7 @@ import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
-import { normalizePhone } from '../core/format.js';
+import { fmtStoredDateTime, normalizePhone } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -21,10 +21,31 @@ import { clearInboxLock, inboxVerified, refreshInboxGate, renderInboxLocked } fr
 import { openDetail } from '../orders/detail.js';
 import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { ensureTenant } from '../orders/guards.js';
+import { createKeyBuffer, looksScanned, parseWaybill, scanToLatin } from '../warehouse/scan-code.js';
 
 export var waRenderedState=[], waUrlCache={};  // حالة رسم الإنبوكس
 
 export var waConvos=[], waActiveId=null, waPollTimer=null, waRenderedCount=0;
+var waPollMissed=false;   // الـpoll اتخطّى وهو في الخلفية — بيتعوّض مرة لما التاب ترجع (مش مع كل رجوع)
+
+// 🔴 v82 — «اللي اتغيّر بس» بدل القايمة كلها (طلب المالك 17 أكتوبر — الـEgress عدّى حد الـFree Plan والـgrace period
+// بيخلص 8 نوفمبر). القايمة كانت بتتجاب كاملة (200 محادثة `select *` ≈ 233 KB) كل 20 ثانية ومع كل رسالة جديدة في كل
+// تاب محادثات. دلوقتي: الـpoll والريل-تايم بيجيبوا الصفوف اللي `updated_at` بتاعها اتحرك (تريجر على السيرفر — أي
+// تعديل: رسالة · unread · تصنيف · ملاحظة زميل) ويدمجوها. الكامل: الدخول · ↻ · كل 10 دقايق (شبكة أمان) · لو مفيش علامة
+// (`updated_at` مش راجع = الـSQL لسه ماتطبّقش) · لو اللي اتغيّر 200+.
+// هامش دقيقة على العلامة: ترانزاكشن بدأت قبل الجلب وخلصت بعده بيبقى updated_at بتاعها أقدم من آخر صف شفناه.
+var waConvWm=0, waConvFullAt=0, waConvDeltaGen=0, waConvDeltaDraws=0, waConvRtTimer=null;
+var WA_CONV_FULL_MS=10*60000, WA_CONV_MARGIN_MS=60000, WA_CONV_DELTA_LIMIT=200;
+// نفس الفكرة للمحادثة المفتوحة: الرسايل الجديدة بس · حالة رسالة (✓✓/اتقرت) من الحدث نفسه · الكامل عند الفتح وكل 5 دقايق
+var waMsgFullAt=0, waMsgDeltaGen=0;
+var WA_MSG_FULL_MS=5*60000, WA_MSG_DELTA_LIMIT=100;
+// جلب كامل في السكة: الدلتا بتستناه (بتتعمل بعده — snapshot قديم كان بيرجّع اللي اتجاب بعده) وحالات الحدث اللي وصلت
+// وهو في السكة بتتطبّق على نتيجته (الأعلى في الترتيب بيكسب). أكتر من 15ث = اعتبره ضاع (مفيش timeout في supabase-js)
+var waMsgFlight=null, WA_MSG_FLIGHT_MS=15000;
+// اللي حدث UPDATE بيغيّره في رسالة معروضة: الحالة · اتقرت · الميديا (بتتنزل بعد الإدخال) · النص — مش المفاتيح ولا وقت الإنشاء
+var WA_MSG_PATCH_COLS=['wa_message_id','type','body','media_path','media_filename','is_read','status','sent_by_name','reply_to_wa_id'];
+// 🔴 أعمدة صريحة (v79 — كان '*' بالـreferral jsonb): أي عمود جديد الشات بيعرضه لازم يتضاف هنا (درس 33)
+var WA_MSG_COLS='id,tenant_id,conversation_id,wa_message_id,direction,type,body,media_path,media_filename,wa_timestamp,is_read,created_at,status,sent_by_name,reply_to_wa_id';
 
 export function waInitials(name,phone){
   var s=(name||'').trim();
@@ -64,8 +85,9 @@ export function loadInbox(){
   waPollTimer=setInterval(function(){
     var p=$id('page-inbox');
     if(!p || p.style.display==='none'){ clearInterval(waPollTimer); waPollTimer=null; return; }
-    waFetchConvos(false);
-    if(waActiveId) waFetchMessages(waActiveId,false,true);
+    if(document.hidden){ waPollMissed=true; return; }   // التاب في الخلفية — بنجيب لما ترجع (v79)
+    waRefreshConvos();
+    if(waActiveId) waRefreshMessages(waActiveId,true);
   },20000);
 }
 
@@ -95,20 +117,110 @@ export function waFetchConvos(showLoading){
   if(!sb||!currentTenantId) return;
   // النفاد: الـRLS بترجّع صفر صفوف — الرد كان بيستبدل رسالة القفل بحالة فاضية عادية
   if(walletStateCache && walletStateCache.is_depleted) return;
-  var myGen=++waConvGen;
+  var myGen=++waConvGen, draws0=waConvDeltaDraws;
   if(showLoading) $id('wa-list-body').innerHTML=skelList(6);
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(200).then(function(r){
       if(myGen!==waConvGen) return;   // طلب أحدث خرج بعدنا
       if(r.error){ $id('wa-list-body').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل المحادثات</div>'; veilDone('inbox'); return; }
-      waConvos=r.data||[];
+      var data=r.data||[];
+      // 🔴 v82: دلتا خرجت **بعد** الكامل ده ورجعت قبله = نسختها أحدث من الـsnapshot ده — الصف الأحدث (updated_at) بيفضل،
+      // والمحادثة اللي الدلتا جابتها ومش في الـsnapshot بتيجي من دلتا تانية بعده على طول
+      var cur={};
+      for(var ci=0;ci<waConvos.length;ci++) cur[waConvos[ci].id]=waConvos[ci];
+      for(var di=0;di<data.length;di++){ var o=cur[data[di].id]; if(o && !waConvNewer(data[di], o)) data[di]=o; }
+      waConvos=data;
       waConvosCapped=(waConvos.length===200);
+      waConvFullAt=Date.now(); waConvWm=0; waNoteConvWm(waConvos);
       renderConvos();
+      waFlushNotify();
+      if(waConvDeltaDraws!==draws0) waFetchConvosDelta();
       veilDone('inbox');
+      // طلب «افتح شات العميل ده» جاي من تاب الاستثناءات — بعد ما القايمة اتحمّلت
+      waConsumeOpenRequest();
     });
 }
 
+// الـpoll والريل-تايم والإرسال: اللي اتغيّر بس — والكامل لو العلامة مش موجودة أو آخر كامل أقدم من 10 دقايق
+export function waRefreshConvos(){
+  if(!waConvWm || !waConvFullAt || Date.now()-waConvFullAt>WA_CONV_FULL_MS){ waFetchConvos(false); return; }
+  waFetchConvosDelta();
+}
+function waFetchConvosDelta(){
+  if(!sb||!currentTenantId) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  var fullGen=waConvGen, myGen=++waConvDeltaGen;
+  var since=new Date(waConvWm-WA_CONV_MARGIN_MS).toISOString();
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
+    .gt('updated_at',since).order('updated_at',{ascending:false}).limit(WA_CONV_DELTA_LIMIT).then(function(r){
+      // جلب أحدث خرج بعدنا (دلتا تانية أو كامل — الكامل بيستبدل القايمة كلها فهو اللي يكسب)
+      if(myGen!==waConvDeltaGen || fullGen!==waConvGen) return;
+      if(r.error) return;   // القايمة بتفضل على آخر نسخة — الـpoll الجاي بيحاول تاني
+      var rows=r.data||[];
+      if(rows.length>=WA_CONV_DELTA_LIMIT){ waFetchConvos(false); return; }   // اتغيّر كتير — الكامل أصح
+      if(!rows.length){ waFlushNotify(); return; }
+      waConvDeltaDraws++;
+      waMergeConvRows(rows);
+      renderConvos();
+      waFlushNotify();
+    });
+}
+function waNoteConvWm(rows){
+  for(var i=0;i<rows.length;i++){ var t=Date.parse((rows[i]&&rows[i].updated_at)||''); if(t>waConvWm) waConvWm=t; }
+}
+// نسخة السيرفر الأحدث بتكسب (رد أقدم وصل متأخر مايرجّعش اللي اتحدّث) — صف من غير updated_at = بيتبدّل عادي
+function waConvNewer(n, o){
+  var tn=Date.parse((n&&n.updated_at)||''), to=Date.parse((o&&o.updated_at)||'');
+  return !(tn>0 && to>0) || tn>=to;
+}
+function waLastMsgMs(c){ var t=Date.parse((c&&c.last_message_at)||''); return isNaN(t)?-Infinity:t; }
+// 🔴 `waConvos` بتفضل **نسخة السيرفر**: الصف بيتبدّل بصف السيرفر كامل (مش دمج حقول)، ونفس الترتيب والسقف بتوع الجلب
+// الكامل (last_message_at تنازلي · الفاضي آخر · 200). محادثة قديمة اتعدّلت (تصنيف مثلاً) بتنزل تحت الـ200 وتتشال — زي
+// السيرفر بالظبط. وفلاتر السيرفر (إعلان · تصنيف · بحث) بتاخد النسخة الجديدة لنفس الصف لو عندها — بتفضل منفصلة.
+function waMergeConvRows(rows){
+  var byId={};
+  for(var i=0;i<waConvos.length;i++) byId[waConvos[i].id]=i;
+  for(var j=0;j<rows.length;j++){
+    var n=rows[j], at=byId[n.id];
+    if(at===undefined){ waConvos.push(n); byId[n.id]=waConvos.length-1; }
+    else if(waConvNewer(n, waConvos[at])) waConvos[at]=n;
+    waConvReplaceIn(waAdExtra, n); waConvReplaceIn(waLabelExtra, n); waConvReplaceIn(waSearchExtra, n);
+  }
+  waConvos.sort(function(a,b){
+    var ta=waLastMsgMs(a), tb=waLastMsgMs(b);
+    if(ta===tb) return 0;
+    return ta>tb ? -1 : 1;
+  });
+  if(waConvos.length>200) waConvos=waConvos.slice(0,200);
+  if(waConvos.length>=200) waConvosCapped=true;
+  waNoteConvWm(rows);
+}
+function waConvReplaceIn(arr, n){
+  for(var i=0;i<arr.length;i++){ if(arr[i].id===n.id){ if(waConvNewer(n, arr[i])) arr[i]=n; return; } }
+}
+// رشقة رسايل (رد بصورتين = حدثين) = جلب واحد
+function waScheduleConvRefresh(){
+  if(waConvRtTimer) return;
+  waConvRtTimer=setTimeout(function(){ waConvRtTimer=null; waRefreshConvos(); }, 500);
+}
+
 export var waSearchQuery='', waFilter='all';
+
+// تطبيع الأسماء العربي للبحث: «أحمد» = «احمد» · «فاطمة» = «فاطمه» · «مصطفى» = «مصطفي».
+// اتقاس: 67 اسم فيهم همزة و69 فيهم تاء مربوطة — الموظف بيكتب زي ما هو فاكر
+// مش زي ما العميل كتب اسمه على واتساب.
+export function waNormName(s){
+  return String(s||'').toLowerCase()
+    .replace(/[ً-ْـ]/g,'')   // تشكيل + تطويل
+    .replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي');
+}
+// الجزء اللي بيتقارن من الرقم — نفس `normalizePhone` (بتشيل 20/0 من الأول
+// وبتحوّل الأرقام العربي). 🔴 أقل من 3 أرقام = مش بحث برقم: «عميل 5» كانت
+// بتطابق أي رقم فيه 5، و«1» بتطابق كل المحادثات.
+function waSearchDigits(q){
+  var d=normalizePhone(q);
+  return d.length>=3 ? d : '';
+}
 
 export function waConvMatches(c){
   if(waFilter==='unread' && !((c.unread_count||0)>0)) return false;
@@ -119,14 +231,82 @@ export function waConvMatches(c){
   }
   var q=waSearchQuery;
   if(q){
-    var name=(c.customer_name||'').toLowerCase();
-    var phoneN=normalizePhone(c.customer_phone||c.wa_id||'');
-    var qPhone=normalizePhone(q);
-    var nameHit=name.indexOf(q)>=0;
-    var phoneHit=qPhone && phoneN.indexOf(qPhone)>=0;
+    var nameHit=waNormName(c.customer_name).indexOf(waNormName(q))>=0;
+    var qd=waSearchDigits(q);
+    // الرقم بيتقارن على الاتنين: `customer_phone` (01…) و`wa_id` (20…) —
+    // متطابقين بعد التطبيع على كل الـ2,414 صف، بس القديم كان بيقرا واحد بس
+    var phoneHit=!!qd && (normalizePhone(c.customer_phone||'').indexOf(qd)>=0 || normalizePhone(c.wa_id||'').indexOf(qd)>=0);
     if(!nameHit && !phoneHit) return false;
   }
   return true;
+}
+
+// 🔴 البحث بيستعلم من **السيرفر** (بلاغ المالك 24 سبتمبر: «أي رقم عدّى عليه
+// وقت حتى لو بسيط مش بيظهر خالص»). السبب مقيس: `waFetchConvos` بتجيب أحدث
+// 200 بس، والمحادثة رقم 200 عند 3ataba عمرها **يومين** — يعني أي عميل
+// كلّمنا من 3 أيام **مستحيل** يلاقيه البحث. نفس شكل فلتر الإعلانات
+// والتصنيفات بالحرف: النتيجة في مصفوفة **منفصلة** مش مدموجة في `waConvos`
+// (الدمج اتجرّب هناك وترتيب وصول الاستعلامين كان بيضيّع صفوف).
+export var waSearchExtra=[], waSearchCapped=false, waSearchedFor='', waSearchPending=false;
+var WA_SEARCH_LIMIT=100, waSearchGen=0, waSearchTimer=null;
+
+// الشرط بلغة PostgREST. 🔴 الفاصلة والقوسين والنقطة بيكسروا صياغة `.or()`
+// نفسها (5 أسماء حية فيهم الحروف دي) — فبيتحوّلوا لـ`_` = «أي حرف واحد»
+// مش لمسافة: «محمد, علي» لسه بتلاقي «محمد, علي». ونفس الحكاية للحروف
+// اللي ليها أشكال (ا/أ/إ · ه/ة · ي/ى)، والفلترة الدقيقة بتحصل بعدها في
+// `waConvMatches` بنفس `waNormName` — السيرفر بيجيب أوسع شوية والمتصفح بيضيّق.
+export function waSearchOr(q){
+  var parts=[];
+  var t=String(q||'').trim();
+  if(t){
+    var pat=t.replace(/[ً-ْـ]/g,'')
+      .replace(/[,()*\\%".:]/g,'_')
+      .replace(/[اأإآٱهةيى]/g,'_');
+    parts.push('customer_name.ilike.*'+pat+'*');
+  }
+  var d=waSearchDigits(q);
+  if(d){ parts.push('wa_id.ilike.*'+d+'*'); parts.push('customer_phone.ilike.*'+d+'*'); }
+  return parts.join(',');
+}
+
+export function waFetchSearchConvos(q){
+  if(!sb||!currentTenantId) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  var orq=waSearchOr(q);
+  if(!orq){ waSearchPending=false; return; }
+  var myGen=++waSearchGen;
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
+    .or(orq)
+    .order('last_message_at',{ascending:false,nullsFirst:false}).limit(WA_SEARCH_LIMIT)
+    .then(function(r){
+      // حروف بتتكتب ورا بعض = ردود بتوصل بترتيب عشوائي. رد قديم بيكتب فوق
+      // نتيجة أحدث = الموظف بيشوف نتايج حرف فات.
+      if(myGen!==waSearchGen || q!==waSearchQuery) return;
+      waSearchPending=false;
+      if(r.error){ renderConvos(); return; }   // بيفضل على المحمّل — أحسن من قايمة فاضية
+      var rows=r.data||[];
+      waSearchCapped=(rows.length===WA_SEARCH_LIMIT);
+      // 🔴 المحادثة المفتوحة لازم تفضل موجودة في `waConvById` حتى لو البحث
+      // الجديد مارجّعهاش — من غيرها التصنيف والملاحظة و«إنشاء طلب» على شات
+      // قديم فتحته من البحث بيرجعوا بـ`if(!conv) return` في صمت.
+      var act=null;
+      for(var i=0;i<waSearchExtra.length;i++){ if(waSearchExtra[i].id===waActiveId){ act=waSearchExtra[i]; break; } }
+      if(act && !rows.some(function(x){ return x.id===act.id; })) rows.push(act);
+      waSearchExtra=rows; waSearchedFor=q;
+      renderConvos();
+    });
+}
+
+// الكتابة بتفلتر المحمّل **فوراً** (مفيش انتظار للحروف القريبة) والسيرفر
+// بعد 300ms من آخر حرف — نفس فكرة بحث الأوردرات (240ms).
+function waOnSearchInput(v){
+  waSearchQuery=(v||'').trim().toLowerCase();
+  clearTimeout(waSearchTimer);
+  waSearchPending=!!(waSearchQuery && waSearchOr(waSearchQuery));
+  renderConvos();
+  if(!waSearchPending) return;
+  var q=waSearchQuery;
+  waSearchTimer=setTimeout(function(){ waFetchSearchConvos(q); }, 300);
 }
 
 export function waBuildFilters(){
@@ -148,6 +328,8 @@ export function waBuildFilters(){
     html+='<button class="wa-filter wa-flabel'+(on?' active':'')+'" data-f="'+esc(fv)+'" data-label="'+esc(L.k)+'"'+(on?(' style="background:'+L.c+';border-color:transparent;color:#fff"'):'')+'>'+esc(L.k)+'</button>';
   }
   html+='</div>';
+  // ⚠️ مش `.wa-filter` عمداً — ده زرار إدارة مش فلتر (وtest-wa-labels بيعد الفلاتر بالكلاس)
+  html+='<button type="button" class="wa-qrm-open" id="wa-qrm-open" title="إضافة وتعديل وحذف وترتيب الردود المحفوظة">⚡ إضافة و تعديل رد محفوظ</button>';
   box.innerHTML=html;
   var chips=box.querySelectorAll('.wa-filter');
   for(var j=0;j<chips.length;j++){ chips[j].addEventListener('click',function(){ waSetFilter(this.getAttribute('data-f')); }); }
@@ -348,6 +530,8 @@ export function waConvById(id){
   // من غير السطر ده الضغط على صف جاي من فلتر التصنيف بيفتح الشات
   // وهيدره فاضل بتاع المحادثة اللي قبلها
   for(var m=0;m<waLabelExtra.length;m++){ if(waLabelExtra[m].id===id) return waLabelExtra[m]; }
+  // وشات قديم اتفتح من البحث — نفس السبب بالحرف
+  for(var n=0;n<waSearchExtra.length;n++){ if(waSearchExtra[n].id===id) return waSearchExtra[n]; }
   return undefined;
 }
 
@@ -357,15 +541,21 @@ export function waConvById(id){
 export function waFetchLabelConvos(){
   if(!sb||!currentTenantId) return;
   if(walletStateCache && walletStateCache.is_depleted) return;
+  // 🔴 `labels` عمود **NOT NULL default '{}'** على الحي — المحادثة اللي
+  // مالهاش تصنيف مصفوفتها فاضية مش NULL. الشرط القديم
+  // (`.not('labels','is',null)`) كان بيطابق **كل** المحادثات (2,515 من
+  // 2,515)، فالـlimit بياخد أحدث 500 وخلاص — وأي شكوى أقدم من كده كانت
+  // بتختفي من فلترها (بلاغ المالك 27 سبتمبر: 3 من 10 شكاوى، أقدمهم 10 أيام).
+  // الستب كان حاطط `null` للمحادثات غير المصنّفة فالاختبار عدّى أعمى.
+  // `not.eq.{}` = `NOT (labels = '{}')` → المصنّفة بس، والـlimit بيتحسب عليها.
   sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
-    .not('labels','is',null)
+    .not('labels','eq','{}')
     .order('last_message_at',{ascending:false,nullsFirst:false}).limit(WA_LABEL_LIMIT)
     .then(function(r){
       if(r.error) return;   // الفلتر بيفضل على المحمّل — أحسن من قايمة فاضية
       var rows=r.data||[];
       waLabelCapped=(rows.length===WA_LABEL_LIMIT);
-      // `.not(labels,is,null)` بترجّع كمان الصفوف اللي مصفوفتها فاضية
-      // (الموظف شال آخر تصنيف) — دي مش «عليها تصنيف»
+      // حارس إضافي بس — السيرفر بيستبعد الفاضية خلاص
       waLabelExtra=rows.filter(function(c){ return c.labels && c.labels.length; });
       if(waConvos.length) renderConvos();
     });
@@ -390,13 +580,14 @@ export function waFetchAdConvos(){
 
 export function renderConvos(){
   var body=$id('wa-list-body'); if(!body) return;
-  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={};
+  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={}, cmpAlert=0;
   for(var k=0;k<waConvos.length;k++){
     seenConvIds[waConvos[k].id]=1;
     if(waIsFromAd(waConvos[k])) adIds[waConvos[k].id]=1;
     var u=waConvos[k].unread_count||0; totalUnread+=u; if(u>0)unreadConvs++;
     var ls=waConvos[k].labels||[];
     for(var li=0;li<ls.length;li++){ labelCounts[ls[li]]=(labelCounts[ls[li]]||0)+1; }
+    var cst=waComplaintState(waConvos[k]); if(cst && cst.level!=='ok') cmpAlert++;
   }
   // ⚠️ عدّاد الإعلانات والتصنيفات بيضموا الأقدم من الـ200 (الاتنين ليهم
   // استعلام سيرفر) — **غير المقروء لوحده** هو اللي لسه على نسخة الـ200،
@@ -408,6 +599,7 @@ export function renderConvos(){
     var lc=waLabelExtra[lx]; if(seenConvIds[lc.id]) continue;
     var els=lc.labels||[];
     for(var lj=0;lj<els.length;lj++){ labelCounts[els[lj]]=(labelCounts[els[lj]]||0)+1; }
+    var lcs=waComplaintState(lc); if(lcs && lcs.level!=='ok') cmpAlert++;
   }
   var adCount=0;
   for(var ak in adIds){ if(Object.prototype.hasOwnProperty.call(adIds,ak)) adCount++; }
@@ -417,7 +609,18 @@ export function renderConvos(){
   var af=$id('wa-filter-ctwa');
   if(af) af.textContent= adCount>0 ? ('📣 جه من إعلان ('+adCount+(waAdCapped?'+':'')+')') : '📣 جه من إعلان';
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
-  for(var ci=0;ci<lchips.length;ci++){ var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0; lchips[ci].textContent= ln>0 ? (lk+' ('+ln+(waLabelCapped?'+':'')+')') : lk; }
+  for(var ci=0;ci<lchips.length;ci++){
+    var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0;
+    var txt= ln>0 ? (lk+' ('+ln+(waLabelCapped?'+':'')+')') : lk;
+    // 🔴 التنبيه لازم يبان **من غير ما حد يفتح الفلتر** — الشكوى اللي قربت
+    // مهلتها غالباً مش في أحدث 200، فصفها مش ظاهر في القايمة العادية أصلاً
+    var alertOn=(lk===WA_COMPLAINT_LABEL && cmpAlert>0);
+    if(alertOn) txt+=' · ⚠️ '+cmpAlert;
+    lchips[ci].textContent=txt;
+    lchips[ci].classList.toggle('has-alert', alertOn);
+    if(alertOn) lchips[ci].title=cmpAlert+' شكوى عدّى عليها '+WA_COMPLAINT_WARN_DAYS+' أيام أو أكتر من غير «'+WA_RESOLVED_LABEL+'»';
+    else lchips[ci].removeAttribute('title');
+  }
   if(!waConvos.length && !waAdExtra.length){
     // النفاد مش "مفيش محادثات" — الرسالة الغلط كانت بتوحي إن البيانات ضاعت
     if(walletStateCache && walletStateCache.is_depleted){ body.innerHTML=WA_LOCK_MSG; return; }
@@ -446,9 +649,35 @@ export function renderConvos(){
       if(!seenL[waLabelExtra[z2].id] && waConvMatches(waLabelExtra[z2])) list.push(waLabelExtra[z2]);
     }
     list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
+    // فلتر «شكوى»: المفتوحة الأول والأقدم فوق (الأقرب لنهاية المهلة) —
+    // الشكوى المنسية هي بالظبط اللي آخر رسالة فيها قديمة فكانت بتنزل لتحت
+    if(waFilter==='label:'+WA_COMPLAINT_LABEL){
+      list.sort(function(a,b){
+        var sa=waComplaintState(a), sb2=waComplaintState(b);
+        if(!!sa!==!!sb2) return sa?-1:1;
+        if(sa && sb2) return String(sa.at).localeCompare(String(sb2.at));
+        return String(b.last_message_at||'').localeCompare(String(a.last_message_at||''));
+      });
+    }
+  }
+  // نتايج البحث من السيرفر — بتتضاف مع **أي** فلتر (بتعدّي على
+  // `waConvMatches` فالفلتر النشط بيتطبّق عليها كمان). بس لو النتيجة
+  // بتاعة **نفس** الكلمة المكتوبة دلوقتي — نتيجة كلمة قديمة = صفوف غلط.
+  // و`waConvos` بتكسب لو الصف في الاتنين: هي الأحدث (مصدر الـpoll).
+  var searchLive=!!(waSearchQuery && waSearchedFor===waSearchQuery);
+  if(searchLive){
+    var seenS={};
+    for(var y3=0;y3<list.length;y3++) seenS[list[y3].id]=1;
+    for(var z3=0;z3<waSearchExtra.length;z3++){
+      if(!seenS[waSearchExtra[z3].id] && waConvMatches(waSearchExtra[z3])){ seenS[waSearchExtra[z3].id]=1; list.push(waSearchExtra[z3]); }
+    }
+    list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
   }
   if(!list.length){
     var emptyMsg='مفيش نتائج للبحث';
+    // 🔴 «مفيش نتائج» قبل ما السيرفر يرد = كذبة لمدة ثانية — الموظف بيمسح
+    // ويكتب تاني فاكر إنه غلط في الرقم
+    if(waSearchQuery && waSearchPending) emptyMsg='بيدوّر في كل المحادثات…';
     if(waFilter==='unread') emptyMsg='مفيش رسائل غير مقروءة 🎉';
     // 🔴 السياق ضروري هنا: المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش
     // بيانات إعلان **حتى لو جت من إعلان فعلاً** — من غير السطر ده التاجر
@@ -471,6 +700,7 @@ export function renderConvos(){
         +'<div class="wa-conv-top"><span class="wa-conv-name">'+esc(name)+'</span><span class="wa-conv-time">'+esc(waTimeShort(c.last_message_at))+'</span></div>'
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
+        +(waComplaintState(c)?('<div class="wa-conv-cmp lvl-'+waComplaintState(c).level+'" title="'+esc(waComplaintTitle(waComplaintState(c)))+'">'+esc(waComplaintText(waComplaintState(c)))+'</div>'):'')
         +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span>'
         +(waCtwaUrl(c)?('<a class="wa-conv-ad-link" href="'+esc(waCtwaUrl(c))+'" target="_blank" rel="noopener noreferrer" title="افتح الإعلان على فيسبوك">↗</a>'):'')
         +'</div>'):'')
@@ -480,14 +710,19 @@ export function renderConvos(){
   // 🔴 ملاحظة السقف غلط وقت فلتر الإعلانات: الفلتر ده بيستعلم من السيرفر
   // بشرطه فبيشوف الأقدم كمان. نص «الأقدم مش بيظهر» هنا كان هيخلي التاجر
   // يفتكر إن فيه إعلانات مخفية وهي معروضة.
-  if(waFilter==='ctwa'){
+  // البحث استعلم من السيرفر فهو **شايف الأقدم** — نص «الأقدم مش بيظهر في
+  // البحث» هنا بقى كذبة. السياق الوحيد اللي يستاهل: وصلنا سقف النتايج.
+  if(waSearchQuery){
+    if(waSearchPending) html+='<div class="wa-cap-note">بيدوّر في المحادثات الأقدم…</div>';
+    else if(searchLive && waSearchCapped) html+='<div class="wa-cap-note">معروض أحدث '+WA_SEARCH_LIMIT+' نتيجة — لو مش لاقي المحادثة، اكتب الرقم كامل</div>';
+  } else if(waFilter==='ctwa'){
     if(waAdCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة من إعلانات — الأقدم مش هنا</div>';
   } else if(waFilter.indexOf('label:')===0){
     // نفس سبب استثناء الإعلانات: الفلتر ده استعلم من السيرفر فهو شايف
     // الأقدم. نص «الأقدم مش بيظهر» هنا كان هيخلي التاجر يدوّر على
     // محادثات مصنّفة **وهي معروضة قدامه**.
     if(waLabelCapped) html+='<div class="wa-cap-note">معروض أحدث '+WA_LABEL_LIMIT+' محادثة مصنّفة — الأقدم مش هنا</div>';
-  } else if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — الأقدم مش بيظهر هنا ولا في البحث</div>';
+  } else if(waConvosCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة — للأقدم ابحث بالاسم أو الرقم</div>';
   body.innerHTML=html;
   var items=body.querySelectorAll('.wa-conv');
   for(var j=0;j<items.length;j++){ items[j].addEventListener('click',function(){ openConversation(this.getAttribute('data-id')); }); }
@@ -505,21 +740,40 @@ export function renderConvos(){
   // **عكس** اللي الموظف شايفه (يدوس عشان يضيف تصنيف فيتشال).
   // زرار بيعمل عكس اللي بيوعد بيه أسوأ من زرار مايعملش حاجة (درس 16).
   if(waActiveId){ var ac=waConvById(waActiveId); if(ac){
+    // المحادثة اتفتحت قبل ما صفها يوصل (الجلب برقمها وقع) — الهيدر واللوحات مرة واحدة أول ما يوصل
+    if(waHdrPendingId===waActiveId){ waHdrPendingId=null; waFillChatHeader(ac); waLoadConvMeta(ac); waLoadOrders(ac); }
     waUpdateWindow(ac); waUpdateCtwa(ac); waRenderConvLabels(ac);
     var lp=$id('wa-label-picker'); if(lp && lp.style.display!=='none') waRenderLabelPicker(ac);
   } }
 }
 
+// الهيدر من صف المحادثة — مفيش صف (لسه بيتجاب) = «…» مش اسم العميل اللي قبله
+var waHdrPendingId=null;
+function waFillChatHeader(c){
+  $id('wa-chat-name').textContent=c ? (c.customer_name||c.customer_phone||c.wa_id) : '…';
+  $id('wa-chat-phone').textContent=c ? (c.customer_phone||c.wa_id) : '';
+  $id('wa-chat-avatar').textContent=c ? waInitials(c.customer_name,c.customer_phone||c.wa_id) : '…';
+}
 export function openConversation(id){
   waActiveId=id; waRenderedCount=0;
   var c=waConvById(id);
   $id('wa-chat-empty').style.display='none';
   $id('wa-chat-inner').style.display='flex';
   $id('wa-wrap').classList.add('show-chat');
-  if(c){
-    $id('wa-chat-name').textContent=c.customer_name||c.customer_phone||c.wa_id;
-    $id('wa-chat-phone').textContent=c.customer_phone||c.wa_id;
-    $id('wa-chat-avatar').textContent=waInitials(c.customer_name,c.customer_phone||c.wa_id);
+  waFillChatHeader(c);
+  // 🔴 محادثة مش في أي قايمة (إشعار لعميل جديد والقايمة لسه ماتحدّثتش — التاب كانت مخفية أو على صفحة تانية): بنجيبها
+  // برقمها. من غيرها الهيدر كان بيفضل على العميل اللي قبلها ولوحة التصنيف والأوردرات مستخبية لحد ما الموظف يدوس الصف تاني
+  waHdrPendingId = c ? null : id;
+  if(!c && sb && currentTenantId){
+    waFetchConvRow(id, function(row){
+      // ماوصلش (نت · لسه مااتعملش) = أول ما الصف يوصل أي قايمة renderConvos بيكمّل · ولو renderConvos سبق (قايمة جابته) = مانعيدش
+      // (كان بيعيد تحميل الأوردرات ويقفل خانة الملاحظة اللي الموظف بيكتب فيها)
+      if(!row || waActiveId!==id || waHdrPendingId!==id) return;
+      waHdrPendingId=null;
+      var cr=waConvById(id) || row;
+      waFillChatHeader(cr); waUpdateCtwa(cr); waUpdateWindow(cr); waLoadConvMeta(cr); waLoadOrders(cr);
+      renderConvos();
+    });
   }
   // محادثة مش موجودة في القايمة = مفيش شارة، مش شارة اللي قبليها
   waUpdateCtwa(c);
@@ -542,10 +796,6 @@ export function openConversation(id){
   if($id('wa-input')){ $id('wa-input').value=''; $id('wa-input').style.height='auto'; }
   // 🔴 اقتباس من محادثة قديمة في محادثة جديدة = رد على رسالة مش موجودة
   waClearReplyTo();
-  // 🔴 ونفس الحكاية للرد الجاهز المحضّر: تختار رد بصور، تفتح محادثة
-  // تانية، تدوس إرسال — فيروح لعميل تاني خالص. والسيرفر **مش** هيرفضه
-  // (المسارات بتاعة نفس المتجر)، فالحارس هنا هو الوحيد.
-  waClearPendingQr();
   // 🔴 والفورم كمان: تفتحها لعميل، تبدّل المحادثة، تدوس «سجّل» — فيتسجّل
   // أوردر باسم وتليفون العميل اللي فات على شات عميل تاني. الحقول بتتعبّى
   // من المحادثة وقت الفتح، فسيبها مفتوحة = بيانات قديمة على شاشة جديدة.
@@ -559,23 +809,131 @@ var waMsgGen=0;
 export function waFetchMessages(convId,scroll,isPoll){
   if(!sb) return;
   var myGen=++waMsgGen;
+  waMsgFlight={ gen: myGen, conv: convId, at: Date.now(), patches: {}, delta: false };
   // descending + reverse = أحدث 500 — الترتيب التصاعدي كان بيجيب أقدم 500
   // والمحادثة اللي عدّت الحد كانت بتتجمد على القديم للأبد
-  sb.from('wa_messages').select('*').eq('conversation_id',convId)
+  sb.from('wa_messages').select(WA_MSG_COLS).eq('conversation_id',convId)
     .order('created_at',{ascending:false}).limit(500).then(function(r){
       if(convId!==waActiveId) return;
       if(myGen!==waMsgGen) return;   // رد أقدم لنفس المحادثة
+      var fl=(waMsgFlight && waMsgFlight.gen===myGen) ? waMsgFlight : null;
+      waMsgFlight=null;
       if(r.error){ if(!isPoll)$id('wa-msgs').innerHTML='<div class="wa-empty">حصلت مشكلة في تحميل الرسائل</div>'; return; }
+      waMsgFullAt=Date.now();
       var data=(r.data||[]).reverse();
+      if(fl) waApplyFlightPatches(data, fl.patches);
       // مقارنة الطول لوحدها بتفشل لما العدد ثابت على الحد (500) والنافذة
       // بتنزلق — آخر id هو الفيصل
       var lastRendered = waRenderedState.length ? waRenderedState[waRenderedState.length-1].id : null;
       var lastNew = data.length ? data[data.length-1].id : null;
-      if(isPoll && data.length===waRenderedCount && lastNew===lastRendered) return;
+      // 🔴 v82: والحالات كمان (✓✓ · اتقرت · فشلت) — الجلب الكامل الدوري (كل 5 دقايق) هو اللي بيصلّح حالة حدث ضاع
+      // (التاب كانت مخفية · الاتصال قطع)، والرجوع بدري هنا كان بيرميها من غير رسم
+      if(isPoll && data.length===waRenderedCount && lastNew===lastRendered && waSameMsgs(data, waLastMsgs)){
+        if(fl && fl.delta) waRefreshMessages(convId,false);
+        return;
+      }
       var newArrived = isPoll && !!data.length && lastNew!==lastRendered;
       renderMessages(data, scroll);
       if(newArrived) waMarkRead(convId);
+      if(fl && fl.delta) waRefreshMessages(convId,false);   // رسالة وصلت والكامل في السكة — بعد ما نزل
     });
+}
+
+// v82: الرسايل الجديدة بس للمحادثة المفتوحة (الـpoll · رسالة وصلت · بعد الإرسال) — اللي اتعمل في آخر دقيقة من آخر رسالة
+// معروضة وبعدها. الكامل (500): أول فتح · ↻ · كل 5 دقايق (حالات رسايل قديمة لو حدث ضاع) · أي شك.
+// نفس عقد waFetchMessages: isPoll + مفيش جديد = مفيش رسم · رسالة جديدة في الـpoll = علّمها مقروءة.
+export function waRefreshMessages(convId, isPoll){
+  if(!sb || !convId) return;
+  // كامل للمحادثة دي في السكة (فتح محادثة · الكامل الدوري) = الدلتا بعده — كل حدث وقت الفتح (حتى waMarkRead بتاعنا) كان بيبدأ كامل تاني
+  if(waMsgFlight && waMsgFlight.conv===convId && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS){ waMsgFlight.delta=true; return; }
+  var last=waLastMsgs||[];
+  if(!last.length || last[0].conversation_id!==convId || !waMsgFullAt || Date.now()-waMsgFullAt>WA_MSG_FULL_MS){
+    waFetchMessages(convId,false,isPoll); return;
+  }
+  var maxT=0;
+  for(var i=0;i<last.length;i++){ var t=Date.parse(last[i].created_at||''); if(t>maxT) maxT=t; }
+  if(!maxT){ waFetchMessages(convId,false,isPoll); return; }
+  var fullGen=waMsgGen, myGen=++waMsgDeltaGen;
+  sb.from('wa_messages').select(WA_MSG_COLS).eq('conversation_id',convId)
+    .gte('created_at',new Date(maxT-60000).toISOString())
+    .order('created_at',{ascending:false}).limit(WA_MSG_DELTA_LIMIT).then(function(r){
+      if(convId!==waActiveId) return;
+      if(myGen!==waMsgDeltaGen || fullGen!==waMsgGen) return;   // جلب أحدث خرج بعدنا
+      if(r.error) return;
+      var rows=r.data||[];
+      if(rows.length>=WA_MSG_DELTA_LIMIT){ waFetchMessages(convId,false,isPoll); return; }
+      var m=waMergeMsgs(waLastMsgs||[], rows);
+      if(!m.changed) return;
+      renderMessages(m.list,false);
+      if(isPoll && m.added) waMarkRead(convId);
+    });
+}
+// حدث UPDATE لرسالة في المحادثة المفتوحة (✓✓ · اتقرت · فشلت): الحالة من الحدث نفسه من غير جلب.
+// localOnly (التاب مخفية): مفيش جلب خالص — رسالة مش معروضة = الكامل لما التاب ترجع
+function waPatchMessage(row, localOnly){
+  var inFlight=!!(waMsgFlight && waMsgFlight.conv===row.conversation_id && Date.now()-waMsgFlight.at<WA_MSG_FLIGHT_MS);
+  if(inFlight) waMsgFlight.patches[row.id]=row;
+  var list=waLastMsgs||[], idx=-1;
+  for(var i=0;i<list.length;i++){ if(list[i].id===row.id){ idx=i; break; } }
+  if(idx<0){
+    if(inFlight) return;   // الكامل اللي في السكة هيجيبها والحالة بتتطبّق على نتيجته
+    if(localOnly){ waMsgFullAt=0; return; }
+    waRefreshMessages(waActiveId,false); return;   // مش معروضة (لسه مااتجابتش) — نجيب الجديد
+  }
+  var n=Object.assign({}, list[idx]);
+  WA_MSG_PATCH_COLS.forEach(function(k){ if(Object.prototype.hasOwnProperty.call(row,k)) n[k]=row[k]; });
+  if(!waMsgDiffers(list[idx], n)) return;
+  var out=list.slice(); out[idx]=n;
+  renderMessages(out,false);
+}
+// نفس الرسايل بنفس الترتيب ومفيش ولا عمود معروض اتغيّر
+function waSameMsgs(a, b){
+  if(!a || !b || a.length!==b.length) return false;
+  for(var i=0;i<a.length;i++){ if(a[i].id!==b[i].id || waMsgDiffers(a[i], b[i])) return false; }
+  return true;
+}
+// ترتيب الحالة: الحالة مابترجعش لورا (اتبعتت ← وصلت ← اتقرت · فشلت نهائية) — حدث وصل والكامل في السكة وحالته
+// أعلى من الـsnapshot = هو الأحدث. مجهول = 0 (الـsnapshot بيكسب)
+var WA_STATUS_RANK={ sent:1, delivered:2, read:3, failed:4 };
+function waApplyFlightPatches(data, patches){
+  for(var i=0;i<data.length;i++){
+    var p=patches[data[i].id];
+    if(!p) continue;
+    if((WA_STATUS_RANK[p.status]||0) <= (WA_STATUS_RANK[data[i].status]||0)) continue;
+    var n=Object.assign({}, data[i]);
+    WA_MSG_PATCH_COLS.forEach(function(k){ if(Object.prototype.hasOwnProperty.call(p,k)) n[k]=p[k]; });
+    data[i]=n;
+  }
+}
+function waMsgDiffers(a, b){
+  var cols=WA_MSG_COLS.split(',');
+  for(var i=0;i<cols.length;i++){ var k=cols[i]; if(JSON.stringify(a[k]===undefined?null:a[k])!==JSON.stringify(b[k]===undefined?null:b[k])) return true; }
+  return false;
+}
+// دمج اللي رجع في المعروض: الموجود بيتبدّل بنسخة السيرفر لو اتغيّر · الجديد بيتضاف · الترتيب بـcreated_at · آخر 500
+function waMergeMsgs(list, rows){
+  var out=list.slice(), byId={}, changed=false, added=0;
+  for(var i=0;i<out.length;i++) byId[out[i].id]=i;
+  for(var j=0;j<rows.length;j++){
+    var n=rows[j], at=byId[n.id];
+    if(at===undefined){ out.push(n); byId[n.id]=out.length-1; added++; changed=true; }
+    else {
+      // الحالة مابترجعش لورا (نفس ترتيب waApplyFlightPatches): دلتا خرجت قبل حدث «اتقرت/فشلت» ورجعت بعده = الحدث هو الأحدث —
+      // من غيره الـ✓✓ الزرقا كانت بترجع رمادي لحد الكامل (5 دقايق) والرسالة برّه نافذة الدلتا الجاية
+      var o=out[at];
+      if((WA_STATUS_RANK[o.status]||0) > (WA_STATUS_RANK[n.status]||0) || (o.is_read && !n.is_read)){
+        n=Object.assign({}, n);
+        if((WA_STATUS_RANK[o.status]||0) > (WA_STATUS_RANK[n.status]||0)) n.status=o.status;
+        if(o.is_read) n.is_read=true;
+      }
+      if(waMsgDiffers(o, n)){ out[at]=n; changed=true; }
+    }
+  }
+  if(added){
+    out.sort(function(a,b){ var ta=Date.parse(a.created_at||''), tb=Date.parse(b.created_at||''); return (ta||0)-(tb||0); });
+    if(out.length>500) out=out.slice(out.length-500);
+  }
+  return { list: out, changed: changed, added: added };
 }
 
 export function waResolveUrls(paths, cb){
@@ -599,10 +957,7 @@ export var waLastMsgs = [];
 
 export function waSetReplyTo(mid){
   var box=$id('wa-msgs'); if(!box) return;
-  // بندوّر في الرسايل المرسومة عشان مانحتفظش بنسخة تانية من الحالة
-  var found = null;
-  for(var i=0;i<waRenderedState.length;i++){ if(waRenderedState[i].id===mid) found=waRenderedState[i]; }
-  // waRenderedState فيها الملخص بس — الرسالة الكاملة لازم تتجاب من الجلب الأخير
+  // الرسالة الكاملة من الجلب الأخير (waRenderedState فيها الملخص بس)
   waReplyTo = (waLastMsgs || []).filter(function(m){ return m.id===mid; })[0] || null;
   if(!waReplyTo || !waReplyTo.wa_message_id){ waReplyTo = null; waRenderReplyBar(); return; }
   waRenderReplyBar();
@@ -736,8 +1091,85 @@ export function waUpdateWindow(c){
   if(row) row.style.display=open?'flex':'none';
   // المعاينة جزء من الكتابة — لو الكتابة مقفولة تختفي معاها بدل ما تفضل
   // معلّقة فوق بانر «مش هتقدر ترد»
-  if(!open){ waClearReplyTo(); waClearPendingQr(); }
+  if(!open) waClearReplyTo();
+  // زراير الردود المحفوظة بتبعت بضغطة — مالهاش مكان والنافذة مقفولة
+  var qp=$id('wa-qr-panel'); if(qp) qp.style.display=open?'':'none';
 }
+
+// 🔴 **واتساب بيقبل الصور JPEG وPNG بس** (Cloud API — Supported Media Types).
+// أي صيغة تانية (webp · gif · avif…) بتعدّي من ميتا بـ200 و`wamid`، وبعدها
+// بثواني الـwebhook يرجّع `failed` — الموظف شاف الرسالة اتبعتت والعميل عمره
+// ما استلمها. اتقاس 2 أكتوبر على كل التاريخ: **webp 17 من 17 وقعوا** (رد
+// «بيت مجات» · «ميكروويف» · مرفقات من الشات) و`jpg` 1 من 498.
+// فأي صورة مش JPEG/PNG بتتحوّل JPEG في المتصفح **قبل الرفع** — المعاينة
+// بتفضل زي ما هي والموظف مابيعملش أي حاجة. والحارس التاني في `wa-send` (v9).
+var WA_IMG_MAX=5*1024*1024;   // حد ميتا للصورة
+export function waIsSendableImagePath(p){ return /\.(jpe?g|png)$/i.test(String(p||'')); }
+// 🔴 النوع بيتحكم من **البايتات** مش من `f.type` — المتصفح بيستنتج الـtype من
+// الامتداد، فصورة webp متسمّية `.jpg` (شائع في صور المنتجات من المواقع) كانت
+// هتعدّي على إنها JPEG وتموت عند ميتا بنفس الشكل (مراجعة 2 أكتوبر).
+function waSniffImage(f){
+  if(!f || !f.slice) return Promise.resolve('');
+  return f.slice(0,12).arrayBuffer().then(function(ab){
+    var b=new Uint8Array(ab);
+    // JPEG = FF D8 FF · PNG = 89 50 4E 47 (بالعشري — فاحص check.py مابيقراش 0x)
+    if(b[0]===255 && b[1]===216 && b[2]===255) return 'image/jpeg';
+    if(b[0]===137 && b[1]===80 && b[2]===78 && b[3]===71) return 'image/png';
+    return '';
+  }, function(){ return ''; });
+}
+var WA_IMG_MAX_DIM=4096;   // سقف آمن للـcanvas — iOS Safari بيرجّع null فوق ~16.7 ميجابكسل
+function waBaseName(f){ return String((f&&f.name)||'image').replace(/\.[^.]*$/,'')||'image'; }
+export function waEnsureSendableImage(f){
+  if(!f) return Promise.resolve(f);
+  return waSniffImage(f).then(function(kind){
+    if(kind){
+      if(f.type===kind) return f;   // JPEG/PNG سليم — نفس الملف بالظبط
+      // البايتات JPEG/PNG والـtype غلط — نفس البايتات بالـtype والامتداد الصح
+      return new File([f], waBaseName(f)+(kind==='image/png'?'.png':'.jpg'), {type:kind});
+    }
+    return waToJpeg(f);
+  });
+}
+// تحويل لـJPEG: خلفية بيضا (JPEG مالوش شفافية — الشفاف كان هيطلع أسود) ·
+// لو الناتج فوق 5 ميجا بنقلّل الجودة وبعدين المقاس بدل ما نرفض — الموظف
+// مايضطرش يحوّل بإيده (ده كان الحل اليدوي قبل الإصلاح).
+function waToJpeg(f){
+  return new Promise(function(resolve,reject){
+    var url=URL.createObjectURL(f);
+    var img=new Image();
+    function done(){ try{ URL.revokeObjectURL(url); }catch(e){} }
+    img.onload=function(){
+      var w0=img.naturalWidth, h0=img.naturalHeight;
+      if(!w0||!h0){ done(); reject(new Error('unsupported_image')); return; }
+      var scale=Math.min(1, WA_IMG_MAX_DIM/Math.max(w0,h0));
+      var qs=[0.92,0.8,0.7];
+      function attempt(qi){
+        var w=Math.max(1,Math.round(w0*scale)), h=Math.max(1,Math.round(h0*scale));
+        var c=document.createElement('canvas'); c.width=w; c.height=h;
+        var ctx=c.getContext('2d');
+        if(!ctx){ done(); reject(new Error('too_big')); return; }
+        ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img,0,0,w,h);
+        c.toBlob(function(b){
+          if(b && b.size<=WA_IMG_MAX){ done(); resolve(new File([b], waBaseName(f)+'.jpg', {type:'image/jpeg'})); return; }
+          if(b && qi+1<qs.length){ attempt(qi+1); return; }
+          if(b && Math.max(w,h)>640){ scale*=0.75; attempt(0); return; }
+          done(); reject(new Error(b?'too_big':'unsupported_image'));
+        },'image/jpeg',qs[qi]);
+      }
+      try{ attempt(0); }catch(e){ done(); reject(new Error('unsupported_image')); }
+    };
+    // صيغة المتصفح نفسه مايعرفش يفكّها (HEIC على كروم مثلاً) — رفض صريح
+    img.onerror=function(){ done(); reject(new Error('unsupported_image')); };
+    img.src=url;
+  });
+}
+var WA_IMG_ERR={
+  unsupported_image:'صيغة الصورة دي مش مدعومة في واتساب — ابعتها JPG أو PNG',
+  too_big:'الصورة كبيرة بعد التحويل (الحد 5 ميجا)',
+  unsupported_image_type:'واتساب بيقبل صور JPG وPNG بس — الصورة دي بصيغة تانية'
+};
 
 export function waPickImage(e){
   var f=e.target.files&&e.target.files[0];
@@ -745,7 +1177,6 @@ export function waPickImage(e){
   if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); e.target.value=''; return; }
   if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
   waPendingImage=f; waPendingDoc=null;
-  waClearPendingQr();   // مرفق بالإيد بيكسب على الرد الجاهز — نيّة أحدث
   var df=$id('wa-docfile'); if(df) df.value='';
   var prev=$id('wa-attach-preview');
   var url=URL.createObjectURL(f);
@@ -758,7 +1189,6 @@ export function waPickImage(e){
 export function waPickFile(e){
   var f=e.target.files&&e.target.files[0];
   if(!f) return;
-  waClearPendingQr();   // مرفق بالإيد بيكسب على الرد الجاهز — نيّة أحدث
   // لو صورة، عاملها معاملة الصور (تظهر inline للعميل)
   if(/^image\//.test(f.type)){
     if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
@@ -820,9 +1250,6 @@ export function waSend(){
   if(!waActiveId||!sb) return;
   var input=$id('wa-input');
   var text=(input.value||'').trim();
-  // رد جاهز بصور: مسار مستقل (صور بالتسلسل وبعدين الكلام) — بس من نفس
-  // الزرار عشان الموظف مايتعلمش سلوكين
-  if(waPendingQr){ waSendQuickReply(text); return; }
   if(!waPendingImage && !waPendingDoc && !text) return;
   var convAtSend=waActiveId;
   // 🔴 بنلقط الرد **قبل** ما نصفّره — الإرسال غير متزامن والموظف ممكن
@@ -847,6 +1274,7 @@ export function waSend(){
     // لأن اللوحة بتبني المسار بنفسها، فظهورها معناها فيه حاجة غلط في الرفع
     else if(code==='bad_media_path'){ toast('الملف مش من ملفات متجرك — جرّب ترفعه تاني','er'); }
     else if(code==='reply_failed'){ toast('واتساب رفض الرد على الرسالة دي (غالباً قديمة) — ابعتها كرسالة عادية','er'); }
+    else if(WA_IMG_ERR[code]){ toast(WA_IMG_ERR[code],'er'); }
     else { toast('الرسالة ماتبعتتش — حاول تاني','er'); }
     if(text && !$id('wa-input').value) $id('wa-input').value=text;
   }
@@ -863,15 +1291,18 @@ export function waSend(){
         sent_by_name: (d.sent_by_name || (currentUser && currentUser.name) || '')
       }, 'out');
       bubble.classList.remove('wa-msg-pending'); }
-    waFetchConvos(false);
+    waRefreshConvos();
   }
   if(imgFile){
-    var ext=((imgFile.type.split('/')[1])||'jpg').replace('jpeg','jpg');
-    var path=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+ext;
-    sb.storage.from('wa-media').upload(path,imgFile,{contentType:imgFile.type,upsert:false}).then(function(up){
-      if(up.error){ fail('upload'); return; }
-      return sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,image_path:path,caption:text,reply_to:replyAtSend}}).then(done);
-    }).catch(function(){ fail('upload'); });
+    // webp وأخواتها بتتحوّل JPEG قبل الرفع (شوف `waEnsureSendableImage`)
+    waEnsureSendableImage(imgFile).then(function(sf){
+      var ext=((sf.type.split('/')[1])||'jpg').replace('jpeg','jpg');
+      var path=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+ext;
+      return sb.storage.from('wa-media').upload(path,sf,{contentType:sf.type,upsert:false}).then(function(up){
+        if(up.error){ fail('upload'); return; }
+        return sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,image_path:path,caption:text,reply_to:replyAtSend}}).then(done);
+      });
+    }, function(e){ fail((e&&e.message)||'unsupported_image'); }).catch(function(){ fail('upload'); });
   } else if(docFile){
     var dext=((docFile.name.split('.').pop()||'bin').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8))||'bin';
     var dpath=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+dext;
@@ -910,45 +1341,64 @@ export function waSend(){
 // والموظف بيشوف الغلط ويقرر.
 var WA_CAPTION_MAX=1024;   // حد ميتا الموثّق للـcaption
 
-export function waSendQuickReply(text){
+// 🔴 **الإرسال بضغطة واحدة** (قرار المالك 24 سبتمبر — بيلغي «بيتحضّر مش بيتبعت»):
+// زرار الرد باسمه المختصر = الرد كله بيخرج فوراً. الحراسات اللي كانت بتيجي من
+// «المعاينة قبل الإرسال» اتنقلت هنا:
+//  • قفل أثناء الإرسال (`waQrSending`) — ضغطتين = رد مرتين لعميل حقيقي
+//  • النافذة لازم تكون مفتوحة — الزراير بتختفي معاها كمان (waUpdateWindow)
+//  • المحادثة بتتلقط **لحظة الضغط** وكل الأجزاء بتروحلها هي حتى لو الموظف
+//    بدّل الشات في النص — نص رد عند عميل أسوأ من رد كامل (الهدف ثابت فمفيش
+//    خطر يروح لعميل تاني). النسخة القديمة كانت بتقف لو المحادثة اتبدّلت.
+// واللي مكتوب في خانة الكتابة **مابيتلمسش** — الموظف ممكن يكون في نص رسالة.
+export var waQrSending=false;
+
+function waQrWindowOpen(convId){
+  var c=waConvById(convId);
+  var lastIn=(c&&c.last_inbound_at)?new Date(c.last_inbound_at).getTime():0;
+  return !!lastIn && (Date.now()-lastIn) < 24*3600*1000;
+}
+
+export function waSendQuickReply(item){
+  if(!item || !sb || !waActiveId || waQrSending) return;
   var convAtSend=waActiveId;
-  var med=waPendingQr.media.slice();
+  if(!waQrWindowOpen(convAtSend)){ toast('نافذة الرد قفلت — العميل لازم يبعت رسالة الأول','er'); return; }
+  var text=String(item.body==null?'':item.body).trim();
+  var med=waQrMedia(item).slice();
+  if(!text && !med.length) return;
+  // 🔴 صورة متخزّنة webp (من قبل التحويل التلقائي) = الرد هيوصل `failed` عند
+  // العميل. مانبعتش رد عارفين إنه هيموت — الموظف بيعرف دلوقتي وبيعرف يصلّحه.
+  if(waQrBroken(item)){ toast(WA_QR_BROKEN_MSG,'er'); return; }
   // الكلام بيركب آخر صورة طالما داخل الحد، وغير كده بيتبعت لوحده
   var asCaption = !!(text && med.length && text.length<=WA_CAPTION_MAX);
   var replyAtSend=(waReplyTo && waReplyTo.wa_message_id) ? waReplyTo.wa_message_id : null;
-  var input=$id('wa-input');
-  if(input){ input.value=''; input.style.height='auto'; }
-  waClearPendingQr();
   waClearReplyTo();
-  var btn=$id('wa-send-btn'); if(btn) btn.disabled=true;
+  waQrSending=true; waQrMarkSending(item.id);
   var sent=0;
-  function done(){
-    if(btn) btn.disabled=false;
-    waFetchMessages(convAtSend,false,false);
-    waFetchConvos(false);
+  function finish(){
+    waQrSending=false; waQrMarkSending(null);
+    if(waActiveId===convAtSend) waRefreshMessages(convAtSend,false);
+    waRefreshConvos();
   }
   function fail(code){
-    if(btn) btn.disabled=false;
-    if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); waUpdateWindow(waConvById(convAtSend)); }
-    else if(code==='bad_media_path') toast('صور الرد الجاهز مش من ملفات متجرك — امسح الرد واعمله تاني','er');
+    if(code==='window_closed'){ toast('النافذة قفلت — العميل لازم يبعتلك رسالة جديدة','er'); if(waActiveId===convAtSend) waUpdateWindow(waConvById(convAtSend)); }
+    else if(code==='bad_media_path') toast('صور الرد المحفوظ مش من ملفات متجرك — عدّل الرد وارفع الصور تاني','er');
+    else if(code==='unsupported_image_type') toast(WA_QR_BROKEN_MSG,'er');
     else if(sent>0) toast('اتبعت '+sent+' من '+med.length+' صورة وبعدين وقف — الباقي والكلام مااتبعتوش','er');
-    else toast('الرد الجاهز مااتبعتش — حاول تاني','er');
-    // اللي مااتبعتش بيرجع للخانة عشان الموظف يقرر — مش بيضيع في صمت
-    if(text && input && !input.value) input.value=text;
-    waFetchMessages(convAtSend,false,false);
-    waFetchConvos(false);
+    else toast('الرد المحفوظ مااتبعتش — حاول تاني','er');
+    finish();
   }
   var i=0;
   function next(){
-    if(waActiveId!==convAtSend){ done(); return; }   // الموظف بدّل المحادثة
     if(i>=med.length){
       // الكلام راكب آخر صورة خلاص — مفيش رسالة تانية
-      if(!text || asCaption){ done(); return; }
-      sb.functions.invoke('wa-send',{body:{conversation_id:convAtSend,text:text}})
+      if(!text || asCaption){ finish(); return; }
+      var tp={conversation_id:convAtSend,text:text};
+      if(!med.length && replyAtSend) tp.reply_to=replyAtSend;
+      sb.functions.invoke('wa-send',{body:tp})
         .then(function(res){
           var d=(res&&res.data)?res.data:null;
           if(!d||!d.ok){ fail(d&&d.error?d.error:''); return; }
-          done();
+          finish();
         }).catch(function(){ fail(''); });
       return;
     }
@@ -966,6 +1416,17 @@ export function waSendQuickReply(text){
   next();
 }
 
+// الزرار اللي اتداس بيلف، والباقيين بيتقفلوا لحد ما الرد يخلص
+function waQrMarkSending(qid){
+  var p=$id('wa-qr-panel'); if(!p) return;
+  p.classList.toggle('sending', !!qid);
+  var bs=p.querySelectorAll('.wa-qr');
+  for(var i=0;i<bs.length;i++){
+    bs[i].disabled=!!qid;
+    bs[i].classList.toggle('is-sending', !!qid && bs[i].getAttribute('data-qid')===qid);
+  }
+}
+
 // ----- realtime + عدّاد التبويب (مرحلة 3) -----
 export function handleWaRealtime(payload){
   if(tourActive) return;   // الإنبوكس وقت الجولة placeholder — مايتكتبش فوقه بمحادثات حقيقية
@@ -973,12 +1434,71 @@ export function handleWaRealtime(payload){
   var isUpdate=payload.eventType==='UPDATE';
   var inboxOpen=$id('page-inbox') && $id('page-inbox').style.display!=='none';
   if(inboxOpen){
-    if(m.conversation_id && m.conversation_id===waActiveId) waFetchMessages(waActiveId,false,false);
-    if(!isUpdate) waFetchConvos(false);
+    // 🔴 v82: التاب في الخلفية = علامة بس (بتتجاب مرة لما ترجع — نفس waPollMissed بتاع الـpoll). قبل كده كل رسالة
+    // واتساب كانت بتجيب القايمة كاملة (233 KB) في كل تاب محادثات مفتوحة حتى المخفية.
+    if(document.hidden){
+      waPollMissed=true;
+      // حالة رسالة في المحادثة المفتوحة = من الحدث نفسه من غير جلب (كانت بتضيع لحد ما الشات يتفتح تاني)
+      if(isUpdate && m.id && m.conversation_id && m.conversation_id===waActiveId) waPatchMessage(m, true);
+    }
+    else {
+      if(m.conversation_id && m.conversation_id===waActiveId){
+        if(isUpdate && m.id) waPatchMessage(m); else waRefreshMessages(waActiveId,false);
+      }
+      if(!isUpdate) waScheduleConvRefresh();
+    }
   } else if(!isUpdate && m.direction==='in'){
     waRefreshNavBadge();
   }
-  if(!isUpdate && m.direction==='in') waNotify(m);
+  if(!isUpdate && m.direction==='in'){
+    // 🔴 رسالة من محادثة مش في القايمة (عميل جديد) والصندوق مفتوح: صف المحادثة دي بس (~1 KB) والإشعار بعده عشان يقول اسمها.
+    // مش waRefreshConvos — في التاب المخفية آخر كامل بيبقى أقدم من 10 دقايق فكان بيجيب الـ200 كلهم (~230 KB) مع كل عميل جديد
+    // التاب الظاهرة: الدلتا المجدولة فوق بتجيبه أصلاً — الصف لوحده للمخفية بس ولما الإشعار هيظهر فعلاً (إذن المتصفح)
+    var willNotify = ('Notification' in window) && Notification.permission==='granted';
+    var unknownConv = !!(m.conversation_id && !waConvById(m.conversation_id));
+    if(inboxOpen && document.hidden && willNotify && unknownConv) waFetchConvRow(m.conversation_id, function(){ waNotify(m); });
+    // الظاهرة: الدلتا المجدولة بتجيب الصف — الإشعار بعدها عشان يقول الاسم (من غير طلب زيادة · أقصى 2.5ث)
+    else if(inboxOpen && !document.hidden && willNotify && unknownConv) waNotifyAfterList(m);
+    else waNotify(m);
+  }
+}
+var waNotifyPending={}, waNotifyTimer=null, WA_NOTIFY_WAIT_MS=2500;
+function waNotifyAfterList(m){
+  var k=m.conversation_id, prev=waNotifyPending[k];
+  // رشقة = إشعار واحد بآخر رسالة (نفس الـtag) — والمهلة لكل محادثة من أول رسالة فيها
+  waNotifyPending[k]={ m:m, due: prev ? prev.due : Date.now()+WA_NOTIFY_WAIT_MS };
+  waArmNotifyTimer();
+}
+function waArmNotifyTimer(){
+  if(waNotifyTimer){ clearTimeout(waNotifyTimer); waNotifyTimer=null; }
+  var next=Infinity;
+  for(var k in waNotifyPending){ if(Object.prototype.hasOwnProperty.call(waNotifyPending,k) && waNotifyPending[k].due<next) next=waNotifyPending[k].due; }
+  if(next===Infinity) return;
+  // الحد بيتبعت للمهلة نفسها (مش Date.now وقت ما ترنّ) — ساعة الجهاز لو رجعت لورا مابتأجّلش الإشعار للأبد
+  waNotifyTimer=setTimeout(function(){ waNotifyTimer=null; waFlushNotify(next); }, Math.max(0, next-Date.now()));
+}
+// بعد كل رسم للقايمة: اللي محادثته بقت معروفة بيطلع — دلتا قديمة رجعت من غيرها = بيستنى الجاية · المهلة (upTo) = اللي وقته جه بس
+function waFlushNotify(upTo){
+  for(var k in waNotifyPending){
+    if(!Object.prototype.hasOwnProperty.call(waNotifyPending,k)) continue;
+    var e=waNotifyPending[k];
+    if(waConvById(k) || (upTo && e.due<=upTo)){ delete waNotifyPending[k]; waNotify(e.m); }
+  }
+  waArmNotifyTimer();
+}
+// صف محادثة واحدة برقمها — بيدخل waSearchExtra (منفصلة · بتتفلتر بالبحث) لو لسه مش في أي قايمة
+// رشقة (رسالة + صورتين من عميل جديد) = طلب واحد — الطلبات اللي جت وهو في السكة بتستنى نفس الرد
+var waConvRowFlight={};
+function waFetchConvRow(id, done){
+  if(!sb || !currentTenantId){ if(done) done(null); return; }
+  if(waConvRowFlight[id]){ if(done) waConvRowFlight[id].push(done); return; }
+  waConvRowFlight[id]=done ? [done] : [];
+  function finish(row){ var cbs=waConvRowFlight[id]||[]; delete waConvRowFlight[id]; for(var i=0;i<cbs.length;i++){ try{ cbs[i](row); }catch(e){ swallow('waFetchConvRow/cb', e); } } }
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('id',id).limit(1).then(function(r){
+    var row=(!r.error && r.data && r.data[0]) || null;
+    if(row && !waConvById(row.id)) waSearchExtra.push(row);
+    finish(row);
+  }, function(e){ swallow('waFetchConvRow', e); finish(null); });
 }
 
 export function waEnsureNotifyPermission(){
@@ -987,6 +1507,8 @@ export function waEnsureNotifyPermission(){
 }
 
 export function waNotify(m){
+  // رسالة أحدث اتبلّغت (التاب اتخفت أو الصندوق اتقفل وهي مستنية القايمة) = المستنية الأقدم ماتطلعش بعدها وتحل محلها (نفس الـtag)
+  if(m && m.conversation_id) delete waNotifyPending[m.conversation_id];
   if(!('Notification' in window) || Notification.permission!=='granted') return;
   var inboxOpen=$id('page-inbox') && $id('page-inbox').style.display!=='none';
   var viewing = !document.hidden && inboxOpen && m.conversation_id===waActiveId;
@@ -1000,15 +1522,18 @@ export function waNotify(m){
   }catch(e){ swallow('waNotify', e); }
 }
 
-// ----- ردود جاهزة -----
+// ----- ردود محفوظة -----
+// (طلب المالك 24 سبتمبر) زراير تحت باسم مختصر بتبعت بضغطة، وإدارتها كلها
+// (إضافة · تعديل · حذف · ترتيب) من نافذة «إضافة و تعديل رد محفوظ».
 export var waQuickReplies=[];
 
 export function waLoadQuickReplies(){
   if(!sb||!currentTenantId) return;
-  sb.from('wa_quick_replies').select('id,body,media').eq('tenant_id',currentTenantId).order('sort',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
+  sb.from('wa_quick_replies').select('id,title,body,media,sort').eq('tenant_id',currentTenantId).order('sort',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
     if(r.error) return;
     waQuickReplies=r.data||[];
     waRenderQuickReplies();
+    waQrmRender();
   });
 }
 
@@ -1018,6 +1543,22 @@ export function waQrMedia(q){
   var m=(q&&q.media);
   return (m && m.length && typeof m.length==='number') ? m : [];
 }
+// رد فيه صورة واتساب مابيقبلهاش (webp اترفعت قبل التحويل التلقائي)
+export function waQrBroken(q){
+  return waQrMedia(q).some(function(m){ return !waIsSendableImagePath(m && m.path); });
+}
+var WA_QR_BROKEN_MSG='صورة في الرد ده بصيغة واتساب مابيقبلهاش (webp) — افتح ⚡ إضافة و تعديل ← ✏️ وشيلها بـ✕ وضيفها تاني';
+
+// اسم الزرار: الاسم المختصر، ولو الرد قديم من قبل الأسماء — أول كلامه
+// (مقصوص). رد صور بس من غير اسم = «صور (N)» بدل زرار فاضي.
+export function waQrLabel(q){
+  var t=String((q&&q.title)||'').trim();
+  if(t) return t;
+  var body=String((q&&q.body)||'').trim().replace(/\s+/g,' ');
+  if(body) return body.length>24 ? body.slice(0,24)+'…' : body;
+  var n=waQrMedia(q).length;
+  return n ? ('صور ('+n+')') : '—';
+}
 
 export function waRenderQuickReplies(){
   var p=$id('wa-qr-panel'); if(!p) return;
@@ -1026,204 +1567,312 @@ export function waRenderQuickReplies(){
     var q=waQuickReplies[i];
     var med=waQrMedia(q);
     var body=String(q.body==null?'':q.body).trim();
-    // رد صور بس: النص فاضي عن قصد (الـCHECK في الداتابيز بيسمح بده طالما
-    // فيه صور). شريحة من غير أي نص = شريحة مايعرفش حد هي إيه.
-    var label=body || (med.length?('صور بس ('+med.length+')'):'—');
-    html+='<span class="wa-qr" data-qid="'+esc(q.id)+'">'
+    // التلميح = الرد كامل تقريباً: الموظف بيشوف هيبعت إيه قبل ما يدوس
+    var tip='يبعت فوراً: '+(med.length?(med.length+' صورة'+(body?' + ':'')):'')+(body?body.slice(0,300):'');
+    var broken=waQrBroken(q);
+    if(broken) tip=WA_QR_BROKEN_MSG;
+    html+='<button type="button" class="wa-qr'+(broken?' wa-qr-bad':'')+'" data-qid="'+esc(q.id)+'" title="'+esc(tip)+'">'
+      +(broken?'<span class="wa-qr-warn">⚠️</span>':'')
       +(med.length?('<span class="wa-qr-badge">📎'+med.length+'</span>'):'')
-      +'<span class="wa-qr-txt">'+esc(label)+'</span>'
-      +'<span class="wa-qr-del" data-del="'+esc(q.id)+'" title="حذف">✕</span></span>';
+      +'<span class="wa-qr-txt">'+esc(waQrLabel(q))+'</span></button>';
   }
-  if(!waQuickReplies.length) html+='<span class="wa-qr-empty">مفيش ردود جاهزة لسه — اكتب رد واحفظه 👇</span>';
-  html+='<button class="wa-qr-add" id="wa-qr-add">＋ احفظ اللي مكتوب</button>';
-  html+='<button class="wa-qr-add" id="wa-qr-new-media">🖼️ رد بصور</button>';
+  if(!waQuickReplies.length) html+='<span class="wa-qr-empty">مفيش ردود محفوظة لسه</span>';
+  html+='<button type="button" class="wa-qr-add" id="wa-qr-manage">⚙️ إدارة الردود</button>';
   p.innerHTML=html;
   var chips=p.querySelectorAll('.wa-qr');
   for(var j=0;j<chips.length;j++){
-    chips[j].addEventListener('click',function(e){
-      if(e.target && e.target.getAttribute && e.target.getAttribute('data-del')) return;
-      waUseQuickReply(this.getAttribute('data-qid'));
+    chips[j].addEventListener('click',function(){
+      var qid=this.getAttribute('data-qid');
+      waSendQuickReply(waQuickReplies.filter(function(x){return x.id===qid;})[0]);
     });
   }
-  var dels=p.querySelectorAll('.wa-qr-del');
-  for(var k=0;k<dels.length;k++){
-    dels[k].addEventListener('click',function(e){ e.stopPropagation(); waDeleteQuickReply(this.getAttribute('data-del')); });
+  var mg=$id('wa-qr-manage');
+  if(mg) mg.addEventListener('click',function(){ waQrmOpen(); });
+  if(waQrSending) p.classList.add('sending');
+}
+
+// ⚡ بيطوي/يفتح صف الزراير — مفتوح افتراضياً، والاختيار بيتفتكر للموظف ده
+var WA_QR_COLLAPSED_KEY='sahl_qr_collapsed';
+export function waQrApplyCollapsed(){
+  var p=$id('wa-qr-panel'); if(!p) return;
+  var col=false; try{ col=localStorage.getItem(WA_QR_COLLAPSED_KEY)==='1'; }catch(e){}
+  p.classList.toggle('open', !col);
+}
+export function waQrToggleCollapsed(){
+  var p=$id('wa-qr-panel'); if(!p) return;
+  var nowOpen=!p.classList.contains('open');
+  p.classList.toggle('open', nowOpen);
+  try{ localStorage.setItem(WA_QR_COLLAPSED_KEY, nowOpen?'0':'1'); }catch(e){}
+}
+
+// ----- نافذة «إضافة و تعديل رد محفوظ» -----
+// نفس شكل نافذة شحن J&T (`.jt-bd` · z-index 9998) فمودال تأكيد الحذف
+// (9999) بيطلع فوقها. الصور بتترفع **وقت الحفظ** على `<tenant>/quick-replies/…`
+// (سياسة الـStorage بتعزل بأول مجلد = المتجر)، وكل إرسال بيستخدم نفس المسار.
+// ⚠️ الحذف/الاستبدال مابيمسحش الملف من الـStorage — مفيش سياسة DELETE هناك،
+// **وده صح**: رسايل اتبعتت قبل كده ممكن تكون بتعرض نفس الصورة في الشات.
+var waQrmEditId=null;           // null = قايمة · 'new' = رد جديد · id = تعديل
+var waQrmKeep=[];               // صور الرد الموجودة اللي لسه متسابة [{path,mime,name,url}]
+var waQrmFiles=[], waQrmUrls=[]; // صور جديدة لسه مارتفعتش + معايناتها (blob)
+var waQrmBusy=false;
+
+function waQrmEl(){
+  var bd=$id('wa-qrm');
+  if(bd) return bd;
+  bd=document.createElement('div');
+  bd.id='wa-qrm'; bd.className='jt-bd';
+  bd.innerHTML='<div class="jt-box wa-qrm-box" role="dialog" aria-modal="true" aria-labelledby="wa-qrm-title">'
+    +'<div class="wa-qr-ed-head"><span id="wa-qrm-title">⚡ الردود المحفوظة</span><button type="button" class="wa-qr-ed-x" id="wa-qrm-x" title="قفل">✕</button></div>'
+    +'<div id="wa-qrm-body"></div></div>';
+  document.body.appendChild(bd);
+  bd.addEventListener('click',function(e){ if(e.target===bd && !waQrmBusy) waQrmClose(); });
+  $id('wa-qrm-x').addEventListener('click',function(){ if(!waQrmBusy) waQrmClose(); });
+  return bd;
+}
+
+export function waQrmOpen(body){
+  var bd=waQrmEl();
+  waQrmEditId=null; waQrmResetForm();
+  bd.classList.add('open');
+  // «＋ احفظ اللي مكتوب» القديم: النص اللي في خانة الشات بيفتح رد جديد جاهز
+  if(typeof body==='string' && body.trim()) waQrmEdit('new', body.trim());
+  else waQrmRender();
+}
+
+export function waQrmClose(){
+  var bd=$id('wa-qrm'); if(bd) bd.classList.remove('open');
+  waQrmEditId=null; waQrmResetForm();
+}
+
+function waQrmResetForm(){
+  for(var i=0;i<waQrmUrls.length;i++){ try{ URL.revokeObjectURL(waQrmUrls[i]); }catch(e){} }
+  waQrmFiles=[]; waQrmUrls=[]; waQrmKeep=[]; waQrmBusy=false;
+}
+
+export function waQrmRender(){
+  var bd=$id('wa-qrm'); if(!bd || !bd.classList.contains('open')) return;
+  if(waQrmEditId!==null) return;   // الفورم مفتوح — إعادة الرسم كانت هتمسح اللي بيتكتب
+  var box=$id('wa-qrm-body');
+  var html='<div class="wa-qrm-top"><button type="button" class="wa-qr-ed-save" id="wa-qrm-new">＋ رد جديد</button>'
+    +'<span class="wa-qrm-hint">الترتيب هنا = ترتيب الزراير تحت خانة الكتابة</span></div>';
+  if(!waQuickReplies.length) html+='<div class="wa-qr-empty wa-qrm-empty">مفيش ردود محفوظة لسه — اضغط «＋ رد جديد»</div>';
+  html+='<div class="wa-qrm-list">';
+  for(var i=0;i<waQuickReplies.length;i++){
+    var q=waQuickReplies[i], med=waQrMedia(q);
+    var named=!!String(q.title||'').trim();
+    var body=String(q.body==null?'':q.body).trim().replace(/\s+/g,' ');
+    html+='<div class="wa-qrm-row" data-id="'+esc(q.id)+'">'
+      +'<span class="wa-qrm-n">'+(i+1)+'</span>'
+      +'<div class="wa-qrm-main"><div class="wa-qrm-name">'+esc(waQrLabel(q))
+      +(named?'':' <span class="wa-qrm-noname">بدون اسم</span>')
+      +(med.length?' <span class="wa-qr-badge">📎'+med.length+'</span>':'')
+      +(waQrBroken(q)?' <span class="wa-qrm-bad">⚠️ صورة webp — عدّلها</span>':'')+'</div>'
+      +'<div class="wa-qrm-prev">'+esc(body||'(صور بس)')+'</div></div>'
+      +'<div class="wa-qrm-acts">'
+      +'<button type="button" class="wa-qrm-b" data-mv="-1" title="لفوق"'+(i===0?' disabled':'')+'>▲</button>'
+      +'<button type="button" class="wa-qrm-b" data-mv="1" title="لتحت"'+(i===waQuickReplies.length-1?' disabled':'')+'>▼</button>'
+      +'<button type="button" class="wa-qrm-b" data-ed="1" title="تعديل">✏️</button>'
+      +'<button type="button" class="wa-qrm-b wa-qrm-del" data-del="1" title="حذف">🗑</button>'
+      +'</div></div>';
   }
-  var add=$id('wa-qr-add');
-  if(add) add.addEventListener('click',waSaveQuickReply);
-  var addm=$id('wa-qr-new-media');
-  if(addm) addm.addEventListener('click',waQrEditorOpen);
+  html+='</div>';
+  box.innerHTML=html;
+  $id('wa-qrm-new').addEventListener('click',function(){ waQrmEdit('new'); });
+  var rows=box.querySelectorAll('.wa-qrm-row');
+  for(var r=0;r<rows.length;r++){
+    (function(row){
+      var id=row.getAttribute('data-id');
+      row.querySelector('[data-mv="-1"]').addEventListener('click',function(){ waQrmMove(id,-1); });
+      row.querySelector('[data-mv="1"]').addEventListener('click',function(){ waQrmMove(id,1); });
+      row.querySelector('[data-ed]').addEventListener('click',function(){ waQrmEdit(id); });
+      row.querySelector('[data-del]').addEventListener('click',function(){ waDeleteQuickReply(id); });
+    })(rows[r]);
+  }
 }
 
-// ----- استخدام رد جاهز -----
-// 🔴 **مفيش إرسال بضغطة واحدة.** الرد بصور بيتحط «محضّر» فوق خانة الكتابة
-// والموظف بيدوس إرسال — زي الواتساب بيزنس بالظبط. ضغطة واحدة كانت تبعت
-// 3 رسايل لعميل حقيقي من غير رجعة، والشريحة جنب شرايح تانية في لوحة
-// بتتفتح بضغطة.
-export var waPendingQr=null;
-
-export function waUseQuickReply(qid){
-  var item=waQuickReplies.filter(function(x){return x.id===qid;})[0];
-  if(!item) return;
-  var inp=$id('wa-input');
-  if(inp){ inp.value=String(item.body==null?'':item.body); inp.style.height='auto'; inp.style.height=Math.min(inp.scrollHeight,120)+'px'; inp.focus(); }
-  var med=waQrMedia(item);
-  if(!med.length){ waClearPendingQr(); return; }
-  // مرفق مختار بالإيد + رد جاهز بصور = نيّتين مختلفتين على نفس الضغطة.
-  // آخر اختيار بيكسب، والتاني بيتشال **صراحةً** مش بيفضل معلّق.
-  waClearImage();
-  waPendingQr={ id:item.id, media:med.slice() };
-  waRenderPendingQr();
-}
-
-export function waClearPendingQr(){
-  waPendingQr=null;
-  var bar=$id('wa-qr-staged'); if(bar){ bar.style.display='none'; }
-  var body=$id('wa-qr-staged-body'); if(body) body.innerHTML='';
-}
-
-export function waRenderPendingQr(){
-  var bar=$id('wa-qr-staged'), body=$id('wa-qr-staged-body');
-  if(!bar||!body||!waPendingQr) return;
-  var med=waPendingQr.media;
-  body.innerHTML='<span class="wa-qr-staged-txt">🖼️ رد جاهز — '+med.length+' صورة هتتبعت قبل الكلام</span>';
-  bar.style.display='flex';
-  // المصغّرات بتتحل بروابط موقّعة زي أي ميديا تانية — الوسم بيتحط بعد
-  // ما الرابط ينزل عشان مايبانش مكسور (نفس فخ مصغّرة الرد المقتبس)
-  var paths=[];
-  for(var i=0;i<med.length;i++){ if(med[i] && med[i].path) paths.push(med[i].path); }
-  if(!paths.length || !sb) return;
-  sb.storage.from('wa-media').createSignedUrls(paths,3600).then(function(res){
-    if(!waPendingQr || !res || !res.data) return;
-    var imgs='';
-    for(var j=0;j<res.data.length;j++){
-      var u=res.data[j] && res.data[j].signedUrl;
-      if(u) imgs+='<img src="'+esc(u)+'" alt="">';
+// الترتيب: تبديل في المصفوفة ثم إعادة ترقيم 0..n-1 — والكتابة للصفوف اللي
+// رقمها اتغيّر بس. الـ4 ردود القديمة كلها sort=0، فأول تحريك بيرقّمهم.
+export function waQrmMove(id,dir){
+  if(waQrmBusy) return;
+  var i=-1;
+  for(var k=0;k<waQuickReplies.length;k++){ if(waQuickReplies[k].id===id){ i=k; break; } }
+  var j=i+dir;
+  if(i<0 || j<0 || j>=waQuickReplies.length) return;
+  var tmp=waQuickReplies[i]; waQuickReplies[i]=waQuickReplies[j]; waQuickReplies[j]=tmp;
+  var writes=[];
+  for(var n=0;n<waQuickReplies.length;n++){
+    if(waQuickReplies[n].sort!==n){
+      waQuickReplies[n].sort=n;
+      writes.push(sb.from('wa_quick_replies').update({sort:n}).eq('id',waQuickReplies[n].id).eq('tenant_id',currentTenantId));
     }
-    if(imgs) body.innerHTML=imgs+body.innerHTML;
-  });
+  }
+  waRenderQuickReplies(); waQrmRender();
+  if(!writes.length) return;
+  waQrmBusy=true;
+  Promise.all(writes).then(function(rs){
+    waQrmBusy=false;
+    if(rs.some(function(r){ return r && r.error; })){ toast('الترتيب ماتحفظش كله — رجّعناه من السيرفر','er'); waLoadQuickReplies(); }
+  }).catch(function(){ waQrmBusy=false; toast('الترتيب ماتحفظش — رجّعناه من السيرفر','er'); waLoadQuickReplies(); });
 }
 
-// ----- محرر الرد بصور -----
-// الصور بتترفع **وقت الحفظ** مرة واحدة على `<tenant>/quick-replies/…`،
-// وبعدها كل إرسال بيستخدم نفس المسار — مفيش رفع مع كل رسالة.
-// (سياسة الـStorage الموجودة بتعزل بأول مجلد = المتجر، فمفيش سياسة جديدة.)
-var waQrEdFiles=[], waQrEdUrls=[];
-
-export function waQrEditorOpen(){
-  var ed=$id('wa-qr-editor'); if(!ed) return;
-  waQrEditorReset();
-  var t=$id('wa-qr-ed-text');
-  // اللي مكتوب في خانة الشات بيتنقل للمحرر — الموظف غالباً كاتب الرد فعلاً
-  var inp=$id('wa-input');
-  if(t){ t.value=inp?(inp.value||''):''; }
-  ed.style.display='block';
-  if(t) t.focus();
+export function waQrmEdit(id, presetBody){
+  var q=id==='new' ? null : waQuickReplies.filter(function(x){return x.id===id;})[0];
+  if(id!=='new' && !q) return;
+  waQrmResetForm();
+  waQrmEditId=id;
+  waQrmKeep=q ? waQrMedia(q).map(function(m){ return {path:m.path,mime:m.mime,name:m.name,url:''}; }) : [];
+  var box=$id('wa-qrm-body');
+  box.innerHTML='<div class="wa-qrm-form">'
+    +'<label class="wa-qrm-lbl" for="wa-qrm-name">الاسم المختصر (اللي هيظهر على الزرار)</label>'
+    +'<input id="wa-qrm-name" class="wa-qr-ed-text" maxlength="40" placeholder="مثال: تيربو">'
+    +'<label class="wa-qrm-lbl" for="wa-qrm-text">نص الرد</label>'
+    +'<textarea id="wa-qrm-text" class="wa-qr-ed-text" rows="6" placeholder="نص الرد (اختياري لو فيه صور)"></textarea>'
+    +'<div class="wa-qrm-lbl">الصور (لحد 5 — بتتبعت بالترتيب ده والنص على آخر صورة)</div>'
+    +'<div class="wa-qr-ed-thumbs" id="wa-qrm-thumbs"></div>'
+    +'<div class="wa-qr-ed-actions">'
+    +'<button type="button" class="wa-qr-ed-add" id="wa-qrm-addimg">＋ ضيف صورة</button>'
+    +'<input type="file" id="wa-qrm-file" accept="image/*" multiple style="display:none">'
+    +'<span style="flex:1"></span>'
+    +'<button type="button" class="wa-qr-ed-add" id="wa-qrm-cancel">رجوع</button>'
+    +'<button type="button" class="wa-qr-ed-save" id="wa-qrm-save">'+(q?'احفظ التعديل':'احفظ الرد')+'</button>'
+    +'</div></div>';
+  $id('wa-qrm-title').textContent = q ? '✏️ تعديل رد محفوظ' : '＋ رد محفوظ جديد';
+  $id('wa-qrm-name').value = q ? String(q.title||'') : '';
+  $id('wa-qrm-text').value = q ? String(q.body||'') : (presetBody||'');
+  $id('wa-qrm-addimg').addEventListener('click',function(){ $id('wa-qrm-file').click(); });
+  $id('wa-qrm-file').addEventListener('change',waQrmPick);
+  $id('wa-qrm-cancel').addEventListener('click',function(){ if(waQrmBusy) return; waQrmEditId=null; waQrmResetForm(); $id('wa-qrm-title').textContent='⚡ الردود المحفوظة'; waQrmRender(); });
+  $id('wa-qrm-save').addEventListener('click',waQrmSave);
+  waQrmThumbs();
+  // صور الرد الموجود بتتحل بروابط موقّعة زي أي ميديا — الوسم بيترسم بعد ما الرابط ينزل
+  var paths=waQrmKeep.map(function(m){ return m.path; }).filter(Boolean);
+  if(paths.length && sb){
+    sb.storage.from('wa-media').createSignedUrls(paths,3600).then(function(res){
+      if(!res || !res.data || waQrmEditId!==id) return;
+      for(var i=0;i<res.data.length;i++){
+        var u=res.data[i] && res.data[i].signedUrl;
+        for(var k=0;k<waQrmKeep.length;k++){ if(waQrmKeep[k].path===paths[i]) waQrmKeep[k].url=u||''; }
+      }
+      waQrmThumbs();
+    });
+  }
+  $id('wa-qrm-name').focus();
 }
 
-export function waQrEditorClose(){
-  var ed=$id('wa-qr-editor'); if(ed) ed.style.display='none';
-  waQrEditorReset();
-}
-
-function waQrEditorReset(){
-  // blob URLs المعاينة لازم تترجع وإلا بتتراكم مع كل فتح
-  for(var i=0;i<waQrEdUrls.length;i++){ try{ URL.revokeObjectURL(waQrEdUrls[i]); }catch(e){} }
-  waQrEdFiles=[]; waQrEdUrls=[];
-  var t=$id('wa-qr-ed-text'); if(t) t.value='';
-  var f=$id('wa-qr-ed-file'); if(f) f.value='';
-  waQrEditorThumbs();
-}
-
-export function waQrEditorPick(e){
-  var f=e.target.files&&e.target.files[0];
+function waQrmPick(e){
+  var fs=Array.prototype.slice.call((e.target.files)||[]);
   e.target.value='';
-  if(!f) return;
-  if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); return; }
-  if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); return; }
-  // السقف 5 — نفس الـCHECK في الداتابيز. كل صورة رسالة واتساب مستقلة
-  // (مفيش «ألبوم» في الـAPI)، فرد بـ12 صورة = 12 رسالة على العميل.
-  if(waQrEdFiles.length>=5){ toast('الحد 5 صور للرد الواحد','er'); return; }
-  waQrEdFiles.push(f);
-  waQrEdUrls.push(URL.createObjectURL(f));
-  waQrEditorThumbs();
+  for(var i=0;i<fs.length;i++){
+    var f=fs[i];
+    if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); continue; }
+    if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); continue; }
+    // السقف 5 — نفس الـCHECK في الداتابيز. كل صورة رسالة واتساب مستقلة
+    if(waQrmKeep.length+waQrmFiles.length>=5){ toast('الحد 5 صور للرد الواحد','er'); break; }
+    waQrmFiles.push(f); waQrmUrls.push(URL.createObjectURL(f));
+  }
+  waQrmThumbs();
 }
 
-function waQrEditorThumbs(){
-  var box=$id('wa-qr-ed-thumbs'); if(!box) return;
+function waQrmThumbs(){
+  var box=$id('wa-qrm-thumbs'); if(!box) return;
   var html='';
-  for(var i=0;i<waQrEdUrls.length;i++){
-    html+='<span class="wa-qr-thumb"><img src="'+esc(waQrEdUrls[i])+'" alt="">'
-      +'<button class="wa-qr-thumb-x" data-idx="'+i+'" title="شيل">✕</button></span>';
+  for(var i=0;i<waQrmKeep.length;i++){
+    var bad=!waIsSendableImagePath(waQrmKeep[i].path);
+    html+='<span class="wa-qr-thumb'+(bad?' wa-qr-thumb-bad':'')+'"'+(bad?' title="صيغة webp — واتساب مابيقبلهاش. شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها"':'')+'>'
+      +(waQrmKeep[i].url?'<img src="'+esc(waQrmKeep[i].url)+'" alt="">':'<span class="wa-qrm-ph">🖼️</span>')
+      +(bad?'<span class="wa-qr-thumb-warn">⚠️</span>':'')
+      +'<button type="button" class="wa-qr-thumb-x" data-keep="'+i+'" title="شيل">✕</button></span>';
+  }
+  for(var j=0;j<waQrmUrls.length;j++){
+    html+='<span class="wa-qr-thumb wa-qrm-newimg"><img src="'+esc(waQrmUrls[j])+'" alt="">'
+      +'<button type="button" class="wa-qr-thumb-x" data-new="'+j+'" title="شيل">✕</button></span>';
   }
   box.innerHTML=html;
   var xs=box.querySelectorAll('.wa-qr-thumb-x');
-  for(var j=0;j<xs.length;j++){
-    xs[j].addEventListener('click',function(){
-      var idx=parseInt(this.getAttribute('data-idx'),10);
-      if(isNaN(idx)) return;
-      try{ URL.revokeObjectURL(waQrEdUrls[idx]); }catch(e){}
-      waQrEdFiles.splice(idx,1); waQrEdUrls.splice(idx,1);
-      waQrEditorThumbs();
+  for(var k=0;k<xs.length;k++){
+    xs[k].addEventListener('click',function(){
+      if(waQrmBusy) return;
+      var kp=this.getAttribute('data-keep'), nw=this.getAttribute('data-new');
+      if(kp!==null){ waQrmKeep.splice(parseInt(kp,10),1); }
+      else if(nw!==null){ var n=parseInt(nw,10); try{ URL.revokeObjectURL(waQrmUrls[n]); }catch(e){} waQrmFiles.splice(n,1); waQrmUrls.splice(n,1); }
+      waQrmThumbs();
     });
   }
 }
 
-export function waQrEditorSave(){
-  if(!sb||!currentTenantId) return;
-  var t=$id('wa-qr-ed-text');
-  var body=t?(t.value||'').trim():'';
-  if(!body && !waQrEdFiles.length){ toast('اكتب نص أو ضيف صورة','er'); return; }
-  var btn=$id('wa-qr-ed-save');
-  if(btn){ btn.disabled=true; btn.textContent='بيحفظ…'; }
-  function fail(m){
-    if(btn){ btn.disabled=false; btn.textContent='احفظ الرد'; }
-    toast(m||'الحفظ مانفعش — حاول تاني','er');
+export function waQrmSave(){
+  if(!sb||!currentTenantId||waQrmBusy) return;
+  var id=waQrmEditId;
+  var title=($id('wa-qrm-name').value||'').trim();
+  var body=($id('wa-qrm-text').value||'').trim();
+  if(!title){ toast('اكتب اسم مختصر للرد — ده اللي هيظهر على الزرار','er'); $id('wa-qrm-name').focus(); return; }
+  if(title.length>40){ toast('الاسم طويل (الحد 40 حرف)','er'); return; }
+  if(!body && !waQrmKeep.length && !waQrmFiles.length){ toast('اكتب نص أو ضيف صورة','er'); return; }
+  // صورة قديمة webp فاضلة = رد هيتحفظ وهو عارف إنه مش هيوصل
+  if(waQrmKeep.some(function(m){ return !waIsSendableImagePath(m.path); })){
+    toast('فيه صورة ⚠️ بصيغة webp واتساب مابيقبلهاش — شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها','er'); return;
   }
-  // الرفع **بالتسلسل** عشان الترتيب اللي الموظف شافه في المحرر هو نفسه
-  // اللي العميل هيشوفه
-  var media=[], i=0;
+  var btn=$id('wa-qrm-save');
+  var label=btn.textContent;
+  waQrmBusy=true; btn.disabled=true; btn.textContent='بيحفظ…';
+  function fail(m){ waQrmBusy=false; btn.disabled=false; btn.textContent=label; toast(m||'الحفظ مانفعش — حاول تاني','er'); }
+  // الرفع **بالتسلسل** عشان الترتيب اللي الموظف شافه هو اللي العميل هيشوفه
+  var media=waQrmKeep.map(function(m){ return {path:m.path,mime:m.mime,name:m.name}; });
+  var i=0;
   function next(){
-    if(i>=waQrEdFiles.length){ save(); return; }
-    var f=waQrEdFiles[i];
-    var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
-    var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;
-    sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
-      if(up.error){ fail('فشل رفع الصورة'); return; }
-      media.push({path:path,mime:f.type,name:f.name});
-      i++; next();
-    }).catch(function(){ fail('فشل رفع الصورة'); });
+    if(i>=waQrmFiles.length){ save(); return; }
+    // webp وأخواتها بتتحوّل JPEG قبل الرفع (شوف `waEnsureSendableImage`)
+    waEnsureSendableImage(waQrmFiles[i]).then(function(f){
+      var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
+      var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;
+      return sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
+        if(up.error){ fail('فشل رفع الصورة'); return; }
+        media.push({path:path,mime:f.type,name:f.name});
+        i++; next();
+      });
+    }, function(e){ fail(WA_IMG_ERR[(e&&e.message)||'unsupported_image']||WA_IMG_ERR.unsupported_image); })
+      .catch(function(){ fail('فشل رفع الصورة'); });
   }
   function save(){
-    sb.from('wa_quick_replies').insert({tenant_id:currentTenantId,body:body,media:media})
-      .select('id,body,media').single().then(function(r){
-        if(btn){ btn.disabled=false; btn.textContent='احفظ الرد'; }
-        if(r.error){ toast('الحفظ مانفعش — حاول تاني','er'); return; }
-        waQuickReplies.push(r.data);
-        waQrEditorClose();
-        waRenderQuickReplies();
-        toast('الرد اتحفظ ✅','ok');
-      });
+    var row={title:title, body:body, media:media};
+    var q;
+    if(id==='new'){
+      var maxSort=-1;
+      for(var k=0;k<waQuickReplies.length;k++){ var sv=Number(waQuickReplies[k].sort)||0; if(sv>maxSort) maxSort=sv; }
+      row.tenant_id=currentTenantId; row.sort=Math.max(maxSort+1, waQuickReplies.length);
+      q=sb.from('wa_quick_replies').insert(row);
+    } else {
+      q=sb.from('wa_quick_replies').update(row).eq('id',id).eq('tenant_id',currentTenantId);
+    }
+    q.select('id,title,body,media,sort').single().then(function(r){
+      if(r.error){ fail(); return; }
+      // المعاينة بترجّع data=null على أي كتابة — الصف بيتبني من اللي اتبعت
+      // التعديل: الصف بيتبني من اللي اتبعت (هو اللي اتكتب) — مش من الرد
+      if(id==='new') waQuickReplies.push(r.data || Object.assign({id:'local-'+Date.now()}, row));
+      else waQuickReplies=waQuickReplies.map(function(x){ return x.id===id ? Object.assign({}, x, row) : x; });
+      waQrmBusy=false; waQrmEditId=null; waQrmResetForm();
+      $id('wa-qrm-title').textContent='⚡ الردود المحفوظة';
+      waRenderQuickReplies(); waQrmRender();
+      toast(id==='new'?'الرد اتحفظ ✅':'التعديل اتحفظ ✅','ok');
+    }).catch(function(){ fail(); });
   }
   next();
 }
 
-export function waSaveQuickReply(){
-  var inp=$id('wa-input'); var body=inp?(inp.value||'').trim():'';
-  if(!body){ toast('اكتب الرد الأول في الخانة','er'); return; }
-  if(!sb||!currentTenantId) return;
-  sb.from('wa_quick_replies').insert({tenant_id:currentTenantId,body:body,media:[]}).select('id,body,media').single().then(function(r){
-    if(r.error){ toast('الحفظ مانفعش — حاول تاني','er'); return; }
-    waQuickReplies.push(r.data); waRenderQuickReplies(); toast('اتحفظ كرد جاهز ✅','ok');
-  });
-}
-
 export function waDeleteQuickReply(id){
   if(!id||!sb) return;
-  sb.from('wa_quick_replies').delete().eq('id',id).then(function(r){
-    if(r.error){ toast('الحذف مانفعش — حاول تاني','er'); return; }
-    waQuickReplies=waQuickReplies.filter(function(x){return x.id!==id;}); waRenderQuickReplies();
-  });
+  var q=waQuickReplies.filter(function(x){return x.id===id;})[0];
+  if(!q) return;
+  showModal({ icon:'🗑', title:'حذف الرد المحفوظ «'+waQrLabel(q)+'»؟', sub:'الزرار هيختفي من تحت خانة الكتابة عند كل الموظفين.',
+    okLabel:'احذف', okColor:'var(--red)',
+    onOk:function(){
+      sb.from('wa_quick_replies').delete().eq('id',id).eq('tenant_id',currentTenantId).then(function(r){
+        if(r.error){ toast('الحذف مانفعش — حاول تاني','er'); return; }
+        waQuickReplies=waQuickReplies.filter(function(x){return x.id!==id;});
+        waRenderQuickReplies(); waQrmRender();
+        toast('الرد اتحذف','ok');
+      });
+    }});
 }
 
 // ----- تصنيفات وملاحظات المحادثة -----
@@ -1254,6 +1903,58 @@ export var WA_LABELS=[
 
 export function waLabelColor(k){ for(var i=0;i<WA_LABELS.length;i++){ if(WA_LABELS[i].k===k) return WA_LABELS[i].c; } return '#64748b'; }
 
+// ----- عدّاد الشكاوى (طلب المالك 27 سبتمبر) -----
+// الشكوى مهلتها 14 يوم مع العميل، والتنبيه بيبدأ بعد 10 عشان مانتنساش.
+// 🔴 `complaint_at` بيكتبه **تريجر** (`app.wa_complaint_clock`) لحظة إضافة
+// «شكوى» — مش المتصفح (العمود مش ممنوح للكتابة، فالموظف مايقدرش يرجّع
+// التاريخ عشان التنبيه يسكت). والعدّاد بيقف أول ما «تم الحل» تتحط.
+// ⚠️ `complaint_at_estimated` = شكوى قديمة قبل العدّاد، تاريخها من آخر رسالة.
+export var WA_COMPLAINT_LABEL='شكوى';
+export var WA_RESOLVED_LABEL='تم الحل';
+export var WA_COMPLAINT_WARN_DAYS=10;
+export var WA_COMPLAINT_LIMIT_DAYS=14;
+var WA_DAY_MS=86400000;
+
+export function waComplaintState(c, nowMs){
+  if(!c || !c.complaint_at) return null;
+  var ls=c.labels||[];
+  if(ls.indexOf(WA_COMPLAINT_LABEL)<0 || ls.indexOf(WA_RESOLVED_LABEL)>=0) return null;
+  var t=Date.parse(c.complaint_at); if(!isFinite(t)) return null;
+  var el=(nowMs==null?Date.now():nowMs)-t; if(el<0) el=0;
+  var level= el>=WA_COMPLAINT_LIMIT_DAYS*WA_DAY_MS ? 'over' : (el>=WA_COMPLAINT_WARN_DAYS*WA_DAY_MS ? 'warn' : 'ok');
+  return { days:Math.floor(el/WA_DAY_MS),
+           left:Math.ceil((WA_COMPLAINT_LIMIT_DAYS*WA_DAY_MS-el)/WA_DAY_MS),
+           over:Math.floor((el-WA_COMPLAINT_LIMIT_DAYS*WA_DAY_MS)/WA_DAY_MS),
+           level:level, est:!!c.complaint_at_estimated, at:c.complaint_at };
+}
+
+function waDaysAr(n){ return n===1?'يوم':(n===2?'يومين':(n>=3&&n<=10?(n+' أيام'):(n+' يوم'))); }
+
+// نص قصير — للصف في القايمة وللشريحة في الهيدر
+export function waComplaintText(s){
+  if(!s) return '';
+  var since = s.days<1 ? 'النهاردة' : ('من '+waDaysAr(s.days));
+  if(s.level==='over') return '⛔ شكوى متأخرة — عدّت الـ'+WA_COMPLAINT_LIMIT_DAYS+' يوم'+(s.over>=1?(' بـ'+waDaysAr(s.over)):'');
+  if(s.level==='warn') return '⚠️ شكوى '+since+' — باقي '+waDaysAr(s.left);
+  return '⏱ شكوى '+since;
+}
+
+export function waComplaintTitle(s){
+  if(!s) return '';
+  var t='بدأت: '+fmtStoredDateTime(s.at)+' · المهلة '+WA_COMPLAINT_LIMIT_DAYS+' يوم والتنبيه بعد '+WA_COMPLAINT_WARN_DAYS;
+  if(s.est) t+='\nالتاريخ تقريبي: الشكوى اتعلّمت قبل تفعيل العدّاد، فاتحسب من آخر رسالة في المحادثة';
+  return t+'\nالعدّاد بيقف لما تتعلّم «'+WA_RESOLVED_LABEL+'»';
+}
+
+function waComplaintBanner(s){
+  if(!s || s.level==='ok') return '';
+  var msg= s.level==='over'
+    ? ('⛔ الشكوى دي عدّت مهلة الـ'+WA_COMPLAINT_LIMIT_DAYS+' يوم'+(s.over>=1?(' بـ'+waDaysAr(s.over)):'')+' — اتصرف مع العميل النهاردة')
+    : ('⚠️ الشكوى دي بقالها '+waDaysAr(s.days)+' — لازم تتحل قبل ما تعدّي '+WA_COMPLAINT_LIMIT_DAYS+' يوم (باقي '+waDaysAr(s.left)+')');
+  return '<div class="wa-cmp-banner lvl-'+s.level+'" id="wa-cmp-banner" title="'+esc(waComplaintTitle(s))+'">'+esc(msg)
+    +'<span class="wa-cmp-hint">لما تتحل علّمها «'+esc(WA_RESOLVED_LABEL)+'»'+(s.est?' · التاريخ تقريبي':'')+'</span></div>';
+}
+
 export function waLoadConvMeta(conv){
   var box=$id('wa-cmeta'); if(!box){ return; }
   if(!conv){ box.style.display='none'; return; }
@@ -1269,10 +1970,17 @@ export function waLoadConvMeta(conv){
 export function waRenderConvLabels(conv){
   var c=$id('wa-clabels'); if(!c) return;
   var labels=(conv&&conv.labels)||[];
+  // البانر بيتشال/بيتحدّث مع الشرايح — نفس الموضع اللي الـpoll بيعدّي عليه
+  var oldB=$id('wa-cmp-banner'); if(oldB) oldB.remove();
   if(!labels.length){ c.innerHTML='<span style="font-size:.72rem;color:var(--muted)">مفيش تصنيف</span>'; return; }
   var html='';
   for(var i=0;i<labels.length;i++){ html+='<span class="wa-clabel" style="background:'+waLabelColor(labels[i])+'">'+esc(labels[i])+'</span>'; }
+  var cs=waComplaintState(conv);
+  if(cs) html+='<span class="wa-cmp-chip lvl-'+cs.level+'" id="wa-cmp-chip" title="'+esc(waComplaintTitle(cs))+'">'+esc(waComplaintText(cs))+'</span>';
   c.innerHTML=html;
+  var bn=waComplaintBanner(cs);
+  var row=c.parentNode;
+  if(bn && row && row.parentNode) row.insertAdjacentHTML('afterend', bn);
 }
 
 export function waRenderLabelPicker(conv){
@@ -1295,6 +2003,12 @@ export function waToggleLabel(label){
   var idx=labels.indexOf(label);
   if(idx>=0) labels.splice(idx,1); else labels.push(label);
   conv.labels=labels;
+  // نفس منطق التريجر عشان العدّاد يبان من غير ما نستنى الـpoll —
+  // والسيرفر هو اللي بيكسب مع أول جلب (مصدر الحقيقة)
+  if(label===WA_COMPLAINT_LABEL){
+    if(idx>=0){ conv.complaint_at=null; conv.complaint_at_estimated=false; }
+    else if(!conv.complaint_at){ conv.complaint_at=new Date().toISOString(); conv.complaint_at_estimated=false; }
+  }
   waRenderConvLabels(conv); waRenderLabelPicker(conv); renderConvos();
   sb.from('wa_conversations').update({labels:labels}).eq('id',conv.id).then(function(r){
     if(r.error){ toast('التصنيف ماتحفظش — حاول تاني','er'); return; }
@@ -1324,10 +2038,98 @@ export function waSetNavBadge(n){
 
 export function waRefreshNavBadge(){
   if(!sb||!currentTenantId) return;
-  sb.from('wa_conversations').select('unread_count').eq('tenant_id',currentTenantId).then(function(r){
+  sb.from('wa_conversations').select('unread_count').eq('tenant_id',currentTenantId).gt('unread_count',0).then(function(r){
     if(r.error) return;
     var total=0; (r.data||[]).forEach(function(c){ total+=(c.unread_count||0); });
     waSetNavBadge(total);
+  });
+}
+
+// ═══ فتح شات عميل من مكان تاني في اللوحة (تاب «استثناءات الشحن» — 8 أكتوبر) ═══
+// المحادثات ليها **تاب لوحدها** (`openOwnTab`)، فالطلب لازم يعدّي بين التابات: بيتكتب في
+// localStorage — التاب المفتوحة بتسمعه بحدث `storage` (بيولّع في **التابات التانية بس**)، والتاب
+// الجديدة بتلاقيه أول ما المحادثات تتحمّل. ولو المحادثات هتتفتح في **نفس** التاب (موبايل · حاجب
+// نوافذ) الطلب بيتسلّم في الذاكرة — localStorage ساعتها كانت هتخلّي أي تاب محادثات تانية تخطفه.
+// والطلب عمره 60 ثانية بس: طلب قديم مايفتحش شات فجأة بعد ساعة.
+export var WA_OPEN_KEY='sahl_open_chat';
+var WA_OPEN_TTL=60000;
+var waOpenHere=null;
+
+// رقم الأوردر → wa_id بنفس قاعدة `app.wa_id_from_phone` بالحرف (تريجر المحادثات) — نسخة
+// مختلفة = نفتح محادثة غير اللي الرسايل فيها. الدالة بتشيل أي حاجة مش [0-9] زي SQL بالظبط.
+export function waIdFromPhone(p){
+  var d=String(p==null?'':p).replace(/[^0-9]/g,'');
+  if(d.indexOf('20')===0 && d.length===12) return d;
+  if(d.indexOf('0')===0 && d.length===11) return '20'+d.slice(1);
+  if(d.length===10) return '20'+d;
+  return '';
+}
+
+export function waRequestOpenChat(req, here){
+  if(!req || !req.wa) return;
+  var o={ wa:req.wa, name:req.name||'', phone:req.phone||'', at:Date.now() };
+  if(here){ waOpenHere=o; return; }
+  try{ localStorage.setItem(WA_OPEN_KEY, JSON.stringify(o)); }catch(e){ swallow('waRequestOpenChat', e); }
+}
+
+export function waCancelOpenRequest(){
+  try{ localStorage.removeItem(WA_OPEN_KEY); }catch(e){ swallow('waCancelOpenRequest', e); }
+}
+
+function waTakeOpenRequest(){
+  var o=waOpenHere; waOpenHere=null;
+  if(!o){
+    var raw=null;
+    try{ raw=localStorage.getItem(WA_OPEN_KEY); }catch(e){ return null; }
+    if(!raw) return null;
+    waCancelOpenRequest();
+    try{ o=JSON.parse(raw); }catch(e){ return null; }
+  }
+  if(!o || !o.wa || !(Date.now()-Number(o.at||0) < WA_OPEN_TTL)) return null;
+  return o;
+}
+
+// بيتنادى بعد ما قايمة المحادثات تتحمّل ومن حدث `storage` — بس لو التاب دي **معروض فيها**
+// المحادثات (تاب تانية على الأوردرات مش هي المقصودة)
+export function waConsumeOpenRequest(){
+  var p=$id('page-inbox');
+  if(!p || p.style.display==='none') return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  var o=waTakeOpenRequest();
+  if(o) waOpenForWaId(o.wa, o);
+}
+
+function waFindByWaId(waId){
+  var lists=[waConvos, waAdExtra, waLabelExtra, waSearchExtra];
+  for(var i=0;i<lists.length;i++){
+    for(var j=0;j<lists[i].length;j++){ if(lists[i][j].wa_id===waId) return lists[i][j]; }
+  }
+  return null;
+}
+
+export function waOpenForWaId(waId, req){
+  if(!waId) return;
+  var c=waFindByWaId(waId);
+  if(c){ openConversation(c.id); return; }
+  if(!sb||!currentTenantId) return;
+  // أقدم من أحدث 200 — بنجيبها بالرقم من السيرفر
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId).eq('wa_id',waId).limit(1).then(function(r){
+    var row=(!r.error && r.data && r.data[0]) || null;
+    if(!row){
+      // مفيش محادثة خالص مع الرقم ده — «شات جديد» بالقالب والرقم متعبّي (لو فيه قالب)
+      if(waStartTpls.length){
+        waNewChatOpen();
+        var ph=$id('wa-nc-phone'); if(ph) ph.value=(req && req.phone) || waId;
+        var nm=$id('wa-nc-name'); if(nm) nm.value=(req && req.name) || '';
+        toast('مفيش محادثة مع الرقم ده لسه — ابعتله قالب «شات جديد»','er');
+      } else {
+        toast('مفيش محادثة مع الرقم ده لسه','er');
+      }
+      return;
+    }
+    // بنفس طريقة نتيجة البحث: `waConvById` لازم يلاقيها وإلا الهيدر يفضل على المحادثة اللي قبلها
+    if(!waConvById(row.id)) waSearchExtra.push(row);
+    openConversation(row.id);
   });
 }
 
@@ -1373,7 +2175,7 @@ export function waNewOrderOpen(){
 export function waNewOrderClose(){ var b=$id('wa-neworder'); if(b) b.style.display='none'; }
 
 // قايمة المنتجات من المخزون — الاسم لازم يطابق `stock_products` وإلا
-// التكلفة والخصم مش هيلاقوا المنتج (فيه تنبيه في صفحة issues بيرصد ده).
+// التكلفة والخصم مش هيلاقوا المنتج.
 // بنعرض الأسماء الكاملة زي ما هي، والموظف يقدر يكتب اسم بره القايمة.
 function waNewOrderProducts(){
   var dl=$id('wa-no-prodlist'); if(!dl) return;
@@ -1638,8 +2440,20 @@ export function waNewChatSend(){
 
 // تفاعلات صندوق المحادثات
 export function initInbox(){
+  // طلب فتح شات من تاب تانية (استثناءات الشحن) — بيولّع هنا لو التاب دي هي تاب المحادثات
+  try{
+    window.addEventListener('storage',function(e){ if(e && e.key===WA_OPEN_KEY && e.newValue) waConsumeOpenRequest(); });
+  }catch(e){ swallow('initInbox/storage', e); }
+  document.addEventListener('visibilitychange', function(){
+    if(document.hidden || !waPollMissed) return;
+    waPollMissed=false;
+    if(!waPollTimer || tourActive) return;   // waPollTimer = البوابة عدّت (مش جولة · مش نفاد · متوثّق)
+    var p=$id('page-inbox'); if(!p || p.style.display==='none') return;
+    waRefreshConvos();
+    if(waActiveId) waRefreshMessages(waActiveId,true);
+  });
   if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
-  if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waSearchQuery=(this.value||'').trim().toLowerCase(); renderConvos(); });
+  if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waOnSearchInput(this.value); });
   if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});
   if($id('wa-send-btn'))$id('wa-send-btn').addEventListener('click',waSend);
   if($id('wa-reply-cancel'))$id('wa-reply-cancel').addEventListener('click',waClearReplyTo);
@@ -1647,15 +2461,14 @@ export function initInbox(){
   if($id('wa-input'))$id('wa-input').addEventListener('keydown',function(e){
     if(e.key==='Escape' && waReplyTo){ e.preventDefault(); waClearReplyTo(); }
   });
-  if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',function(){
-    var p=$id('wa-qr-panel'); if(p) p.classList.toggle('open');
-    if(p && !p.classList.contains('open')) waQrEditorClose();
+  if($id('wa-qr-btn'))$id('wa-qr-btn').addEventListener('click',waQrToggleCollapsed);
+  waQrApplyCollapsed();
+  // زرار «إضافة و تعديل رد محفوظ» بيتولد مع شريط الفلاتر (waBuildFilters بتمسح
+  // الشريط كله) — فالتوصيل بالتفويض على الشريط نفسه مش على الزرار
+  if($id('wa-filters'))$id('wa-filters').addEventListener('click',function(e){
+    var t=e.target && e.target.closest ? e.target.closest('#wa-qrm-open') : null;
+    if(t) waQrmOpen();
   });
-  if($id('wa-qr-ed-cancel'))$id('wa-qr-ed-cancel').addEventListener('click',waQrEditorClose);
-  if($id('wa-qr-ed-addimg'))$id('wa-qr-ed-addimg').addEventListener('click',function(){ var f=$id('wa-qr-ed-file'); if(f) f.click(); });
-  if($id('wa-qr-ed-file'))$id('wa-qr-ed-file').addEventListener('change',waQrEditorPick);
-  if($id('wa-qr-ed-save'))$id('wa-qr-ed-save').addEventListener('click',waQrEditorSave);
-  if($id('wa-qr-staged-cancel'))$id('wa-qr-staged-cancel').addEventListener('click',waClearPendingQr);
   if($id('wa-neworder-btn'))$id('wa-neworder-btn').addEventListener('click',function(e){
     // الزرار جوّه هيدر بيطوي الكارت بالضغط — من غير ده الفورم بتفتح والكارت
     // بيتطوي في نفس اللحظة
@@ -1681,7 +2494,33 @@ export function initInbox(){
   if($id('wa-attach'))$id('wa-attach').addEventListener('click',function(){var f=$id('wa-file');if(f)f.click();});
   if($id('wa-file'))$id('wa-file').addEventListener('change',waPickImage);
   if($id('wa-input')){
-    $id('wa-input').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();waSend();}});
+    // 🔴 سكانر المخزن (14 أكتوبر): السكانر بيكتب في أي خانة عليها الفوكس وبيبعت Enter في الآخر — لو التاب دي
+    // اللي قدامك، كود البوليصة كان هيتبعت للعميل اللي الشات بتاعه مفتوح. الحارس: **آخر 15 زرار** = كود بوليصة
+    // وجم بسرعة السكانر (الكتابة بالإيد أو اللصق بيعدّوا عادي — الموظف ممكن يبعت رقم البوليصة للعميل بقصد).
+    // ولو الموظف كان كاتب رد ومابعتهوش: الكود بس اللي بيتشال (من مكان الكارسر قبل أول زرار فيه) والرد بيفضل.
+    var waScanKeys=createKeyBuffer();
+    $id('wa-input').addEventListener('keydown',function(e){
+      if(e.key==='Enter'&&!e.shiftKey){
+        e.preventDefault();
+        var tail=waScanKeys.tail(15), t=waScanKeys.timing(15), start=waScanKeys.markAt(15);
+        waScanKeys.reset();
+        if(/^[JU]EG\d{12}$/.test(tail) && looksScanned(t)){
+          var v=this.value||'', end=this.selectionStart==null?v.length:this.selectionStart;
+          var cut=(typeof start==='number'&&start>=0&&start<=end&&end<=v.length)?v.slice(start,end):'';
+          // الحروف اللي هتتشال لازم تكون الكود نفسه (بأي لغة كيبورد) — وإلا كلام الموظف مابيتلمسش
+          if(cut && parseWaybill(cut).code===tail){ this.value=v.slice(0,start)+v.slice(end); }
+          else if(parseWaybill(v).code===tail && scanToLatin(v)===tail){ this.value=''; }
+          else { this.value=v.replace(/\s+$/,''); }
+          toast('⛔ ده كود بوليصة من السكانر — مااتبعتش للعميل. اضرب في صفحة «سكانر المخزن»','er');
+          return;
+        }
+        waSend();
+        return;
+      }
+      waScanKeys.push(e, this.selectionStart);
+    });
+    // الخانة فضيت (اتبعتت · اتمسحت) = اللي قبل كده مالوش علاقة بالضربة الجاية
+    $id('wa-input').addEventListener('input',function(){ if(!this.value) waScanKeys.reset(); });
     $id('wa-input').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
   }
 }

@@ -18,11 +18,13 @@ import { askCancelReason } from './cancel-reason.js';
 import { orderInventoryCost, orderInventoryCostSource } from './costs.js';
 import { isAdmin } from './guards.js';
 import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from './mutations.js';
-import { doFilter } from './orders.js';
-import { addEmptyProductRow, renderProductsEditor, saveProducts } from './products-editor.js';
+import { doFilter, rtNoteServerRow } from './orders.js';
+import { addEmptyProductRow, EX_LOCK_MSG, exchangeLocked, jtWaybillLocked, renderProductsEditor, saveProducts } from './products-editor.js';
+import { ofExchangeAllowed, openOrderForm } from './order-form.js';
 import { all, cur, fil, ordersSetSelected, sel } from './state.js';
+import { deliveryScoreSection } from './delivery-score.js';
 import { manualShipFlow, shipControlsHtml, wireShipControls } from './ship.js';
-import { parseStatusLog, RANK_GOOD, RANK_MID, renderTable } from './table.js';
+import { parseStatusLog, renderTable } from './table.js';
 
 export var intNotesTimer=null;
 
@@ -186,6 +188,81 @@ function sendWaFollowup(o){
   });
 }
 
+// 🔁 ربط الاستبدال في التفاصيل: «الأوردر ده استبدال لأوردر #…» و«اتعمله استبدال: #…» — بضغطة بيفتح
+// التاني. استعلامين صغيرين بعد الرسم؛ الرد القديم (الموظف فتح أوردر تاني) بيترمي.
+function loadExchangeLinks(o){
+  var box = $id('ex-links');
+  if(!box || !o || tourActive || !sb || !currentTenantId) return;
+  var parts = [];
+  function paint(){
+    if(!sel || sel.id !== o.id || !$id('ex-links')) return;
+    if(!parts.length){ box.style.display = 'none'; return; }
+    box.innerHTML = parts.join('');
+    box.style.display = '';
+    box.querySelectorAll('[data-ex-open]').forEach(function(a){
+      a.addEventListener('click', function(){ openDetail(a.getAttribute('data-ex-open')); });
+    });
+  }
+  function link(r){ return '<button type="button" class="ex-link" data-ex-open="' + esc(r.id) + '">#' + esc(r.order_uid || '—') + '</button>'; }
+  if(o.exchange_of){
+    sb.from('orders').select('id,order_uid').eq('id', o.exchange_of).eq('tenant_id', currentTenantId).maybeSingle().then(function(r){
+      if(r && r.data){ parts.unshift('<div class="ex-line">🔁 الأوردر ده <b>استبدال</b> لأوردر ' + link(r.data) + '</div>'); paint(); }
+    });
+  }
+  sb.from('orders').select('id,order_uid,status').eq('exchange_of', o.id).eq('tenant_id', currentTenantId).then(function(r){
+    var rows = (r && r.data) || [];
+    if(rows.length){ parts.push('<div class="ex-line">🔁 اتعمله استبدال: ' + rows.map(link).join(' · ') + '</div>'); paint(); }
+  });
+}
+
+// (11 أكتوبر) رسالة «المندوب في الطريق» (wa-ofd-notify): آخر رسالة اتبعتت للعميل برقم المندوب + حالة وصولها.
+// الرسالة التانية وما بعدها: مندوب تاني = «المندوب اتغيّر» · نفس المندوب = «تذكير: خرج تاني» (يوم جديد — قرار 11 أكتوبر مساءً).
+// الخطأ للأدمن بس. من wa_ofd_sends (قراية بس) — مفيش عمود جديد على orders (الريل-تايم مايعيدش الرسم).
+export function ofdLineHtml(rows, msgStatus, admin){
+  rows = (rows||[]).slice().sort(function(a,b){ return String(b.created_at).localeCompare(String(a.created_at)); });
+  // unknown بيتحسب «اتبعت غالباً» بس لو اتختم قبل ميتا (dispatched_at) — غير كده ماخرجش مننا
+  var sent = rows.filter(function(r){ return r.status==='sent' || (r.status==='unknown' && r.dispatched_at); });
+  var last = sent[0];
+  if(last){
+    var st = msgStatus && last.wa_message_id ? msgStatus[last.wa_message_id] : null;
+    var tick = st==='read' ? ' · <span style="color:var(--green)">اتقرت ✓✓</span>'
+      : st==='delivered' ? ' · وصلت ✓✓'
+      : st==='failed' ? ' · <span style="color:var(--red)">⚠️ ماوصلتش للعميل</span>' : '';
+    return '<span class="dkey">رسالة المندوب للعميل</span><span class="dval ar">'
+      + (last.status==='unknown' ? '📲 اتبعتت غالباً (ماجالناش رد من واتساب) — ' : '📲 اتبعت للعميل رقم المندوب ')
+      + '<b>'+esc(last.courier_name||'—')+'</b> <span dir="ltr">'+esc(last.courier_phone||'')+'</span> · '
+      + esc(fmtDT(last.sent_at||last.dispatched_at||last.updated_at)) + tick
+      + (sent.length>1 ? ' <span style="color:var(--muted)">(الرسالة '+sent.length+' — '
+          + (sent[1].courier_phone===last.courier_phone ? 'تذكير: خرج تاني' : 'المندوب اتغيّر')+')</span>' : '')
+      + '</span>';
+  }
+  if(!admin) return '';
+  var f = rows.filter(function(r){ return ['failed_permanent','failed_transient','deferred','expired'].indexOf(r.status)>=0; })[0];
+  if(!f) return '';
+  var lbl = f.status==='failed_permanent' ? 'ماتبعتتش'
+    : f.status==='expired' ? 'ماتبعتتش (المسح اتغيّر/قدم)'
+    : 'لسه ماتبعتتش — هتتحاول تاني';                               // failed_transient / deferred بس
+  return '<span class="dkey">رسالة المندوب للعميل</span><span class="dval ar" style="color:var(--red)">⚠️ '
+    + lbl + (f.error_code ? ': '+esc(f.error_code) : '') + (f.error_detail?' — '+esc(f.error_detail):'')+'</span>';
+}
+// استعلامين صغيرين بعد الرسم (زي loadExchangeLinks) — الرد القديم (الموظف فتح أوردر تاني) بيترمي
+function loadOfdNotice(o){
+  var box = $id('ofd-row');
+  if(!box || !o || o.shipping_carrier!=='jt' || tourActive || !sb || !currentTenantId) return;
+  sb.from('wa_ofd_sends').select('id,status,courier_name,courier_phone,scan_at,sent_at,dispatched_at,updated_at,created_at,wa_message_id,error_code,error_detail,attempts')
+    .eq('order_id', o.id).eq('tenant_id', currentTenantId).order('created_at',{ascending:false}).limit(5).then(function(r){
+      var rows = (r && r.data) || [];
+      if(!sel || sel.id!==o.id || !$id('ofd-row') || !rows.length) return;
+      var ids = rows.map(function(x){ return x.wa_message_id; }).filter(Boolean);
+      var paint = function(ms){ if(!sel || sel.id!==o.id) return; var b=$id('ofd-row'); if(!b) return;
+        var h = ofdLineHtml(rows, ms, isAdmin()); b.innerHTML = h; b.style.display = h ? '' : 'none'; };
+      if(!ids.length){ paint({}); return; }
+      sb.from('wa_messages').select('wa_message_id,status').eq('tenant_id', currentTenantId).in('wa_message_id', ids).then(function(m){
+        var ms = {}; ((m && m.data)||[]).forEach(function(x){ ms[x.wa_message_id]=x.status; }); paint(ms);
+      });
+    });
+}
+
 export function openDetail(id){
   // Guard: when the wallet is depleted, sensitive data is locked across the app.
   if(walletStateCache && walletStateCache.is_depleted && !tourActive){
@@ -214,6 +291,7 @@ export function openDetail(id){
     if(walletStateCache && walletStateCache.is_depleted && !tourActive){ $id('ovl').classList.remove('open'); return; }
     if(r.error || !r.data){ toast('حصلت مشكلة في تحميل تفاصيل الطلب','er'); $id('ovl').classList.remove('open'); return; }
     ordersSetSelected(r.data);
+    try{ rtNoteServerRow(r.data); }catch(e){ swallow('openDetail/rtNoteServerRow', e); }
     loadDetailHistory(sel, function(){ if(detailReqId === id) renderDetail(); });
   });
 }
@@ -252,6 +330,36 @@ export function loadDetailHistory(o, cb){
     }
     cb&&cb();
   });
+}
+
+// تكلفة شحن J&T (للأدمن): الشحن من getWaybillInfo/التسوية + رسوم الـCOD (من العقد — مش في الـAPI).
+// «نهائي» = اتسلّم (isSign 1) أو مرتجع اتقفل (isSign 2) أو فاتورة؛ غير كده الرقم مبدئي وماداخلش
+// الماليات (real_shipping_fee بيتكتب على السيرفر لما يبقى نهائي بس).
+export function jtFeeRow(o){
+  if(!o || o.jt_freight===null || o.jt_freight===undefined || o.jt_freight==='') return '';
+  var f2=function(v){ return (Math.round(Number(v||0)*100)/100).toFixed(2)+' ج'; };
+  var fr=Number(o.jt_freight), cod=Number(o.jt_cod_fee||0);
+  var parts='شحن '+f2(fr)+(cod>0?' + رسوم تحصيل '+f2(cod):'')
+    +(o.jt_charge_weight_kg?' · وزن J&T '+esc(String(o.jt_charge_weight_kg))+' كجم':'');
+  var tag=o.jt_fee_final
+    ? '<span style="color:var(--green);font-weight:800">'+(o.jt_fee_source==='settlement'?'من فاتورة J&T':'نهائي')+'</span>'
+    : '<span style="color:var(--muted);font-style:italic">مبدئي — J&T لسه ماقفلتش الشحنة (مش داخل الماليات)</span>';
+  var total=o.jt_fee_final && o.real_shipping_fee!=null ? '<b>'+f2(o.real_shipping_fee)+'</b> · ' : '';
+  return '<div class="drow" id="jt-fee-row"><span class="dkey">تكلفة الشحن (J&T)</span><span class="dval ar">'
+    +total+parts+' · '+tag+'</span></div>';
+}
+
+// (1 أكتوبر) الـCOD اللي J&T بتحصّله فعلاً (getOrders itemsValue — من trace_sync).
+// بيظهر بس لو مختلف عن الإجمالي: 3 من 223 أوردر كانوا مختلفين (الإجمالي اتعدّل بعد الشحن ·
+// أو اتعدّل في بوابة J&T) — والمتحصّل في الماليات من الإجمالي، فالفرق ده لازم يبان.
+export function jtCodRow(o){
+  if(!o || o.jt_cod_amount===null || o.jt_cod_amount===undefined || o.jt_cod_amount==='') return '';
+  var jt=Number(o.jt_cod_amount), tot=Number(o.total_cost||0);
+  if(!isFinite(jt) || Math.abs(jt-tot)<0.005) return '';
+  var f2=function(v){ return (Math.round(Number(v||0)*100)/100).toFixed(2)+' ج'; };
+  return '<div class="drow" id="jt-cod-row"><span class="dkey">التحصيل عند J&T</span><span class="dval ar">'
+    +'<b style="color:var(--red)">'+f2(jt)+'</b> · مختلف عن الإجمالي ('+f2(tot)+') بـ'+f2(jt-tot)
+    +' — J&T بتحصّل المبلغ اللي معاها، والمتحصّل في الماليات محسوب من الإجمالي</span></div>';
 }
 
 export function renderDetail(){
@@ -333,24 +441,31 @@ export function renderDetail(){
 
     +'<div class="dsec" data-tone="blue"><div class="dstt"><span class="dstt-ico">\uD83D\uDC64</span>بيانات العميل</div>'
     +dr('الاسم',copyable(o.customer_name,'الاسم'))
-    +(function(){
-       if(o.customer_ranking===null||o.customer_ranking===undefined||o.customer_ranking==='')return '';
-       var _rk=Number(o.customer_ranking); if(isNaN(_rk))return '';
-       var _c=_rk>=RANK_GOOD?'rk-good':(_rk>=RANK_MID?'rk-mid':'rk-bad');
-       var _l=_rk>=RANK_GOOD?'جامد':(_rk>=RANK_MID?'متوسط':'زبالة');
-       return dr('سمعة العميل (شركة الشحن)','<span class="rk-badge '+_c+'" style="margin:0">'+_l+'</span> <span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+_rk.toFixed(1)+'%</span>');
-     })()
     +dr('الموبايل الأساسي',fieldEditable(o.phone,'الموبايل','phone'))
     +dr('الموبايل الإضافي',copyable(o.alt_phone,'الموبايل'))
     +dr('المدينة','<span class="dval ar">'+esc(fmt(o.city))+'</span>')
     +dr('العنوان',fieldEditable(o.address,'العنوان','address'))
     +'</div>'
 
+    // 📊 نسبة استلام العميل — شركة الشحن (orders/delivery-score.js)
+    +deliveryScoreSection(o)
+
     +'<div class="dsec" data-tone="purple"><div class="dstt"><span class="dstt-ico">\uD83E\uDDFE</span>بيانات الطلب</div>'
     +dr('رقم الطلب','<span class="dval">'+esc(fmt(o.order_uid))+'</span>')
     +dr('رقم التتبع','<span class="dval">'+(o.tracking_no?esc(o.tracking_no):'<span style="color:var(--muted);font-style:italic">في انتظار شركة الشحن</span>')+'</span>')
+    +(o.shipping_carrier==='jt'?dr('شركة الشحن','<span class="dval">J&T Express</span>')
+      // (11 أكتوبر) رسالة «المندوب في الطريق» — بتتملى بعد الرسم (loadOfdNotice). 🔴 مكانها هنا مش آخر القسم: المخفي
+      // بيفضل :last-child (display:none مابيغيّرش ده) فآخر سطر ظاهر كان بياخد شَرطة تحت (مراجعة 10 أكتوبر) — «كود الفرز» بعده دايماً
+      +'<div class="drow" id="ofd-row" style="display:none"></div>'
+      +dr('كود الفرز (J&T)','<span class="dval" style="font-family:\'JetBrains Mono\',monospace">'+(o.jt_sorting_code?esc(o.jt_sorting_code):'<span style="color:var(--muted);font-style:italic">J&T مرجّعتش كود</span>')+'</span>')
+      +(o.ship_prov?dr('عنوان J&T','<span class="dval ar">'+esc([o.ship_prov,o.ship_city,o.ship_area].filter(Boolean).join(' — '))+(o.shipping_weight_kg?' · '+esc(String(o.shipping_weight_kg))+' كجم':'')+'</span>'):'')
+      +(o.carrier_status_raw?dr('آخر حالة من J&T','<span class="dval">'+esc(o.carrier_status_raw)+(o.carrier_status_at?' <span style="color:var(--muted);font-size:.78rem">'+fmtDT(o.carrier_status_at)+'</span>':'')+'</span>'):'')
+      +(isAdmin()?jtFeeRow(o)+jtCodRow(o):'')
+      :'')
     +'</div>'
 
+    // 🔁 ربط الاستبدال (الأوردر ده استبدال لـ… / اتعمله استبدال) — بيتملى بعد الرسم (loadExchangeLinks)
+    +'<div class="ex-links" id="ex-links" style="display:none"></div>'
     +'<div class="dsec" data-tone="orange"><div class="dstt"><span class="dstt-ico">\uD83D\uDCE6</span>المنتجات</div>'
     +(function(){
        // خصائص المنتج كاملة من الويبهوك — سطر واحد بس: manufacturer_note
@@ -361,6 +476,10 @@ export function renderDetail(){
     +'<div class="prod-list" id="prod-list"></div>'
     +'<button class="prod-add-btn" id="prod-add">+ إضافة منتج آخر</button>'
     +'<div class="save-row" style="margin-top:10px"><button class="save-btn" id="save-prod">💾 حفظ المنتجات</button><button class="copy-prod-btn" id="copy-prod">📋 نسخ كل المنتجات</button><span class="save-status" id="prod-status"></span></div>'
+    // 🔴 بعد بوليصة J&T المنتجات والإجمالي مقفولين على السيرفر (17532) — الموظف يعرف
+    // قبل ما يعدّل، مش بعد ما يدوس حفظ ويترفض
+    +(jtWaybillLocked(o)?'<div class="prod-lock" id="prod-lock">🔒 البوليصة اتعملت عند J&T — المنتجات والإجمالي مقفولين عشان السيستم يفضل مطابق للي المندوب هيحصّله. أي تعديل يتعمل عند J&T الأول.</div>'
+      :exchangeLocked(o)?'<div class="prod-lock" id="prod-lock">🔒 '+esc(EX_LOCK_MSG)+'</div>':'')
     +'</div>'
 
     +'<div class="dsec" data-tone="sky"><div class="dstt"><span class="dstt-ico">\uD83E\uDDEE</span>تفاصيل إضافية</div>'
@@ -475,7 +594,7 @@ export function renderDetail(){
     +STATUS_OPTIONS.map(function(s){return'<option value="'+s+'"'+(s===o.status?' selected':'')+'>'+statusLabel(s)+'</option>';}).join('')
     +'</select></div>'
 
-    // منطقة الشحن: شارة المتابعة/التحذير + زرار الأوتوماتيك (للرابط API بس)
+    // منطقة الشحن: شارة التحذير + زرار «🚚 شحن J&T» (لتاجر J&T بس)
     +'<div class="ship-area" id="ship-area">'+shipControlsHtml(o)+'</div>'
     // 3 main action buttons: تأكيد - شحن يدوي - إلغاء
     // «اتشحن يدوي» بيسجّل رقم التتبع كمان — والأوردر اللي له بوليصة مابيشوفهوش
@@ -491,10 +610,15 @@ export function renderDetail(){
     +((o.tracking_no||'').trim()?'':'<button class="abtn bs" id="da-bs">📦 اتشحن يدوي</button>')
     +'<button class="abtn cn" id="da-cn">✕ إلغاء</button>'
     +'</div>'
-    +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>';
+    +'<button class="abtn" id="da-up" style="width:100%;margin-top:8px;background:var(--sur);color:var(--txt)">تحديث الحالة المختارة ↑</button>'
+    // 🔁 طلب استبدال (3 أكتوبر) — بعد ما الأوردر يتشحن بس (نفس شرط create_staff_order)
+    +(ofExchangeAllowed(o)?'<button class="abtn ex-btn" id="da-ex" style="width:100%;margin-top:8px">🔁 طلب استبدال — أوردر جديد بنفس بيانات العميل</button>':'');
 
   if($id('da-ok'))$id('da-ok').addEventListener('click',function(){doUpdate('confirmed');});
   if($id('da-bs'))$id('da-bs').addEventListener('click',function(){manualShipFlow();});
+  if($id('da-ex'))$id('da-ex').addEventListener('click',function(){ if(sel) openOrderForm({ mode:'exchange', order: sel }); });
+  loadExchangeLinks(o);
+  loadOfdNotice(o);
   wireShipControls();
   if($id('wa-follow-btn'))$id('wa-follow-btn').addEventListener('click',function(){waFollowupFlow();});
   $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);});});

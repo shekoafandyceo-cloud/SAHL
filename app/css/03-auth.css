@@ -1,10 +1,7 @@
 /* شاشات الدخول والتسجيل وتأكيد الإيميل */
-#setup{display:flex;align-items:center;justify-content:center;min-height:100vh;background:radial-gradient(circle at 50% 0%,rgba(255,159,28,.28),transparent 35%),linear-gradient(135deg,#fff7e6,#eef6ff);padding:20px;}
 .sbox{background:rgba(255,255,255,.92);border:1px solid #e5e9f4;border-radius:30px;padding:46px;width:480px;text-align:center;box-shadow:0 30px 90px rgba(29,110,242,.12);backdrop-filter:blur(18px);}
 .login-brand{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:10px;}
-.login-wordmark{text-align:right;}
 .lw-name{font-size:2.5rem;font-weight:900;letter-spacing:1px;line-height:1;color:#0f172a;}
-.lw-tag{font-size:.74rem;font-weight:700;color:#2bb3a3;margin-top:4px;letter-spacing:.3px;}
 .slogo{font-size:2.55rem;font-weight:900;background:linear-gradient(135deg,#2dd4f0,#1d6ef2);-webkit-background-clip:text;background-clip:text;color:transparent;margin-bottom:6px;}
 .ssub{color:#64748b;font-size:.98rem;margin-bottom:32px;}
 .slbl{display:block;text-align:right;font-size:.82rem;color:#64748b;margin-bottom:7px;}

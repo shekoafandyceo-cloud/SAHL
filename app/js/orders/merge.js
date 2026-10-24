@@ -38,7 +38,6 @@ export function renderMergeAlert(){
     container.innerHTML = '';
     return;
   }
-  var totalDuplicateOrders = mergeableCustomers.reduce(function(s,c){return s+c.orders.length;},0);
   var savings = mergeableCustomers.reduce(function(s,c){return s+(c.orders.length-1);},0); // shipments saved
   var h = '<div class="merge-alert">'
     + '<div class="merge-alert-header">'
@@ -71,7 +70,7 @@ export function renderMergeAlert(){
       $id('fst').value = ''; $id('fpl').value = ''; $id('fpy').value = '';
       if(window.__syncFilterUI)window.__syncFilterUI();
       doFilter();
-      window.scrollTo({top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth'});
+      window.scrollTo({top: 200, behavior:'smooth'});
       toast('عرض أوردرات هذا العميل','ok');
     });
   });

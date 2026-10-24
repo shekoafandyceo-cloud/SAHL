@@ -1,0 +1,46 @@
+{
+  "_note": "متجهات اختبار مشتركة **غير سرية** لإثبات تطابق توقيع J&T بين عميلنا وأي تطبيق تاني (Postman pre-request script مثلاً). كل القيم وهمية. الحقول expected_* اتحسبت بتطبيقين مستقلين (jt.ts + Python hashlib) — لو Postman طلّع نفسها على نفس المدخلات بالحرف، التوقيع مطابق.",
+  "vectors": [
+    {
+      "name": "ascii-basic",
+      "plainPassword": "TestPass123",
+      "customerCode": "J0000000000",
+      "privateKey": "00112233445566778899aabbccddeeff",
+      "bizContent": "{\"command\":2,\"serialNumber\":[\"UEG000000000000\"],\"customerCode\":\"J0000000000\",\"digest\":\"PLACEHOLDER\"}",
+      "expected_processedPassword": "5322A1EE00CDD09CE22DFF83F96418F3",
+      "expected_businessDigest": "lpRfnzY17QrOXYdA3bI4EQ==",
+      "expected_headerDigest": "tmeN0P/rXRqChemg91dDsQ=="
+    },
+    {
+      "name": "arabic-utf8",
+      "plainPassword": "كلمة-سر-تجريبية",
+      "customerCode": "J0000000000",
+      "privateKey": "00112233445566778899aabbccddeeff",
+      "bizContent": "{\"receiver\":{\"name\":\"عميل تجريبي\",\"address\":\"القاهره — مدينه نصر، شارع 12\"},\"remark\":\"عدد 2 تيشيرت أسود مقاس L\\nبنطلون بيج مقاس 32\",\"customerCode\":\"J0000000000\",\"digest\":\"PLACEHOLDER\"}",
+      "expected_processedPassword": "DE936E9C11A9563C4D0E212063FFDDE9",
+      "expected_businessDigest": "I28z1Oz2D7sIlk1si3+XTg==",
+      "expected_headerDigest": "G07w4HFYBwVt3zxxnw+eWQ=="
+    },
+    {
+      "name": "lowercase-customer-code (strtoupper parity with official PHP example)",
+      "plainPassword": "TestPass123",
+      "customerCode": "j0000000000",
+      "privateKey": "00112233445566778899aabbccddeeff",
+      "bizContent": "{\"command\":2,\"serialNumber\":[\"UEG000000000000\"]}",
+      "expected_processedPassword": "5322A1EE00CDD09CE22DFF83F96418F3",
+      "expected_businessDigest": "lpRfnzY17QrOXYdA3bI4EQ==",
+      "expected_headerDigest": "mJYvtnL63XVRZ/xAlwGPBw=="
+    },
+    {
+      "name": "whitespace-sensitive",
+      "plainPassword": "TestPass123",
+      "customerCode": "J0000000000",
+      "privateKey": "00112233445566778899aabbccddeeff",
+      "bizContent": "{ \"command\": 2, \"serialNumber\": [ \"UEG000000000000\" ] }",
+      "expected_processedPassword": "5322A1EE00CDD09CE22DFF83F96418F3",
+      "expected_businessDigest": "lpRfnzY17QrOXYdA3bI4EQ==",
+      "expected_headerDigest": "CZekjHQYFbGJtbXUGBUulA=="
+    }
+  ],
+  "_expected_source": "محسوبة بتطبيقين مستقلين (supabase/functions/_shared/jt.ts + Python hashlib) 20 سبتمبر 2026 — مش من Postman. لو Postman طلّع نفس القيم على نفس المدخلات بالحرف يبقى التوقيع مطابق."
+}

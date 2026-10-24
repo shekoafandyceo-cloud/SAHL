@@ -5,9 +5,6 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../core/config.js';
 import { $id, esc } from '../core/dom.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-// جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
-// قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { showPage } from '../main.js';
 import { SECRET_NOT_READY, WA_WEBHOOK_BASE_URL, WEBHOOK_BASE_URL } from '../core/config.js';
 import { swallow } from '../core/log.js';
 import { copyWaCallbackUrl, copyWaVerifyToken, copyWebhookUrl } from './webhook.js';
@@ -15,6 +12,8 @@ import { loadStaff, wireStaffEvents } from './staff.js';
 import { currentTenant, currentTenantId, currentUser } from '../auth/auth.js';
 import { refreshInboxGate } from '../orders/billing-summary.js';
 import { ensureTenant, isAdmin } from '../orders/guards.js';
+import { deviceSoundOn, playAlert, setDeviceSound, unlockAudio } from '../core/alert-sound.js';
+import { jxRenderSoundBtn, jxSetTeamSound, jxSoundEnabled } from '../exceptions/exceptions.js';
 
 export var settingsBotUsername = 'sahl_operations_bot'; // default until platform_settings loads
 
@@ -27,7 +26,7 @@ export function loadSettings(){
   if(!ensureTenant()){veilDone('settings');return;}
   // Pull fresh tenant row + platform settings (bot username) in parallel
   Promise.all([
-    sb.from('v_my_tenant').select('store_name,webhook_secret,wa_webhook_secret,plan,whatsapp_phone_id,whatsapp_token,shipping_api_key,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
+    sb.from('v_my_tenant').select('store_name,webhook_secret,wa_webhook_secret,plan,whatsapp_phone_id,whatsapp_token,telegram_chat_id,telegram_chat_id_set_at,error_notify_chat,whatsapp_confirmation_enabled')
       .eq('id', currentTenantId).maybeSingle(),
     sb.from('platform_settings').select('key,value').eq('key','telegram_bot_username').maybeSingle(),
     // حالة توثيق رقم الواتساب. بتتحمّل هنا عشان saveWhatsApp بتنادي
@@ -99,9 +98,7 @@ export function renderSettings(t){
   if($id('set-email'))      $id('set-email').textContent = (currentUser && currentUser.email) || '—';
   var planMap = { payg: 'الدفع مقابل الاستخدام', growth: 'Growth', unlimited: 'Unlimited', lifetime: 'Lifetime ♾️' };
   var planLabel = planMap[t.plan] || t.plan || '—';
-  if($id('set-plan'))       $id('set-plan').innerHTML = esc(planLabel) + ' <a href="#" id="set-plan-link" style="color:var(--acc);font-weight:700;font-size:.82rem;margin-right:6px;">تغيير</a>';
-  var planLink = $id('set-plan-link');
-  if(planLink) planLink.addEventListener('click', function(e){ e.preventDefault(); showPage('billing'); });
+  if($id('set-plan'))       $id('set-plan').textContent = planLabel;   // لينك «تغيير» اتشال — صفحة المحفظة اتقفلت (19 سبتمبر)
 
   // Webhook URL — read-only, built from webhook_secret
   var wh = t.webhook_secret ? (WEBHOOK_BASE_URL + t.webhook_secret) : '';
@@ -116,8 +113,6 @@ export function renderSettings(t){
   if($id('set-wa-verify-token'))
     $id('set-wa-verify-token').value = waSecret || SECRET_NOT_READY;
 
-  // Bosta
-  if($id('set-bosta-key')) $id('set-bosta-key').value = t.shipping_api_key || '';
 
   // WhatsApp
   if($id('set-wa-phone-id')) $id('set-wa-phone-id').value = t.whatsapp_phone_id || '';
@@ -181,12 +176,51 @@ export var NOTIFY_KEYS = ['staff_activity','confirmations','cancellations','outg
 
 export function loadNotifyPrefs(){
   if(!sb) return;
+  var dev = $id('set-jx-sound-device');
+  if(dev) dev.checked = deviceSoundOn();
   sb.rpc('get_notify_prefs').then(function(r){
     var prefs = (!r.error && r.data) ? r.data : {};
     NOTIFY_KEYS.forEach(function(k){
       var el = $id('np-'+k);
       if(el) el.checked = (prefs[k] === undefined || prefs[k] === null) ? true : !!prefs[k];
     });
+    // صوت الاستثناءات: الغايب = شغّال (زي باقي المفاتيح)
+    var team = $id('set-jx-sound-team');
+    if(team && !r.error){ team.checked = prefs.jx_sound !== false; jxSetTeamSound(team.checked); }
+  });
+}
+
+// صوت تنبيه الاستثناءات للفريق كله — jx_sound في notify_prefs (الأدمن بس على السيرفر)
+export function saveJxSoundTeam(){
+  var el = $id('set-jx-sound-team'); if(!el) return;
+  var desired = !!el.checked;
+  el.disabled = true;
+  sb.rpc('update_notify_prefs', { p_prefs: { jx_sound: desired } }).then(function(r){
+    el.disabled = false;
+    if(r.error){
+      el.checked = !desired;
+      var m = r.error.message || '';
+      toast(m.indexOf('admin_only') >= 0 ? 'الصلاحية دي للأدمن فقط' : ('الحفظ مانفعش: ' + m), 'er');
+      return;
+    }
+    jxSetTeamSound(desired);
+    toast(desired ? 'صوت الاستثناءات اتفعّل للفريق ✓' : 'صوت الاستثناءات اتقفل للفريق كله', 'ok');
+  }).catch(function(e){ el.disabled = false; el.checked = !desired; toast('خطأ: ' + (e.message || e), 'er'); });
+}
+
+export function saveJxSoundDevice(){
+  var el = $id('set-jx-sound-device'); if(!el) return;
+  setDeviceSound(!!el.checked);
+  jxRenderSoundBtn();
+  toast(el.checked ? 'الصوت شغّال على الجهاز ده ✓' : 'الصوت اتكتم على الجهاز ده', 'ok');
+}
+
+export function testJxSound(){
+  unlockAudio();
+  // الضغطة نفسها بتفتح الصوت — playAlert بيستنى الـresume قبل ما يحكم
+  playAlert().then(function(ok){
+    if(!ok) toast('المتصفح لسه مانع الصوت — اضغط تاني، ولو مفيش صوت شوف صوت الجهاز أو إعدادات الموقع', 'er');
+    else if(!jxSoundEnabled()) toast('الصوت شغّال ✓ — بس التنبيه مقفول ' + ($id('set-jx-sound-team') && !$id('set-jx-sound-team').checked ? 'للفريق' : 'على الجهاز ده') + '، فمش هيرنّ لوحده', 'er');
   });
 }
 
@@ -255,12 +289,6 @@ export function saveIntegrations(payload, sectionLabel, btn, onDone){
     if(btn){ btn.disabled = false; btn.textContent = origText; }
     toast('خطأ في الحفظ: ' + (e.message || e), 'er');
   });
-}
-
-export function saveBosta(){
-  var btn = $id('set-save-bosta');
-  var key = ($id('set-bosta-key').value || '').trim();
-  saveIntegrations({ p_shipping_api_key: key }, 'شركة الشحن', btn);
 }
 
 // Auto-save the WhatsApp-confirmation on/off toggle. Reverts visual state on failure.
@@ -393,7 +421,6 @@ export function wireSettingsEvents(){
   if($id('set-webhook-copy')) $id('set-webhook-copy').addEventListener('click', copyWebhookUrl);
   if($id('set-wa-callback-copy')) $id('set-wa-callback-copy').addEventListener('click', copyWaCallbackUrl);
   if($id('set-wa-verify-copy'))   $id('set-wa-verify-copy').addEventListener('click', copyWaVerifyToken);
-  if($id('set-save-bosta'))   $id('set-save-bosta').addEventListener('click', saveBosta);
   if($id('set-save-wa'))      $id('set-save-wa').addEventListener('click', saveWhatsApp);
   if($id('set-wa-confirm-toggle')) $id('set-wa-confirm-toggle').addEventListener('change', saveWaConfirmToggle);
   if($id('set-save-tg'))      $id('set-save-tg').addEventListener('click', saveTelegram);
@@ -405,4 +432,7 @@ export function wireSettingsEvents(){
     var el = $id('np-'+k);
     if(el) el.addEventListener('change', function(){ saveNotifyPref(k); });
   });
+  if($id('set-jx-sound-team'))   $id('set-jx-sound-team').addEventListener('change', saveJxSoundTeam);
+  if($id('set-jx-sound-device')) $id('set-jx-sound-device').addEventListener('change', saveJxSoundDevice);
+  if($id('set-jx-sound-test'))   $id('set-jx-sound-test').addEventListener('click', testJxSound);
 }

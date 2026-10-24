@@ -25,6 +25,8 @@ var ROUTES = {
   orders:       'orders',
   inventory:    'stock',
   chats:        'inbox',
+  exceptions:   'exceptions',
+  warehouse:    'warehouse',
   finance:      'finance',
   analytics:    'analytics',
   settings:     'settings',
@@ -43,11 +45,12 @@ export var DEFAULT_PAGE = 'orders';
 
 // عنوان التاب لكل صفحة — **نفس تسميات القايمة بالحرف** عشان اللي في التاب
 // يطابق اللي التاجر دايس عليه. المفتاح اسم الصفحة الداخلي مش الـslug.
-// (صفحة `issues` الميتة مالهاش عنوان — بتقع على الافتراضي.)
 var PAGE_TITLES = {
   orders:       'الطلبات',
   stock:        'المخزون',
   inbox:        'المحادثات',
+  exceptions:   'استثناءات الشحن',
+  warehouse:    'سكانر المخزن',
   finance:      'الماليات',
   analytics:    'إحصائيات الأداء',
   settings:     'الإعدادات',
@@ -68,7 +71,9 @@ export function setPageTitle(page){
 // ════ تاب مستقلة للمحادثات (طلب المالك 6 سبتمبر) ════
 // الصفحة → **اسم ثابت للتاب**. الاسم هو المهم: `window.open` باسم بيعيد
 // استخدام نفس التاب، فالضغط 10 مرات بيركّز تاب واحدة مش بيفتح 10.
-var OWN_TAB = { inbox: 'sahl-chats' };
+// والسكانر (14 أكتوبر): الصفحة اللي على جهاز المخزن طول اليوم — الضغط عليها من أي تاب بيركّز
+// نفس التاب بدل ما يفتح تانية (تابين سكانر = السكانر بيكتب في واحدة والموظف بيبص على التانية).
+var OWN_TAB = { inbox: 'sahl-chats', warehouse: 'sahl-warehouse' };
 
 function ownTabName(page){
   return Object.prototype.hasOwnProperty.call(OWN_TAB, page) ? OWN_TAB[page] : null;
@@ -161,9 +166,6 @@ export function routeBase(){ return BASE; }
 var deepLinksOk = false;
 var PROBE_KEY = 'sahl_deep_links_ok';
 
-export function deepLinksSupported(){ return deepLinksOk; }
-export function setDeepLinksSupported(v){ deepLinksOk = !!v; }
-
 // بيتنادى مرة واحدة وقت الإقلاع
 export function probeDeepLinks(){
   // **الدليل القاطع**: اتحمّلنا على مسار مش ملف والصفحة اشتغلت → الاستضافة
@@ -221,8 +223,7 @@ export function syncUrl(page, replace){
   // ريفريش. اللوحة بتفضل شغالة عادي على المسار اللي هي فيه.
   if(!deepLinksOk) return;
   var url = routeUrl(page);
-  // صفحة مالهاش slug (زي `issues` الميتة) — بنسيب الـURL زي ما هو بدل ما
-  // نخترعله مسار مايفتحش
+  // صفحة مالهاش slug — بنسيب الـURL زي ما هو بدل ما نخترعله مسار مايفتحش
   if(!url) return;
   try{
     if(typeof location !== 'undefined' && (location.pathname + location.search) === url) {

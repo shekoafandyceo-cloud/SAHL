@@ -112,6 +112,17 @@ def check_file(slug):
     if not os.path.isfile(path):
         err(u"%s — مفيش index.ts" % slug)
         return None
+    return check_source(slug, path, require_entry=True)
+
+
+def check_source(slug, path, require_entry):
+    """نفس الفحوص على أي ملف TypeScript في المرآة.
+
+    `require_entry=False` للموديولات المشتركة في `_shared/` (زي عميل J&T) —
+    دي مالهاش `Deno.serve` بطبيعتها، بس لازم تتفحص زي الدوال بالظبط: نفس
+    الترميز ونفس الأقواس و**نفس فحص الأسرار** — هي اللي بتتعامل مع مفاتيح
+    J&T أصلاً.
+    """
     raw = io.open(path, "rb").read()
     try:
         s = raw.decode("utf-8")
@@ -131,7 +142,7 @@ def check_file(slug):
     for k, v in scan_structure(s).items():
         if v != 0:
             prob.append(u"أقواس %s مش متوازنة (فرق %d)" % (k, v))
-    if "Deno.serve" not in s and "serve(" not in s:
+    if require_entry and "Deno.serve" not in s and "serve(" not in s:
         prob.append(u"مفيش نقطة دخول")
     if not s.endswith("\n"):
         prob.append(u"الملف مش منتهي بسطر جديد")
@@ -147,6 +158,21 @@ def check_file(slug):
 
 
 # العقود الموثّقة في CLAUDE.md — (slug, وصف, دالة بترجّع bool)
+# (11 أكتوبر مساءً — المراجعة) wa-ofd-notify: withOrderFields لازم ترجّع false لو قراية orders وقعت، وأول سطر في اللوب
+# بيعمل release لكل الصفوف لو الدورة واقفة — من غيرهم العقد كان بيعدّي «if (error) return true» و«شيل سطر الوقف».
+_OFD_LOOP_STOP = 'if (stop) { await mark(r.id, { outcome: "release", error_code: "run_stopped" });'
+
+
+def _ofd_wof_ok(s):
+    m = re.search(r"async function withOrderFields\([^)]*\)[^{]*\{(.*?)\n\}", s, re.S)
+    if not m:
+        return False
+    body = m.group(1)
+    return ("if (error) return false;" in body and body.count("return true") == 2
+            and "if (!ids.length) return true;" in body
+            and body.index("if (error) return false;") < body.rindex("return true"))
+
+
 CONTRACTS = [
     ("wa-send", u"حارس الرد `bad_reply_target`",
      lambda s: "bad_reply_target" in s),
@@ -158,6 +184,10 @@ CONTRACTS = [
     ("wa-send", u"حارس مسار الميديا `bad_media_path` (عزل التجار)",
      lambda s: "bad_media_path" in s and "mediaPath.startsWith(prefix)" in s
      and "`${conv.tenant_id}/`" in s),
+    # webp بيعدّي من ميتا بـ200 وبيموت `failed` في صمت (17 من 17 — 2 أكتوبر)
+    ("wa-send", u"حارس صيغة الصورة `unsupported_image_type` (JPEG/PNG بس)",
+     lambda s: "unsupported_image_type" in s
+     and "/\\.(jpe?g|png)$/i.test(String(imagePath))" in s),
     ("wa-send", u"حارس نافذة الـ24 ساعة",
      lambda s: "window_closed" in s and "24 * 3600 * 1000" in s),
     ("wa-followup", u"الحمولة `order_id` بس — مفيش نص من المتصفح",
@@ -193,14 +223,148 @@ CONTRACTS = [
      lambda s: "const keep" in s and "ctwa_clid" in s),
     ("wa-inbox-ingest", u"لسه بيلتقط reply_to_wa_id",
      lambda s: "reply_to_wa_id" in s),
-    ("order-ship", u"tenant_id من الـJWT مش من الـbody",
-     lambda s: "body.tenant_id" not in s and "body?.tenant_id" not in s),
     ("tenant-staff", u"tenant_id من بروفايل صاحب الطلب",
      lambda s: "body.tenant_id" not in s and "body?.tenant_id" not in s),
     ("platform-admin", u"سوبر أدمن بس",
      lambda s: "requireSuperAdmin" in s and "is_super_admin !== true" in s),
-    ("bosta-print-awb", u"مقيّد بمتجر صاحب الطلب",
-     lambda s: '.eq("tenant_id", tenantId)' in s),
+    # ── عميل J&T المشترك (supabase/functions/_shared/jt.ts) ──
+    ("_shared/jt", u"حارس الإنشاء في الإنتاج — boolean صريح مش من حمولة",
+     lambda s: "jt_create_blocked_in_production" in s
+     and 'cfg.env === "production" && opts.allowCreateInProduction !== true' in s),
+    ("_shared/jt", u"النص اللي بيتوقّع عليه هو اللي بيتبعت — stringify مرة واحدة",
+     lambda s: s.count("JSON.stringify(biz)") == 1
+     and '"bizContent=" + encodeURIComponent(bizContent)' in s
+     and "digest: headerDigest(bizContent, privateKey)" in s),
+    ("_shared/jt", u"كلمة السر: UPPER HEX MD5 بالـsalt الموثّق",
+     lambda s: 'JT_PASSWORD_SALT = "jadada236t2"' in s
+     and "md5Hex(plainPassword + JT_PASSWORD_SALT).toUpperCase()" in s),
+    ("_shared/jt", u"التعتيم موجود — الأسرار عمرها ما تتطبع",
+     lambda s: "export function redactRequest" in s and '"<REDACTED>"' in s),
+    ("_shared/jt", u"من غير أي import خارجي (بيشتغل في Deno وNode بنفس الملف)",
+     lambda s: all(l.strip().startswith('import { bytesToBase64, md5Hex, md5Raw } from "./md5.ts"')
+                   for l in s.splitlines() if l.strip().startswith("import "))),
+    # ── J&T callbacks والتكلفة (24 سبتمبر) ──
+    ("jt-status", u"وقت J&T = UTC+2 ثابت (مش DST) — اتقاس على 137 callback",
+     lambda s: "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
+    ("jt-status", u"مسحات رحلة المرتجع (isRefund=1) بتتبعت بـ«refund:» — ماتغيّرش الحالة",
+     lambda s: '"refund:"' in s and 'd.isRefund' in s and 'code !== "13" && code !== "172"' in s),
+    ("jt-lookup", u"fee_sync للتشخيص/الجدولة بس — مش للموظف",
+     lambda s: 'action === "fee_sync"' in s
+     and s.find("if (!privileged)", s.find('action === "fee_sync"')) - s.find('action === "fee_sync"') < 80),
+    # ── المصالحة بالسحب (30 سبتمبر) ──
+    ("jt-lookup", u"trace_sync للتشخيص/الجدولة بس — مش للموظف",
+     lambda s: 'action === "trace_sync"' in s
+     and s.find("if (!privileged)", s.find('action === "trace_sync"')) - s.find('action === "trace_sync"') < 80),
+    ("jt-lookup", u"trace_sync بيطبّق الناقص بس على نفس jt_apply_trace_v1 (مش replay أعمى)",
+     lambda s: "jtScansToApply(jtPullScans(" in s and s.count('"jt_apply_trace_v1"') >= 1 and "p_by: PULL_BY" in s),
+    ("_shared/jt", u"الـpull مافيهوش isRefund — رحلة المرتجع بتتستنتج من أول 172",
+     lambda s: 'if (code === "172") returning = true;' in s
+     and 'returning && code !== "172" && code !== "111"' in s),
+    # ── مراجعة الحسابات (1 أكتوبر) ──
+    ("jt-lookup", u"trace_sync بيسجّل الـCOD الحقيقي عند J&T (itemsValue → jt_set_cod_v1) بدفعات ≤20",
+     lambda s: '"jt_set_cod_v1"' in s and "x?.itemsValue" in s and "i += 20" in s
+     and "command: 2, serialNumber: batch" in s),
+    ("jt-lookup", u"getOrders بيسقط أكتر من 20 في صمت — query بيرفض الزيادة",
+     lambda s: "sn.length > 20)" in s),
+    ("jt-lookup", u"دفعة وقعت مابتوقفش الباقي (continue مش return جوّه اللوب)",
+     lambda s: len(re.findall(r'bump\("batch_error"\);\s*continue;', s)) >= 4),
+    ("_shared/jt", u"parseJtTime المشتركة = UTC+2 ثابت زي jt-status",
+     lambda s: "export function parseJtTime" in s and "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
+    # ── ملاحظة البوليصة (3 أكتوبر) ──
+    ("_shared/jt-remark", u"تركيب الـremark: المنتجات أولاً والملاحظة بالباقي · الروابط بتتشال · من غير import",
+     lambda s: "export function composeRemark" in s and 'NOTE_PREFIX = "ملاحظة: "' in s
+     and "REMARK_MAX = 200" in s and "https?:" in s
+     and not any(l.strip().startswith("import ") for l in s.splitlines())),
+    ("jt-ship", u"الـremark من composeRemark المشتركة · internal_notes مش في الأعمدة",
+     lambda s: "composeRemark(order.product_name, order.manufacturer_note || order.var, shipNote)" in s
+     and bool(re.search(r'const ORDER_COLS = "([^"]*)"', s))
+     and "internal_notes" not in re.search(r'const ORDER_COLS = "([^"]*)"', s).group(1)),
+    ("jt-ship", u"موظف من غير note = من غير ملاحظة (مفيش ملاحظة ماتراجعتش)",
+     lambda s: 'caller.mode === "user" ? "" : cleanShipNote(order.customer_notes)' in s),
+    ("jt-ship", u"jt_remark = اللي عند J&T: الجديدة = اللي اتبعت · المسترجعة = remark بتاع getOrders (مش الطلب الحالي)",
+     lambda s: "update({ jt_remark: held.remark })" in s
+     and "record(bill, d.sortingCode, d.sumFreight, { remark, cod:" in s
+     and "{ remark: heldRemark, cod: heldCod }" in s
+     and len(re.findall(r'if \(prior\) return await recover\(prior\);', s)) == 3),
+    # ── مراجعة 3 أكتوبر ──
+    ("jt-ship", u"ملاحظة فاضية بتتحفظ '' مش NULL · dry_run مابيحفظش الملاحظة",
+     lambda s: "...(noteGiven && !dryRun ? { ship_note: shipNote } : {})" in s and "shipNote || null" not in s),
+    ("jt-ship", u"لحظة المحاولة: jt_ship_error بيتمسح والصف بيتقري تاني — اتعدّل = order_changed قبل addOrder",
+     lambda s: "jt_ship_attempted_at: new Date().toISOString(), jt_ship_error: null" in s
+     and 'error: "order_changed"' in s
+     and s.index('error: "order_changed"') < s.index("jtCall(cfg, JT_PATHS.addOrder, biz")),
+    # ── نسبة استلام العميل من شركة الشحن (10 أكتوبر) ──
+    ("ship-rank-sync", u"service/diag بس — مفيش مسار للموظف",
+     lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
+    ("ship-rank-sync", u"اللي بيتبعت لبوسطة رقم التليفون بس (موافقة المالك) — مفيش اسم ولا عنوان ولا مبلغ",
+     lambda s: 'JSON.stringify({ phoneNumbers: phones.map((p) => "+20" + p) })' in s
+     and not any(w in s for w in ("customer_name", "address", "total_cost", "product_name"))),
+    ("ship-rank-sync", u"شكل رد غريب = وقف قبل الكتابة (unmatched_rows · all_unknown_streak · empty_response)",
+     lambda s: '"unmatched_rows"' in s and '"all_unknown_streak"' in s and '"empty_response"' in s
+     and s.index("unknownStreak(phones.length)") < s.index('admin.rpc("ship_rank_apply_v1"')),
+    ("ship-rank-sync", u"bad_row/apply_error في التطبيق = التشغيل ok=false (البانر يبان)",
+     lambda s: '(tally.bad_row ? "bad_row" : null)' in s and '(tally.apply_error ? "apply_error" : null)' in s),
+    # ── «المندوب في الطريق» — قالب واتساب أوتوماتيك على مسح 94 (11 أكتوبر) ──
+    ("wa-ofd-notify", u"service/diag بس — مفيش مسار للموظف",
+     lambda s: "token === SERVICE_ROLE_KEY" in s and '"jt_diag_token"' in s and "auth.getUser" not in s),
+    ("wa-ofd-notify", u"الحمولة من غير أي نص — dry_run/shadow/order_uids بس (النص والأرقام من الداتابيز)",
+     lambda s: set(re.findall(r"body\?\.(\w+)", s)) <= {"dry_run", "shadow", "order_uids"} and "body.text" not in s),
+    ("wa-ofd-notify", u"dry_run بيرجع قبل الحجز وميتا ومن غير سجل تشغيل",
+     lambda s: "if (dry)" in s and s.index("if (dry)") < s.index('"wa_ofd_claim_v1"')
+     and s.index("if (dry)") < s.index("fetch(`${GRAPH}")
+     and "logRun" not in s[s.index("if (dry)"):s.index('"wa_ofd_claim_v1"')]),
+    ("wa-ofd-notify", u"shadow مع dry_run بس — عمره ما بيوصل الحجز",
+     lambda s: "const shadow = dry && body?.shadow === true" in s and "p_shadow" not in s[s.index('"wa_ofd_claim_v1"'):]),
+    ("wa-ofd-notify", u"نافذة الإرسال من SQL (send_until) قبل كل إرسال — مفيش حساب ساعة في TS",
+     lambda s: "Date.parse(r.send_until)" in s and s.index("Date.parse(r.send_until)") < s.index("fetch(`${GRAPH}")
+     and "inSendWindow" not in s and "Intl." not in s),
+    ("wa-ofd-notify", u"نص القالب من الداتابيز مش محفور (renderTemplate(r.body))",
+     lambda s: u"خرج النهارده" not in s and "renderTemplate(r.body" in s),
+    ("_shared/wa-ofd", u"الاستثناء عمره ما بيتعاد أعمى: timeout/reset = unknown · قبل الاتصال بس = transient",
+     lambda s: '"TimeoutError"' in s and "PRECONNECT" in s
+     and any('code: "fetch_error"' in l and 'kind: "unknown"' in l for l in s.splitlines())
+     and not any('code: "fetch_error"' in l and 'kind: "transient"' in l for l in s.splitlines())),
+    ("wa-ofd-notify", u"خطأ fetch بيتصنّف بـclassifyFetchError · pause/deferred بيوقفوا الدورة",
+     lambda s: "classifyFetchError(e)" in s and 'v.kind === "pause" || v.kind === "deferred"' in s),
+    ("_shared/wa-ofd", u"المتغيرات: المسافات بتتلم · الاسم الغريب = «حضرتك» · من غير import",
+     lambda s: 'replace(/\\s+/g, " ")' in s and u'"حضرتك"' in s and "NAME_TOKEN" in s and "import " not in s),
+    ("wa-ofd-notify", u"الحجز مالوش باراميتر ساعة (p_limit + p_uids بس)",
+     lambda s: "p_now" not in s and re.search(r'admin\.rpc\("wa_ofd_claim_v1", \{([^}]*)\}\)', s) is not None
+     and set(re.findall(r"(p_\w+)", re.search(r'admin\.rpc\("wa_ofd_claim_v1", \{([^}]*)\}\)', s).group(1))) == {"p_limit", "p_uids"}),
+    ("wa-ofd-notify", u"الختم (dispatch) وميزانية الدورة قبل fetch لميتا",
+     lambda s: '"wa_ofd_dispatch_v1"' in s and s.index('"wa_ofd_dispatch_v1"') < s.index("fetch(`${GRAPH}")
+     and "RUN_BUDGET_MS" in s and "Date.now() - t0 > RUN_BUDGET_MS" in s
+     and s.index("Date.now() - t0 > RUN_BUDGET_MS") < s.index("fetch(`${GRAPH}")),
+    ("wa-ofd-notify", u"الختم بالحجز نفسه (p_claimed_at) — الإعادة بعد رد ضايع مابتسيبش صف «اتبعت غالباً» وهو ماخرجش",
+     lambda s: 'rpc("wa_ofd_dispatch_v1", { p_id: r.id, p_claimed_at: r.claimed_at })' in s),
+    ("wa-ofd-notify", u"خطأ حساب/توكن/سقف (deferred) = run_stop ⇒ إيقاف مؤقت للمتجر مش الدورة بس",
+     lambda s: 'run_stop: v.kind === "deferred"' in s and 'error_code: "no_wa_config", run_stop: true' in s),
+    ("_shared/wa-ofd", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
+     lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
+    ("wa-ofd-notify", u"مفيش حرف خفي مكتوب حرفياً (\\u escapes بس)",
+     lambda s: not re.search(u"[​-‏‪-‮⁦-⁩﻿]", s)),
+    # (11 أكتوبر مساءً) القالب 7 — المنتج والمبلغ من orders: قراية بس، ولو وقعت = مفيش إرسال (مفيش رسالة بمبلغ ناقص)
+    ("wa-ofd-notify", u"orders قراية بس · قراية المنتج/المبلغ وقعت = false = وقف الدورة (release) قبل أي fetch · القالب بالعدد + المراسي",
+     lambda s: all(re.match(r'\s*\.select\(', s[m.end():]) for m in re.finditer(r'from\(\s*[\'"`]orders[\'"`]\s*\)', s))
+     and _ofd_wof_ok(s)
+     and 'if (!(await withOrderFields(rows))) stop = "order_read_failed";' in s
+     and s.index('if (!(await withOrderFields(rows)))') < s.index(_OFD_LOOP_STOP) < s.index("buildOfdParams(r, nParams)") < s.index("fetch(`${GRAPH}")
+     and "ofdTemplateOk(r.body, nParams)" in s and s.index("ofdTemplateOk(r.body, nParams)") < s.index("buildOfdParams(r, nParams)")
+     and "OFD_PARAMS" not in s),
+    ("_shared/wa-ofd", u"المبلغ: مش رقم/سالب/فاضي = bad_amount (مفيش رسالة بمبلغ غلط) · صفر = «0 جنيه» · القالب بالمراسي مش بالمكان بس",
+     lambda s: 'throw new Error("bad_amount")' in s and u'if (n === 0) return "0 جنيه";' in s and "Number.isFinite(n) || n < 0" in s
+     and "a.every((x) => b.includes(x))" in s),
+    # (12 أكتوبر — المراجعة) القالب 7: الخاصية اللي العميل اختارها (manufacturer_note ← var) جنب المنتج — «تيربو بريمو 5 دور»
+    # لعميل طالب «4 أدوار مدور» = رسالة بتناقض البوليصة. قراية الإنتاج لازم تجيبها
+    # (أداة التجربة wa-ofd-test وعقودها اتشالت 23 أكتوبر — التنضيف)
+    ("wa-ofd-notify", u"القالب 7: المنتج بالخاصية (manufacturer_note/var من orders)",
+     lambda s: "select(\"id, tenant_id, product_name, manufacturer_note, var, line_prices, has_upsell, jt_cod_amount, total_cost\")" in s
+     and "r.manufacturer_note = o.manufacturer_note; r.var = o.var;" in s and "r.line_prices = o.line_prices; r.has_upsell = o.has_upsell;" in s),
+    ("_shared/wa-ofd", u"المنتج بالخاصية (ofdProps) · نص فيه «\\n» حرفي أو \\r = مرفوض قبل الإرسال",
+     lambda s: "ofdProducts(r.product_name, ofdProps(r))" in s
+     and 'return String(r.manufacturer_note ?? "").trim() || String(r.var ?? "").trim();' in s
+     and 'if (r.line_prices != null || r.has_upsell === true) return "";' in s
+     and '!b.includes("\\\\n") && !b.includes("\\r")' in s),
 ]
 
 
@@ -208,7 +372,9 @@ def main():
     if not os.path.isdir(FN_DIR):
         err(u"supabase/functions/ مش موجود")
         return 1
-    slugs = sorted(d for d in os.listdir(FN_DIR) if os.path.isdir(os.path.join(FN_DIR, d)))
+    # المجلدات اللي بتبدأ بـ`_` موديولات مشتركة (مش دوال) — بتتفحص لوحدها تحت
+    slugs = sorted(d for d in os.listdir(FN_DIR)
+                   if os.path.isdir(os.path.join(FN_DIR, d)) and not d.startswith("_"))
     if not slugs:
         err(u"المرآة فاضية")
         return 1
@@ -218,6 +384,16 @@ def main():
         s = check_file(slug)
         if s is not None:
             sources[slug] = s
+
+    shared_dir = os.path.join(FN_DIR, "_shared")
+    if os.path.isdir(shared_dir):
+        for f in sorted(os.listdir(shared_dir)):
+            if not f.endswith(".ts"):
+                continue
+            key = "_shared/" + f[:-3]
+            s = check_source(key, os.path.join(shared_dir, f), require_entry=False)
+            if s is not None:
+                sources[key] = s
 
     for slug, label, test in CONTRACTS:
         s = sources.get(slug)

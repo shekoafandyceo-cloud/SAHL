@@ -6,9 +6,8 @@
    الملف ده للمعاينة المحلية بس — عمره ما يتنشر.
    ══════════════════════════════════════════════════════════════════════ */
 (function(){
-  // المعاينة: التيكر أسرع عشان علامة الجدول تتقلب قدام عين المجرّب
+  // المعاينة: التيكر أسرع (شحنات J&T اللي في السكة) عشان التحديث يبان قدام عين المجرّب
   window.__SHIP_TICK_MS = 7000;
-  window.__SHIP_STALE_MIN = 0.35;   // 21 ثانية — عشان تجربة «المحاولة ماكملتش» تبان قدام المجرّب
 
   var TENANT = 'preview-tenant';
   var UID    = 'preview-user';
@@ -44,13 +43,28 @@
   ];
 
   var ORDERS = [];
+  var PREVIEW_RT = [];   // هاندلرز الريل-تايم — المعاينة بتولّع حدث jt_issues بإيدها (صوت التنبيه)
+  // نسبة استلام العميل عند شركة الشحن (ship-rank-sync — 10 أكتوبر): أوردرات آخر أسبوع بس اتسألت (زي الحي)،
+  // والأقدم على customer_ranking القديم. [اتسلّم, رجع] — [0,0] = عميل جديد عندهم.
+  var SHIP_FX = [[0,0],[30,1],[10,12],[24,4],[3,20],[2,0]];
+  function shipRankFx(i, days, phone, alt){
+    if(days > 7) return {};
+    var p10 = String(phone).replace(/\D/g, '').slice(-10);
+    var part = function(ph, dr){ var n = dr[0] + dr[1]; return { phone10: ph, found: n > 0, delivered: dr[0], returned: dr[1], rate: n ? Math.round(10000 * dr[0] / n) / 100 : null }; };
+    var pr = part(p10, SHIP_FX[i % SHIP_FX.length]);
+    var al = alt ? part(String(alt).replace(/\D/g, '').slice(-10), SHIP_FX[(i + 1) % SHIP_FX.length]) : null;
+    return { ship_rank: pr.rate, ship_rank_n: pr.delivered + pr.returned,
+             ship_rank_alt: al ? al.rate : null, ship_rank_alt_n: al ? al.delivered + al.returned : null,
+             ship_rank_at: iso(days, 9, 2), ship_rank_raw: { at: iso(days, 9, 2), primary: pr, alt: al } };
+  }
+  var PREVIEW_PREFS = {};
   for(var i = 0; i < 46; i++){
     var st   = STATUSES[i % STATUSES.length];
     var days = i % 26;                         // موزّعين على الشهر عشان الكالندر يبان
     var prod = PRODUCTS[i % PRODUCTS.length];
     var qty  = (i % 3) + 1;
     var shipped = ['delivered','Delivered','returned','Returned to business'].indexOf(st) >= 0;
-    ORDERS.push({
+    ORDERS.push(Object.assign({
       id:'ord-'+i, tenant_id:TENANT,
       shipping_requested_at:null, line_prices:null,
       // شارة 🔼 — نفس الأوردرات اللي ليها حركة upsell (ord-0 … ord-8)
@@ -74,6 +88,10 @@
       internal_notes: i % 9 === 0 ? 'العميلة طلبت تأجيل التسليم للأسبوع الجاي' : null,
       customer_ranking: i % 4 === 0 ? (55 + (i % 45)) : null,
       customer_ranking_at: i % 4 === 0 ? iso(days, 15, 0) : null,
+      // EasyOrders: العمود لسه على الجدول والواجهة مابتقراهوش (اتشال 17 أكتوبر) — فاضل هنا عن قصد:
+      // لو أي حتة رجعت تعرضه هيبان في المعاينة
+      eo_rate: ['high','moderate','low','unknown','pending',null][i % 6],
+      eo_rate_alt: i % 5 === 0 ? ['low','high','unknown'][i % 3] : null,
       real_shipping_fee: shipped ? (85 + (i % 4) * 9) : 0,
       inventory_cost_snapshot: 380 + (i % 5) * 45,
       inventory_value_snapshot: 0,
@@ -98,8 +116,23 @@
         {from:null, to:'pending',   at: iso(days, 9, 0),  by:'النظام', reason:null},
         {from:'pending', to:'confirmed', at: iso(days, 12, 0), by:'واتساب', reason:null}
       ].concat(shipped ? [{from:'confirmed', to:st, at: iso(Math.max(0,days-2), 16, 0), by:'شركة الشحن', reason:null}] : [])
-    });
+    }, shipRankFx(i, days, '010' + String(20000000 + i*13571).slice(0,8), i % 5 === 0 ? '011' + String(40000000 + i*911).slice(0,8) : null)));
   }
+  // حالات المراجعة العدائية (10 أكتوبر) عشان تبان في المعاينة:
+  //  ord-0 = الأساسي «جديد» والإضافي 96.8% → الشارة من الإضافي (موجودة من الـFX) ·
+  //  ord-1 = التليفون اتعدّل بعد ما اتسأل → النسبة القديمة مش محسوبة ·
+  //  ord-6 = شركة الشحن 13% على 23 شحنة → «زبالة» (EasyOrders عليه «مرتفعة» ومالهاش أثر)
+  (function(){
+    var by = function(id){ for(var k = 0; k < ORDERS.length; k++) if(ORDERS[k].id === id) return ORDERS[k]; return null; };
+    var o1 = by('ord-1');
+    if(o1 && o1.ship_rank_raw && o1.ship_rank_raw.primary) o1.ship_rank_raw.primary.phone10 = '1099999999';
+    var o6 = by('ord-6');
+    if(o6 && o6.ship_rank_raw && o6.ship_rank_raw.primary){
+      var pr = o6.ship_rank_raw.primary;
+      pr.delivered = 3; pr.returned = 20; pr.found = true; pr.rate = 13.04;
+      o6.ship_rank = 13.04; o6.ship_rank_n = 23;
+    }
+  })();
 
   // منتجات المخزون — أول منتج عيلة بخصائص (ألوان) عشان الميزة تبان في المعاينة
   var STOCK = PRODUCTS.map(function(nm, i){
@@ -113,6 +146,13 @@
     STOCK.push({ id:'prd-0-v'+k, tenant_id:TENANT, name:PRODUCTS[0]+' — '+v[0], active:true,
                  current_qty:v[1], unit_price:615, wholesale_price:380,
                  parent_id:'prd-0', variant_label:v[0] });
+  });
+  // عيلة رصيدها كله على الأم (زي «تيربو بريمو» على الحي) — الجرد بيقول «الرقم ده على العيلة كلها» وخصائصها الصفر مش حمرا
+  STOCK.push({ id:'prd-tb', tenant_id:TENANT, name:'ترولي 3 دور ايكيا', active:true, current_qty:19, unit_price:695, wholesale_price:420,
+               parent_id:null, variant_label:null });
+  [['أبيض'],['أسود']].forEach(function(v, k){
+    STOCK.push({ id:'prd-tb-v'+k, tenant_id:TENANT, name:'ترولي 3 دور ايكيا — '+v[0], active:true, current_qty:0, unit_price:695,
+                 wholesale_price:420, parent_id:'prd-tb', variant_label:v[0] });
   });
 
   // حركات المخزون — ده اللي عمود التاريخ بيتجرّب عليه
@@ -168,7 +208,23 @@
       unread_count:0, status:'open', labels:['تم الحل','مكتمل'], note:null, created_at:iso(0,9,30),
       ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_url:null, ctwa_source_type:null,
-      ctwa_first_at:null, ctwa_last_at:null }
+      ctwa_first_at:null, ctwa_last_at:null },
+    // عدّاد الشكاوى (27 سبتمبر): واحدة قربت مهلتها (11 يوم) وواحدة عدّتها
+    // بتاريخ تقريبي — عشان المالك يشوف البانر والـ«⚠️» على الـchip
+    { id:'wc5', tenant_id:TENANT, wa_id:'201001234505', customer_name:'ريهام فتحي',
+      customer_phone:'01001234505', last_message_at:iso(2,16,0), last_inbound_at:iso(2,16,0),
+      last_message_text:'لسه مستنية الاستبدال', last_message_type:'text', last_direction:'in',
+      unread_count:0, status:'open', labels:['مهم','شكوى'], note:null, created_at:iso(12,10,0),
+      complaint_at:iso(11,10,0), complaint_at_estimated:false,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null },
+    { id:'wc6', tenant_id:TENANT, wa_id:'201001234506', customer_name:'إيمان خالد',
+      customer_phone:'01001234506', last_message_at:iso(16,12,0), last_inbound_at:iso(16,12,0),
+      last_message_text:'المنتج وصل مكسور', last_message_type:'text', last_direction:'in',
+      unread_count:0, status:'open', labels:['شكوى'], note:null, created_at:iso(17,10,0),
+      complaint_at:iso(16,12,0), complaint_at_estimated:true,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null }
   ];
   // ردود جاهزة — واحد نصي وواحد بصور وواحد صور بس، عشان المالك يجرّب
   // الشكل التالت (اللي نصه فاضي) اللي شريحته بتقول «صور بس (N)».
@@ -177,11 +233,12 @@
   var QR_IMG1 = 'preview/quick-replies/kitchen-1.png';
   var QR_IMG2 = 'preview/quick-replies/kitchen-2.png';
   var WA_QR = [
-    { id:'qr1', tenant_id:TENANT, body:'أهلاً بحضرتك 👋 تحت أمرك', media:[], sort:0 },
-    { id:'qr2', tenant_id:TENANT, body:'دي صور المنتج — السعر 450ج والشحن مجاني',
+    // qr1 من غير اسم عمداً — زي الـ4 ردود اللي على الحي (بيظهر أول كلامه + «بدون اسم» في النافذة)
+    { id:'qr1', tenant_id:TENANT, title:null, body:'أهلاً بحضرتك 👋 تحت أمرك', media:[], sort:0 },
+    { id:'qr2', tenant_id:TENANT, title:'منظم المطبخ', body:'دي صور المنتج — السعر 450ج والشحن مجاني',
       media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' },
              { path:QR_IMG2, mime:'image/png', name:'kitchen-2.png' }], sort:1 },
-    { id:'qr3', tenant_id:TENANT, body:'',
+    { id:'qr3', tenant_id:TENANT, title:'صور بس', body:'',
       media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' }], sort:2 }
   ];
   // صور المعاينة — SVG مرسوم inline عشان الملف يفضل مستقل من غير أصول خارجية
@@ -223,8 +280,8 @@
     user_profiles: [{ id:UID, tenant_id:TENANT, role:'admin', active:true, full_name:'أدمن المعاينة', is_super_admin:false }],
     v_my_tenant: [{ id:TENANT, slug:'preview', store_name:'متجر المعاينة', active:true, plan:'payg',
       plan_expires_at:null, subscription_status:'active', grace_period_days:3, monthly_price:0,
-      shipping_provider:'bosta', created_at: iso(120, 10, 0),
-      whatsapp_phone_id:'', whatsapp_token:'', shipping_api_key:'b_preview_key', has_shipping_api:true,
+      shipping_provider:'jt', created_at: iso(120, 10, 0),
+      whatsapp_phone_id:'', whatsapp_token:'',
       telegram_chat_id:'', telegram_chat_id_set_at:null, error_notify_chat:'',
       whatsapp_confirmation_enabled:true,
       webhook_secret:'preview-webhook-secret', wa_webhook_secret:'preview-wa-secret',
@@ -232,7 +289,11 @@
       // في المعاينة والمالك مايشوفش الميزة الجديدة خالص
       wa_followup_template:'order_shipping_confirm_ar', wa_followup_lang:'ar_EG',
       wa_followup_body:'أهلاً {{1}}، بخصوص طلبك رقم {{2}}.\n\nحاولنا نتصل بحضرتك عشان نأكد شحن الطلب ومقدرناش نوصلك.\n\nالطلب: {{3}}\n\nردّ على الرسالة دي لو تحب نشحن الطلب أو تلغيه، وهنكمّل على طول.' }],
-    tenant_subscription_state: [{ id:TENANT, computed_status:'active', days_remaining:30 }],
+    tenant_subscription_state: [{ id:TENANT, computed_status:'active', days_remaining:null }],
+    // نطاق J&T (صفوف المدن بس — area='') لنافذة «🚚 شحن J&T» في المعاينة (v80)
+    jt_pca: [['القاهرة','القاهرة'],['القاهرة','مدينة نصر'],['القاهرة','حلوان'],['الجيزة','الجيزة'],['الجيزة','الدقي'],
+             ['الإسكندرية','الإسكندرية'],['الإسكندرية','المنتزه'],['الدقهلية','المنصورة'],['الشرقية','الزقازيق']]
+      .map(function(r, i){ return { id:i+1, prov:r[0], city:r[1], area:'' }; }),
     wallet_state: [{ tenant_id:TENANT, wallet_balance:340, overdraft_limit:0, available:340,
       orders_used_cycle:46, max_orders:null, orders_remaining:null, overage_debt:0,
       plan:'payg', plan_name:'الدفع مقابل الاستخدام', monthly_price:0, per_order_price:1.5,
@@ -308,6 +369,387 @@
     });
   })();
 
+  // ══ سكانر المخزن (14 أكتوبر): 6 طرود تجريبية بكل الحالات — عشان المالك يجرّب الصفحة قبل الرفع.
+  // اكتب الكود في الخانة واضغط Enter (أو اضغط على طرد من القايمة): ...001 عادي · ...002 ملغي · ...003 مرتجع
+  // · ...004 متسلّم · ...005 طالب إلغاء · ...006 J&T استلمته (بيسأل) · ...007 مرتجع J&T قفلته ومحدش سجّله («ناقص»).
+  // وضع التجربة شغّال لحد «▶️ شغّل السكانر» (تاب «⚙️ التشغيل») — بعدها الكارت بيقول «حالة الأوردر بقت …».
+  var WH = { enabled:false, baseline:null, hold:true, scans:[], seq:100, st:{}, aliases:{}, aliasProps:{}, cnt:null, unk:{} };
+  TABLES.stock_counts = [];
+  // (v78) أصوات السكانر: wh_config.sounds — الرفع في المعاينة بيتحفظ في الذاكرة بس (بيضيع مع الريفريش)
+  TABLES.wh_config = [{ tenant_id:TENANT, sounds:{} }];
+  // (v78) بوليصة J&T مش في سهل: أي JEG تاني غير الـ7 (مثلاً JEG000700000099) = «🚨 مش متسجلة» → «📥 سجّل المنتج اللي رجع»
+  var WH_DEMO = [
+    { t:'JEG000700000001', uid:'18201', n:'منى',  items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'new' },
+    { t:'JEG000700000002', uid:'18202', n:'سارة', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', pid:'prd-0', qty:1, kind:'cancelled' },
+    { t:'JEG000700000003', uid:'18203', n:'هدى',  items:'منظم المطبخ المتكامل ×2', pid:'prd-1', qty:2, kind:'returned' },
+    { t:'JEG000700000004', uid:'18204', n:'نورهان', items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'delivered' },
+    { t:'JEG000700000005', uid:'18205', n:'ياسمين', items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'cancel_req' },
+    { t:'JEG000700000006', uid:'18206', n:'منى',  items:'منظم المطبخ المتكامل', pid:'prd-1', qty:1, kind:'with_jt' },
+    { t:'JEG000700000007', uid:'18207', n:'رحاب', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', pid:'prd-0', qty:1, kind:'returned' }
+  ];
+  var WH_ST0 = { 'new':'BOSTA AUTO', cancelled:'cancelled', returned:'Returned to business', delivered:'Delivered', cancel_req:'BOSTA AUTO', with_jt:'In transit between Hubs' };
+  function whStock(id){ for(var i = 0; i < STOCK.length; i++) if(STOCK[i].id === id) return STOCK[i]; return null; }
+  function whBrief(d){ return { id:'wh-'+d.uid, uid:d.uid, first_name:d.n, status:'BOSTA AUTO', tracking_no:d.t, pieces:d.qty, items:[{ text:d.items.replace(/ ×\d+$/, ''), qty:d.qty }] }; }
+  function whLines(d, dir){
+    var p = whStock(d.pid), after = p ? (p.current_qty || 0) + (dir === 'in' ? d.qty : -d.qty) : null;
+    if(p && WH.enabled) p.current_qty = after;
+    return [{ text:d.items.replace(/ ×\d+$/, ''), qty:d.qty, dir:dir, state:'posted', matched_by:'exact', product_id:d.pid, product_name:p ? p.name : '', qty_after:after }];
+  }
+  function whScan(a){
+    var raw = String((a && a.p_code) || ''), m = raw.toUpperCase().match(/([JU]EG\d{12})/);
+    var res;
+    var dg = raw.replace(/\D/g, '');
+    if(!m) res = { ok:true, code: /^\d{8,10}$/.test(dg) && dg === raw ? 'legacy_code' : (/^\d{12,14}$/.test(dg) && dg === raw ? 'product_barcode' : 'bad_code'), tone:'stop', applied:false };
+    else {
+      var d = null; for(var i = 0; i < WH_DEMO.length; i++) if(WH_DEMO[i].t === m[1]) d = WH_DEMO[i];
+      if(!d && WH.unk[m[1]] && !WH.unk[m[1]].reversed){ var u0 = WH.unk[m[1]];
+        res = { ok:true, code:'unknown_already_in', tone:'dup', applied:false, tracking_no:m[1], prev:{ scan_id:u0.id, at:u0.at, by:u0.by }, lines:u0.lines }; }
+      else if(!d) res = { ok:true, code:'not_found', tone:'stop', applied:false, tracking_no:m[1] };
+      else {
+        var st = WH.st[d.t] || (WH.st[d.t] = {}), f = a.p_force;
+        var base = { ok:true, order:whBrief(d), lines:[], warnings:[], options:[], applied:false, dir:null };
+        if(d.kind === 'delivered') res = Object.assign(base, { code:'blocked_delivered', tone:'stop' });
+        else if(d.kind === 'returned' || f === 'in'){
+          if(st.in) res = Object.assign(base, { code:'already_in', tone:'dup', prev:st.in });
+          else {
+            // «مرتجع مضروب» بس لو J&T قالت إنه راجع — F9 على طرد رايح (006) = الحالة زي ما هي وتنبيه (زي السيرفر)
+            var retEv = d.kind === 'returned';
+            res = Object.assign(base, { code: retEv ? 'in_ok_precount' : 'in_ok', tone: retEv ? 'in' : 'warn', applied:true, dir:'in', lines:whLines(d, 'in') });
+            if(retEv){ res.status_from = st.status || WH_ST0[d.kind]; res.status_to = 'Returned to business2'; }
+            else res.warnings = ['no_return_signal'];
+            // 007 = J&T قفلته قبل التشغيل ومحدش سجّله («ناقص») — بيتضاف وبينبّه
+            if(d.t === 'JEG000700000007'){ res.warnings = ['unregistered_before_start']; res.tone = 'warn'; }
+            if(WH.enabled){ st.in = { at:new Date().toISOString(), by:'أدمن المعاينة' }; if(res.status_to) st.status = 'Returned to business2'; }
+          }
+        }
+        else if(d.kind === 'with_jt' && f !== 'out') res = Object.assign(base, { code:'with_jt_confirm', tone:'warn', options:['in','out'] });
+        else if(d.kind === 'cancelled') res = Object.assign(base, { code:'blocked_cancelled', tone:'stop' });
+        else if(d.kind === 'cancel_req' && f !== 'ship_anyway') res = Object.assign(base, { code:'blocked_cancel_requested', tone:'stop' });
+        else if(st.out) res = Object.assign(base, { code:'already_out', tone:'dup', prev:st.out });
+        else {
+          res = Object.assign(base, { code: d.kind === 'with_jt' ? 'out_ok' : 'out_ok', tone:'ok', applied:true, dir:'out', lines:whLines(d, 'out') });
+          if(d.kind === 'with_jt') res.warnings = ['late'];
+          // الحالة بتبقى «اوردر اتضرب» من حالة الشحن الأولى بس (J&T حرّكته = حالتها هي الأحدث) — زي السيرفر
+          else { res.status_from = st.status || WH_ST0[d.kind]; res.status_to = 'BOSTA2'; }
+          if(WH.enabled){ st.out = { at:new Date().toISOString(), by:'أدمن المعاينة' }; if(res.status_to) st.status = 'BOSTA2'; }
+        }
+      }
+    }
+    res.scan_id = ++WH.seq; res.dry = !WH.enabled; res.by = 'أدمن المعاينة';
+    if(WH.enabled) WH.scans.unshift({ id:res.scan_id, code:res.code, dir:res.dir, at:new Date().toISOString(), by:'أدمن المعاينة',
+      t:(res.order && res.order.tracking_no) || res.tracking_no || null, uid:res.order && res.order.uid, applied:!!res.applied, reversed:false, tone:res.tone, mine:true });
+    return res;
+  }
+  function whBoardData(){
+    var notScanned = [], pile = [];
+    WH_DEMO.forEach(function(d){
+      var st = WH.st[d.t] || {};
+      if(d.kind === 'new' && !st.out) notScanned.push({ t:d.t, uid:d.uid, n:d.n, items:d.items, printed:iso(0, 9, 10), created:iso(0, 8, 0), old:false });
+      if(st.out && !st.in) pile.push({ t:d.t, uid:d.uid, items:d.items, at:st.out.at, by:st.out.by, stale:false });
+    });
+    var courier = [{ t:'JEG000700000003', uid:'18203', items:'منظم المطبخ المتكامل ×2', at:iso(0, 10, 30), done: !!(WH.st.JEG000700000003 || {}).in }];
+    var unm = 0;
+    // لوحة المرتجعات (wh_board.returns) — نفس صفحة n8n: مع المندوب · J&T قفلت النهارده · اتسجل النهارده · ناقص · في الطريق
+    var s3 = WH.st.JEG000700000003 || {}, s7 = WH.st.JEG000700000007 || {};
+    var rCourier = [{ t:'JEG000700000003', uid:'18203', items:'منظم المطبخ المتكامل ×2', q:2, cod:2150, at:iso(0, 10, 30), done:!!s3.in, sc:s3.in ? s3.in.at : null },
+                    { t:'JEG000553100142', uid:'18142', items:'رف الميكروويف', q:1, cod:695, at:iso(0, 10, 30), done:false, sc:null }];
+    var rMissing = s7.in ? [] : [{ t:'JEG000700000007', uid:'18207', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', q:1, cod:1450, at:iso(0, 9, 15), fresh:false }];
+    var rScanned = [];
+    if(s3.in) rScanned.push({ t:'JEG000700000003', uid:'18203', items:'منظم المطبخ المتكامل ×2', q:2, at:s3.in.at, by:s3.in.by });
+    if(s7.in) rScanned.push({ t:'JEG000700000007', uid:'18207', items:'ترولي 2 دور ب ترابيزة خشب ايكيا', q:1, at:s7.in.at, by:s7.in.by });
+    var rTransit = [{ t:'JEG000553100150', uid:'18150', items:'تيربو بريمو', q:1, at:iso(1, 16, 0), s:'بين الفروع' },
+                    { t:'JEG000553100151', uid:'18151', items:'استاند امريكانا', q:1, at:iso(0, 8, 20), s:'بدأ المرتجع' }];
+    var returns = { counts:{ courier:rCourier.length, courier_done:rCourier.filter(function(x){ return x.done; }).length, closed_today:1 + (s7.in ? 0 : 0),
+                             scanned_today:rScanned.length, missing:rMissing.length, missing_old:rMissing.length, transit:rTransit.length, n8n_only:0 },
+                    courier:rCourier, missing:rMissing, scanned:rScanned, transit:rTransit };
+    return { ok:true, enabled:WH.enabled, baseline_at:WH.baseline, hold_cancel_requested:WH.hold, is_admin:true, returns:returns,
+      counts:{ not_scanned:notScanned.length, not_scanned_old:0, pile:pile.length, pull:0, leak:0, leak_cancelled:0, stale_pile:0,
+        courier:courier.length, courier_scanned: courier[0].done ? 1 : 0, closed_unscanned:0, in_delivered:0,
+        out_today: WH.scans.filter(function(x){ return x.applied && x.dir === 'out' && !x.reversed; }).length,
+        in_today: WH.scans.filter(function(x){ return x.applied && x.dir === 'in' && !x.reversed; }).length,
+        unmatched_lines:unm, negative_products:0 },
+      lists:{ not_scanned:notScanned, pile:pile, pull:[], leak:[], in_delivered:[], courier:courier, closed_unscanned:[], today:WH.scans.slice(0, 200) } };
+  }
+  function whRpc(name, a){
+    if(name === 'wh_scan') return whScan(a || {});
+    if(name === 'wh_board') return whBoardData();
+    if(name === 'wh_lookup'){
+      var q = String((a && a.p_q) || '').toUpperCase().replace(/\s/g, '');
+      // آخر 4–5 أرقام = البوليصة كمان (مش رقم الأوردر بس) · المرتجع اللي لسه ماتضربش فوق — زي السيرفر
+      var rows = WH_DEMO.filter(function(d){ return d.uid === q || (q.length >= 4 && d.t.slice(-q.length) === q); })
+        .map(function(d){ var st = WH.st[d.t] || {}; return { tracking_no:d.t, uid:d.uid, status:st.status || WH_ST0[d.kind], first_name:d.n, items:d.items,
+          out_at:st.out ? st.out.at : null, in_at:st.in ? st.in.at : null, open_return: d.kind === 'returned' && !st.in }; })
+        .sort(function(x, y){ return (y.open_return ? 1 : 0) - (x.open_return ? 1 : 0); }).slice(0, 6);
+      return { ok:true, code:'ok', rows:rows };
+    }
+    if(name === 'wh_scan_undo'){
+      var s0 = null; WH.scans.forEach(function(x){ if(x.id === (a && a.p_scan_id)) s0 = x; });
+      if(!s0) return { ok:false, code: WH.enabled ? 'not_found' : 'nothing_applied', tone:'stop' };
+      s0.reversed = true;
+      var dd = null; WH_DEMO.forEach(function(d){ if(d.t === s0.t) dd = d; });
+      if(dd){ var p = whStock(dd.pid); if(p) p.current_qty += (s0.dir === 'out' ? dd.qty : -dd.qty); var st2 = WH.st[dd.t] || {}; if(s0.dir === 'out') st2.out = null; else st2.in = null; }
+      return { ok:true, code:'undone', tone:'warn', applied:true, scan_id:++WH.seq };
+    }
+    if(name === 'wh_scan_order') return { ok:true, code:'leak_dismissed', tone:'ok', applied:true, dry:!WH.enabled };
+    if(name === 'wh_unknown_in'){
+      var uc = String((a && a.p_code) || '').toUpperCase(), items = (a && a.p_items) || [];
+      if(WH.unk[uc] && !WH.unk[uc].reversed){ var ux = WH.unk[uc]; return { ok:true, code:'unknown_already_in', tone:'dup', applied:false, tracking_no:uc, prev:{ scan_id:ux.id, at:ux.at, by:ux.by }, lines:ux.lines }; }
+      var ul = items.map(function(it){ var p = whStock(it.product_id), after = p ? (p.current_qty || 0) + it.qty : null; if(p && WH.enabled) p.current_qty = after;
+        return { text:p ? p.name : '', qty:it.qty, dir:'in', state:'posted', matched_by: p && p.parent_id == null && STOCK.some(function(k){ return k.parent_id === p.id; }) ? 'unallocated' : 'manual', product_id:it.product_id, product_name:p ? p.name : '', qty_after:after }; });
+      var uid0 = ++WH.seq, uat = new Date().toISOString();
+      if(WH.enabled){
+        WH.unk[uc] = { id:uid0, t:uc, at:uat, by:'أدمن المعاينة', note:null, lines:ul, reversed:false, mine:true, items:items };
+        WH.scans.unshift({ id:uid0, code:'unknown_in', dir:'in', at:uat, by:'أدمن المعاينة', t:uc, applied:true, reversed:false, tone:'in', mine:true });
+      }
+      return { ok:true, code:'unknown_in', tone:'in', applied:true, dir:'in', scan_id:uid0, tracking_no:uc, lines:ul, warnings:[], by:'أدمن المعاينة', dry:!WH.enabled };
+    }
+    if(name === 'wh_unknown_list'){
+      return { ok:true, rows:Object.keys(WH.unk).map(function(k){ var x = WH.unk[k]; return { id:x.id, t:x.t, at:x.at, by:x.by, note:x.note, lines:x.lines, reversed:x.reversed, reversed_by:x.reversed_by || null, mine:true }; })
+        .sort(function(x, y){ return y.id - x.id; }) };
+    }
+    if(name === 'wh_unknown_undo'){
+      var uu = null; Object.keys(WH.unk).forEach(function(k){ if(WH.unk[k].id === (a && a.p_scan_id)) uu = WH.unk[k]; });
+      if(!uu) return { ok:false, code:'not_found', tone:'stop' };
+      if(uu.reversed) return { ok:false, code:'already_reversed', tone:'dup' };
+      uu.reversed = true; uu.reversed_by = 'أدمن المعاينة';
+      uu.items.forEach(function(it){ var p = whStock(it.product_id); if(p) p.current_qty -= it.qty; });
+      WH.scans.forEach(function(x){ if(x.id === uu.id) x.reversed = true; });
+      return { ok:true, code:'undone', tone:'warn', applied:true, scan_id:++WH.seq };
+    }
+    if(name === 'wh_sounds_set'){
+      var cur = TABLES.wh_config[0].sounds, pp2 = (a && a.p) || {};
+      Object.keys(pp2).forEach(function(k){ if(pp2[k] == null) delete cur[k]; else cur[k] = Object.assign({}, pp2[k], { at:new Date().toISOString(), by:'أدمن المعاينة' }); });
+      return { ok:true, sounds:JSON.parse(JSON.stringify(cur)) };
+    }
+    if(name === 'wh_items_unmapped'){
+      var prods = STOCK.map(function(p){ return { id:p.id, name:p.name, parent_id:p.parent_id, label:p.variant_label, qty:p.current_qty, active:true }; });
+      var row = function(sample, props, st, mb, pid, n){ var pr = pid ? whStock(pid) : null;
+        return { item_key:sample, props_key:props, var_key:props, sample:sample, orders:n, pieces:n + 2, state:st, matched_by:mb,
+                 product_id:pid, product_name:pr ? pr.name : null, alias_item:WH.aliases[sample] || null, alias_item_ignore:false, alias_props:null, alias_props_ignore:null }; };
+      return { ok:true, products:prods, rows:[
+        WH.aliases['ترولي 3 دور ايكيا'] ? row('ترولي 3 دور ايكيا', '', 'posted', 'alias_item', WH.aliases['ترولي 3 دور ايكيا'], 61) : row('ترولي 3 دور ايكيا', '', 'unmatched', null, null, 61),
+        row('ترولي 2 دور ب ترابيزة خشب ايكيا', 'اسود', 'posted', 'child_label', 'prd-0-v0', 44),
+        row('ترولي 2 دور ب ترابيزة خشب ايكيا', 'بيج', 'posted', 'unallocated', 'prd-0', 9),
+        row('منظم المطبخ المتكامل', '', 'posted', 'exact', 'prd-1', 120),
+        (function(){ var ap = WH.aliasProps['منظم المطبخ المتكامل|مقاس 65 عرض'];
+          var x = row('منظم المطبخ المتكامل', 'مقاس 65 عرض', 'posted', ap ? 'alias' : 'exact', ap || 'prd-1', 42);
+          x.sibling = !ap; x.alias_props = ap || null; return x; })(),
+        WH.aliases['هدية'] === 'ignore' ? row('هدية', '', 'ignored', 'alias_item', null, 7) : row('هدية', '', 'unmatched', null, null, 7)
+      ]};
+    }
+    if(name === 'wh_alias_set'){
+      if(a.p_props_key) WH.aliasProps[a.p_item_key + '|' + a.p_props_key] = a.p_ignore ? null : a.p_product_id;
+      else WH.aliases[a.p_item_key] = a.p_ignore ? 'ignore' : a.p_product_id;
+      return { ok:true, code:'ok', reposted:0, superseded:0, voided:0 };
+    }
+    // فحص ما قبل التشغيل — نفس أسامي السيرفر (wh_start_check)
+    if(name === 'wh_start_check'){
+      var un = (WH.aliases['ترولي 3 دور ايكيا'] ? 0 : 1) + (WH.aliases['هدية'] ? 0 : 1);
+      var rv = WH.aliasProps['منظم المطبخ المتكامل|مقاس 65 عرض'] ? 0 : 1;
+      var miss = (WH.st.JEG000700000007 || {}).in ? 0 : 1;
+      return { ok:true, code:'ok', has_issues: !!(un || rv || miss),
+        unmatched:{ n:un, pieces:un ? 72 : 0, top: un ? ['ترولي 3 دور ايكيا'] : [] },
+        review:{ n:rv, pieces:rv ? 44 : 0, top: rv ? ['منظم المطبخ المتكامل · مقاس 65 عرض'] : [] },
+        missing_returns:miss, families:[], gap:{ since:null, pickups:0, returns:0 } };
+    }
+    if(name === 'wh_product_pile'){
+      if(!WH.baseline) return { ok:true, code:'not_started', pile:0, ret:0 };
+      var n = 0; WH_DEMO.forEach(function(d){ var st = WH.st[d.t] || {}; if(d.pid === (a && a.p_product_id) && st.out && !st.in) n += d.qty; });
+      return { ok:true, code:'ok', pile:n, ret:0, baseline_at:WH.baseline };
+    }
+    if(name === 'wh_repost_unmatched') return { ok:true, code:'ok', reposted:0, superseded:0, voided:0 };
+    if(name === 'wh_count_open'){
+      var open = TABLES.stock_counts.filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
+      if(open) return { ok:true, code:'count_open_exists', count_id:open.id };
+      var c = { id:TABLES.stock_counts.length + 1, tenant_id:TENANT, opened_at:new Date().toISOString(), opened_by_name:'أدمن المعاينة', note:null, applied_at:null, applied_by_name:null, go_live:false, cancelled_at:null };
+      TABLES.stock_counts.unshift(c);
+      return { ok:true, code:'ok', count_id:c.id, opened_at:c.opened_at };
+    }
+    if(name === 'wh_count_cancel'){ TABLES.stock_counts.forEach(function(c){ if(c.id === a.p_count_id) c.cancelled_at = new Date().toISOString(); }); return { ok:true, code:'ok' }; }
+    if(name === 'wh_count_apply'){
+      var cc = null; TABLES.stock_counts.forEach(function(c){ if(c.id === a.p_count_id) cc = c; });
+      if(!cc) return { ok:false, code:'not_found' };
+      var changed = 0, oo2 = WH.cntOpts || { moved:{}, ret:{} };
+      var need = (a.p_counts || []).filter(function(e){ return (e.product_id === 'prd-1' && !oo2.moved['prd-1']) || (e.product_id === 'prd-0-v0' && !oo2.ret['prd-0-v0']); });
+      if(need.length) return { ok:false, code:'pile_questions', products:need.map(function(e){ return e.product_id; }) };
+      var pq = { 'prd-1': 1 + ((oo2.moved['prd-1'] || {}).v === 'counted' ? 1 : 0), 'prd-0-v0': (oo2.ret['prd-0-v0'] || {}).v === 'counted' ? 1 : 0 };
+      (a.p_counts || []).forEach(function(e){ var p = whStock(e.product_id), t = e.counted - (pq[e.product_id] || 0); if(p && p.current_qty !== t){ p.current_qty = t; changed++; } });
+      WH.cntOpts = null;
+      cc.applied_at = new Date().toISOString(); cc.applied_by_name = 'أدمن المعاينة'; cc.go_live = !!a.p_go_live;
+      if(a.p_go_live){ WH.enabled = true; WH.baseline = cc.opened_at; }
+      return { ok:true, code:'ok', count_id:cc.id, changed:changed, go_live:!!a.p_go_live, baseline_at:a.p_go_live ? cc.opened_at : null };
+    }
+    // معاينة الجرد: «منظم المطبخ المتكامل» عليه طرد في الكومة + طرد المندوب أخده وانت بتعدّ · «ترولي 2 دور — اسود»
+    // عليه مرتجع J&T سلّمه ومحدش ضربه — الإجابة لكل منتج (wh_count_opts) زي السيرفر بالظبط
+    if(name === 'wh_count_pile'){
+      var op = TABLES.stock_counts.filter(function(c){ return !c.applied_at && !c.cancelled_at; })[0];
+      if(!op) return { ok:true, count_id:null, opts:{}, pile:[], pile_orders:0, moved_orders:0, ret_orders:0, moved_need:0, ret_need:0 };
+      var oo = WH.cntOpts || { moved:{}, ret:{} };
+      var ans = function(k, pid, id){ var x = oo[k][pid]; return x && x.ids.indexOf(id) >= 0 ? x.v : null; };
+      return { ok:true, count_id:op.id, opts:oo, pile_orders:1, moved_orders:1, ret_orders:1, pile:[
+        { product_id:'prd-1', pile:1, moved:1, moved_leak:0, ret:0, moved_ids:['o-prev-m1'], ret_ids:[],
+          moved_ans:ans('moved', 'prd-1', 'o-prev-m1'), moved_by:'أدمن المعاينة', moved_need:!ans('moved', 'prd-1', 'o-prev-m1'),
+          ret_ans:null, ret_need:false, moved_list:[{ uid:'17990', t:'00000990', leak:false }], ret_list:[], pile_list:[{ uid:'17989', t:'00000989' }] },
+        { product_id:'prd-0-v0', pile:0, moved:0, moved_leak:0, ret:1, moved_ids:[], ret_ids:['o-prev-r1'],
+          moved_ans:null, moved_need:false, ret_ans:ans('ret', 'prd-0-v0', 'o-prev-r1'), ret_by:'أدمن المعاينة',
+          ret_need:!ans('ret', 'prd-0-v0', 'o-prev-r1'), moved_list:[], ret_list:[{ uid:'17991', t:'00000991' }], pile_list:[] }] };
+    }
+    if(name === 'wh_count_opts'){
+      WH.cntOpts = WH.cntOpts || { moved:{}, ret:{} };
+      var po = (a && a.p_opts) || {};
+      ['moved', 'ret'].forEach(function(k){ Object.keys(po[k] || {}).forEach(function(pid){ WH.cntOpts[k][pid] = { v:po[k][pid].v, ids:(po[k][pid].ids || []).slice() }; }); });
+      return { ok:true, code:'ok', opts:WH.cntOpts };
+    }
+    if(name === 'wh_config_set'){
+      var pp = (a && a.p) || {};
+      if(pp.enabled === true && !WH.baseline && !pp.start) return { ok:false, code:'needs_start' };
+      if(pp.enabled === true && !WH.baseline && !pp.force){ var ck = whRpc('wh_start_check', {}); if(ck.has_issues) return { ok:false, code:'needs_confirm', check:ck }; }
+      if(pp.enabled === true && !WH.baseline) WH.baseline = new Date().toISOString();
+      if(pp.enabled != null) WH.enabled = !!pp.enabled;
+      if(pp.hold_cancel_requested != null) WH.hold = !!pp.hold_cancel_requested;
+      return { ok:true, code:'ok', enabled:WH.enabled, hold_cancel_requested:WH.hold, baseline_at:WH.baseline };
+    }
+    if(name === 'wh_stock_adjust'){
+      var p3 = whStock(a.p_product_id);
+      if(p3 && a.p_expected_qty != null && Number(p3.current_qty || 0) !== Number(a.p_expected_qty)) return { ok:false, code:'stale', qty:Number(p3.current_qty || 0) };
+      if(p3) p3.current_qty = a.p_new_qty; return { ok:true, code:'ok', qty:a.p_new_qty };
+    }
+    return null;
+  }
+
+  // ══ رسالة «المندوب في الطريق» (11 أكتوبر — wa-ofd-notify): أوردرين J&T في المعاينة —
+  // ord-8 خرج مرتين بمندوبين مختلفين (الرسالة 2 · اتقرت) · ord-9 الرسالة ماتبعتتش (رقم مش على واتساب — الأدمن بس بيشوفه)
+  var OFD_SENDS = [], OFD_MSGS = [];
+  (function(){
+    var by = function(id){ for(var k = 0; k < ORDERS.length; k++) if(ORDERS[k].id === id) return ORDERS[k]; return null; };
+    var o8 = by('ord-8'), o9 = by('ord-9');
+    if(o8){ o8.shipping_carrier = 'jt'; o8.tracking_no = 'JEG000541470008'; o8.carrier_status_raw = 'Delivery scan'; o8.carrier_status_code = '94'; o8.carrier_status_at = iso(0, 11, 40); }
+    if(o9){ o9.shipping_carrier = 'jt'; o9.tracking_no = 'JEG000541470009'; o9.carrier_status_raw = 'Delivery scan'; o9.carrier_status_code = '94'; o9.carrier_status_at = iso(0, 10, 5); }
+    OFD_SENDS.push(
+      { id: 1, tenant_id: TENANT, order_id: 'ord-8', status: 'sent', courier_name: 'Sherif Ashraf Ismail', courier_phone: '01000000011',
+        scan_at: iso(1, 10, 30), sent_at: iso(1, 10, 32), dispatched_at: iso(1, 10, 32), updated_at: iso(1, 10, 32), created_at: iso(1, 10, 32),
+        wa_message_id: 'wamid.ofd1', error_code: null, error_detail: null, attempts: 1 },
+      { id: 2, tenant_id: TENANT, order_id: 'ord-8', status: 'sent', courier_name: 'Mahmoud Goma Al Sayed', courier_phone: '01200000022',
+        scan_at: iso(0, 11, 40), sent_at: iso(0, 11, 41), dispatched_at: iso(0, 11, 41), updated_at: iso(0, 11, 41), created_at: iso(0, 11, 41),
+        wa_message_id: 'wamid.ofd2', error_code: null, error_detail: null, attempts: 1 },
+      { id: 3, tenant_id: TENANT, order_id: 'ord-9', status: 'failed_permanent', courier_name: 'Ali Hassan', courier_phone: '01100000033',
+        scan_at: iso(0, 10, 5), sent_at: null, dispatched_at: iso(0, 10, 6), updated_at: iso(0, 10, 6), created_at: iso(0, 10, 6),
+        wa_message_id: null, error_code: '131026', error_detail: 'Message undeliverable', attempts: 1 });
+    OFD_MSGS.push({ wa_message_id: 'wamid.ofd1', status: 'delivered' }, { wa_message_id: 'wamid.ofd2', status: 'read' });
+    // (بعد تعريف TABLES — الـIIFE ده تحته في الملف)
+    TABLES.wa_ofd_sends = OFD_SENDS;
+    TABLES.wa_messages = TABLES.wa_messages.concat(OFD_MSGS);
+  })();
+
+  // ══ استثناءات الشحن (8 أكتوبر) — صفوف بشكل v_jt_issues بالحرف (الفيو بيحسب `attempt`
+  // وبيجيب بيانات العميل من الأوردر على السيرفر — هنا بنبنيها من أوردرات المعاينة نفسها).
+  // فيها: مفتوح · محاولتين على نفس الشحنة · FAKE UPDATE · اتسلمت بعد الاستثناء · راجعة ·
+  // رجوع من غير سبب · غلطة J&T — عشان كل حتة في التاب تبان للمالك.
+  (function(){
+    var H = 3600000, D = 86400000, now = Date.now();
+    var ago = function(ms){ return new Date(now - ms).toISOString(); };
+    var past = new Date(now - 2 * D).toISOString().replace(/\.\d+Z$/, 'Z');
+    var J = [];
+    function add(oi, o){
+      var od = ORDERS[oi];
+      var r = Object.assign({
+        id: J.length + 1, tenant_id: TENANT, order_id: od.id, kind: 'exception', attempt: 1,
+        reason_code: '202', reason_en: 'No Answer or Phone Switched Off', reason_ar: 'العميل مش بيرد أو تليفونه مقفول',
+        courier_note: null, branch: 'Maadi DP', branch_phone: '0225252525', courier_name: 'أحمد فؤاد', courier_phone: '01020304050',
+        photo_url: null, verdict: null, staff_note: null, staff_updated_at: null, verdict_by_name: null,
+        outcome: null, outcome_at: null,
+        order_uid: od.order_uid, customer_name: od.customer_name, phone: od.phone, alt_phone: od.alt_phone, city: od.city,
+        address: od.address, ship_prov: null, ship_city: null, ship_area: null, product_name: od.product_name,
+        total_cost: od.total_cost, jt_cod_amount: od.total_cost, order_status: 'Exception',
+        verdict_by: null, staff_rev: o && o.verdict ? 1 : 0, reviewed_rev: null, review_state: null, review_note: null,
+        reviewed_at: null, reviewed_by_name: null
+      }, o);
+      r.updated_at = r.reviewed_at || r.staff_updated_at || r.event_at;
+      if(r.verdict && !r.verdict_set_by_name){ r.verdict_set_by_name = r.verdict_by_name; r.verdict_set_at = r.staff_updated_at; }
+      // وقت البلاغ (زي migration jt_issues_report_times) · بداية المرتجع = وقت النتيجة لو راجعة/رجعت
+      if(r.reported_at === undefined) r.reported_at = (r.verdict === 'fake_update' || r.verdict === 'jt_error') ? r.verdict_set_at : null;
+      if(r.reported_by_name === undefined) r.reported_by_name = r.reported_at ? r.verdict_set_by_name : null;
+      if(r.return_started_at === undefined) r.return_started_at = (r.outcome === 'returning' || r.outcome === 'returned') ? r.outcome_at : null;
+      J.push(r);
+    }
+    add(16, { tracking_no: 'JEG000553100116', event_at: ago(3 * H), courier_note: 'اتصلت 3 مرات والتليفون مقفول',
+              ship_prov: 'القاهرة', ship_city: 'مدينة نصر', ship_area: 'الحي العاشر' });
+    // اتعامل معاها عمر واترجّعتله من الأدمن بتعليق — بتطلع فوق «محتاجة تعامل»
+    add(34, { tracking_no: 'JEG000553100134', event_at: ago(1 * D + 2 * H), reason_code: '205', reason_en: 'Change The Delivery Time',
+              reason_ar: 'العميل طلب تأجيل', courier_note: 'قال كلمني بكرة', branch: 'Nasr City DP', branch_phone: '0224040404',
+              courier_name: 'محمود سعيد', courier_phone: '01122334455', verdict: 'no_answer_us', staff_note: 'اتصلت مرتين ومردش',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(1 * D), staff_rev: 1, reviewed_rev: 1, review_state: 'sent_back',
+              review_note: 'كلّمه تاني الساعة 6 بالليل وابعتله رسالة واتساب', reviewed_by_name: 'شيكو', reviewed_at: ago(20 * H) });
+    add(34, { tracking_no: 'JEG000553100134', attempt: 2, event_at: ago(40 * 60000), courier_note: 'مش بيرد',
+              branch: 'Nasr City DP', branch_phone: '0224040404', courier_name: 'محمود سعيد', courier_phone: '01122334455' });
+    add(8,  { tracking_no: 'JEG000553100108', event_at: ago(5 * H), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', courier_note: 'رافض الاستلام', verdict: 'fake_update',
+              staff_note: 'كلمتها وقالت محدش اتصل بيها خالص وعايزة الأوردر — بلّغت J&T يعيدوا التسليم',
+              verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(2 * H), order_status: 'Out for delivery' });
+    add(10, { tracking_no: 'JEG000553100110', event_at: ago(2 * D), reason_code: '205', reason_en: 'Change The Delivery Time',
+              reason_ar: 'العميل طلب تأجيل', verdict: 'real_delay', staff_note: 'طلبت السبت واستلمت', verdict_by_name: 'عمر حسن',
+              staff_updated_at: ago(2 * D - 3 * H), outcome: 'delivered', outcome_at: ago(1 * D), order_status: 'delivered',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(2 * D - 1 * H) });
+    add(14, { tracking_no: 'JEG000553100114', event_at: ago(3 * D), reason_code: '1001', reason_en: 'Directly refuse without opening the package',
+              reason_ar: 'العميل رفض من غير ما يفتح', outcome: 'returning', outcome_at: ago(2 * D), order_status: 'returned',
+              photo_url: 'https://jtjms-eg.blob.core.windows.net/abnormal/preview.jpg?se=' + encodeURIComponent(past) + '&sig=preview' });
+    add(32, { tracking_no: 'JEG000553100132', kind: 'return', attempt: null, event_at: ago(20 * H), reason_code: null,
+              reason_en: 'Returned parcel scan without an exception', reason_ar: 'بدأت ترجع من غير ما J&T تسجّل أي سبب',
+              outcome: 'returning', outcome_at: ago(20 * H), order_status: 'returned', courier_name: null, courier_phone: null });
+    add(12, { tracking_no: 'JEG000553100112', event_at: ago(4 * D), reason_code: '306', reason_en: 'miss-sorting from DC',
+              reason_ar: 'غلطة فرز من J&T', verdict: 'jt_error', staff_note: 'الشحنة راحت فرع غلط — اتصلحت بعد يومين',
+              verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(4 * D - 5 * H), outcome: 'delivered', outcome_at: ago(2 * D),
+              order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(4 * D - 2 * H) });
+    // بلاغاتنا لـJ&T (8 أكتوبر): FAKE UPDATE اتسلمت بعد البلاغ بساعات · واحدة رجعت رغم البلاغ · وواحدة J&T سجّلت عليها تاني بعد البلاغ
+    add(18, { tracking_no: 'JEG000553100118', event_at: ago(1 * D + 6 * H), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', verdict: 'fake_update', staff_note: 'العميلة قالت محدش كلّمها — بلّغت J&T',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(1 * D + 4 * H), outcome: 'delivered', outcome_at: ago(3 * H),
+              order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(1 * D + 3 * H) });
+    add(22, { tracking_no: 'JEG000553100122', event_at: ago(3 * D), reason_code: '202', verdict: 'fake_update',
+              staff_note: 'قال التليفون كان شغّال ومحدش رنّ', verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(3 * D - 2 * H),
+              outcome: 'returning', outcome_at: ago(1 * D), order_status: 'returned', branch: 'Giza DP', courier_name: 'كريم عادل',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(3 * D - 1 * H) });
+    add(24, { tracking_no: 'JEG000553100124', event_at: ago(2 * D), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', verdict: 'fake_update', staff_note: 'العميل عايزه — بلّغت J&T',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(2 * D - 3 * H), order_status: 'Out for delivery',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(2 * D - 2 * H) });
+    add(24, { tracking_no: 'JEG000553100124', attempt: 2, event_at: ago(6 * H), reason_code: '202', order_status: 'Out for delivery' });
+    // اتصنّفت FAKE UPDATE بعد ما J&T كانت سلّمتها فعلاً (مسح التسليم وصل متأخر) = «اتسلمت قبل ما نبلّغ — مابتتحسبش»
+    add(28, { tracking_no: 'JEG000553100128', event_at: ago(14 * H), verdict: 'fake_update', staff_note: 'العميل قال محدش جاله',
+              verdict_by_name: 'عمر حسن', staff_updated_at: ago(10 * H), outcome: 'delivered', outcome_at: ago(12 * H),
+              order_status: 'Delivered', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(9 * H) });
+    // بلّغنا · المحاولة التانية الفريق كلّم العميل وأكّد إنه رفض فعلاً · ورجعت = «رجعت والسبب من العميل — مش على J&T»
+    add(30, { tracking_no: 'JEG000553100130', event_at: ago(3 * D), verdict: 'fake_update', staff_note: 'قال محدش رنّ عليه',
+              verdict_by_name: 'سارة إبراهيم', staff_updated_at: ago(3 * D - 1 * H), outcome: 'returning', outcome_at: ago(10 * H),
+              order_status: 'returned', staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(3 * D - 30 * 60000) });
+    add(30, { tracking_no: 'JEG000553100130', attempt: 2, event_at: ago(1 * D), reason_code: '1002', reason_en: 'Customer refuse by call',
+              reason_ar: 'العميل رفض في التليفون', verdict: 'real_refusal', staff_note: 'كلّمته وأكّد إنه مش عايزه', verdict_by_name: 'سارة إبراهيم',
+              staff_updated_at: ago(1 * D - 1 * H), outcome: 'returning', outcome_at: ago(10 * H), order_status: 'returned',
+              staff_rev: 1, reviewed_rev: 1, review_state: 'ok', reviewed_by_name: 'شيكو', reviewed_at: ago(1 * D - 30 * 60000) });
+    TABLES.v_jt_issues = J;
+    TABLES.jt_issues = J;
+    // صوت التنبيه: بعد 40 ثانية من فتح المعاينة بينزل استثناء جديد لوحده (زي ما J&T هتبعته) — اضغط مرة في الصفحة قبلها عشان المتصفح يسمح بالصوت
+    setTimeout(function(){
+      add(26, { tracking_no: 'JEG000553100126', event_at: new Date(Date.now() - 60000).toISOString(), reason_code: '1002',
+                reason_en: 'Customer refuse by call', reason_ar: 'العميل رفض في التليفون', courier_note: 'العميل رافض' });
+      var nr = J[J.length - 1];
+      nr.updated_at = new Date().toISOString();
+      PREVIEW_RT.forEach(function(h){ if(h.opts && h.opts.table === 'jt_issues') h.cb({ eventType: 'INSERT', new: { id: nr.id, tracking_no: nr.tracking_no } }); });
+    }, 40000);
+    // سجل التعامل (jt_issue_log) — سطر لكل حفظة ومراجعة
+    var L = [];
+    J.forEach(function(r){
+      if(!r.staff_updated_at) return;
+      L.push({ id: L.length + 1, tenant_id: TENANT, issue_id: r.id, at: r.staff_updated_at, by_name: r.verdict_by_name, actor_role: 'employee',
+        action: 'save', verdict: r.verdict, note: r.staff_note, prev_verdict: null, prev_note: null, verdict_changed: !!r.verdict, note_changed: !!r.staff_note,
+        review_state: null, review_note: null });
+      if(r.reviewed_at) L.push({ id: L.length + 1, tenant_id: TENANT, issue_id: r.id, at: r.reviewed_at, by_name: r.reviewed_by_name, actor_role: 'admin',
+        action: 'review', verdict: r.verdict, note: r.staff_note, prev_verdict: null, prev_note: null, verdict_changed: false, note_changed: false,
+        review_state: r.review_state, review_note: r.review_note });
+    });
+    TABLES.jt_issue_log = L;
+  })();
+
   // قطع الأعمدة زي PostgREST — عشان المعاينة تتصرّف زي السيرفر بالظبط
   function project(rows, cols){
     if(!cols || cols === '*' || String(cols).indexOf('*') >= 0) return rows;
@@ -323,14 +765,20 @@
       if(st.gte) rows = rows.filter(function(o){ return o.created_at >= st.gte; });
       if(st.lt)  rows = rows.filter(function(o){ return o.created_at <  st.lt;  });
       if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
+      // `.in('id', …)` — الطباعة (printJtAwb · printAwbForOrders) والتيكر بيطلبوا أوردرات بعينها؛
+      // من غيره المعاينة كانت بتطبع كل بوالص J&T مش اللي اتحدد بس (v80)
+      (st.inAny || []).forEach(function(f){ if(f.col === 'id') rows = rows.filter(function(o){ return (f.val || []).indexOf(o.id) >= 0; }); });
       if(st.eqStatus) rows = rows.filter(function(o){ return o.status === st.eqStatus; });
       if(st.inStatus) rows = rows.filter(function(o){ return st.inStatus.indexOf(o.status) >= 0; });
       if(st.eqPhone)  rows = rows.filter(function(o){ return o.phone === st.eqPhone; });
+      // «🔁 اتعمله استبدال» في التفاصيل — من غير الفلتر كل أوردر كان بيعرض كل أوردرات المعاينة كاستبدالات
+      if(st.eqExchange !== undefined) rows = rows.filter(function(o){ return (o.exchange_of || null) === st.eqExchange; });
       rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     }
     // رسايل الشات: من غير الفلتر ده كل محادثة كانت بتعرض رسايل كل المحادثات
     if(t === 'wa_messages'){
       if(st.eqConv) rows = rows.filter(function(m){ return m.conversation_id === st.eqConv; });
+      (st.inAny || []).forEach(function(f){ if(f.col === 'wa_message_id') rows = rows.filter(function(m){ return (f.val || []).indexOf(m.wa_message_id) >= 0; }); });
       rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
     }
     // 🔴 فلتر «جه من إعلان» بيستعلم من السيرفر بـ`or(ctwa_*)`. الستب
@@ -343,17 +791,36 @@
           return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
         });
       }
-      // وفلتر التصنيفات بيستعلم من السيرفر بـ`.not('labels','is',null)` —
+      // وفلتر التصنيفات بيستعلم من السيرفر بـ`.not('labels','eq','{}')` —
       // نفس السبب بالظبط: من غير تطبيقه العدّاد على كل chip بيساوي عدد
-      // المحادثات كلها.
-      if(st.not && st.not.op === 'is' && st.not.val === null){
+      // المحادثات كلها. (`labels` على الحي NOT NULL default '{}' — 27 سبتمبر)
+      if(st.not && st.not.op === 'eq' && st.not.val === '{}'){
         var nc = st.not.col;
-        rows = rows.filter(function(c){ return c[nc] !== null && c[nc] !== undefined; });
+        rows = rows.filter(function(c){ return Array.isArray(c[nc]) && c[nc].length > 0; });
       }
       rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
       if(st.limit) rows = rows.slice(0, st.limit);
     }
+    if(t === 'wa_ofd_sends'){
+      (st.f || []).forEach(function(f){ if(f.op === 'eq' && f.col === 'order_id') rows = rows.filter(function(r){ return r.order_id === f.val; }); });
+      rows.sort(function(a,b){ return String(a.created_at) < String(b.created_at) ? 1 : -1; });
+    }
     if(t === 'stock_movements') rows.sort(function(a,b){ return a.created_at < b.created_at ? 1 : -1; });
+    // استثناءات الشحن: الفترة والمزامنة التدريجية (updated_at) والبوالص (in) بتتطبّق زي السيرفر
+    if(t === 'v_jt_issues' || t === 'jt_issues' || t === 'jt_issue_log'){
+      (st.f || []).forEach(function(f){
+        rows = rows.filter(function(r){
+          var v = r[f.col];
+          if(f.op === 'gte') return v != null && String(v) >= String(f.val);
+          if(f.op === 'in')  return (f.val || []).map(String).indexOf(String(v)) >= 0;
+          if(f.op === 'eq')  return f.col === 'tenant_id' ? true : String(v) === String(f.val);
+          return true;
+        });
+      });
+      if(t === 'jt_issue_log') rows.sort(function(a,b){ return String(a.at) < String(b.at) ? -1 : 1; });
+      else rows.sort(function(a,b){ return String(a.event_at) < String(b.event_at) ? 1 : -1; });
+      rows = rows.map(function(r){ return Object.assign({}, r); });
+    }
     return rows;
   }
 
@@ -366,8 +833,10 @@
           if(m === 'select') st.cols = a;
           if(m === 'gte' && a === 'created_at') st.gte = b;
           if(m === 'lt'  && a === 'created_at') st.lt  = b;
-          if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; }
+          if(m === 'eq'){ if(a === 'status') st.eqStatus = b; if(a === 'id') st.eqId = b; if(a === 'phone') st.eqPhone = b; if(a === 'conversation_id') st.eqConv = b; if(a === 'exchange_of') st.eqExchange = b; }
           if(m === 'in'  && a === 'status') st.inStatus = b;
+          if(m === 'in') (st.inAny = st.inAny || []).push({ col:a, val:b });
+          if(m === 'eq' || m === 'gte' || m === 'in') (st.f = st.f || []).push({ op:m, col:a, val:b });
           if(m === 'or')    st.or = a;
           if(m === 'not')   st.not = {col:a, op:b, val:c};
           if(m === 'limit') st.limit = a;
@@ -414,28 +883,25 @@
       sum_paymob:    s(function(o){ return o.payment_stage === 'paymob'; }) };
   }
 
-  var chan = { on: function(){ return chan; },
+  var chan = { on: function(ev, opts, cb){ if(opts && typeof cb === 'function') PREVIEW_RT.push({ opts: opts, cb: cb }); return chan; },
                subscribe: function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); }, 0); return chan; } };
 
-  // زرار «شحن أوتوماتيك» بينده Edge Function بـfetch مباشر — في المعاينة
-  // بنمثّل الرحلة: رد ok فوري، وبعد ~4 ثواني «البوليصة بتتعمل» فالتتبع
-  // يظهر والـpoll يلقطه — نفس إيقاع الإنتاج (12–30ث) بس أسرع للتجربة.
+  // «🚚 شحن J&T» بينده Edge Function jt-ship بـfetch مباشر — في المعاينة بنرد ببوليصة
+  // وهمية فوراً (زي رد J&T: رقم البوليصة + كود الفرز) ونكتبها على الأوردر.
   var _fetch = window.fetch;
   window.fetch = function(url, opt){
     var u = String(url || '');
-    if(u.indexOf('/functions/v1/order-ship') >= 0){
+    if(u.indexOf('/functions/v1/jt-ship') >= 0){
       var body = {}; try{ body = JSON.parse((opt && opt.body) || '{}'); }catch(e){}
       var mo = TABLES.orders.filter(function(o){ return o.id === body.order_id; })[0];
       if(mo && !(mo.tracking_no||'')){
-        // كل تالت محاولة «بتفشل في صمت» (زي n8n لما يقع) — عشان المالك
-        // يشوف العلامة الصفرا ورسالة «ماكملتش» بنفسه في المعاينة
-        window.__shipSim = (window.__shipSim||0)+1;
-        if(window.__shipSim % 3 !== 0)
-          setTimeout(function(){ mo.tracking_no = '7' + String(90000000 + Math.floor(Math.random()*9999999)); mo.status = 'BOSTA AUTO'; }, 4000);
-        var ra = new Date().toISOString(); mo.shipping_requested_at = ra;
-        return Promise.resolve(new Response(JSON.stringify({ ok:true, requested_at: ra }), { status:200, headers:{'Content-Type':'application/json'} }));
+        var trk = 'JEG0005' + String(10000000 + Math.floor(Math.random()*89999999));
+        mo.tracking_no = trk; mo.status = 'BOSTA AUTO'; mo.shipping_carrier = 'jt'; mo.jt_sorting_code = '20,A01-03,021';
+        if(body.receiver){ mo.ship_prov = body.receiver.prov; mo.ship_city = body.receiver.city; mo.ship_area = body.receiver.area; }
+        mo.shipping_weight_kg = body.weight_kg || 1;
+        return Promise.resolve(new Response(JSON.stringify({ ok:true, tracking_no: trk, sorting_code: mo.jt_sorting_code, record:{ status:'BOSTA AUTO' } }), { status:200, headers:{'Content-Type':'application/json'} }));
       }
-      return Promise.resolve(new Response(JSON.stringify({ error:'already_has_tracking', message:'الأوردر له بوليصة بالفعل' }), { status:409, headers:{'Content-Type':'application/json'} }));
+      return Promise.resolve(new Response(JSON.stringify({ ok:false, error:'already_has_tracking', message:'الأوردر له بوليصة بالفعل' }), { status:409, headers:{'Content-Type':'application/json'} }));
     }
     if(u.indexOf('/functions/v1/') >= 0){
       return Promise.resolve(new Response(JSON.stringify({ ok:false, message:'وضع المعاينة' }), { status:200, headers:{'Content-Type':'application/json'} }));
@@ -509,11 +975,105 @@
       TABLES.orders.unshift(row);
       return Promise.resolve({ data:{ ok:true, order_id:row.id, order_uid:uid }, error:null });
     }
+    // «➕ أوردر جديد» و«🔁 طلب استبدال» (3 أكتوبر) — نفس شكل create_staff_order على السيرفر:
+    // المنتجات من المخزون · الإجمالي = مجموع السطور (الاستبدال = المبلغ المكتوب) · W-n · مؤكد بسطر سجل
+    if(name === 'create_staff_order'){
+      var dd = String((args && args.p_phone) || '').replace(/[^0-9]/g,'');
+      if(dd.indexOf('0020') === 0) dd = dd.slice(4); else if(dd.indexOf('20') === 0 && dd.length === 12) dd = dd.slice(2);
+      if(dd.length === 10 && dd.charAt(0) === '1') dd = '0' + dd;
+      if(!/^01[0-9]{9}$/.test(dd)) return Promise.resolve({ data:{ ok:false, error:'bad_phone' }, error:null });
+      if(String((args&&args.p_address)||'').replace(/\s+/g,' ').trim().length < 10)
+        return Promise.resolve({ data:{ ok:false, error:'short_address' }, error:null });
+      var its = (args && args.p_items) || [];
+      if(!its.length) return Promise.resolve({ data:{ ok:false, error:'no_items' }, error:null });
+      var sum = 0, lines = [];
+      its.forEach(function(it){ sum += Number(it.price) * Number(it.qty); lines.push(it.name + ' (عدد ' + it.qty + ')'); });
+      var orig = null;
+      if(args.p_exchange_of){ orig = TABLES.orders.filter(function(o){ return o.id === args.p_exchange_of; })[0] || null; }
+      // نفس شرط السيرفر: الاستبدال من أوردر متسلّم بس
+      if(orig && String(orig.status||'').toLowerCase() !== 'delivered')
+        return Promise.resolve({ data:{ ok:false, error:'exchange_not_delivered' }, error:null });
+      var mx2 = 0;
+      TABLES.orders.forEach(function(o){ var m = /^W-([0-9]+)$/.exec(String(o.order_uid||'')); if(m && +m[1] > mx2) mx2 = +m[1]; });
+      var uid2 = 'W-' + (mx2 + 1), now2 = new Date().toISOString();
+      var total2 = orig ? Number(args.p_total) : Math.round(sum * 100) / 100;
+      var row2 = { id:'so-' + uid2, tenant_id:TENANT, order_uid:uid2, tracking_no:null,
+        customer_name:args.p_customer_name, phone:dd, alt_phone:args.p_alt_phone||null,
+        city:args.p_city||args.p_ship_prov||null, address:args.p_address, product_name:lines.join('\n+ '),
+        total_cost:total2, status:'confirmed', payment_stage:'cod',
+        platform: orig ? orig.platform : (args.p_platform||'fb'), campaign_name:null, var:null,
+        customer_notes:args.p_customer_notes||null, internal_notes:null,
+        created_at:now2, status_changed_at:now2, created_by:'preview-user', call_attempts:[],
+        status_log:[{ from:'pending', to:'confirmed', at:now2, by:'شيكو', reason: orig ? ('استبدال لأوردر #' + (orig.order_uid||'')) : 'أوردر يدوي من اللوحة' }],
+        has_upsell:false, shipping_cost:85, shipping_requested_at:null, awb_print_count:0,
+        line_prices: orig ? null : its.map(function(it){ return { n:it.name, q:it.qty, p:it.price }; }),
+        manufacturer_note:null, manufacturer_cost:null, wa_followup_sent_at:null,
+        ship_prov:args.p_ship_prov||null, ship_city:args.p_ship_city||null, ship_area:args.p_ship_area||null,
+        shipping_weight_kg:args.p_weight||null, exchange_of: orig ? orig.id : null, ship_note:null, jt_remark:null };
+      TABLES.orders.unshift(row2);
+      return Promise.resolve({ data:{ ok:true, order_id:row2.id, order_uid:uid2, status:'confirmed', total_cost:total2 }, error:null });
+    }
+    // تاب استثناءات الشحن: التصنيف والملاحظة بيتكتبوا في صف المعاينة فعلاً (والاسم من البروفايل زي السيرفر)
+    // نفس قواعد السيرفر: تغيير فعلي = staff_rev+1 + سطر سجل · الأدمن بتصنيف = «اتعامل بنفسه» (المعاينة دايماً أدمن)
+    if(name === 'jt_issue_save'){
+      var ji = (TABLES.jt_issues || []).filter(function(r){ return r.id === (args && args.p_id); })[0];
+      if(!ji) return Promise.resolve({ data:null, error:{ code:'P0002', message:'not_found' } });
+      var nv = args.p_verdict || null, nn = args.p_note || null;
+      if(nv !== ji.verdict || nn !== ji.staff_note){
+        var pv = ji.verdict, pn = ji.staff_note, tnow = new Date().toISOString(), vchg = pv !== nv;
+        var selfR = vchg || ji.verdict_set_by_name === 'أدمن المعاينة';
+        ji.verdict = nv; ji.staff_note = nn; ji.staff_updated_at = tnow; ji.updated_at = tnow; ji.verdict_by_name = 'أدمن المعاينة';
+        if(vchg){ ji.verdict_set_by_name = nv ? 'أدمن المعاينة' : null; ji.verdict_set_at = nv ? tnow : null; }
+        // وقت البلاغ: بيفضل لو اتنقل بين FAKE UPDATE و«غلطة من J&T» · بيتمسح لو خرج منهم · ودخول جديد = دلوقتي
+        var REPV = ['fake_update', 'jt_error'], isR = REPV.indexOf(nv) >= 0, wasR = REPV.indexOf(pv) >= 0;
+        ji.reported_at = isR ? (wasR ? (ji.reported_at || ji.verdict_set_at || tnow) : tnow) : null;
+        ji.reported_by_name = isR ? (wasR ? (ji.reported_by_name || ji.verdict_set_by_name) : 'أدمن المعاينة') : null;
+        ji.staff_rev = (ji.staff_rev || 0) + 1;
+        if(nv){ ji.reviewed_rev = ji.staff_rev; ji.review_state = selfR ? 'self' : 'ok'; ji.review_note = null; ji.reviewed_at = tnow; ji.reviewed_by_name = 'أدمن المعاينة'; }
+        (TABLES.jt_issue_log = TABLES.jt_issue_log || []).push({ id: TABLES.jt_issue_log.length + 1, tenant_id: ji.tenant_id, issue_id: ji.id, at: tnow,
+          by_name: 'أدمن المعاينة', actor_role: 'admin', action: 'save', verdict: nv, note: nn, prev_verdict: pv, prev_note: pn,
+          verdict_changed: pv !== nv, note_changed: pn !== nn, review_state: null, review_note: null });
+      }
+      return Promise.resolve({ data:{ id:ji.id, verdict:ji.verdict, staff_note:ji.staff_note, staff_updated_at:ji.staff_updated_at,
+        verdict_by_name:ji.verdict_by_name, verdict_set_by_name:ji.verdict_set_by_name, verdict_set_at:ji.verdict_set_at, reported_at:ji.reported_at, reported_by_name:ji.reported_by_name, updated_at:ji.updated_at, staff_rev:ji.staff_rev, reviewed_rev:ji.reviewed_rev, review_state:ji.review_state,
+        review_note:ji.review_note, reviewed_at:ji.reviewed_at, reviewed_by_name:ji.reviewed_by_name }, error:null });
+    }
+    if(name === 'jt_issue_review'){
+      var jr = (TABLES.jt_issues || []).filter(function(r){ return r.id === (args && args.p_id); })[0];
+      if(!jr) return Promise.resolve({ data:null, error:{ code:'P0002', message:'not_found' } });
+      var act = args.p_action, rnow = new Date().toISOString();
+      if(act !== 'undo' && !jr.verdict) return Promise.resolve({ data:null, error:{ code:'22023', message:'not_handled' } });
+      if(act === 'sent_back' && !String(args.p_note || '').trim()) return Promise.resolve({ data:null, error:{ code:'22023', message:'note_required' } });
+      if(act === 'undo'){ jr.reviewed_rev = null; jr.review_state = null; jr.review_note = null; jr.reviewed_at = null; jr.reviewed_by_name = null; }
+      else { jr.reviewed_rev = jr.staff_rev; jr.review_state = act; jr.review_note = act === 'sent_back' ? args.p_note : null; jr.reviewed_at = rnow; jr.reviewed_by_name = 'أدمن المعاينة'; }
+      jr.updated_at = rnow;
+      (TABLES.jt_issue_log = TABLES.jt_issue_log || []).push({ id: TABLES.jt_issue_log.length + 1, tenant_id: jr.tenant_id, issue_id: jr.id, at: rnow,
+        by_name: 'أدمن المعاينة', actor_role: 'admin', action: act === 'undo' ? 'unreview' : 'review', verdict: jr.verdict, note: jr.staff_note,
+        prev_verdict: null, prev_note: null, verdict_changed: false, note_changed: false, review_state: act === 'undo' ? null : act,
+        review_note: act === 'sent_back' ? args.p_note : null });
+      return Promise.resolve({ data:{ id:jr.id, stale:false, verdict:jr.verdict, staff_note:jr.staff_note, staff_updated_at:jr.staff_updated_at,
+        verdict_by_name:jr.verdict_by_name, staff_rev:jr.staff_rev, reviewed_rev:jr.reviewed_rev, review_state:jr.review_state,
+        review_note:jr.review_note, reviewed_at:jr.reviewed_at, reviewed_by_name:jr.reviewed_by_name, updated_at:jr.updated_at }, error:null });
+    }
+    if(String(name).indexOf('wh_') === 0){ var whr = whRpc(name, args || {}); if(whr) return Promise.resolve({ data: whr, error:null }); }
     if(name === 'sahl_orders_stats') return Promise.resolve({ data: stats(args), error:null });
+    // تنبيه الدمج (v82): أوردرات «جاهز للشحن» اللي تليفونها متكرر بس — نفس تطبيع normalizePhone (زي الـSQL)
+    if(name === 'merge_candidates_v1'){
+      var MS = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'], AR = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
+      var np = function(p){ return String(p || '').replace(/[٠-٩۰-۹]/g, function(d){ return String(AR.indexOf(d) % 10); })
+        .replace(/\D/g, '').replace(/^20/, '').replace(/^0+/, ''); };
+      var mc = {}, mrows = TABLES.orders.filter(function(o){ return MS.indexOf(o.status) >= 0 && np(o.phone); });
+      mrows.forEach(function(o){ mc[np(o.phone)] = (mc[np(o.phone)] || 0) + 1; });
+      return Promise.resolve({ data: mrows.filter(function(o){ return mc[np(o.phone)] >= 2; }).map(function(o){
+        return { order_uid:o.order_uid, tracking_no:o.tracking_no, customer_name:o.customer_name, city:o.city, phone:o.phone, total_cost:o.total_cost, status:o.status };
+      }), error:null });
+    }
+    if(name === 'jt_sync_health') return Promise.resolve({ data:{ enabled:false, ofd:{ mode:'off' } }, error:null });
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
       if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:true, has_number:true, has_token:true, sahl_ready:false, wa_enabled:true }, error:null });
-      if(name === 'get_notify_prefs')  return Promise.resolve({ data:{}, error:null });
+      if(name === 'get_notify_prefs')  return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null });
+      if(name === 'update_notify_prefs'){ Object.assign(PREVIEW_PREFS, (args && args.p_prefs) || {}); return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null }); }
       return Promise.resolve({ data:null, error:null });
     },
     channel: function(){ return chan; },
@@ -528,7 +1088,9 @@
         }
         return Promise.resolve({ data: out, error:null });
       },
-      upload: function(){ return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }
+      // أصوات السكانر (v78): الرفع بينجح في الذاكرة (الصوت جاهز على الجهاز ده من غير ما يتجاب تاني) — غيره زي ما كان
+      upload: function(path){ if(/\/wh-sounds\//.test(String(path || ''))) return Promise.resolve({ data:{ path:path }, error:null });
+        return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }
     }; } },
     functions: { invoke: function(slug, opts){
       // قالب متابعة الأوردر: بنحاكي النجاح عشان المالك يشوف المسار كامل في
@@ -568,7 +1130,7 @@
         WA_CONVOS.unshift({ id:cid_, tenant_id:TENANT, wa_id:waid_, customer_name:(sb_.name||null),
           customer_phone:'0'+waid_.slice(2), last_message_at:at_, last_message_text:txt_.split('\n')[0],
           last_message_type:'template', last_direction:'out', unread_count:0, status:'open',
-          last_inbound_at:null, labels:null, note:null, ctwa_clid:null, ctwa_ad_id:null,
+          last_inbound_at:null, labels:[], note:null, complaint_at:null, complaint_at_estimated:false, ctwa_clid:null, ctwa_ad_id:null,
           ctwa_headline:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null,
           ctwa_ad_body:null, ctwa_source_url:null });
         var mid_ = 'wm-prev-' + (WA_MSGS.length + 1);

@@ -23,12 +23,13 @@
       product_name:'منتج أ (عدد 1)', total_cost:1000, payment_stage:'cod', platform:'fb',
       campaign_name:'حملة', real_shipping_fee:0, inventory_cost_snapshot:0,
       inventory_value_snapshot:0, inventory_value_at_bosta:0, packaging_cost:0,
-      customer_notes:null, internal_notes:null, customer_ranking:null,
+      customer_notes:null, internal_notes:null, customer_ranking:null, eo_rate:null, eo_rate_alt:null,
       cancel_requested_at:null, cancel_resolved_at:null, awb_print_count:0,
       status_changed_at:null, call_attempts:[], status_log:[{at:iso(3,9),to:'confirmed',by:'x'}],
       has_upsell:false, shipping_requested_at:null, line_prices:null,
       wa_followup_sent_at:null,
-      'var':null, manufacturer_note:null, manufacturer_cost:null
+      'var':null, manufacturer_note:null, manufacturer_cost:null,
+      exchange_of:null, ship_note:null, jt_remark:null
     }, o);
   }
   var ORDERS = [
@@ -79,14 +80,23 @@
                 commission_settlements:'__CM_SETTLE', v_commission_balances:'__CM_BAL',
                 wa_conversations:'__WA_CONVOS', wa_messages:'__WA_MSGS',
                 wa_quick_replies:'__QR', ctwa_ads:'__AD_NAMES',
-                wa_start_templates:'__START_TPLS' };
+                wa_start_templates:'__START_TPLS',
+                // استثناءات الشحن (8 أكتوبر): الفيو والجدول من نفس الفيكستشر — الفيكستشر
+                // بيحط `attempt` وأعمدة الأوردر بإيده (اللي الفيو بيحسبها على السيرفر)
+                v_jt_issues:'__JT_ISSUES', jt_issues:'__JT_ISSUES',
+                // سجل التعامل على الاستثناء (8 أكتوبر — v70): صف لكل حفظة/مراجعة
+                jt_issue_log:'__JT_LOG',
+                // رسايل «المندوب في الطريق» (11 أكتوبر): صفوف wa_ofd_sends للأوردر
+                wa_ofd_sends:'__OFD_SENDS',
+                // سكانر المخزن (14 أكتوبر): الجرد المفتوح/اللي فات
+                stock_counts:'__WH_COUNTS',
+                // أصوات السكانر (15 أكتوبر — v78): wh_config.sounds
+                wh_config:'__WH_CONFIG' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
     if(table === 'v_stock_products' && window.__STOCK) rows = window.__STOCK.slice();
     if(table === 'v_my_tenant'){
-      // زرار «شحن أوتوماتيك» بيقرا العمود ده — الاختبار بيطفيه بـ__SHIP_API=false
-      rows = rows.map(function(t){ return Object.assign({}, t, { has_shipping_api: window.__SHIP_API !== false }); });
       // إعدادات المتجر اللي الاختبار عايز يزوّدها (قالب المتابعة مثلاً).
       // الافتراضي **فاضي** عن قصد: من غيره كل اختبار قديم كان هيلاقي إعداد
       // مالوش لازمة عنده. وبيتقرا وقت الاستعلام مش وقت التحميل.
@@ -97,8 +107,13 @@
       // الاستعلام**. الحقن على DOMContentLoaded ماينفعش — موديولات ES بتتنفّذ
       // قبله، فالـ16 استعلام كلهم بيخرجوا والصفحة اترسمت قبل ما الحدث يولّع.
       if(st.eqId) rows = rows.filter(function(o){ return o.id === st.eqId; });
-      // علامة الشحن في الجدول: الاختبار بيحقن {id: iso} والستب بيطبّقها
-      // وقت الاستعلام — نفس نمط __UPSELL_IDS
+      // `.in('id', …)` زي PostgREST (v80): الطباعة والتيكر بيطلبوا أوردرات بعينها — من غيره
+      // الستب كان بيرجّع كل الصفوف والطباعة بتشتغل على أوردرات محدش اختارها
+      (st.f || []).forEach(function(f){ if(f.op === 'in' && f.col === 'id') rows = rows.filter(function(o){ return (f.val || []).indexOf(o.id) >= 0; }); });
+      if(st.eqExchange !== undefined) rows = rows.filter(function(o){ return o.exchange_of === st.eqExchange; });
+      // shipping_requested_at (محاولة شحن بوسطة القديمة): الاختبار بيحقن {id: iso} والستب بيطبّقها
+      // وقت الاستعلام — نفس نمط __UPSELL_IDS. ⚠️ من v80 الجدول مابيطلبش العمود ده، فبيوصل
+      // لـselect('*') بس (نافذة التفاصيل)
       var sq = window.__SHIP_REQS || {};
       rows = rows.map(function(o){
         return sq[o.id] !== undefined ? Object.assign({}, o, {shipping_requested_at: sq[o.id]}) : o;
@@ -124,12 +139,31 @@
       // بيرجّع **نفس المراجع** فأي خاصية الكود بيكتبها على صف بتظهر في
       // نتيجة أي استعلام تاني — ستب بيخبّي ويكشف حاجات مش حقيقية.
       rows = rows.map(function(c){ return Object.assign({}, c); });
+      // فتح شات برقم العميل (تاب الاستثناءات) — `.eq('wa_id', x)` لازم يتطبّق فعلاً
+      if(st.eqWa !== undefined) rows = rows.filter(function(c){ return c.wa_id === st.eqWa; });
+      // v82: فتح محادثة مش في القايمة برقمها (`.eq('id', x)` — إشعار لعميل جديد) — لازم يتطبّق فعلاً
+      if(st.eqId !== undefined && !st.payload) rows = rows.filter(function(c){ return c.id === st.eqId; });
       // 🔴 والستب لازم يقطع **زي السيرفر**: من غير ده فلتر بيقرا من المحمّل
       // وفلتر بيستعلم من السيرفر بيدّوا نفس النتيجة، والاختبار مايثبتش حاجة
       // (درس 33 — ستب بيرجّع كل حاجة مهما طلب الكود = فحص أعمى).
       if(st.or && st.or.indexOf('ctwa_') >= 0){
         rows = rows.filter(function(c){
           return !!(c.ctwa_first_at||c.ctwa_ad_id||c.ctwa_clid||c.ctwa_ad_body||c.ctwa_headline);
+        });
+      }
+      // 🔴 بحث المحادثات (24 سبتمبر): `.or('col.ilike.*x*,…')` بيتطبّق **فعلاً**
+      // زي PostgREST — `*` و`%` = أي نص، `_` = حرف واحد، ومن غير حساسية
+      // لحالة الحروف. قبل كده الستب كان بيخزّن الـor ويطنّشه، يعني أي فحص
+      // بحث كان هيرجّع **كل** المحادثات ويعدّي وهو أعمى (درس 33).
+      if(st.or && st.or.indexOf('.ilike.') >= 0){
+        var terms = st.or.split(',').map(function(t){
+          var p = t.split('.'); if(p.length < 3 || p[1] !== 'ilike') return null;
+          var pat = p.slice(2).join('.');
+          var rx = pat.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[*%]/g, '.*').replace(/_/g, '.');
+          return { col: p[0], rx: new RegExp('^' + rx + '$', 'i') };
+        }).filter(Boolean);
+        rows = rows.filter(function(c){
+          return terms.some(function(t){ return t.rx.test(String(c[t.col] == null ? '' : c[t.col])); });
         });
       }
       // `.not('labels','is',null)` — فلتر المحادثات المصنّفة.
@@ -140,14 +174,71 @@
         var ncol = st.not.col;
         rows = rows.filter(function(c){ return c[ncol] !== null && c[ncol] !== undefined; });
       }
-      if(st.order === 'last_message_at'){
-        var asc = !!(st.orderOpts && st.orderOpts.ascending);
+      // `.not('labels','eq','{}')` — الشكل الصح (27 سبتمبر): `NOT (labels = '{}')`.
+      // في SQL الـNULL = '{}' بيدي NULL فالـNOT بيستبعده كمان — نفس السلوك هنا.
+      if(st.not && st.not.op === 'eq' && st.not.val === '{}'){
+        var ecol = st.not.col;
+        rows = rows.filter(function(c){ return Array.isArray(c[ecol]) && c[ecol].length > 0; });
+      }
+      // 🔴 v82: الجلب التدريجي (`.gt('updated_at', x)` + order updated_at) بيتطبّق فعلاً — من غيره الدلتا بترجّع **كل**
+      // المحادثات والفحص «جاب اللي اتغيّر بس» بيعدّي أعمى (درس 33). الفيكستشر القديم مالوش updated_at فمابيوصلش هنا أصلاً.
+      (st.f || []).forEach(function(f){
+        if(f.col !== 'updated_at') return;
+        rows = rows.filter(function(c){
+          if(c.updated_at == null) return false;
+          var a = Date.parse(c.updated_at), b = Date.parse(f.val);
+          return f.op === 'gt' ? a > b : (f.op === 'gte' ? a >= b : true);
+        });
+      });
+      if(st.order === 'last_message_at' || st.order === 'updated_at'){
+        var asc = !!(st.orderOpts && st.orderOpts.ascending), ocol0 = st.order;
         rows.sort(function(a,b){
-          var r = String(a.last_message_at||'').localeCompare(String(b.last_message_at||''));
+          var r = String(a[ocol0]||'').localeCompare(String(b[ocol0]||''));
           return asc ? r : -r;
         });
       }
       if(st.limit) rows = rows.slice(0, st.limit);
+    }
+    // 🔴 جداول الاستثناءات: كل الفلاتر بتتطبّق فعلاً زي PostgREST (eq/gte/lt/in/is + order + limit)
+    // — ستب بيرجّع كل الصفوف مهما اتطلب = أي فحص على الفترة أو المزامنة التدريجية بيعدّي أعمى (درس 33).
+    // ونسخ مش نفس المراجع: الكود بيكتب حقول على الصفوف (`_t` · `_ymd`).
+    if(table === 'v_jt_issues' || table === 'jt_issues' || table === 'jt_issue_log' || table === 'wa_ofd_sends'){
+      rows = rows.map(function(r){ return Object.assign({}, r); });
+      (st.f || []).forEach(function(f){
+        rows = rows.filter(function(r){
+          var v = r[f.col];
+          if(f.op === 'eq')  return String(v) === String(f.val);
+          if(f.op === 'gte') return v != null && String(v) >= String(f.val);
+          if(f.op === 'gt')  return v != null && String(v) >  String(f.val);
+          if(f.op === 'lt')  return v != null && String(v) <  String(f.val);
+          if(f.op === 'lte') return v != null && String(v) <= String(f.val);
+          if(f.op === 'in')  return (f.val || []).map(String).indexOf(String(v)) >= 0;
+          if(f.op === 'is')  return f.val === null ? (v === null || v === undefined) : v === f.val;
+          return true;
+        });
+      });
+      if(st.order){
+        var oasc = !!(st.orderOpts && st.orderOpts.ascending), ocol = st.order;
+        rows.sort(function(a, b){ var r = String(a[ocol] || '').localeCompare(String(b[ocol] || '')); return oasc ? r : -r; });
+      }
+      if(st.limit) rows = rows.slice(0, st.limit);
+      if(window.__JT_FAIL) return null;
+    }
+    // حالة رسايل «المندوب في الطريق» (11 أكتوبر): `.in('wa_message_id', ids)` بس بيتطبّق — الاختبارات القديمة
+    // على wa_messages بتعتمد إنه مابيفلترش غير كده (السلوك القديم بالحرف)
+    if(table === 'wa_messages'){
+      (st.f || []).forEach(function(f){
+        if(f.op === 'in' && f.col === 'wa_message_id') rows = rows.filter(function(r){ return (f.val || []).map(String).indexOf(String(r.wa_message_id)) >= 0; });
+      });
+      // v82: جلب الرسايل الجديدة بس (`.gte('created_at')`) — المحادثة والوقت والترتيب والحد بيتطبّقوا زي PostgREST.
+      // الجلب الكامل القديم مالوش gte فبيفضل بسلوكه القديم بالحرف (الاختبارات القديمة بتعتمد عليه)
+      var mg = (st.f || []).filter(function(f){ return f.op === 'gte' && f.col === 'created_at'; })[0];
+      if(mg){
+        (st.f || []).forEach(function(f){ if(f.op === 'eq' && f.col === 'conversation_id') rows = rows.filter(function(r){ return r.conversation_id === f.val; }); });
+        rows = rows.filter(function(r){ return r.created_at && Date.parse(r.created_at) >= Date.parse(mg.val); });
+        rows.sort(function(a,b){ var r = String(a.created_at).localeCompare(String(b.created_at)); return (st.orderOpts && st.orderOpts.ascending) ? r : -r; });
+        if(st.limit) rows = rows.slice(0, st.limit);
+      }
     }
     return rows;
   }
@@ -161,10 +252,19 @@
         // تسجيل حمولة الكتابة — عشان الاختبارات تتأكد من اللي اتبعت فعلاً
         if(m === 'insert' || m === 'update' || m === 'upsert') st.payload = a;
         if(m === 'insert') st.inserted = true;
+        if(m === 'delete') st.deleted = true;
         if(m === 'gte' && a === 'created_at') st.gte = {col:a, val:b};
         if(m === 'lt'  && a === 'created_at') st.lt  = {col:a, val:b};
         if(m === 'eq'  && a === 'status')     st.eqStatus = b;
         if(m === 'eq'  && a === 'id')         st.eqId = b;
+        // ربط الاستبدال (3 أكتوبر): «اتعمله استبدال» بيستعلم بـexchange_of — من غير التطبيق الستب
+        // بيرجّع كل الأوردرات كأنها استبدالات والفحص بيعدّي أعمى (درس 33)
+        if(m === 'eq'  && a === 'exchange_of') st.eqExchange = b;
+        if(m === 'eq'  && a === 'wa_id') st.eqWa = b;
+        // سجل عام لكل الفلاتر (بيتطبّق على جداول الاستثناءات بس — الباقي بنفس سلوكه القديم بالحرف)
+        if(m === 'eq' || m === 'gte' || m === 'gt' || m === 'lt' || m === 'lte' || m === 'in' || m === 'is'){
+          (st.f = st.f || []).push({ op: m, col: a, val: b });
+        }
         if(m === 'in'  && a === 'status')     st.inStatus = b;
         if(m === 'range'){ st.from = a; st.to = b; }
         if(m === 'order'){ st.order = a; st.orderOpts = b; }
@@ -193,8 +293,22 @@
         var row = Object.assign({id:'new-'+(window.__calls.length)}, ins||{});
         return Promise.resolve({data: project([row], st.cols)[0], error:null}).then(res);
       }
-      var rows = project(rowsFor(table, st), st.cols);
+      // الردود المحفوظة: التعديل والحذف بيتطبّقوا فعلاً على __QR زي السيرفر —
+      // من غيره أي فحص «اتحفظ؟» بيقرا فيكستشر ماتغيّرش (الترتيب/الاسم)
+      if(table === 'wa_quick_replies' && st.eqId && Array.isArray(window.__QR)){
+        if(st.deleted) window.__QR = window.__QR.filter(function(q){ return q.id !== st.eqId; });
+        else if(st.payload && !st.inserted) window.__QR.forEach(function(q){ if(q.id === st.eqId) Object.assign(q, st.payload); });
+      }
+      var raw = rowsFor(table, st);
+      if(raw === null){
+        // الجدول مش موجود (الـSQL لسه ماتطبّقش) — نفس شكل خطأ PostgREST الحقيقي
+        return Promise.resolve({data:null, error:{code:'PGRST205', message:"Could not find the table 'public." + table + "' in the schema cache"}}).then(res);
+      }
+      var rows = project(raw, st.cols);
       var out = st.single ? {data: rows[0] || null, error:null} : {data: rows, error:null, count: rows.length};
+      // تأخير رد اختياري لجدول/استعلام بعينه (`__TABLE_DELAY(table, st)` → ms) — اختبار «رد قديم وصل بعد ما الموظف فتح أوردر تاني»
+      var dl = typeof window.__TABLE_DELAY === 'function' ? window.__TABLE_DELAY(table, st) : 0;
+      if(dl) return new Promise(function(r){ setTimeout(function(){ r(out); }, dl); }).then(res);
       return Promise.resolve(out).then(res);
     };
     return api;
@@ -215,8 +329,15 @@
       sum_expected:0, sum_lost:0, sum_paymob:0};
   }
 
-  var chan = {}; ['on'].forEach(function(m){ chan[m]=function(){ return chan; }; });
-  chan.subscribe = function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); },0); return chan; };
+  // الريل-تايم: قناة لكل اسم، والهاندلرز بتتسجّل في `__RT_ON` باسم قناتها — الاختبار يقدر
+  // يولّع حدث بإيده ويتأكد إن الجدول على القناة الصح (من غير ما يتغيّر أي سلوك قديم —
+  // الـon كان بيرجّع القناة وبس، والـsubscribe بيرد SUBSCRIBED)
+  function mkChan(name){
+    var chan = {};
+    chan.on = function(type, opts, cb){ (window.__RT_ON = window.__RT_ON || []).push({ channel: name, type: type, opts: opts, cb: cb }); return chan; };
+    chan.subscribe = function(cb){ if(cb) setTimeout(function(){ cb('SUBSCRIBED'); },0); return chan; };
+    return chan;
+  }
 
   var client = {
     auth: {
@@ -235,10 +356,23 @@
       // ⚠ الاسم __RPC_HOOK عمداً — الاختبارات القديمة بتستخدم __RPC كمصفوفة تسجيل
       if(typeof window.__RPC_HOOK === 'function'){ var hooked = window.__RPC_HOOK(name, args); if(hooked) return Promise.resolve(hooked); }
       if(name === 'sahl_orders_stats') return Promise.resolve({data: statsFor(args), error:null});
+      // تنبيه الدمج (v82): أوردرات «جاهز للشحن» اللي تليفونها متكرر بس — نفس الـSQL (التطبيع = normalizePhone).
+      // `__MERGE_RPC_MISSING` = السيرفر لسه مافيهوش الدالة (PGRST202) → الواجهة لازم ترجع للاستعلام القديم
+      if(name === 'merge_candidates_v1'){
+        if(window.__MERGE_RPC_MISSING) return Promise.resolve({data:null, error:{code:'PGRST202', message:'Could not find the function public.merge_candidates_v1(p_tenant) in the schema cache'}});
+        var MS = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'], AR = '٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹';
+        var np = function(p){ return String(p || '').replace(/[٠-٩۰-۹]/g, function(d){ return String(AR.indexOf(d) % 10); })
+          .replace(/\D/g, '').replace(/^20/, '').replace(/^0+/, ''); };
+        var mc = {}, mrows = (window.__ORDERS || []).filter(function(o){ return MS.indexOf(o.status) >= 0 && np(o.phone); });
+        mrows.forEach(function(o){ mc[np(o.phone)] = (mc[np(o.phone)] || 0) + 1; });
+        return Promise.resolve({data: mrows.filter(function(o){ return mc[np(o.phone)] >= 2; }).map(function(o){
+          return { order_uid:o.order_uid, tracking_no:o.tracking_no, customer_name:o.customer_name, city:o.city, phone:o.phone, total_cost:o.total_cost, status:o.status };
+        }), error:null});
+      }
       if(name === 'wa_inbox_status')   return Promise.resolve({data:{verified:false}, error:null});
       return Promise.resolve({data:null, error:null});
     },
-    channel: function(){ return chan; },
+    channel: function(name){ (window.__RT_CHANNELS = window.__RT_CHANNELS || []).push(name); return mkChan(name); },
     removeChannel: function(){},
     storage: { from: function(){ return {
       // ⚠️ الافتراضي **روابط فاضية** زي ما كان بالحرف — الاختبارات القديمة
@@ -255,9 +389,13 @@
       // رفع بيشغّل `window.__UPLOAD_OK=true`، والمسارات بتتسجّل في
       // `__UPLOADS` عشان الفحص يتأكد من **شكل المسار** اللي اتبعت فعلاً
       // (عزل المتجر بيعتمد على أول مجلد).
-      upload: function(path){
+      upload: function(path, file, opts){
         window.__UPLOADS = window.__UPLOADS || [];
         window.__UPLOADS.push(path);
+        // الملف نفسه + الـcontentType — عشان الفحص يقرا **البايتات اللي اترفعت**
+        // مش الامتداد بس (webp متسمّي .jpg = نفس الموت عند ميتا)
+        window.__UPLOAD_FILES = window.__UPLOAD_FILES || [];
+        window.__UPLOAD_FILES.push({ path: path, file: file, contentType: opts && opts.contentType });
         if(!window.__UPLOAD_OK) return Promise.resolve({data:null, error:{message:'stub'}});
         return Promise.resolve({data:{path:path}, error:null});
       }
