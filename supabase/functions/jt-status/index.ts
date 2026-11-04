@@ -60,8 +60,11 @@ Deno.serve(async (req: Request) => {
 
   const bizContent = await readBiz(req);
   const digest = req.headers.get("digest") || "";
-  const keys = await callbackKeys(admin);
-  const digestOk = keys.length > 0 && keys.some((k) => verifyCallbackDigest(bizContent, digest, k));
+  // المفاتيح متكيّشة 10 دقايق (Log Ingestion — شوف callbackKeys). لو التوقيع ماطابقش اللي في الكاش
+  // بنقرا من الـVault تاني قبل ما نحكم — مفتاح اتغيّر عند J&T مايترفضش بسبب الكاش.
+  const sig = (ks: string[]) => ks.length > 0 && ks.some((k) => verifyCallbackDigest(bizContent, digest, k));
+  let digestOk = sig(await callbackKeys(admin));
+  if (!digestOk) digestOk = sig(await callbackKeys(admin, { fresh: true }));
 
   let payload: Record<string, unknown> = {};
   try { const p = JSON.parse(bizContent); if (p && typeof p === "object") payload = p; } catch { payload = { _raw: bizContent.slice(0, 4000) }; }

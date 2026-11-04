@@ -359,7 +359,7 @@ console.log('──── المعايرات ────');
   await p.close();
 }
 { // (د) شيل بادئة المتجر → 11ج
-  const p = await openInbox({ patch: [["var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;", "var path='quick-replies/'+Date.now()+'-'+i+'.'+ext;"]] });
+  const p = await openInbox({ patch: [["var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+(seq++)+'.'+ext;", "var path='quick-replies/'+Date.now()+'-'+(seq++)+'.'+ext;"]] });
   await p.click('#wa-qrm-open'); await p.waitForTimeout(200);
   await p.click('#wa-qrm-new');
   await p.fill('#wa-qrm-name', 'ن');

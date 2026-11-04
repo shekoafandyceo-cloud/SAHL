@@ -385,6 +385,13 @@
         }
         return Promise.resolve({data: out, error: null});
       },
+      // v83: قايمة فولدر (حجم صور الردود المحفوظة) — `window.__STORAGE_LIST` = {فولدر: [{name, metadata:{size}}]}.
+      // الافتراضي قايمة فاضية (مفيش أحجام = مفيش علامة «تقيلة») زي قبل v83.
+      list: function(dir){
+        window.__LIST_CALLS = (window.__LIST_CALLS || 0) + 1;
+        var m = window.__STORAGE_LIST || {};
+        return Promise.resolve({ data: (m[dir] || []).map(function(o){ return JSON.parse(JSON.stringify(o)); }), error: null });
+      },
       // ⚠️ الافتراضي **فشل** زي ما كان بالحرف. الاختبار اللي بيجرّب مسار
       // رفع بيشغّل `window.__UPLOAD_OK=true`، والمسارات بتتسجّل في
       // `__UPLOADS` عشان الفحص يتأكد من **شكل المسار** اللي اتبعت فعلاً

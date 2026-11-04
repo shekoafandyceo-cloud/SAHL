@@ -17,7 +17,7 @@
 //   fee_sync      → (diag/service بس) getWaybillInfo للمسلّم/المرتجع → jt_apply_fee_v1 (التكلفة النهائية + رسوم COD)
 //   trace_sync    → (diag/service بس) مصالحة بالسحب: logistics/trace لكل أوردر لسه ماوصلش حالة نهائية →
 //                   المسحات الناقصة على **نفس** jt_apply_trace_v1 (30 سبتمبر — الـpush بيضيع ~1%)
-//                   + الـCOD الحقيقي عند J&T (getOrders itemsValue → jt_set_cod_v1 — 1 أكتوبر)
+//                   + الـCOD الحقيقي عند J&T (getOrders itemsValue → jt_set_cod_batch_v1 — نداء للدفعة من 4 نوفمبر)
 //   (الاتنين بيسجّلوا كل تشغيل في jt_sync_runs — الواجهة بتنبّه الأدمن لو المزامنة وقفت)
 //
 // env: الموظف دايماً على البيئة الافتراضية (JT_ENV). diag/service يقدروا يطلبوا sandbox.
@@ -216,7 +216,7 @@ Deno.serve(async (req: Request) => {
     // ── الـCOD عند J&T (1 أكتوبر) ──
     // 🔴 J&T بتحصّل itemsValue اللي اتبعت وقت الشحن (أو اللي اتعدّل في البوابة) — مش
     // total_cost عندنا. اتقاس: 3 من 223 مختلفين (إجمالي اتعدّل بعد الشحن · تعديل في البوابة).
-    // jt_set_cod_v1 بيسجّله وبيعيد حساب رسوم COD على المبلغ الحقيقي لو التكلفة نهائية.
+    // app.jt_set_cod بتسجّله وبيعيد حساب رسوم COD على المبلغ الحقيقي لو التكلفة نهائية.
     // ⚠️ getOrders بيرجّع 20 بس في النداء ويسقط الباقي **في صمت** (اتقاس) — الدفعة 20.
     const codTally: Record<string, number> = {};
     const codBump = (k: string) => { codTally[k] = (codTally[k] || 0) + 1; };
@@ -232,13 +232,21 @@ Deno.serve(async (req: Request) => {
       if (r.code !== "1") { codBump("batch_error"); continue; }
       // deno-lint-ignore no-explicit-any
       const rows: any[] = Array.isArray(r.data) ? r.data : [];
+      // 🔴 نداء واحد للدفعة (4 نوفمبر — `Log Ingestion` عدّت حصة الـFree Plan): نداء لكل أوردر
+      // كان 12,290 Request/يوم = 29% من كل الـAPI. `jt_set_cod_batch_v1` = نفس `app.jt_set_cod`
+      // بالحرف لكل عنصر (كل عنصر في subtransaction لوحده) وبترجّع نفس الـnotes كعدّاد.
+      const items: { bill_code: string; cod: number }[] = [];
       for (const x of rows) {
         const bc = String(x?.billCode || "");
         const cod = Number(x?.itemsValue);
         if (!bc || !Number.isFinite(cod)) { codBump("no_value"); continue; }
-        const { data: a, error: aErr } = await admin.rpc("jt_set_cod_v1", { p_bill_code: bc, p_cod: cod });
-        codBump(aErr ? "error" : String(a?.note || "?"));
+        items.push({ bill_code: bc, cod });
       }
+      if (!items.length) continue;
+      const { data: a, error: aErr } = await admin.rpc("jt_set_cod_batch_v1", { p_items: items });
+      const t = (a && a.ok === true && a.tally && typeof a.tally === "object") ? a.tally as Record<string, unknown> : null;
+      if (aErr || !t) { codTally.error = (codTally.error || 0) + items.length; continue; }
+      for (const k of Object.keys(t)) codTally[k] = (codTally[k] || 0) + (Number(t[k]) || 0);
     }
 
     await logRun("trace_sync", !failMsg, codes.length, { ...tally, changed: changed.length, cod: codTally }, failMsg);

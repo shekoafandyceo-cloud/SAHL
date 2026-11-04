@@ -1118,23 +1118,40 @@ function waSniffImage(f){
     return '';
   }, function(){ return ''; });
 }
-var WA_IMG_MAX_DIM=4096;   // سقف آمن للـcanvas — iOS Safari بيرجّع null فوق ~16.7 ميجابكسل
+// 🔴 v83 (4 نوفمبر — `Egress`): أي صورة فوق 400 KB بتتصغّر قبل الرفع — أطول ضلع 1600px وجودة 85%.
+// السبب مقاس: رد محفوظ واحد («مطبببببببببببببخ 2») صوره 5.2 MB واتبعت ~40 مرة في اليوم، وكل
+// إرسال ميتا بتنزّل الصورة من الـStorage، وكل موظف بيفتح الشات بينزّلها تاني — الـEgress رجع يطلع
+// لـ250–400 MB/يوم والحد ~75. و1600px هو المقاس اللي واتساب نفسه بيبعت بيه الصور العادية (صور
+// العملاء الواردة: الوسيط 101 KB) — فالعميل مش هيشوف فرق على شاشة الموبايل.
+// · الصورة الصغيرة (≤ 400 KB) بتعدّي **زي ما هي** — مفيش إعادة ضغط على الفاضي.
+// · التصغير مانفعش يصغّر (نادر) = الأصل · المتصفح مافكّش JPEG/PNG = الأصل (زي قبل v83).
+// · والنتيجة لازم ≤ 5 MB (حد ميتا) — الاختيار نفسه بقى يقبل لحد 25 MB لأنها بتتصغّر.
+var WA_IMG_LIGHT=400*1024;   // تحت ده الصورة بتتبعت زي ما هي
+var WA_IMG_SEND_DIM=1600;    // أطول ضلع بعد التصغير
+var WA_IMG_PICK_MAX=25*1024*1024;   // حد الاختيار قبل التصغير
+var WA_IMG_PICK_MSG='الصورة كبيرة (الحد 25 ميجا)';
 function waBaseName(f){ return String((f&&f.name)||'image').replace(/\.[^.]*$/,'')||'image'; }
 export function waEnsureSendableImage(f){
   if(!f) return Promise.resolve(f);
   return waSniffImage(f).then(function(kind){
-    if(kind){
-      if(f.type===kind) return f;   // JPEG/PNG سليم — نفس الملف بالظبط
-      // البايتات JPEG/PNG والـtype غلط — نفس البايتات بالـtype والامتداد الصح
-      return new File([f], waBaseName(f)+(kind==='image/png'?'.png':'.jpg'), {type:kind});
-    }
-    return waToJpeg(f);
+    // JPEG/PNG: نفس البايتات (ولو الـtype غلط — بالـtype والامتداد الصح)
+    var same = !kind ? null
+      : (f.type===kind ? f : new File([f], waBaseName(f)+(kind==='image/png'?'.png':'.jpg'), {type:kind}));
+    if(same && same.size<=WA_IMG_LIGHT) return same;
+    return waShrinkImage(f).then(function(out){
+      return (same && out.size>=same.size) ? same : out;
+    }, function(e){
+      if(same) return same;
+      throw e;
+    });
+  }).then(function(r){
+    if(r && r.size>WA_IMG_MAX) throw new Error('too_big');
+    return r;
   });
 }
-// تحويل لـJPEG: خلفية بيضا (JPEG مالوش شفافية — الشفاف كان هيطلع أسود) ·
-// لو الناتج فوق 5 ميجا بنقلّل الجودة وبعدين المقاس بدل ما نرفض — الموظف
-// مايضطرش يحوّل بإيده (ده كان الحل اليدوي قبل الإصلاح).
-function waToJpeg(f){
+// تحويل/تصغير لـJPEG: أطول ضلع ≤ 1600px · خلفية بيضا (JPEG مالوش شفافية — الشفاف كان هيطلع
+// أسود) · لو الناتج فوق 5 ميجا (مستحيل تقريباً بالمقاس ده) بنقلّل الجودة وبعدين المقاس بدل ما نرفض.
+function waShrinkImage(f){
   return new Promise(function(resolve,reject){
     var url=URL.createObjectURL(f);
     var img=new Image();
@@ -1142,8 +1159,8 @@ function waToJpeg(f){
     img.onload=function(){
       var w0=img.naturalWidth, h0=img.naturalHeight;
       if(!w0||!h0){ done(); reject(new Error('unsupported_image')); return; }
-      var scale=Math.min(1, WA_IMG_MAX_DIM/Math.max(w0,h0));
-      var qs=[0.92,0.8,0.7];
+      var scale=Math.min(1, WA_IMG_SEND_DIM/Math.max(w0,h0));
+      var qs=[0.85,0.75,0.65];
       function attempt(qi){
         var w=Math.max(1,Math.round(w0*scale)), h=Math.max(1,Math.round(h0*scale));
         var c=document.createElement('canvas'); c.width=w; c.height=h;
@@ -1167,7 +1184,7 @@ function waToJpeg(f){
 }
 var WA_IMG_ERR={
   unsupported_image:'صيغة الصورة دي مش مدعومة في واتساب — ابعتها JPG أو PNG',
-  too_big:'الصورة كبيرة بعد التحويل (الحد 5 ميجا)',
+  too_big:'الصورة كبيرة حتى بعد التصغير (حد واتساب 5 ميجا)',
   unsupported_image_type:'واتساب بيقبل صور JPG وPNG بس — الصورة دي بصيغة تانية'
 };
 
@@ -1175,7 +1192,7 @@ export function waPickImage(e){
   var f=e.target.files&&e.target.files[0];
   if(!f) return;
   if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); e.target.value=''; return; }
-  if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
+  if(f.size>WA_IMG_PICK_MAX){ toast(WA_IMG_PICK_MSG,'er'); e.target.value=''; return; }
   waPendingImage=f; waPendingDoc=null;
   var df=$id('wa-docfile'); if(df) df.value='';
   var prev=$id('wa-attach-preview');
@@ -1191,7 +1208,7 @@ export function waPickFile(e){
   if(!f) return;
   // لو صورة، عاملها معاملة الصور (تظهر inline للعميل)
   if(/^image\//.test(f.type)){
-    if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); e.target.value=''; return; }
+    if(f.size>WA_IMG_PICK_MAX){ toast(WA_IMG_PICK_MSG,'er'); e.target.value=''; return; }
     waPendingImage=f; waPendingDoc=null;
     var prevI=$id('wa-attach-preview'); var urlI=URL.createObjectURL(f);
     waSetPreviewUrl(urlI);
@@ -1294,7 +1311,7 @@ export function waSend(){
     waRefreshConvos();
   }
   if(imgFile){
-    // webp وأخواتها بتتحوّل JPEG قبل الرفع (شوف `waEnsureSendableImage`)
+    // webp وأخواتها بتتحوّل JPEG وأي صورة فوق 400 KB بتتصغّر قبل الرفع (شوف `waEnsureSendableImage`)
     waEnsureSendableImage(imgFile).then(function(sf){
       var ext=((sf.type.split('/')[1])||'jpg').replace('jpeg','jpg');
       var path=currentTenantId+'/'+convAtSend+'/out-'+Date.now()+'.'+ext;
@@ -1549,6 +1566,45 @@ export function waQrBroken(q){
 }
 var WA_QR_BROKEN_MSG='صورة في الرد ده بصيغة واتساب مابيقبلهاش (webp) — افتح ⚡ إضافة و تعديل ← ✏️ وشيلها بـ✕ وضيفها تاني';
 
+// 🔴 v83 — الصور التقيلة في الردود المحفوظة (`Egress`): رد بيتبعت عشرات المرات في اليوم وصوره
+// 5 ميجا كان أكبر سبب لرجوع الـEgress (4 نوفمبر). الحجم من `media[].size` (بيتكتب مع أي رفع من
+// v83) وإلا من قايمة الـStorage (`waQrLoadSizes` — بتتجاب مع فتح نافذة الإدارة). مجهول = مش تقيل.
+export var waQrSizes={};
+var waQrSizesAt=0;
+export function waQrImgSize(m){
+  var v=Number(m && m.size);
+  if(isFinite(v) && v>0) return v;
+  var w=m && m.path ? Number(waQrSizes[m.path]) : NaN;
+  return (isFinite(w) && w>0) ? w : 0;
+}
+export function waQrHeavy(q){
+  var n=0, bytes=0;
+  waQrMedia(q).forEach(function(m){ var z=waQrImgSize(m); if(z>WA_IMG_LIGHT){ n++; bytes+=z; } });
+  return {n:n, bytes:bytes};
+}
+export function waFmtBytes(b){
+  b=Number(b)||0;
+  return b>=1024*1024 ? (Math.round(b/1024/1024*10)/10)+' MB' : Math.max(1,Math.round(b/1024))+' KB';
+}
+// الحجم من قايمة الـStorage (فولدر `<tenant>/quick-replies` كله في نداء واحد — JSON صغير)
+export function waQrLoadSizes(force){
+  if(!sb || !currentTenantId) return;
+  if(!force && Date.now()-waQrSizesAt<60000) return;
+  waQrSizesAt=Date.now();
+  var dir=currentTenantId+'/quick-replies';
+  sb.storage.from('wa-media').list(dir,{limit:1000}).then(function(r){
+    if(!r || r.error || !r.data) return;
+    var m={};
+    r.data.forEach(function(o){
+      var z=Number(o && o.metadata && o.metadata.size);
+      if(o && o.name && isFinite(z) && z>0) m[dir+'/'+o.name]=z;
+    });
+    waQrSizes=m;
+    waQrmRender();
+    if(waQrmEditId!==null) waQrmThumbs();
+  }).catch(function(){});
+}
+
 // اسم الزرار: الاسم المختصر، ولو الرد قديم من قبل الأسماء — أول كلامه
 // (مقصوص). رد صور بس من غير اسم = «صور (N)» بدل زرار فاضي.
 export function waQrLabel(q){
@@ -1614,6 +1670,7 @@ export function waQrToggleCollapsed(){
 var waQrmEditId=null;           // null = قايمة · 'new' = رد جديد · id = تعديل
 var waQrmKeep=[];               // صور الرد الموجودة اللي لسه متسابة [{path,mime,name,url}]
 var waQrmFiles=[], waQrmUrls=[]; // صور جديدة لسه مارتفعتش + معايناتها (blob)
+var waQrmShrinkUrls=[];          // معاينات الصور الموجودة اللي اتصغّرت (blob) — بتتفك مع القفل
 var waQrmBusy=false;
 
 function waQrmEl(){
@@ -1634,6 +1691,7 @@ export function waQrmOpen(body){
   var bd=waQrmEl();
   waQrmEditId=null; waQrmResetForm();
   bd.classList.add('open');
+  waQrLoadSizes(true);
   // «＋ احفظ اللي مكتوب» القديم: النص اللي في خانة الشات بيفتح رد جديد جاهز
   if(typeof body==='string' && body.trim()) waQrmEdit('new', body.trim());
   else waQrmRender();
@@ -1646,7 +1704,8 @@ export function waQrmClose(){
 
 function waQrmResetForm(){
   for(var i=0;i<waQrmUrls.length;i++){ try{ URL.revokeObjectURL(waQrmUrls[i]); }catch(e){} }
-  waQrmFiles=[]; waQrmUrls=[]; waQrmKeep=[]; waQrmBusy=false;
+  for(var j=0;j<waQrmShrinkUrls.length;j++){ try{ URL.revokeObjectURL(waQrmShrinkUrls[j]); }catch(e){} }
+  waQrmFiles=[]; waQrmUrls=[]; waQrmKeep=[]; waQrmShrinkUrls=[]; waQrmBusy=false;
 }
 
 export function waQrmRender(){
@@ -1666,7 +1725,9 @@ export function waQrmRender(){
       +'<div class="wa-qrm-main"><div class="wa-qrm-name">'+esc(waQrLabel(q))
       +(named?'':' <span class="wa-qrm-noname">بدون اسم</span>')
       +(med.length?' <span class="wa-qr-badge">📎'+med.length+'</span>':'')
-      +(waQrBroken(q)?' <span class="wa-qrm-bad">⚠️ صورة webp — عدّلها</span>':'')+'</div>'
+      +(waQrBroken(q)?' <span class="wa-qrm-bad">⚠️ صورة webp — عدّلها</span>':'')
+      +(function(h){ return h.n ? ' <span class="wa-qrm-bad wa-qrm-heavy" title="الصور دي بتتنزل مع كل إرسال وكل فتح للشات — صغّرها من ✏️">⚠️ صور تقيلة ('+waFmtBytes(h.bytes)+') — ✏️ وصغّرها</span>' : ''; })(waQrHeavy(q))
+      +'</div>'
       +'<div class="wa-qrm-prev">'+esc(body||'(صور بس)')+'</div></div>'
       +'<div class="wa-qrm-acts">'
       +'<button type="button" class="wa-qrm-b" data-mv="-1" title="لفوق"'+(i===0?' disabled':'')+'>▲</button>'
@@ -1720,7 +1781,7 @@ export function waQrmEdit(id, presetBody){
   if(id!=='new' && !q) return;
   waQrmResetForm();
   waQrmEditId=id;
-  waQrmKeep=q ? waQrMedia(q).map(function(m){ return {path:m.path,mime:m.mime,name:m.name,url:''}; }) : [];
+  waQrmKeep=q ? waQrMedia(q).map(function(m){ return {path:m.path,mime:m.mime,name:m.name,url:'',size:waQrImgSize(m)}; }) : [];
   var box=$id('wa-qrm-body');
   box.innerHTML='<div class="wa-qrm-form">'
     +'<label class="wa-qrm-lbl" for="wa-qrm-name">الاسم المختصر (اللي هيظهر على الزرار)</label>'
@@ -1729,6 +1790,7 @@ export function waQrmEdit(id, presetBody){
     +'<textarea id="wa-qrm-text" class="wa-qr-ed-text" rows="6" placeholder="نص الرد (اختياري لو فيه صور)"></textarea>'
     +'<div class="wa-qrm-lbl">الصور (لحد 5 — بتتبعت بالترتيب ده والنص على آخر صورة)</div>'
     +'<div class="wa-qr-ed-thumbs" id="wa-qrm-thumbs"></div>'
+    +'<div id="wa-qrm-heavy"></div>'
     +'<div class="wa-qr-ed-actions">'
     +'<button type="button" class="wa-qr-ed-add" id="wa-qrm-addimg">＋ ضيف صورة</button>'
     +'<input type="file" id="wa-qrm-file" accept="image/*" multiple style="display:none">'
@@ -1765,7 +1827,7 @@ function waQrmPick(e){
   for(var i=0;i<fs.length;i++){
     var f=fs[i];
     if(!/^image\//.test(f.type)){ toast('الملف لازم يكون صورة','er'); continue; }
-    if(f.size>5*1024*1024){ toast('الصورة كبيرة (الحد 5 ميجا)','er'); continue; }
+    if(f.size>WA_IMG_PICK_MAX){ toast(WA_IMG_PICK_MSG,'er'); continue; }
     // السقف 5 — نفس الـCHECK في الداتابيز. كل صورة رسالة واتساب مستقلة
     if(waQrmKeep.length+waQrmFiles.length>=5){ toast('الحد 5 صور للرد الواحد','er'); break; }
     waQrmFiles.push(f); waQrmUrls.push(URL.createObjectURL(f));
@@ -1776,11 +1838,20 @@ function waQrmPick(e){
 function waQrmThumbs(){
   var box=$id('wa-qrm-thumbs'); if(!box) return;
   var html='';
+  var fix=0;
   for(var i=0;i<waQrmKeep.length;i++){
-    var bad=!waIsSendableImagePath(waQrmKeep[i].path);
-    html+='<span class="wa-qr-thumb'+(bad?' wa-qr-thumb-bad':'')+'"'+(bad?' title="صيغة webp — واتساب مابيقبلهاش. شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها"':'')+'>'
-      +(waQrmKeep[i].url?'<img src="'+esc(waQrmKeep[i].url)+'" alt="">':'<span class="wa-qrm-ph">🖼️</span>')
-      +(bad?'<span class="wa-qr-thumb-warn">⚠️</span>':'')
+    var k=waQrmKeep[i];
+    var bad=!k.file && !waIsSendableImagePath(k.path);
+    var heavy=!k.file && waQrImgSize(k)>WA_IMG_LIGHT;
+    if(bad||heavy) fix++;
+    var sz=k.file ? k.file.size : waQrImgSize(k);
+    var tip=bad ? 'صيغة webp — واتساب مابيقبلهاش. دوس «صلّح» تحت أو شيلها بـ✕ وضيفها تاني'
+      : heavy ? 'صورة تقيلة ('+waFmtBytes(sz)+') — بتتنزل مع كل إرسال. دوس «صغّر» تحت'
+      : (k.file ? 'اتصغّرت — هتترفع لما تحفظ' : '');
+    html+='<span class="wa-qr-thumb'+(bad?' wa-qr-thumb-bad':'')+(heavy?' wa-qr-thumb-heavy':'')+(k.file?' wa-qr-thumb-shrunk':'')+'"'+(tip?' title="'+esc(tip)+'"':'')+'>'
+      +(k.url?'<img src="'+esc(k.url)+'" alt="">':'<span class="wa-qrm-ph">🖼️</span>')
+      +((bad||heavy)?'<span class="wa-qr-thumb-warn">⚠️</span>':'')
+      +(sz?'<span class="wa-qr-thumb-size">'+(k.file?'✓ ':'')+esc(waFmtBytes(sz))+'</span>':'')
       +'<button type="button" class="wa-qr-thumb-x" data-keep="'+i+'" title="شيل">✕</button></span>';
   }
   for(var j=0;j<waQrmUrls.length;j++){
@@ -1788,6 +1859,12 @@ function waQrmThumbs(){
       +'<button type="button" class="wa-qr-thumb-x" data-new="'+j+'" title="شيل">✕</button></span>';
   }
   box.innerHTML=html;
+  var hv=$id('wa-qrm-heavy');
+  if(hv){
+    hv.innerHTML = fix ? '<div class="wa-qrm-heavybar"><span>⚠️ فيه '+fix+' صورة تقيلة أو بصيغة واتساب مابيقبلهاش — كل إرسال بيتنزّلها من جديد</span>'
+      +'<button type="button" class="wa-qr-ed-add" id="wa-qrm-shrink">🗜️ صغّرها ('+fix+')</button></div>' : '';
+    var sb2=$id('wa-qrm-shrink'); if(sb2) sb2.addEventListener('click',waQrmShrinkHeavy);
+  }
   var xs=box.querySelectorAll('.wa-qr-thumb-x');
   for(var k=0;k<xs.length;k++){
     xs[k].addEventListener('click',function(){
@@ -1800,6 +1877,52 @@ function waQrmThumbs(){
   }
 }
 
+// «🗜️ صغّرها»: الصور التقيلة (أو webp) اللي في الرد بتتنزل وتتصغّر **في المتصفح** بنفس
+// `waEnsureSendableImage` بتاعة الرفع، وبتفضل في مكانها في الترتيب — والرفع والكتابة مع «احفظ».
+// القفل/الرجوع من غير حفظ = الرد زي ما هو (مفيش حاجة اترفعت).
+export function waQrmShrinkHeavy(){
+  if(waQrmBusy || waQrmEditId===null || !sb) return;
+  var editId=waQrmEditId;
+  var targets=waQrmKeep.filter(function(k){ return !k.file && (!waIsSendableImagePath(k.path) || waQrImgSize(k)>WA_IMG_LIGHT); });
+  if(!targets.length) return;
+  waQrmBusy=true;
+  var btn=$id('wa-qrm-shrink'); if(btn){ btn.disabled=true; btn.textContent='بيصغّر…'; }
+  var before=0, after=0, failed=0;
+  var need=targets.filter(function(k){ return !k.url; }).map(function(k){ return k.path; });
+  var urlsP = need.length ? sb.storage.from('wa-media').createSignedUrls(need,3600).then(function(res){
+    var d=(res && res.data) || [];
+    for(var i=0;i<d.length;i++){ var u=d[i] && d[i].signedUrl; targets.forEach(function(k){ if(k.path===need[i] && u) k.url=u; }); }
+  }) : Promise.resolve();
+  var i=0;
+  function step(){
+    if(waQrmEditId!==editId){ waQrmBusy=false; return; }   // قفل/رجوع في النص
+    if(i>=targets.length){ finish(); return; }
+    var k=targets[i++];
+    if(!k.url){ failed++; step(); return; }
+    fetch(k.url).then(function(r){ if(!r.ok) throw new Error('fetch'); return r.blob(); }).then(function(blob){
+      var orig=blob.size;
+      return waEnsureSendableImage(new File([blob], k.name||'image', {type:blob.type||k.mime||'image/jpeg'})).then(function(f){
+        if(waQrmEditId!==editId) return;
+        // صغر فعلاً أو اتصلّحت صيغته — غير كده بنسيب الصورة زي ما هي
+        if(f.size<orig || !waIsSendableImagePath(k.path)){
+          before+=orig; after+=f.size;
+          k.file=f;
+          var u=URL.createObjectURL(f); waQrmShrinkUrls.push(u); k.url=u;
+        }
+      });
+    }).catch(function(){ failed++; }).then(step);
+  }
+  function finish(){
+    waQrmBusy=false;
+    if(waQrmEditId!==editId) return;
+    waQrmThumbs();
+    if(after) toast('اتصغّرت: '+waFmtBytes(before)+' ← '+waFmtBytes(after)+' — دوس «احفظ التعديل»','ok');
+    else if(failed) toast('مقدرناش نصغّرها — جرّب تاني، أو شيلها بـ✕ وضيفها تاني','er');
+    else toast('الصور دي مش هتصغر أكتر من كده','ok');
+  }
+  urlsP.then(step, step);
+}
+
 export function waQrmSave(){
   if(!sb||!currentTenantId||waQrmBusy) return;
   var id=waQrmEditId;
@@ -1809,25 +1932,35 @@ export function waQrmSave(){
   if(title.length>40){ toast('الاسم طويل (الحد 40 حرف)','er'); return; }
   if(!body && !waQrmKeep.length && !waQrmFiles.length){ toast('اكتب نص أو ضيف صورة','er'); return; }
   // صورة قديمة webp فاضلة = رد هيتحفظ وهو عارف إنه مش هيوصل
-  if(waQrmKeep.some(function(m){ return !waIsSendableImagePath(m.path); })){
+  if(waQrmKeep.some(function(m){ return !m.file && !waIsSendableImagePath(m.path); })){
     toast('فيه صورة ⚠️ بصيغة webp واتساب مابيقبلهاش — شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها','er'); return;
   }
   var btn=$id('wa-qrm-save');
   var label=btn.textContent;
   waQrmBusy=true; btn.disabled=true; btn.textContent='بيحفظ…';
   function fail(m){ waQrmBusy=false; btn.disabled=false; btn.textContent=label; toast(m||'الحفظ مانفعش — حاول تاني','er'); }
-  // الرفع **بالتسلسل** عشان الترتيب اللي الموظف شافه هو اللي العميل هيشوفه
-  var media=waQrmKeep.map(function(m){ return {path:m.path,mime:m.mime,name:m.name}; });
-  var i=0;
+  // الرفع **بالتسلسل** عشان الترتيب اللي الموظف شافه هو اللي العميل هيشوفه — والصورة الموجودة
+  // اللي اتصغّرت (`k.file`) بتترفع **في مكانها** (v83) مش في الآخر.
+  // الحجم بيتكتب في `media[].size` عشان علامة «⚠️ تقيلة» تبان من غير قراية الـStorage.
+  var media=[];
+  var queue=waQrmKeep.map(function(k){ return {keep:k}; }).concat(waQrmFiles.map(function(f){ return {file:f}; }));
+  var i=0, seq=0;
   function next(){
-    if(i>=waQrmFiles.length){ save(); return; }
-    // webp وأخواتها بتتحوّل JPEG قبل الرفع (شوف `waEnsureSendableImage`)
-    waEnsureSendableImage(waQrmFiles[i]).then(function(f){
+    if(i>=queue.length){ save(); return; }
+    var it=queue[i];
+    if(it.keep && !it.keep.file){
+      var m={path:it.keep.path,mime:it.keep.mime,name:it.keep.name};
+      if(it.keep.size) m.size=it.keep.size;
+      media.push(m); i++; next(); return;
+    }
+    // webp وأخواتها بتتحوّل JPEG وأي صورة تقيلة بتتصغّر قبل الرفع (شوف `waEnsureSendableImage`) —
+    // والصورة اللي «🗜️ صغّرها» صغّرتها بتترفع زي ما هي (ضغطها تاني = جودة أقل على الفاضي)
+    (it.keep ? Promise.resolve(it.keep.file) : waEnsureSendableImage(it.file)).then(function(f){
       var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
-      var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+i+'.'+ext;
+      var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+(seq++)+'.'+ext;
       return sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
         if(up.error){ fail('فشل رفع الصورة'); return; }
-        media.push({path:path,mime:f.type,name:f.name});
+        media.push({path:path,mime:f.type,name:f.name,size:f.size});
         i++; next();
       });
     }, function(e){ fail(WA_IMG_ERR[(e&&e.message)||'unsupported_image']||WA_IMG_ERR.unsupported_image); })

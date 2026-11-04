@@ -82,15 +82,26 @@ export async function envStatus(admin?: any): Promise<JtEnvStatus> {
   };
 }
 
-/** كل المفاتيح الخاصة اللي ممكن callback يتوقّع بيها (إنتاج + Sandbox لو موجودة). */
+/** كل المفاتيح الخاصة اللي ممكن callback يتوقّع بيها (إنتاج + Sandbox لو موجودة).
+ *  🔴 كاش في الذاكرة 10 دقايق (4 نوفمبر — `Log Ingestion` عدّت حصة الـFree Plan): كل callback من J&T
+ *  كان بيقرا الـVault مرتين (إنتاج + Sandbox) = ~2,100 Request/يوم. الكاش بيعيش جوّه الـisolate بس
+ *  (بيتصفّر مع أي تشغيل جديد) — و`fresh: true` بيتخطّاه: jt-status بيطلبه لو التوقيع ماطابقش المفاتيح
+ *  المتكيّشة، فمفتاح اتغيّر بيتقري على طول ومفيش callback سليم بيترفض بسبب الكاش.
+ *  ⚠️ قراية فشلت (Vault/شبكة) **مابتتكيّشش** — المرة الجاية بتحاول تاني. */
+const KEYS_TTL_MS = 10 * 60 * 1000;
+let keysCache: { keys: string[]; at: number } | null = null;
 // deno-lint-ignore no-explicit-any
-export async function callbackKeys(admin?: any): Promise<string[]> {
+export async function callbackKeys(admin?: any, opts: { fresh?: boolean } = {}): Promise<string[]> {
+  if (!opts.fresh && keysCache && Date.now() - keysCache.at < KEYS_TTL_MS) return keysCache.keys.slice();
   const out: string[] = [];
   for (const env of ["production", "sandbox"] as JtEnv[]) {
     const fromEnv = (Deno.env.get((env === "sandbox" ? "JT_SBX_" : "JT_") + "PRIVATE_KEY") || "").trim();
     const k = fromEnv || (await readVaultCreds(admin, env))?.privateKey || "";
     if (k && !out.includes(k)) out.push(k);
   }
+  // ولا مفتاح = غالباً القراية فشلت (مش «مفيش مفتاح») — مانكيّشش، والنداء الجاي يحاول تاني
+  if (out.length) keysCache = { keys: out.slice(), at: Date.now() };
+  else keysCache = null;
   return out;
 }
 

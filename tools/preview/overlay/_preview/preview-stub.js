@@ -1088,6 +1088,8 @@
         }
         return Promise.resolve({ data: out, error:null });
       },
+      // v83: حجم صور الردود المحفوظة (علامة «⚠️ صور تقيلة») — المعاينة مالهاش ملفات = مفيش أحجام
+      list: function(){ return Promise.resolve({ data: [], error:null }); },
       // أصوات السكانر (v78): الرفع بينجح في الذاكرة (الصوت جاهز على الجهاز ده من غير ما يتجاب تاني) — غيره زي ما كان
       upload: function(path){ if(/\/wh-sounds\//.test(String(path || ''))) return Promise.resolve({ data:{ path:path }, error:null });
         return Promise.resolve({ data:null, error:{ message:'المعاينة مابترفعش ملفات' } }); }

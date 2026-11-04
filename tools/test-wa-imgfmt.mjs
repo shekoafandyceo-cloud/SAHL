@@ -268,7 +268,8 @@ console.log('──── المعايرات ────');
   await p.context().close();
 }
 {
-  const p = await openInbox({ patch: [["    return waToJpeg(f);\n  });", "    return f;\n  });"]] });
+  // v83: التحويل بقى جوّه `waShrinkImage` (التصغير والتحويل نفس المسار) — الحقنة بتشيله
+  const p = await openInbox({ patch: [["    return waShrinkImage(f).then(function(out){", "    return Promise.resolve(f).then(function(out){"]] });
   const webp = await makeImg(p, 'image/webp', true);
   await attachAndSend(p, webp, 'mugs.webp');
   const u = await lastUpload(p);

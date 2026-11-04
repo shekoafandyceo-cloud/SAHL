@@ -188,6 +188,17 @@ CONTRACTS = [
     ("wa-send", u"حارس صيغة الصورة `unsupported_image_type` (JPEG/PNG بس)",
      lambda s: "unsupported_image_type" in s
      and "/\\.(jpe?g|png)$/i.test(String(imagePath))" in s),
+    # 4 نوفمبر — Egress: صور الردود المحفوظة بالـmedia id. الخطر إن أي فشل يوقّف الإرسال أو
+    # إن مرفق الشات (مرة واحدة) يترفع لميتا على الفاضي — الاتنين ممنوعين هنا.
+    ("wa-send", u"صور الردود المحفوظة بالـmedia id · مرفق الشات باللينك · أي فشل = اللينك",
+     lambda s: "startsWith(`${conv.tenant_id}/quick-replies/`)" in s
+     and "async function quickReplyMediaId(" in s
+     and s.count("return null;") >= 3 and "if (mediaId) {" in s
+     and "image: { id: mediaId," in s and "image: { link," in s),
+    ("wa-send", u"الـmedia id اترفض = مسح الكاش وإرسال تاني باللينك (مرة)",
+     lambda s: "if (!waRes.ok && usedMediaId &&" in s
+     and 'svc.from("wa_media_ids").delete()' in s
+     and "payload.image = { link," in s),
     ("wa-send", u"حارس نافذة الـ24 ساعة",
      lambda s: "window_closed" in s and "24 * 3600 * 1000" in s),
     ("wa-followup", u"الحمولة `order_id` بس — مفيش نص من المتصفح",
@@ -246,6 +257,22 @@ CONTRACTS = [
     # ── J&T callbacks والتكلفة (24 سبتمبر) ──
     ("jt-status", u"وقت J&T = UTC+2 ثابت (مش DST) — اتقاس على 137 callback",
      lambda s: "utc - 120 * 60000" in s and "cairoOffsetMin" not in s),
+    # ── 4 نوفمبر — Log Ingestion: كاش في الذاكرة. الخطر إن الكاش يرفض حاجة سليمة بعد تغيير ──
+    ("jt-status", u"التوقيع ماطابقش المفاتيح المتكيّشة = قراية من الـVault تاني قبل الرفض",
+     lambda s: "let digestOk = sig(await callbackKeys(admin));" in s
+     and "if (!digestOk) digestOk = sig(await callbackKeys(admin, { fresh: true }));" in s
+     and s.find("callbackKeys(admin, { fresh: true })") < s.find('reply("0", "bad digest", 401)')),
+    ("_shared/jt-runtime", u"كاش مفاتيح الـcallback: fresh بيتخطّاه · القراية الفاضية مابتتكيّشش",
+     lambda s: "if (!opts.fresh && keysCache &&" in s and "if (out.length) keysCache =" in s),
+    ("wa-inbox-ingest", u"السر ماطابقش الكاش = قراية تانية قبل الرفض · الخطأ مابيتكيّشش",
+     lambda s: "if (expected && secret !== expected) expected = await ingestSecret(sb, true);" in s
+     and "if (!r.error) secretCache =" in s),
+    ("wa-inbox-ingest", u"الحالة: UPDATE واحد مشروط بالرتبة (مش SELECT ثم UPDATE)",
+     lambda s: '.eq("tenant_id", tenantId).eq("wa_message_id", wamid).or(keep)' in s
+     and 'select("id, status")' not in s
+     and "WA_STATUS_RANK[k] >= newRank" in s and '"status.is.null,status.not.in.("' in s),
+    ("wa-inbox-ingest", u"تنزيل الميديا وقع والمتجر من الكاش = قراية تانية ومحاولة بالتوكن الجديد",
+     lambda s: "if (tenantCached) {" in s and "tenantByPhone(sb, String(phoneNumberId), true)" in s),
     ("jt-status", u"مسحات رحلة المرتجع (isRefund=1) بتتبعت بـ«refund:» — ماتغيّرش الحالة",
      lambda s: '"refund:"' in s and 'd.isRefund' in s and 'code !== "13" && code !== "172"' in s),
     ("jt-lookup", u"fee_sync للتشخيص/الجدولة بس — مش للموظف",
@@ -261,9 +288,17 @@ CONTRACTS = [
      lambda s: 'if (code === "172") returning = true;' in s
      and 'returning && code !== "172" && code !== "111"' in s),
     # ── مراجعة الحسابات (1 أكتوبر) ──
-    ("jt-lookup", u"trace_sync بيسجّل الـCOD الحقيقي عند J&T (itemsValue → jt_set_cod_v1) بدفعات ≤20",
-     lambda s: '"jt_set_cod_v1"' in s and "x?.itemsValue" in s and "i += 20" in s
+    ("jt-lookup", u"trace_sync بيسجّل الـCOD الحقيقي عند J&T (itemsValue → jt_set_cod_batch_v1) بدفعات ≤20",
+     lambda s: '"jt_set_cod_batch_v1"' in s and "x?.itemsValue" in s and "i += 20" in s
      and "command: 2, serialNumber: batch" in s),
+    # 4 نوفمبر — Log Ingestion: نداء لكل أوردر كان 29% من كل الـAPI. النداء لازم يفضل
+    # **بره** لوب الصفوف (واحد للدفعة) — رجوعه جوّه اللوب = 12 ألف Request/يوم تاني في صمت.
+    ("jt-lookup", u"الـCOD بنداء واحد للدفعة مش نداء لكل أوردر (Log Ingestion)",
+     lambda s: '"jt_set_cod_v1"' not in s
+     and s.count('"jt_set_cod_batch_v1"') == 1
+     and s.find('"jt_set_cod_batch_v1"') > s.find("for (const x of rows)")
+     and s.find("items.push(", s.find("for (const x of rows)")) < s.find('"jt_set_cod_batch_v1"')
+     and "}\n      if (!items.length) continue;" in s),
     ("jt-lookup", u"getOrders بيسقط أكتر من 20 في صمت — query بيرفض الزيادة",
      lambda s: "sn.length > 20)" in s),
     ("jt-lookup", u"دفعة وقعت مابتوقفش الباقي (continue مش return جوّه اللوب)",
