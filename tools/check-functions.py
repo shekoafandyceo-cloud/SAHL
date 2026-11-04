@@ -188,17 +188,24 @@ CONTRACTS = [
     ("wa-send", u"حارس صيغة الصورة `unsupported_image_type` (JPEG/PNG بس)",
      lambda s: "unsupported_image_type" in s
      and "/\\.(jpe?g|png)$/i.test(String(imagePath))" in s),
-    # 4 نوفمبر — Egress: صور الردود المحفوظة بالـmedia id. الخطر إن أي فشل يوقّف الإرسال أو
-    # إن مرفق الشات (مرة واحدة) يترفع لميتا على الفاضي — الاتنين ممنوعين هنا.
-    ("wa-send", u"صور الردود المحفوظة بالـmedia id · مرفق الشات باللينك · أي فشل = اللينك",
-     lambda s: "startsWith(`${conv.tenant_id}/quick-replies/`)" in s
-     and "async function quickReplyMediaId(" in s
-     and s.count("return null;") >= 3 and "if (mediaId) {" in s
+    # 4 نوفمبر — Egress: صور الردود المحفوظة بالـmedia id. المنطق نفسه في `_shared/wa-media.ts` ومتختبر
+    # سلوكياً في tools/test-wa-media.mjs — العقود هنا على **التوصيل** (المراجعة: الشكل القديم كان بيعدّي
+    # 3 حقن: شيل usedMediaId · رفع مرفق الشات · شيل الـTTL).
+    ("wa-send", u"صور الردود المحفوظة بس بالـmedia id (isQuickReplyPath) · usedMediaId جوّه فرع الـid",
+     lambda s: 'from "../_shared/wa-media.ts"' in s
+     and "const mediaId = isQuickReplyPath(conv.tenant_id, imagePath)\n        ? await quickReplyMediaId(" in s
+     and s.find("if (mediaId) {") < s.find("usedMediaId = true;") < s.find("} else {", s.find("if (mediaId) {"))
      and "image: { id: mediaId," in s and "image: { link," in s),
-    ("wa-send", u"الـmedia id اترفض = مسح الكاش وإرسال تاني باللينك (مرة)",
-     lambda s: "if (!waRes.ok && usedMediaId &&" in s
-     and 'svc.from("wa_media_ids").delete()' in s
-     and "payload.image = { link," in s),
+    ("wa-send", u"الـid اترفض = اللينك مرة (shouldRetryWithLink) · الكاش بيتمسح بس لو اللينك نجح",
+     lambda s: "if (!waRes.ok && usedMediaId && shouldRetryWithLink(waRes.status, waJson?.error?.code)) {" in s
+     and "        if (waRes.ok) await forgetMediaId(" in s
+     and s.find("        if (waRes.ok) await forgetMediaId(") > s.find("payload.image = { link,")
+     and 'from("wa_media_ids")' not in s),
+    ("_shared/wa-media", u"الـmedia id: 25 يوم · الفشل ساعة · مهلة 10ث · 5xx مابيتعادش · من غير import",
+     lambda s: "MEDIA_ID_TTL_MS = 25 * 24 * 3600 * 1000" in s and "MEDIA_FAIL_TTL_MS = 60 * 60 * 1000" in s
+     and "if (!(httpStatus >= 400 && httpStatus < 500)) return false;" in s
+     and "signal: ctl.signal" in s and "withTimeout(Promise.resolve(d.svc.storage" in s
+     and not any(l.strip().startswith("import ") for l in s.splitlines())),
     ("wa-send", u"حارس نافذة الـ24 ساعة",
      lambda s: "window_closed" in s and "24 * 3600 * 1000" in s),
     ("wa-followup", u"الحمولة `order_id` بس — مفيش نص من المتصفح",
@@ -298,7 +305,8 @@ CONTRACTS = [
      and s.count('"jt_set_cod_batch_v1"') == 1
      and s.find('"jt_set_cod_batch_v1"') > s.find("for (const x of rows)")
      and s.find("items.push(", s.find("for (const x of rows)")) < s.find('"jt_set_cod_batch_v1"')
-     and "}\n      if (!items.length) continue;" in s),
+     and "}\n      if (!items.length) continue;" in s
+     and s.find('"jt_set_cod_batch_v1"') > s.find("}\n      if (!items.length) continue;")),
     ("jt-lookup", u"getOrders بيسقط أكتر من 20 في صمت — query بيرفض الزيادة",
      lambda s: "sn.length > 20)" in s),
     ("jt-lookup", u"دفعة وقعت مابتوقفش الباقي (continue مش return جوّه اللوب)",

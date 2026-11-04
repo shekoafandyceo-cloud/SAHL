@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -14,41 +15,8 @@ const cors = {
 const J = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
 
-// 🔴 صور الردود المحفوظة بالـ`media id` بتاع ميتا (4 نوفمبر — `Egress`):
-// اللينك الموقّع معناه ميتا بتنزّل الصورة من الـStorage **مع كل إرسال** — والردود المحفوظة بتتبعت
-// 85–156 صورة في اليوم (اتقاس) = ميتا لوحدها نزّلت 177 MB يوم 3 نوفمبر، والميزانية لحد آخر الدورة
-// ~75 MB/يوم للمشروع كله. الـ`media id` بيعيش 30 يوم عند ميتا ويتبعت لأي عميل من نفس الرقم، فالصورة
-// بتتنزل من عندنا مرة كل 25 يوم (جدول `wa_media_ids`).
-// · صور `<tenant>/quick-replies/…` بس — مرفق الشات بيتبعت مرة فالرفع لميتا مالوش لازمة.
-// · أي فشل (قراية · تنزيل · رفع · كتابة الكاش) = **null والإرسال بيكمّل باللينك** زي الأول بالظبط.
-const MEDIA_ID_TTL_MS = 25 * 24 * 3600 * 1000;
-// deno-lint-ignore no-explicit-any
-async function quickReplyMediaId(svc: any, tenantId: string, phoneId: string, token: string, path: string): Promise<string | null> {
-  try {
-    const c = await svc.from("wa_media_ids").select("media_id, uploaded_at")
-      .eq("tenant_id", tenantId).eq("phone_id", phoneId).eq("path", path).maybeSingle();
-    const at = c.data?.uploaded_at ? new Date(c.data.uploaded_at).getTime() : 0;
-    if (c.data?.media_id && Date.now() - at < MEDIA_ID_TTL_MS) return String(c.data.media_id);
-    const dl = await svc.storage.from("wa-media").download(path);
-    if (dl.error || !dl.data) return null;
-    const mime = /\.png$/i.test(path) ? "image/png" : "image/jpeg";
-    const fd = new FormData();
-    fd.append("messaging_product", "whatsapp");
-    fd.append("type", mime);
-    fd.append("file", new Blob([await dl.data.arrayBuffer()], { type: mime }), path.split("/").pop() || "image");
-    const up = await fetch(`${GRAPH}/${phoneId}/media`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
-    const uj = await up.json().catch(() => ({}));
-    const id = (up.ok && uj?.id) ? String(uj.id) : null;
-    if (!id) { console.error("wa-send media upload", up.status, JSON.stringify(uj?.error || {})); return null; }
-    await svc.from("wa_media_ids").upsert(
-      { tenant_id: tenantId, phone_id: phoneId, path, media_id: id, uploaded_at: new Date().toISOString() },
-      { onConflict: "tenant_id,phone_id,path" });
-    return id;
-  } catch (e) {
-    console.error("wa-send media id", String(e));
-    return null;
-  }
-}
+// 🔴 صور الردود المحفوظة بتتبعت بالـ`media id` بتاع ميتا (4 نوفمبر — `Egress`) — المنطق كله في
+// `_shared/wa-media.ts` (صافي ومتختبر من Node: tools/test-wa-media.mjs). أي فشل = اللينك زي الأول بالظبط.
 
 Deno.serve(async (req: Request) => {
   // CORS preflight (المتصفح بيبعت OPTIONS الأول)
@@ -169,9 +137,9 @@ Deno.serve(async (req: Request) => {
     let storedBody: string | null = text || null;
     let usedMediaId = false;
     if (imagePath) {
-      const isQuickReply = String(imagePath).startsWith(`${conv.tenant_id}/quick-replies/`);
-      const mediaId = isQuickReply
-        ? await quickReplyMediaId(svc, conv.tenant_id, String(tenant.whatsapp_phone_id), tenant.whatsapp_token, String(imagePath))
+      // صور الردود المحفوظة بس — مرفق الشات (`<tenant>/<conv>/…`) بيتبعت مرة فبيفضل باللينك
+      const mediaId = isQuickReplyPath(conv.tenant_id, imagePath)
+        ? await quickReplyMediaId({ svc, graph: GRAPH }, conv.tenant_id, String(tenant.whatsapp_phone_id), tenant.whatsapp_token, String(imagePath))
         : null;
       if (mediaId) {
         usedMediaId = true;
@@ -204,18 +172,18 @@ Deno.serve(async (req: Request) => {
     });
     let waRes = await sendWa();
     let waJson = await waRes.json().catch(() => ({}));
-    // الـ`media id` اترفض (انتهى عند ميتا قبل الـ25 يوم · اتمسح) = نمسح الكاش ونبعت **مرة** باللينك.
-    // أخطاء النافذة مالهاش علاقة بالصورة فبتعدّي على الرد العادي تحت.
-    if (!waRes.ok && usedMediaId && ![131047, 131051, 470].includes(Number(waJson?.error?.code))) {
+    // الـ`media id` اترفض بخطأ ممكن يكون من الصورة (`shouldRetryWithLink` — مش 5xx ولا نافذة/توكن/rate limit)
+    // = نبعت **مرة** باللينك. والكاش بيتمسح **بس لو اللينك نجح** (ده الدليل إن الـid هو اللي كان بايظ) —
+    // لو اللينك وقع كمان (اقتباس مرفوض مثلاً) الـid السليم بيفضل.
+    if (!waRes.ok && usedMediaId && shouldRetryWithLink(waRes.status, waJson?.error?.code)) {
       console.error("wa-send media id rejected — retry with link", JSON.stringify(waJson?.error || {}));
-      await svc.from("wa_media_ids").delete()
-        .eq("tenant_id", conv.tenant_id).eq("phone_id", String(tenant.whatsapp_phone_id)).eq("path", String(imagePath));
       const signed = await svc.storage.from("wa-media").createSignedUrl(imagePath, 600);
       const link = signed.data?.signedUrl;
       if (link) {
         payload.image = { link, ...(caption ? { caption } : {}) };
         waRes = await sendWa();
         waJson = await waRes.json().catch(() => ({}));
+        if (waRes.ok) await forgetMediaId(svc, conv.tenant_id, String(tenant.whatsapp_phone_id), String(imagePath));
       }
     }
     if (!waRes.ok) {
