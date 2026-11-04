@@ -4,7 +4,10 @@
 // الصورة مع كل إرسال والموظفين مع كل فتح للشات، والـEgress رجع لـ250–400 MB/يوم والحد ~75.
 //
 // اللي بيتفحص:
-//   C1) JPEG تقيل (> 400 KB) في الشات بيترفع JPEG بكسلاته ≤ 1600×1600 وأصغر من الأصل
+//   C1) JPEG تقيل (> 400 KB) في الشات بيترفع JPEG أطول ضلعه ≤ 1600 (4:3 = 1600×1200) وأصغر من الأصل
+//   C5) سقف أطول ضلع 4096 (400×12000)
+//   Q8) رد متصغّر قبل كده + تعديل النص بس = `optimized` بيفضل · Q9) وفر < 10% = «مش هتصغر» ومفيش رفع و`optimized`
+//   Q10) صورة مابتتفكّش = «مقدرناش» والعلامة تفضل ومش `optimized`
 //   C4) صورة طويلة (1080×5000) مابتتقصّش لـ346px عرض — الحد على عدد البكسلات (المراجعة)
 //   C2) صورة 5–25 ميجا بقت بتتقبل (كانت بتترفض) وبتترفع ≤ 5 ميجا JPEG
 //   C3) ضابط: الصورة الخفيفة بتعدّي زي ما هي بالبايت
@@ -18,9 +21,11 @@
 // المعايرات (بحارس «المرساة اتلقت» — درس 47 · الشرط بيقيس إن الفحص **هيقع** — درس 56):
 //   (أ) الصورة التقيلة بتعدّي زي ما هي → C1 · (ب) المصغّرة بتترفع في الآخر → Q4 ·
 //   (ج) مفتاح الحجم من غير الفولدر → Q1 · (د) حد الاختيار 5 ميجا → C2 ·
-//   (هـ) من غير `optimized` → Q6 · (و) الحد على أطول ضلع 1600 (الشكل الأول) → C4
+//   (هـ) من غير `optimized` → Q6 · (و) الحد على أطول ضلع 1600 (الشكل الأول) → C4 ·
+//   (ز) من غير نسخ `optimized` في الحفظ → Q8 · (ح) أي وفر = تصغير → Q9 · (ط) الفشل = «اتعالجت» → Q10 · (ي) من غير سقف 4096 → C5
 import { chromium } from 'playwright';
 import fs from 'fs';
+import crypto from 'crypto';
 
 const STUB = fs.readFileSync(new URL('./stub.js', import.meta.url), 'utf8');
 const ORIGIN = process.env.APP_ORIGIN || 'http://127.0.0.1:8899';
@@ -113,6 +118,17 @@ const HUGEPNG = await genImg('image/png', 1600, 1400, 1);
 const HEAVYPNG = await genImg('image/png', 2000, 1000, 1);
 const SMALLJPG = await genImg('image/jpeg', 60, 60, 0.9);
 const LIGHTJPG = await genImg('image/jpeg', 300, 200, 0.8);
+// المراجعة التانية: حالات مالهاش فحص قبل كده
+const NOGAIN = await genImg('image/jpeg', 1600, 1200, 0.84);   // إعادة الضغط = ~0.95× (اتقاس)   // JPEG 1600px تقيل أصلاً — إعادة الضغط بتوفّر < 10%
+const BADPNG = { type: 'image/png', buf: Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), crypto.randomBytes(500 * 1024)]) };   // بصمة PNG ومابيتفكّش
+const LONGJPG = await genImg('image/jpeg', 400, 12000, 0.9);   // أطول ضلع بعد الميزانية كان هيعدّي 4096
+const O1 = DIR + '/o1.jpg', N1 = DIR + '/n1.jpg', X1 = DIR + '/x1.png';
+QR.push(
+  { id: 'qo', tenant_id: TENANT, title: 'متصغّرة', body: 'قديم', sort: 2, media: [{ path: O1, mime: 'image/jpeg', name: 'o1.jpg', size: 600000, optimized: true }] },
+  { id: 'qn', tenant_id: TENANT, title: 'مش هتصغر', body: 'ن', sort: 3, media: [{ path: N1, mime: 'image/jpeg', name: 'n1.jpg' }] },
+  { id: 'qx', tenant_id: TENANT, title: 'بايظة', body: 'س', sort: 4, media: [{ path: X1, mime: 'image/png', name: 'x1.png' }] });
+LIST[DIR].push({ name: 'o1.jpg', metadata: { size: 600000 } }, { name: 'n1.jpg', metadata: { size: NOGAIN.buf.length } },
+  { name: 'x1.png', metadata: { size: BADPNG.buf.length } });
 
 async function openInbox(opts) {
   opts = opts || {};
@@ -122,7 +138,7 @@ async function openInbox(opts) {
     window.__WA_MSGS   = ${JSON.stringify(MSGS)};
     window.__QR        = ${JSON.stringify(QR)};
     window.__STORAGE_LIST = ${JSON.stringify(LIST)};
-    window.__MEDIA     = { ${JSON.stringify(H1)}: ${JSON.stringify(ORIGIN + '/__img/h1.png')}, ${JSON.stringify(L1)}: ${JSON.stringify(ORIGIN + '/__img/l1.jpg')}, ${JSON.stringify(OK1)}: ${JSON.stringify(ORIGIN + '/__img/l1.jpg')} };
+    window.__MEDIA     = { ${JSON.stringify(H1)}: ${JSON.stringify(ORIGIN + '/__img/h1.png')}, ${JSON.stringify(L1)}: ${JSON.stringify(ORIGIN + '/__img/l1.jpg')}, ${JSON.stringify(OK1)}: ${JSON.stringify(ORIGIN + '/__img/l1.jpg')}, ${JSON.stringify(O1)}: ${JSON.stringify(ORIGIN + '/__img/l1.jpg')}, ${JSON.stringify(N1)}: ${JSON.stringify(ORIGIN + '/__img/n1.jpg')}, ${JSON.stringify(X1)}: ${JSON.stringify(ORIGIN + '/__img/x1.png')} };
     window.__UPLOAD_OK = true;
     window.__SENT = [];
     window.__FN = function(slug, body){ window.__SENT.push({ slug: slug, body: body }); return { ok:true, message_id:'w'+window.__SENT.length }; };
@@ -131,6 +147,8 @@ async function openInbox(opts) {
   await ctx.addInitScript(STUB);
   await ctx.route('**/__img/h1.png', r => r.fulfill({ status: 200, contentType: 'image/png', body: HEAVYPNG.buf }));
   await ctx.route('**/__img/l1.jpg', r => r.fulfill({ status: 200, contentType: 'image/jpeg', body: LIGHTJPG.buf }));
+  await ctx.route('**/__img/n1.jpg', r => r.fulfill({ status: 200, contentType: 'image/jpeg', body: NOGAIN.buf }));
+  await ctx.route('**/__img/x1.png', r => r.fulfill({ status: 200, contentType: 'image/png', body: BADPNG.buf }));
   if (opts.patch) await ctx.route('**/js/inbox/inbox.js', patchInbox(opts.patch));
   const p = await ctx.newPage();
   p.on('pageerror', e => { console.log('  ✗ pageerror:', e.message); bad++; });
@@ -173,7 +191,7 @@ async function C1(p) {
   const p = await openInbox();
   ok(BIGJPG.buf.length > 400 * 1024, `ضابط: الـJPEG التقيل فعلاً ${(BIGJPG.buf.length / 1024 / 1024).toFixed(1)} MB`);
   const u = await C1(p);
-  ok(u && u.head[0] === 0xFF && u.head[1] === 0xD8 && u.w * u.h <= 1600 * 1600 * 1.01 && u.size < BIGJPG.buf.length,
+  ok(u && u.head[0] === 0xFF && u.head[1] === 0xD8 && Math.max(u.w, u.h) <= 1600 && u.size < BIGJPG.buf.length,
     `C1) JPEG التقيل اتصغّر: ${u && u.w}×${u && u.h} · ${u && (u.size / 1024).toFixed(0)} KB (الأصل ${(BIGJPG.buf.length / 1024).toFixed(0)} KB)`);
   ok(HUGEPNG.buf.length > 5 * 1024 * 1024, `ضابط: الـPNG فوق 5 ميجا فعلاً (${(HUGEPNG.buf.length / 1024 / 1024).toFixed(1)} MB)`);
   const n0 = await nUploads(p);
@@ -191,7 +209,13 @@ async function C1(p) {
   const u7 = await lastUpload(p);
   ok(PHOTOPNG.buf.length > 1024 * 1024 && u7 && u7.size < 400 * 1024,
     `Q7) صورة «شبه حقيقية» ${(PHOTOPNG.buf.length / 1024 / 1024).toFixed(1)} MB PNG → ${u7 && (u7.size / 1024).toFixed(0)} KB JPEG (تحت 400)`);
+  const u5 = await C5(p);
+  ok(u5 && Math.max(u5.w, u5.h) <= 4096, `C5) 400×12000 → ${u5 && u5.w}×${u5 && u5.h} (أطول ضلع ≤ 4096)`);
   await p.context().close();
+}
+async function C5(p) {
+  await attachAndSend(p, LONGJPG, 'long.jpg', 3500);
+  return lastUpload(p);
 }
 async function C4(p) {
   await attachAndSend(p, TALLJPG, 'tall.jpg', 3000);
@@ -273,10 +297,68 @@ async function Q6(p) {
   await p.context().close();
 }
 
+async function lastQrPay(p) {
+  return p.evaluate(() => { const c = (window.__calls || []).filter(x => x.table === 'wa_quick_replies' && x.payload && x.payload.media).slice(-1)[0]; return c && c.payload; });
+}
+async function Q8(p) {
+  await p.click('#wa-qrm-open'); await p.waitForTimeout(400);
+  const flagged = await p.evaluate(() => !!document.querySelector('.wa-qrm-row[data-id="qo"] .wa-qrm-heavy'));
+  await p.click('.wa-qrm-row[data-id="qo"] [data-ed="1"]'); await p.waitForTimeout(500);
+  const up0 = await nUploads(p);
+  await p.fill('#wa-qrm-text', 'نص جديد'); await p.click('#wa-qrm-save'); await p.waitForTimeout(800);
+  const pay = await lastQrPay(p);
+  return { flagged, pay, uploads: (await nUploads(p)) - up0 };
+}
+async function Q9(p) {
+  await p.click('#wa-qrm-open'); await p.waitForTimeout(400);
+  await p.click('.wa-qrm-row[data-id="qn"] [data-ed="1"]'); await p.waitForTimeout(500);
+  const btn = await p.evaluate(() => !!document.getElementById('wa-qrm-shrink'));
+  const up0 = await nUploads(p);
+  await p.click('#wa-qrm-shrink'); await p.waitForTimeout(3000);
+  const t = await toastTxt(p);
+  const bar = await p.evaluate(() => !!document.getElementById('wa-qrm-shrink'));
+  await p.click('#wa-qrm-save'); await p.waitForTimeout(1200);
+  return { btn, t, bar, pay: await lastQrPay(p), uploads: (await nUploads(p)) - up0 };
+}
+async function Q10(p) {
+  await p.click('#wa-qrm-open'); await p.waitForTimeout(400);
+  await p.click('.wa-qrm-row[data-id="qx"] [data-ed="1"]'); await p.waitForTimeout(500);
+  await p.click('#wa-qrm-shrink'); await p.waitForTimeout(2500);
+  const t = await toastTxt(p);
+  const heavy = await p.evaluate(() => !!document.querySelector('#wa-qrm-thumbs .wa-qr-thumb-heavy') && !!document.getElementById('wa-qrm-shrink'));
+  await p.click('#wa-qrm-save'); await p.waitForTimeout(1200);
+  return { t, heavy, pay: await lastQrPay(p) };
+}
+console.log('──── حالات المراجعة التانية ────');
+{
+  const p = await openInbox();
+  const r8 = await Q8(p);
+  const m8 = (r8.pay && r8.pay.media) || [];
+  ok(!r8.flagged && m8.length === 1 && m8[0].optimized === true && r8.uploads === 0,
+    `Q8) رد متصغّر قبل كده: مش متعلّم · تعديل النص بس = optimized فضل (${m8[0] && m8[0].optimized}) ومفيش رفع`);
+  await p.context().close();
+}
+{
+  const p = await openInbox();
+  const r9 = await Q9(p);
+  const m9 = (r9.pay && r9.pay.media) || [];
+  ok(NOGAIN.buf.length > 400 * 1024 && r9.btn && /مش هتصغر/.test(r9.t) && !r9.bar && r9.uploads === 0 && m9[0] && m9[0].path === N1 && m9[0].optimized === true,
+    `Q9) JPEG 1600px ${(NOGAIN.buf.length / 1024).toFixed(0)} KB: «${r9.t}» · مفيش رفع · optimized=${m9[0] && m9[0].optimized}`);
+  await p.context().close();
+}
+{
+  const p = await openInbox();
+  const r10 = await Q10(p);
+  const m10 = (r10.pay && r10.pay.media) || [];
+  ok(/مقدرناش/.test(r10.t) && r10.heavy && m10[0] && m10[0].path === X1 && !m10[0].optimized,
+    `Q10) صورة مابتتفكّش: «${r10.t}» · العلامة فضلت ${r10.heavy} · optimized=${m10[0] && m10[0].optimized}`);
+  await p.context().close();
+}
+
 // ════ المعايرات ════
 console.log('──── المعايرات ────');
 {
-  const p = await openInbox({ patch: [['    if(same && same.size<=WA_IMG_LIGHT) return same;', '    if(same) return same;']] });
+  const p = await openInbox({ patch: [['    if(same && same.size<=WA_IMG_LIGHT) return {file:same, ok:true, shrunk:false};', '    if(same) return {file:same, ok:true, shrunk:false};']] });
   const u = await C1(p);
   ok(!(u && Math.max(u.w, u.h) <= 1600 && u.size < BIGJPG.buf.length), `(أ) من غير التصغير: اترفع ${u && u.w}×${u && u.h} زي ما هو → C1 كان هيقع`);
   await p.context().close();
@@ -304,16 +386,40 @@ console.log('──── المعايرات ────');
 }
 
 {
-  const p = await openInbox({ patch: [["        media.push({path:path,mime:f.type,name:f.name,size:f.size,optimized:true});", "        media.push({path:path,mime:f.type,name:f.name,size:f.size});"]] });
+  const p = await openInbox({ patch: [["        if(r.ok) mm.optimized=true;\n", ""]] });
   await Q4(p);
   const r = await Q6(p);
   ok(r.flag || r.btn, `(هـ) من غير optimized: العلامة فضلت (قايمة ${r.flag} · زرار ${r.btn}) → Q6 كان هيقع`);
   await p.context().close();
 }
 {
-  const p = await openInbox({ patch: [["      var scale=Math.min(1, Math.sqrt(WA_IMG_SEND_PX/(w0*h0)), WA_IMG_SEND_MAXDIM/Math.max(w0,h0));", "      var scale=Math.min(1, 1600/Math.max(w0,h0));"]] });
+  const p = await openInbox({ patch: [["        Math.max(WA_IMG_SEND_LONG/maxD, Math.min(WA_IMG_SEND_SHORT/minD, Math.sqrt(WA_IMG_SEND_PX/(w0*h0)))),", "        WA_IMG_SEND_LONG/maxD,"]] });
   const u = await C4(p);
   ok(!(u && u.w >= 700), `(و) الحد على أطول ضلع: الطويلة اترفعت ${u && u.w}×${u && u.h} → C4 كان هيقع`);
+  await p.context().close();
+}
+{
+  const p = await openInbox({ patch: [['      if(it.keep.optimized) m.optimized=true;\n', '']] });
+  const r = await Q8(p);
+  ok(!(r.pay && r.pay.media && r.pay.media[0] && r.pay.media[0].optimized === true), '(ز) من غير نسخ optimized: اتشال بتعديل النص → Q8 كان هيقع');
+  await p.context().close();
+}
+{
+  const p = await openInbox({ patch: [['        if(f.size<orig*0.9 || !waIsSendableImagePath(k.path)){', '        if(f.size<orig || !waIsSendableImagePath(k.path)){']] });
+  const r = await Q9(p);
+  ok(r.uploads > 0 || !/مش هتصغر/.test(r.t), `(ح) أي وفر = تصغير: «${r.t}» · رفع ${r.uploads} → Q9 كان هيقع`);
+  await p.context().close();
+}
+{
+  const p = await openInbox({ patch: [['        if(!r.ok){ failed++; return; }', '']] });
+  const r = await Q10(p);
+  ok(!!(r.pay && r.pay.media && r.pay.media[0] && r.pay.media[0].optimized), `(ط) الفشل = «اتعالجت»: optimized=${r.pay && r.pay.media && r.pay.media[0] && r.pay.media[0].optimized} → Q10 كان هيقع`);
+  await p.context().close();
+}
+{
+  const p = await openInbox({ patch: [['        WA_IMG_SEND_MAXDIM/maxD);', '        9e9);']] });
+  const u = await C5(p);
+  ok(!(u && Math.max(u.w, u.h) <= 4096), `(ي) من غير سقف 4096: ${u && u.w}×${u && u.h} → C5 كان هيقع`);
   await p.context().close();
 }
 

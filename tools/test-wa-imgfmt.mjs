@@ -260,7 +260,7 @@ const BIG = async (p) => p.evaluate(async () => {
 // ════ المعايرات ════
 console.log('──── المعايرات ────');
 {
-  const p = await openInbox({ patch: [["  if(!f) return Promise.resolve(f);\n  return waSniffImage(f)", "  if(!f || /^image\\/(jpeg|png)$/i.test(f.type||'')) return Promise.resolve(f);\n  return waSniffImage(f)"]] });
+  const p = await openInbox({ patch: [["  if(!f) return Promise.resolve({file:f, ok:false, shrunk:false});\n  return waSniffImage(f)", "  if(!f || /^image\\/(jpeg|png)$/i.test(f.type||'')) return Promise.resolve({file:f, ok:true, shrunk:false});\n  return waSniffImage(f)"]] });
   const webp = await makeImg(p, 'image/webp', true);
   await attachAndSend(p, { type: 'image/jpeg', bytes: webp.bytes }, 'product.jpg');
   const u = await lastUpload(p);

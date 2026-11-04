@@ -195,16 +195,25 @@ CONTRACTS = [
      lambda s: 'from "../_shared/wa-media.ts"' in s
      and "const mediaId = isQuickReplyPath(conv.tenant_id, imagePath)\n        ? await quickReplyMediaId(" in s
      and s.find("if (mediaId) {") < s.find("usedMediaId = true;") < s.find("} else {", s.find("if (mediaId) {"))
-     and "image: { id: mediaId," in s and "image: { link," in s),
+     and "image: { id: mediaId," in s and "image: { link," in s
+     # الـid رجع null = لازم يقع على اللينك على طول (المراجعة التانية: `} else if (` كان بيعدّي)
+     and "        usedMediaId = true;\n        payload = { messaging_product: \"whatsapp\", to: conv.wa_id, type: \"image\", image: { id: mediaId, ...(caption ? { caption } : {}) } };\n      } else {\n        const signed = await svc.storage.from(\"wa-media\").createSignedUrl(imagePath, 600);" in s),
     ("wa-send", u"الـid اترفض = اللينك مرة (shouldRetryWithLink) · الكاش بيتمسح بس لو اللينك نجح",
      lambda s: "if (!waRes.ok && usedMediaId && shouldRetryWithLink(waRes.status, waJson?.error?.code)) {" in s
      and "        if (waRes.ok) await forgetMediaId(" in s
+     and s.count("forgetMediaId(") == 1
      and s.find("        if (waRes.ok) await forgetMediaId(") > s.find("payload.image = { link,")
      and 'from("wa_media_ids")' not in s),
     ("_shared/wa-media", u"الـmedia id: 25 يوم · الفشل ساعة · مهلة 10ث · 5xx مابيتعادش · من غير import",
      lambda s: "MEDIA_ID_TTL_MS = 25 * 24 * 3600 * 1000" in s and "MEDIA_FAIL_TTL_MS = 60 * 60 * 1000" in s
      and "if (!(httpStatus >= 400 && httpStatus < 500)) return false;" in s
      and "signal: ctl.signal" in s and "withTimeout(Promise.resolve(d.svc.storage" in s
+     # أماكن الاستخدام مش التعريفات بس (المراجعة التانية: 4 حقن كانت بتعدّي — السلوك نفسه في test-wa-media.mjs)
+     and "&& age < MEDIA_ID_TTL_MS) return String(row.media_id);" in s
+     and "if (row?.media_id === MEDIA_FAILED && age < MEDIA_FAIL_TTL_MS) return null;" in s
+     and "const t = setTimeout(() => ctl.abort(), ms);" in s
+     and "if (!blob) { await remember(d, tenantId, phoneId, path, MEDIA_FAILED, now()); return null; }" in s
+     and "131047, 131051, 470," in s
      and not any(l.strip().startswith("import ") for l in s.splitlines())),
     ("wa-send", u"حارس نافذة الـ24 ساعة",
      lambda s: "window_closed" in s and "24 * 3600 * 1000" in s),

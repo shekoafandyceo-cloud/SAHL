@@ -1118,40 +1118,51 @@ function waSniffImage(f){
     return '';
   }, function(){ return ''; });
 }
-// 🔴 v83 (4 نوفمبر — `Egress`): أي صورة فوق 400 KB بتتصغّر قبل الرفع — لحد ~2.56 ميجابكسل (= 1600×1600)
-// وجودة 85%.
+// 🔴 v83 (4 نوفمبر — `Egress`): أي صورة فوق 400 KB بتتصغّر قبل الرفع — أطول ضلع ~1600 وجودة 85%.
 // السبب مقاس: رد محفوظ واحد («مطبببببببببببببخ 2») صوره 5.2 MB واتبعت ~40 مرة في اليوم، وكل
 // إرسال ميتا بتنزّل الصورة من الـStorage، وكل موظف بيفتح الشات بينزّلها تاني — الـEgress رجع يطلع
 // لـ250–400 MB/يوم والحد ~75. و~1600px هو المقاس اللي واتساب نفسه بيبعت بيه الصور العادية (صور
 // العملاء الواردة: الوسيط 101 KB) — فالعميل مش هيشوف فرق على شاشة الموبايل.
-// 🔴 الحد على **عدد البكسلات** مش أطول ضلع (المراجعة): سكرين شوت طويل 1080×5000 كان هيبقى 346×1600 والكلام
-// مايتقريش — دلوقتي ~744×3445 بنفس ميزانية البايتات. وسقف أطول ضلع 4096 (حد الـcanvas الآمن على iOS).
+// 🔴 أطول ضلع 1600 للصور العادية (4:3 · 16:9 · مربع)، بس **الضلع القصير مابينزلش تحت 900** طول ما ده جوّه
+// ميزانية ~2.56 ميجابكسل (مراجعتين): سكرين شوت طويل 1080×5000 كان هيبقى 346×1600 والكلام مايتقريش — دلوقتي
+// 744×3443 · 1080×2400 = 900×2000 · و4000×3000 = 1600×1200 (حد البكسلات لوحده كان بيكبّرها 26–74% على الفاضي).
+// وسقف أطول ضلع 4096 (حد الـcanvas الآمن على iOS).
 // · الصورة الصغيرة (≤ 400 KB) بتعدّي **زي ما هي** — مفيش إعادة ضغط على الفاضي.
 // · التصغير مانفعش يصغّر (نادر) = الأصل · المتصفح مافكّش JPEG/PNG = الأصل (زي قبل v83).
 // · والنتيجة لازم ≤ 5 MB (حد ميتا) — الاختيار نفسه بقى يقبل لحد 25 MB لأنها بتتصغّر.
 var WA_IMG_LIGHT=400*1024;   // تحت ده الصورة بتتبعت زي ما هي
-var WA_IMG_SEND_PX=1600*1600;   // عدد البكسلات بعد التصغير
+var WA_IMG_SEND_LONG=1600;      // أطول ضلع للصور العادية
+var WA_IMG_SEND_SHORT=900;      // الضلع القصير مابينزلش تحته (الصور الطويلة) …
+var WA_IMG_SEND_PX=1600*1600;   // … طول ما الصورة جوّه الميزانية دي
 var WA_IMG_SEND_MAXDIM=4096;    // أطول ضلع (canvas iOS)
 var WA_IMG_PICK_MAX=25*1024*1024;   // حد الاختيار قبل التصغير
 var WA_IMG_PICK_MSG='الصورة كبيرة (الحد 25 ميجا)';
 function waBaseName(f){ return String((f&&f.name)||'image').replace(/\.[^.]*$/,'')||'image'; }
-export function waEnsureSendableImage(f){
-  if(!f) return Promise.resolve(f);
+// `waPrepImage` بترجّع الملف **ومعاه اللي حصل** — الردود المحفوظة محتاجة تفرّق «اتصغّرت» عن «مش هتصغر
+// أكتر» عن «التصغير **فشل** والأصل راجع» (المراجعة التانية: الفشل كان بيتعلّم «اتعالجت» فالعلامة تتشال
+// والصورة الأصلية التقيلة تفضل للأبد):
+//   ok: true = الملف عدّى على التصغير (خفيفة من الأول · اتصغّرت · أو اتجرّبت ومافيش وفر) — `optimized` آمن
+//   ok: false = المتصفح ماعرفش يصغّر JPEG/PNG (فك/canvas وقع) والأصل راجع زي ما هو — مش `optimized`
+export function waPrepImage(f){
+  if(!f) return Promise.resolve({file:f, ok:false, shrunk:false});
   return waSniffImage(f).then(function(kind){
     // JPEG/PNG: نفس البايتات (ولو الـtype غلط — بالـtype والامتداد الصح)
     var same = !kind ? null
       : (f.type===kind ? f : new File([f], waBaseName(f)+(kind==='image/png'?'.png':'.jpg'), {type:kind}));
-    if(same && same.size<=WA_IMG_LIGHT) return same;
+    if(same && same.size<=WA_IMG_LIGHT) return {file:same, ok:true, shrunk:false};
     return waShrinkImage(f).then(function(out){
-      return (same && out.size>=same.size) ? same : out;
+      return (same && out.size>=same.size) ? {file:same, ok:true, shrunk:false} : {file:out, ok:true, shrunk:true};
     }, function(e){
-      if(same) return same;
+      if(same) return {file:same, ok:false, shrunk:false};
       throw e;
     });
   }).then(function(r){
-    if(r && r.size>WA_IMG_MAX) throw new Error('too_big');
+    if(r && r.file && r.file.size>WA_IMG_MAX) throw new Error('too_big');
     return r;
   });
+}
+export function waEnsureSendableImage(f){
+  return waPrepImage(f).then(function(r){ return r.file; });
 }
 // تحويل/تصغير لـJPEG: أطول ضلع ≤ 1600px · خلفية بيضا (JPEG مالوش شفافية — الشفاف كان هيطلع
 // أسود) · لو الناتج فوق 5 ميجا (مستحيل تقريباً بالمقاس ده) بنقلّل الجودة وبعدين المقاس بدل ما نرفض.
@@ -1163,7 +1174,10 @@ function waShrinkImage(f){
     img.onload=function(){
       var w0=img.naturalWidth, h0=img.naturalHeight;
       if(!w0||!h0){ done(); reject(new Error('unsupported_image')); return; }
-      var scale=Math.min(1, Math.sqrt(WA_IMG_SEND_PX/(w0*h0)), WA_IMG_SEND_MAXDIM/Math.max(w0,h0));
+      var maxD=Math.max(w0,h0), minD=Math.min(w0,h0);
+      var scale=Math.min(1,
+        Math.max(WA_IMG_SEND_LONG/maxD, Math.min(WA_IMG_SEND_SHORT/minD, Math.sqrt(WA_IMG_SEND_PX/(w0*h0)))),
+        WA_IMG_SEND_MAXDIM/maxD);
       var qs=[0.85,0.75,0.65];
       function attempt(qi){
         var w=Math.max(1,Math.round(w0*scale)), h=Math.max(1,Math.round(h0*scale));
@@ -1909,8 +1923,11 @@ export function waQrmShrinkHeavy(){
     if(!k.url){ failed++; step(); return; }
     fetch(k.url).then(function(r){ if(!r.ok) throw new Error('fetch'); return r.blob(); }).then(function(blob){
       var orig=blob.size;
-      return waEnsureSendableImage(new File([blob], k.name||'image', {type:blob.type||k.mime||'image/jpeg'})).then(function(f){
+      return waPrepImage(new File([blob], k.name||'image', {type:blob.type||k.mime||'image/jpeg'})).then(function(r){
         if(waQrmEditId!==editId) return;
+        var f=r.file;
+        // التصغير نفسه فشل (المتصفح ماعرفش يفك الصورة) = **مش** «اتعالجت» — العلامة تفضل ويتجرّب تاني
+        if(!r.ok){ failed++; return; }
         // صغر **بفرق يستاهل** (≥ 10%) أو اتصلّحت صيغته — غير كده الصورة بتفضل زي ما هي وبتتعلّم
         // «اتعالجت» (بتتحفظ مع «احفظ») فمابتتعلّمش تقيلة تاني ومابتتضغطش تاني على الفاضي
         if(f.size<orig*0.9 || !waIsSendableImagePath(k.path)){
@@ -1967,13 +1984,17 @@ export function waQrmSave(){
     }
     // webp وأخواتها بتتحوّل JPEG وأي صورة تقيلة بتتصغّر قبل الرفع (شوف `waEnsureSendableImage`) —
     // والصورة اللي «🗜️ صغّرها» صغّرتها بتترفع زي ما هي (ضغطها تاني = جودة أقل على الفاضي)
-    (it.keep ? Promise.resolve(it.keep.file) : waEnsureSendableImage(it.file)).then(function(f){
+    (it.keep ? Promise.resolve({file:it.keep.file, ok:true}) : waPrepImage(it.file)).then(function(r){
+      var f=r.file;
       var ext=((f.type.split('/')[1])||'jpg').replace('jpeg','jpg');
       var path=currentTenantId+'/quick-replies/'+Date.now()+'-'+(seq++)+'.'+ext;
       return sb.storage.from('wa-media').upload(path,f,{contentType:f.type,upsert:false}).then(function(up){
         if(up.error){ fail('فشل رفع الصورة'); return; }
-        // `optimized` = عدّت على تصغير v83 خلاص (مابتتعلّمش «تقيلة» تاني حتى لو فوق 400 KB)
-        media.push({path:path,mime:f.type,name:f.name,size:f.size,optimized:true});
+        // `optimized` = عدّت على تصغير v83 خلاص (مابتتعلّمش «تقيلة» تاني حتى لو فوق 400 KB) —
+        // بس لو التصغير اشتغل فعلاً (r.ok). فشل = الأصل اترفع ومن غير العلامة دي فيفضل «⚠️ تقيلة»
+        var mm={path:path,mime:f.type,name:f.name,size:f.size};
+        if(r.ok) mm.optimized=true;
+        media.push(mm);
         i++; next();
       });
     }, function(e){ fail(WA_IMG_ERR[(e&&e.message)||'unsupported_image']||WA_IMG_ERR.unsupported_image); })
