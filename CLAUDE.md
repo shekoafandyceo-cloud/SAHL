@@ -1872,7 +1872,17 @@ EasyOrders · سطر EasyOrders في التفاصيل · الدرجة من ال�
 ## 🔴 4 نوفمبر: الـEgress رجع يطلع + `Log Ingestion` 105% (سكرين شوت المالك — اتقاس على الحي)
 
 `Usage` (الدورة 18 أكتوبر → 18 نوفمبر): **Egress 3.939 / 5 GB (79%)** · **Log Ingestion 1.051 / 1 GB (105%)** · Log Query 45 / 100 GB ·
-الباقي بعيد عن الحد. فوقهم بانر الـFair Use («…402 status code») — أوله متقصوص في الصورة.
+الباقي بعيد عن الحد. فوقهم بانر الـFair Use — **نصه بالحرف (سكرين شوت المالك):** «Your grace period has started. Your organization went over
+its quota in the previous billing cycle (**Egress Exceeded**). You can continue with your projects until your grace period ends on **08 Nov, 2026**.
+After that, the Fair Use Policy will apply … requests to your projects will return a 402 status code.» — يعني السبب **الـEgress بتاع الدورة اللي فاتت**
+(11.35 GB) مش الـ`Logs`.
+
+🔴 **من توثيق Supabase (Billing FAQ — اتقرا 4 نوفمبر):** بعد ما الـgrace period يخلص، **أي تجاوز تاني = قيود على طول من غير مهلة تانية**
+(«you will not receive another grace period and your project will be restricted») · القيود: إيقاف المشروع · الداتابيز read-only · **`402` على كل
+Request** · بتتشال مع أول الدورة الجاية أو فوراً بـ`Upgrade` لـ`Pro` · الإنذار بيفضل لحد ما نفضل تحت الحدود **كذا دورة ورا بعض**.
+**الأثر علينا لو اتقيّدنا:** اللوحة من غير داتا · **n8n مش هيعرف يدخّل الأوردرات ونود `Insert Order to Supabase` خطؤها مش متوصّل = أوردر ضايع في صمت** ·
+الواتساب الوارد وcallbacks J&T بيترفضوا. **الميزانية لحد 18 نوفمبر:** ~1.06 GB ÷ ~14 يوم = **~75 MB/يوم**. **شبكة الأمان:** لو الـEgress قرّب ~4.7 GB قبل
+الدورة ما تخلص = `Pro` شهر واحد قبل ما نعدّي 5 GB و`Downgrade` بعد 18 نوفمبر (دفعة مرة مش اشتراك).
 
 ### 1) الـEgress — صور رد محفوظ واحد (مقاس من `wa_messages` + `storage.objects` + `edge_logs`)
 
