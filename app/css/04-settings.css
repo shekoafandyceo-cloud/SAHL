@@ -2,8 +2,6 @@
 /* ============== Settings page ============== */
 .settings-card{padding:24px 26px;}
 .settings-card .dstt{font-size:1.1rem;font-weight:900;margin-bottom:6px;color:var(--txt);}
-.settings-help{margin:0 0 18px;color:var(--muted);font-size:.86rem;font-weight:600;line-height:1.7;}
-.settings-help b{color:var(--txt);}
 .settings-grid{display:flex;flex-direction:column;gap:14px;}
 .settings-row{display:flex;flex-direction:column;gap:6px;}
 .settings-row label{font-size:.82rem;color:var(--muted);font-weight:700;text-align:right;}

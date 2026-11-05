@@ -2,15 +2,14 @@
 
 import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
-import { normalizeProductName } from '../analytics/product-match.js';
 import { $id, esc } from '../core/dom.js';
-import { fmt, fmtMovementDateParts, num, pad2, short } from '../core/format.js';
+import { fmt, fmtMovementDateParts, num, pad2 } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
+import { showModal } from '../core/modal.js';
 import { tourDemoMovements, tourDemoStock } from '../tour/demo-data.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
-import { showPage } from '../main.js';
 import { currentRole, currentTenantId } from '../auth/auth.js';
 import { tourActive } from '../tour/tour.js';
 import { loadBostaInventoryCard } from '../orders/cards.js';
@@ -69,7 +68,7 @@ export function loadStock(cb){
     if(stockMovements && stockMovements.length)renderMovements();
     if(cb)cb();
   });
-  // فلاج السقف — العدّاد والتنبؤ لازم يصارحوا إن في أقدم من كده
+  // فلاج السقف — عدّاد الحركات لازم يصارح إن في أقدم من كده
   sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(500).then(function(r){
     if(myGen!==stockLoadGen) return;
     if(r.error){return;}
@@ -321,7 +320,7 @@ export function openProductEditor(id){
     +nameField
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">'
     +(isNew?'الكمية الافتتاحية':(kids.length?'المخزون الحالي (غير الموزع)':'المخزون الحالي'))+'</label>'
-    +'<input class="sinp" id="pe-qty" type="number" min="0" value="'+(p.current_qty||0)+'">'
+    +'<input class="sinp" id="pe-qty" type="number" min="0" value="'+(p.current_qty||0)+'"'+(isNew?'':' data-pid="'+esc(p.id)+'"')+'>'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر الجملة (للقطعة الواحدة)</label>'
     +'<input class="sinp" id="pe-wholesale" type="number" min="0" step="0.01" value="'+(p.wholesale_price||0)+'">'
     +'<label class="slbl" style="text-align:right;display:block;margin-top:8px">سعر البيع للقطعة</label>'
@@ -332,6 +331,24 @@ export function openProductEditor(id){
     +(isNew?'':'<button class="abtn cn" id="pe-del">🗑️ حذف</button>')
     +'<button class="abtn ok" id="pe-save">💾 حفظ</button>'
     +'</div>';
+
+  // (15 أكتوبر — مراجعة السكانر) بعد تشغيل السكانر الرقم المكتوب = اللي على الرف بس: الطرود اللي اتضربت خروج ولسه
+  // في «جاهز للشحن» اتخصمت خلاص — لو اتعدّت هنا بترجع تاني ومحدش بيخصمها لما المندوب ياخدها (التعديل رقم مطلق مش جرد)
+  var pileNote='';
+  if(!isNew&&!tourActive&&sb){
+    var pileFor=p.id;
+    Promise.resolve(sb.rpc('wh_product_pile',{p_product_id:pileFor})).then(function(r){
+      var d=r&&!r.error&&r.data;
+      var qi=$id('pe-qty');
+      if(!d||!d.ok||d.code!=='ok'||!qi||qi.getAttribute('data-pid')!==pileFor)return;
+      pileNote='📦 السكانر شغّال: اكتب اللي على الرف بس'
+        +(d.pile?' — منه '+d.pile+' قطعة في طرود اتضربت خروج ولسه جاهزة للشحن في المخزن (اتخصموا خلاص، ماتعدّهمش)':' — مفيش طرود من المنتج ده جاهزة للشحن دلوقتي')
+        +(d.ret?' · و'+d.ret+' مرتجع J&T قالت سلّمته ومااتضربش (هيتضاف لما يتضرب — ماتعدّوش)':'')+'.';
+      var old=$id('pe-pile'); if(old)old.remove();
+      var div=document.createElement('div'); div.id='pe-pile'; div.className='pe-var-hint'; div.textContent=pileNote;
+      qi.insertAdjacentElement('afterend',div);
+    },function(){});
+  }
 
   // بعد أي عملية على الخصائص: تحميل من السيرفر (الاسم بيتولّد هناك) وإعادة فتح المحرر
   function reloadAndReopen(){ loadStock(function(){ openProductEditor(p.id); }); }
@@ -399,36 +416,102 @@ export function openProductEditor(id){
     var unit=parseFloat($id('pe-unit').value)||0;
     if(isChild){ if(!label){toast('اسم الخاصية مطلوب','er');return;} }
     else if(!name){toast('اسم المنتج مطلوب','er');return;}
-    // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي
-    if(qty<0||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
-    var data, op;
+    // مفيش قيود على الجدول في الداتابيز — السالب كان بيتقبل ويعدّي.
+    // ⚠️ الكمية بالسالب مرفوضة **لو اتكتبت** بس: السكانر بيسمح بالسالب (قطعة خرجت والرصيد مش متسجّل)،
+    // فمنتج رصيده -2 لازم يتعدّل اسمه أو سعره من غير ما المحرر يرفض رقم ماحدش لمسه.
+    if((qty<0&&(isNew||qty!==orig.qty))||wholesale<0||unit<0){toast('مفيش قيم سالبة في المخزون أو الأسعار','er');return;}
+    // 🔴 الكمية عمرها ما بتتكتب مباشرةً (14 أكتوبر — سكانر المخزن): أي تغيير فيها = حركة «تعديل»
+    // بسبب من `wh_stock_adjust` (الفرق على السيرفر من الرقم الحالي — لو السكانر خصم والمحرر مفتوح،
+    // الفرق بيتحسب من الرقم بعد الخصم). قبل كده الـPATCH المباشر كان بيغيّر الرقم من غير أي أثر.
+    // والمنتج الجديد بيتعمل بصفر وبعدين حركة «رصيد أول».
+    var data, op, qtyChanged=false;
     if(isNew){
-      data={tenant_id:currentTenantId, name:name, current_qty:qty, wholesale_price:wholesale, unit_price:unit};
-      op=sb.from('stock_products').insert(data);
+      data={tenant_id:currentTenantId, name:name, current_qty:0, wholesale_price:wholesale, unit_price:unit};
+      op=sb.from('stock_products').insert(data).select('id').single();
     } else {
-      // بنبعت بس الحقول اللي التاجر غيّرها فعلاً عن لحظة الفتح — إرسال
-      // current_qty دايماً كان بيرجّع كمية خصمها السكانر والمحرر مفتوح
-      // (حفظ تعديل سعر = الكمية القديمة ترجع تتكتب فوق الخصم)
+      // بنبعت بس الحقول اللي التاجر غيّرها فعلاً عن لحظة الفتح
       data={};
       if(isChild){ if(label!==orig.label) data.variant_label=label; }
       else if(name!==orig.name) data.name=name;
-      if(qty!==orig.qty) data.current_qty=qty;
+      qtyChanged = qty!==orig.qty;
       if(wholesale!==orig.wholesale) data.wholesale_price=wholesale;
       if(unit!==orig.unit) data.unit_price=unit;
-      if(!Object.keys(data).length){ $id('ovl').classList.remove('open'); return; }
-      op=sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId);
+      if(!Object.keys(data).length && !qtyChanged){ $id('ovl').classList.remove('open'); return; }
+      op=Object.keys(data).length
+        ? sb.from('stock_products').update(data).eq('id',p.id).eq('tenant_id',currentTenantId)
+        : Promise.resolve({ error: null });
     }
-    btn.disabled=true;
-    op.then(function(r){
+    var finish=function(msg){
       btn.disabled=false;
-      if(r.error){
-        toast(r.error.code==='23505'?'فيه منتج/خاصية بنفس الاسم بالفعل':'خطأ: '+r.error.message,'er');
-        return;
-      }
-      toast(isNew?'تم إضافة المنتج ✓':'تم التحديث ✓','ok');
+      toast(msg,'ok');
       $id('ovl').classList.remove('open');
       loadStock();
-    });
+    };
+    // 🔴 `p_expected_qty` = الرقم اللي التاجر شافه وقت الفتح: لو السكانر خصم والمحرر مفتوح، السيرفر بيرد
+    // `stale` بدل ما يكتب الرقم القديم فوق الخصم (كان بيمسح خصم السكانر في صمت). وساعتها بنحافظ على
+    // **الفرق** اللي التاجر قصده (كتب 12 والرقم كان 10 = +2) على الرقم الجديد، وهو يراجع ويحفظ تاني.
+    var adjust=function(pid, reason, okMsg){
+      var expected=isNew?0:orig.qty;
+      sb.rpc('wh_stock_adjust',{p_product_id:pid,p_new_qty:qty,p_reason:reason,p_expected_qty:expected}).then(function(ar){
+        var d=(ar&&!ar.error&&ar.data)||{ok:false};
+        if(!d.ok){
+          btn.disabled=false;
+          if(!isNew&&d.code==='stale'&&typeof d.qty==='number'){
+            var cur=d.qty, want=qty+(cur-orig.qty);
+            orig.qty=cur;
+            var qi=$id('pe-qty');
+            // الفرق ممكن ينزّل الرقم تحت الصفر (السكانر خصم أكتر من المتسجّل) — ده رقم مايتحفظش، فبنحط 0
+            // ونقول صراحةً إن المطلوب العدد الحقيقي (كان بيتملى بالسالب والحفظ يترفض «مفيش قيم سالبة»)
+            if(want<0){
+              if(qi) qi.value='0';
+              toast('الكمية اتغيّرت وانت فاتح المحرر (السكانر سجّل حركة): بقت '+cur+' — وفرقك كان هيخلّيها بالسالب. اكتب العدد الحقيقي اللي على الرف واحفظ','er');
+              loadStock();
+              return;
+            }
+            if(qi) qi.value=String(want);
+            toast('الكمية اتغيّرت وانت فاتح المحرر (السكانر سجّل حركة): بقت '+cur+' — خلّيت فرقك زي ما هو ('+want+')، راجعها واحفظ تاني','er');
+            loadStock();
+            return;
+          }
+          toast(isNew?'المنتج اتضاف بس الكمية مااتسجلتش — عدّلها من المحرر'
+            :d.code==='busy'?'السيرفر مشغول — جرّب تاني'
+            :d.code==='not_allowed'?'تعديل الكمية للأدمن بس'
+            :'الكمية مااتعدّلتش — حاول تاني','er');
+          loadStock();
+          return;
+        }
+        finish(okMsg);
+      });
+    };
+    var run=function(reason){
+      btn.disabled=true;
+      Promise.resolve(op).then(function(r){
+        if(r.error){
+          btn.disabled=false;
+          toast(r.error.code==='23505'?'فيه منتج/خاصية بنفس الاسم بالفعل':'خطأ: '+r.error.message,'er');
+          return;
+        }
+        if(isNew){
+          var nid=r.data&&r.data.id;
+          if(qty>0&&nid){ adjust(nid,'رصيد أول للمنتج','تم إضافة المنتج ✓'); return; }
+          finish('تم إضافة المنتج ✓'); return;
+        }
+        // الحقول التانية اتحفظت: لو الكمية رجعت `stale` والتاجر حفظ تاني، مانبعتهاش مرة تانية
+        if(data.name!==undefined) orig.name=data.name;
+        if(data.variant_label!==undefined) orig.label=data.variant_label;
+        if(data.wholesale_price!==undefined) orig.wholesale=data.wholesale_price;
+        if(data.unit_price!==undefined) orig.unit=data.unit_price;
+        if(qtyChanged){ adjust(p.id,reason,'تم التحديث ✓ — الكمية اتسجلت حركة «تعديل»'); return; }
+        finish('تم التحديث ✓');
+      });
+    };
+    if(qtyChanged){
+      showModal({icon:'✏️',title:'ليه الكمية اتغيّرت من '+orig.qty+' لـ'+qty+'؟',
+        sub:'التعديل بيتسجّل حركة في سجل المخزون باسمك — اكتب السبب (مثلاً: بضاعة وصلت · تالف · تصحيح رقم).'+(pileNote?'\n'+pileNote:''),
+        okLabel:'احفظ',input:true,placeholder:'السبب',onOk:function(reason){ run(reason); }});
+      return;
+    }
+    run(null);
   });
 
   if(!isNew){
@@ -545,93 +628,3 @@ export function initStockButtons(){
   $id('add-mov-btn').addEventListener('click',openMovementEditor);
 }
 
-  // ─────────────────────────────────────────────────
-  // SMART STOCK ALERTS + ISSUES CENTER
-  // ─────────────────────────────────────────────────
-
-export function parseMovementDate(m){
-  var raw=m.created_at || m.movement_date;
-  if(!raw)return null;
-  var d=new Date(raw);
-  return isNaN(d.getTime())?null:d;
-}
-
-export function recentQtyOutByProduct(days){
-  var now=Date.now();
-  var windowMs=days*24*60*60*1000;
-  var map={};
-  (stockMovements||[]).forEach(function(m){
-    if(m.movement_type!=='out')return;
-    var d=parseMovementDate(m); if(!d)return;
-    if(now-d.getTime()>windowMs)return;
-    var name=normalizeProductName(m.product_name);
-    var key=name.toLowerCase();
-    map[key]=(map[key]||0)+(Number(m.qty_out||0)||0);
-  });
-  return map;
-}
-
-export function stockForecastRows(){
-  var out7=recentQtyOutByProduct(7);
-  // أم ليها خصائص بتتستبعد: كميتها «غير موزع» مش مخزون بيع، وصفرها حالة
-  // طبيعية بعد التوزيع الكامل — من غير الاستبعاد كل عيلة موزعة بالكامل
-  // كانت هتطلع «نفد من المخزون» بالغلط. الإشارة الحقيقية على البنات نفسها.
-  var rows=(stockProducts||[]).filter(function(p){
-    return !(!p.parent_id && hasVariants(p.id));
-  }).map(function(p){
-    var name=normalizeProductName(p.name);
-    var qty=Number(p.current_qty||0)||0;
-    var sold7=out7[name.toLowerCase()]||0;
-    var avg=sold7/7;
-    var daysLeft=avg>0 ? qty/avg : null;
-    var level='ok', msg='مخزون مستقر';
-    if(qty<=0){level='critical';msg='نفد من المخزون';daysLeft=0;}
-    else if(avg>0 && daysLeft<=3){level='critical';msg='هينفد خلال 3 أيام أو أقل';}
-    else if(avg>0 && daysLeft<=7){level='warn';msg='هينفد خلال أسبوع تقريبًا';}
-    else if(avg===0 && qty>0 && qty<10){level='warn';msg='مخزون قليل لكن مفيش سحب حديث';}
-    return {product:p,name:name,qty:qty,sold7:sold7,avg:avg,daysLeft:daysLeft,level:level,msg:msg,wholesale:Number(p.wholesale_price||0)||0};
-  });
-  rows.sort(function(a,b){
-    var pr={critical:0,warn:1,ok:2};
-    if(pr[a.level]!==pr[b.level])return pr[a.level]-pr[b.level];
-    var da=a.daysLeft===null?9999:a.daysLeft, db=b.daysLeft===null?9999:b.daysLeft;
-    return da-db;
-  });
-  return rows;
-}
-
-export function renderSmartStockAlerts(targetId, limit){
-  var target=$id(targetId);
-  if(!target)return;
-  var rows=stockForecastRows().filter(function(r){return r.level!=='ok';}).slice(0,limit||6);
-  if(!rows.length){
-    target.innerHTML='<div class="smart-alert-card info"><div class="alert-head"><span>✅</span><span class="alert-title">المخزون مستقر حاليًا</span></div><div class="alert-sub">مفيش منتجات متوقعة تنفد قريبًا بناءً على حركات الخروج آخر 7 أيام.</div></div>';
-    return;
-  }
-  target.innerHTML=rows.map(function(r){
-    var cls=r.level==='critical'?'critical':'warn';
-    var icon=r.level==='critical'?'🚨':'⚠️';
-    var daysTxt=r.daysLeft===null?'غير محسوب':(r.daysLeft<=0?'نفد':r.daysLeft.toFixed(1)+' يوم');
-    return '<div class="smart-alert-card '+cls+'">'
-      + '<div class="alert-head"><span>'+icon+'</span><span class="alert-title">'+esc(short(r.name,34))+'</span><span class="alert-badge">'+esc(r.msg)+'</span></div>'
-      + '<div class="alert-main">'+daysTxt+'</div>'
-      + '<div class="alert-sub">المتاح: '+num(r.qty)+' قطعة · سحب آخر 7 أيام: '+num(r.sold7)+' · متوسط يومي: '+(r.avg?r.avg.toFixed(1):'0')+' قطعة</div>'
-      + '<div class="alert-actions"><button class="alert-action" data-stock-search="'+esc(r.name)+'">افتح المنتج</button></div>'
-      + '</div>';
-  }).join('')
-  + (stockMovementsCapped?'<div class="cap-note">⚠ التنبؤ مبني على آخر 500 حركة بس — الأقدم مش محمّل فالتقدير ممكن يكون متفائل</div>':'');
-  target.querySelectorAll('[data-stock-search]').forEach(function(b){
-    b.addEventListener('click',function(){openStockProductByName(b.getAttribute('data-stock-search'));});
-  });
-}
-
-export function openStockProductByName(name){
-  showPage('stock');
-  currentStockTab='products';
-  document.querySelectorAll('.stock-tab[data-tab]').forEach(function(x){x.classList.toggle('active',x.getAttribute('data-tab')==='products');});
-  $id('stock-products-tab').style.display='block';
-  $id('stock-movements-tab').style.display='none';
-  if($id('prod-search'))$id('prod-search').value=name||'';
-  renderProducts();
-  window.scrollTo({top:0,behavior:'smooth'});
-}

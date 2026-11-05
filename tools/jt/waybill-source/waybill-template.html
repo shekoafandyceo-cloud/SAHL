@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>{{ doc_title }}</title>
+<style>
+/* =====================================================================
+   3ataba.com × J&T Egypt — waybill template (100 × 150 mm, thermal B/W)
+   ---------------------------------------------------------------------
+   Mirrors the J&T Egypt "Standard" label:
+     header (J&T · brand · service) → main barcode + number →
+     body: [ left column: COD/weight · sorting code · To · From ]
+           [ right column: 2nd barcode, VERTICAL, same waybill no. ]
+     → REMARKS (products, free text) → footer (☎ hotline · no. · time)
+   ONE page, always: a long remark steps its font down (13 → 9 pt), then
+   switches to a compact inline "flow" layout (10 → 7 pt).
+   All dimensions in mm; font sizes in pt.
+   ===================================================================== */
+
+/* ---- fonts (embedded in the PDF by Chromium) ---- */
+{{ font_css|safe }}
+
+@page { size: 100mm 150mm; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+
+.label {
+  width: 100mm; height: 150mm; padding: 3mm;          /* 3 mm safe margin */
+  overflow: hidden; direction: rtl;
+  font-family: "Cairo", "Liberation Sans", Arial, sans-serif;
+  font-size: 9pt; line-height: 1.25;
+  position: relative; background: #fff;
+}
+
+.grid { width: 94mm; height: 144mm; border: 0.35mm solid #000; display: flex; flex-direction: column; }
+.row  { border-bottom: 0.35mm solid #000; flex: 0 0 auto; display: flex; min-height: 0; }
+.row:last-child { border-bottom: 0; }
+
+.lbl { font: 700 6.3pt "Cairo"; line-height: 1.15; }
+.val { font: 800 10pt "Cairo"; line-height: 1.2; white-space: nowrap; }
+.en  { font-family: "Liberation Sans", Arial, sans-serif; }
+.tag { display: inline-block; font: 700 8pt "Liberation Sans", Arial, sans-serif; margin-left: 1.2mm; vertical-align: 1pt; }
+
+/* 1 ─ header: J&T wordmark (logo placeholder) · 3ataba.com logo · service type */
+.r-head { height: 9mm; align-items: center; padding: 0 1.5mm; }
+.jt { width: 34mm; font: 700 15pt "Liberation Sans", Arial, sans-serif; line-height: 1; white-space: nowrap; }
+.jt small { font-size: 8.5pt; letter-spacing: 0.5pt; margin-left: 1mm; }
+.brand { flex: 1; display: flex; justify-content: center; align-items: center; }
+.brand img.logo { height: 7.4mm; width: auto; display: block; }
+.service { width: 24mm; text-align: right; font: 700 10pt "Liberation Sans", Arial, sans-serif; }
+
+/* 2 ─ main barcode (70 × 10 mm) + waybill number */
+.r-bar { height: 16.5mm; flex-direction: column; align-items: center; justify-content: center; }
+.bc svg { display: block; width: 70mm; height: 10mm; }
+.wb { font: 700 11.5pt "Liberation Sans", Arial, sans-serif; letter-spacing: 0.35mm; margin-top: 0.9mm; line-height: 1; }
+
+/* 3 ─ body: left column (info · sorting · To · From) + right column (vertical barcode) */
+.body { display: grid; grid-template-columns: 1fr 14mm; direction: ltr; }
+.body > .lcell { grid-column: 1; border-bottom: 0.35mm solid #000; direction: rtl; display: flex; min-width: 0; }
+.body > .lcell:last-child { border-bottom: 0; }
+.side { grid-column: 2; grid-row: 1 / span 4; border-left: 0.35mm solid #000;
+        display: flex; align-items: center; justify-content: center; gap: 0.6mm; direction: ltr; }
+.vbc svg { display: block; width: 9mm; height: 54mm; }
+.vwb { writing-mode: vertical-rl; transform: rotate(180deg); font: 700 7pt "Liberation Sans", Arial, sans-serif;
+       letter-spacing: 0.2mm; line-height: 1; white-space: nowrap; }
+
+/* 3a ─ COD · weight */
+.r-info { height: 9mm; }
+.r-info .cell { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.6mm 1.5mm 0.9mm; min-width: 0; }
+.r-info .cell:first-child { flex: 1.25; border-left: 0.35mm solid #000; }
+.c-cod .val { font-size: 11pt; }
+
+/* 3b ─ three-segment sorting code: Bold 20 pt inside a 35 × 10 mm box */
+.r-sort { height: 12.5mm; align-items: center; justify-content: center; }
+.sort-box { width: 35mm; height: 10mm; display: flex; align-items: center; justify-content: center;
+            font: 700 20pt "Liberation Sans", Arial, sans-serif; line-height: 1; white-space: nowrap; direction: ltr; }
+
+/* 3c ─ recipient (auto height; min keeps the side column ≥ 62 mm: 54 mm barcode + 4 mm quiet zones) */
+.r-to { min-height: 31mm; max-height: 40mm; flex-direction: column; padding: 0.8mm 1.5mm 1mm; overflow: hidden; }
+.to-name   { font: 800 13pt "Cairo"; line-height: 1.2; white-space: nowrap; }
+.to-phones { font: 700 12pt "Liberation Sans", Arial, sans-serif; line-height: 1.2; }
+.to-area   { font: 800 11.5pt "Cairo"; line-height: 1.2; white-space: nowrap; }
+.to-addr   { font: 700 10.5pt "Cairo"; line-height: 1.3; }
+
+/* 3d ─ sender */
+.r-from { height: 9.5mm; flex-direction: column; justify-content: center; padding: 0.5mm 1.5mm 0.8mm; overflow: hidden; }
+.from-name { font: 800 10pt "Cairo"; line-height: 1.2; white-space: nowrap; }
+.from-name .en { font: 700 8pt "Liberation Sans", Arial, sans-serif; }
+.from-name bdi.ph { font: 700 9.5pt "Liberation Sans", Arial, sans-serif; }
+.from-info { font: 700 8.5pt "Cairo"; line-height: 1.2; white-space: nowrap; }
+
+/* 4 ─ REMARKS: free text as sent to J&T (products + notes), largest block, always one page */
+.r-items { flex: 1 1 auto; flex-direction: column; padding: 0.6mm 1.5mm 0.4mm; }
+.items-head { display: flex; justify-content: space-between; align-items: center; flex: 0 0 auto;
+              font: 700 7.5pt "Cairo"; border-bottom: 0.25mm solid #000; padding-bottom: 0.2mm; margin-bottom: 0.6mm; }
+.items-head .en { font-size: 7pt; }
+/* --fs is set by the build script: 13 pt down to 9 pt as a list, then 10 pt down to 7 pt as inline flow */
+.items-list { --fs: 13pt; list-style: none; margin: 0; padding: 0 0 1.2mm; flex: 1 1 auto; overflow: hidden; min-height: 0;
+              font: 800 var(--fs) "Cairo"; line-height: 1.3; }
+.items-list li { display: block; }               /* one remark line per row, printed exactly as written */
+/* compact "flow" mode for very long remarks: every line becomes an inline chunk separated by a bullet */
+.items-list.flow { line-height: 1.25; }
+.items-list.flow li { display: inline; }
+.items-list.flow li + li::before { content: "\2022"; margin: 0 0.45em; }
+/* fixed notice pinned to the bottom of the remark block */
+.items-foot { flex: 0 0 auto; text-align: center; font: 800 10pt "Cairo"; line-height: 1.3;
+              border-top: 0.25mm solid #000; margin-top: 0.4mm; padding-top: 0.4mm; }
+
+/* 5 ─ footer, J&T style: ☎ hotline (left) · waybill no. (centre) · print time (right) + sample notice */
+.r-foot { min-height: 6mm; flex-direction: column; justify-content: center; padding: 0.3mm 1.5mm 0.5mm; }
+.foot-l1 { display: flex; justify-content: space-between; align-items: center; line-height: 1.05; white-space: nowrap; direction: ltr; }
+.hot { font: 700 8.5pt "Liberation Sans", Arial, sans-serif; min-width: 18mm; }
+.hot svg { width: 3mm; height: 3mm; vertical-align: -0.5mm; margin-right: 0.8mm; }
+.foot-wb { font: 700 10.5pt "Liberation Sans", Arial, sans-serif; letter-spacing: 0.25mm; }
+.meta { font: 400 6.5pt "Liberation Sans", Arial, sans-serif; line-height: 1; white-space: nowrap; min-width: 18mm; text-align: right; }
+.foot-l2 { display: flex; justify-content: space-between; margin-top: 0.3mm; white-space: nowrap; }
+.disc { font: 700 7pt "Cairo"; line-height: 1; }
+.foot-l2 .meta { min-width: 0; }
+
+@media screen { body { background: #888; padding: 5mm; } .label { margin: 0 auto 5mm; box-shadow: 0 0 3mm rgba(0,0,0,.4); } }
+</style>
+</head>
+<body>
+
+<div class="label" id="label">
+  <div class="grid">
+
+    <div class="row r-head" dir="ltr">
+      <div class="jt">J&amp;T<small>EXPRESS</small></div>
+      <div class="brand"><img class="logo" src="{{ logo_src }}" alt="3ataba.com"></div>
+      <div class="service">{{ service_type }}</div>
+    </div>
+
+    <div class="row r-bar" dir="ltr">
+      <div class="bc">{{ barcode_svg|safe }}</div>
+      <div class="wb">{{ waybill_no }}</div>
+    </div>
+
+    <div class="row body">
+      <div class="lcell r-info">
+        <div class="cell c-cod"><div class="lbl">COD — مبلغ التحصيل</div><div class="val">{{ cod_display }}</div></div>
+        <div class="cell c-wt"><div class="lbl">Weight — الوزن</div><div class="val">{{ weight_display }}</div></div>
+      </div>
+      <div class="side" id="side">
+        <div class="vwb">{{ waybill_no }}</div>
+        <div class="vbc">{{ barcode_v_svg|safe }}</div>
+      </div>
+      <div class="lcell r-sort">
+        <div class="sort-box"><span id="sort-text">{{ sorting_code }}</span></div>
+      </div>
+      <div class="lcell r-to">
+        <div class="to-name"><span class="tag">To:</span>{{ recipient.name }}</div>
+        <div class="to-phones"><bdi>{{ recipient.phone }}</bdi>{% if recipient.phone_alt %} — <bdi>{{ recipient.phone_alt }}</bdi>{% endif %}</div>
+        <div class="to-area">{{ recipient.governorate }} — {{ recipient.city }}</div>
+        <div class="to-addr">{{ recipient.address }}</div>
+      </div>
+      <div class="lcell r-from">
+        <div class="from-name"><span class="tag">FROM:</span>{{ sender.name }} <bdi class="en">{{ sender.brand_en }}</bdi> &nbsp;·&nbsp; <bdi class="ph">{{ sender.phone }}</bdi></div>
+        <div class="from-info">{{ sender.address }}</div>
+      </div>
+    </div>
+
+    <div class="row r-items">
+      <div class="items-head"><span><span class="en">REMARKS</span> — الملاحظات</span></div>
+      <ol class="items-list{% if remark_mode == 'flow' %} flow{% endif %}" id="items-list" style="--fs: {{ remark_pt }}pt">
+        {%- for l in lines %}
+        <li>{{ l.text }}</li>
+        {%- endfor %}
+      </ol>
+      {%- if remark_footer %}
+      <div class="items-foot">{{ remark_footer }}</div>
+      {%- endif %}
+    </div>
+
+    <div class="row r-foot">
+      <div class="foot-l1">
+        <span class="hot">{% if jt_hotline %}<svg viewBox="0 0 24 24"><path fill="#000" d="M6.6 2.5c.6-.3 1.3 0 1.6.6l1.9 3.7c.3.6.1 1.3-.4 1.7L8.3 9.6c1.3 2.6 3.5 4.8 6.1 6.1l1.1-1.4c.4-.5 1.1-.7 1.7-.4l3.7 1.9c.6.3.9 1 .6 1.6l-1 2.6c-.3.7-1 1.1-1.7 1C10.4 20.2 3.8 13.6 3 5.2c-.1-.7.3-1.4 1-1.7z"/></svg>{{ jt_hotline }}{% endif %}</span>
+        <span class="foot-wb">{{ waybill_no }}</span>
+        <span class="meta">{{ printed_at }}</span>
+      </div>
+      {%- if disclaimer %}
+      <div class="foot-l2">
+        <span class="disc">{{ disclaimer }}</span>
+        <span class="meta">Code 128 · 100×150 mm</span>
+      </div>
+      {%- endif %}
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

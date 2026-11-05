@@ -1,32 +1,47 @@
-// زرار الشحن من نافذة التفاصيل — المسارين.
+// زرار الشحن من نافذة التفاصيل — بعد شيل مسار بوسطة الأوتوماتيك (v80 — قرار المالك).
 //
 // النطاق: الواجهة. حراسات السيرفر اتجرّبت لوحدها:
 //   - mark_shipped_manual: ترانزاكشن راجعة بانتحال موظف حقيقي مش سوبر
 //     (عبور مرفوض · already_has_tracking · bad_status · التتبع بيتسجل)
-//   - order-ship: الفحوص القبلية جوّه الـEdge Function (منشورة v1)
+//   - jt-ship: test-jt-ship.mjs (النافذة · الحمولة · الفشل وعلامته)
 //
 // اللي بيتأكد هنا:
-//  1) الأوتوماتيك بيبعت للـEF **من غير tenant_id في الـbody** (الثابت الحاكم)
-//  2) الواجهة مابتقولش «اتشحن» غير لما tracking_no يظهر في الصف فعلاً —
-//     النجاح بييجي من الـpoll مش من رد الويبهوك
-//  3) اليدوي بيعدّي على mark_shipped_manual بالتتبع المكتوب
-//  4) أوردر له بوليصة = ولا زرار · تاجر مش رابط API = مفيش أوتوماتيك
-//  5) فشل الـEF بيظهر رسالته ومفيش نجاح كاذب
+//  1) تاجر مش J&T (shipping_provider='bosta' — الستب الافتراضي) = مفيش زرار أوتوماتيك
+//     والنافذة مافيهاش شارة «محاولة ماكملتش» حتى لو صف الأوردر فيه محاولة بوسطة قديمة
+//     (shipping_requested_at — بيوصل للنافذة من select('*'))
+//  2) اليدوي بيعدّي على mark_shipped_manual بالتتبع المكتوب (وفاضي = null)
+//  3) أوردر له بوليصة = ولا زرار
+//  4) تاجر J&T = زرار «🚚 شحن J&T»
+//  5) زرار 🖨️ في الجدول لأوردرات J&T بس · «حدد غير المطبوع» J&T بس · الطباعة الجماعية
+//     لأوردر مش J&T بتقول السبب · اختيار مخلوط بيطبع J&T بس ويقول كام اتساب · مفيش
+//     نداء لـbosta-print-awb
+//  6) التيكر بيتابع شحنات J&T اللي في السكة بس — صامت لحد ما الحالة تتغيّر
+//  7) معايرات: رجوع زرار الأوتوماتيك لغير J&T · زرار الطباعة لكل صف · «حدد غير المطبوع» لكل البوالص ·
+//     التيكر بيراقب اللي من غير بوليصة
 import { chromium } from 'playwright';
 import fs from 'fs';
 
 const STUB = fs.readFileSync(new URL('./stub.js', import.meta.url), 'utf8');
+const SHIP_SRC = fs.readFileSync(new URL('../app/js/orders/ship.js', import.meta.url), 'utf8');
+const TABLE_SRC = fs.readFileSync(new URL('../app/js/orders/table.js', import.meta.url), 'utf8');
 const URL_ = process.env.APP_URL || 'http://127.0.0.1:8899/index.html';
 
 let bad = 0;
 const ok = (c, m) => { console.log(c ? '  ✓' : '  ✗', m); if(!c) bad++; };
 const b = await chromium.launch({ executablePath:'/opt/pw-browsers/chromium' });
 
-// عميل مشترك: يفتح صفحة بستب + هوكات، ويوصل لتفاصيل أوردر معيّن
+// كل نداء Edge Function بيتسجّل (الستب بيعترضه لما __FN متعرّفة) — عشان نثبت إن الطباعة
+// الجماعية عمرها ما بتندَه bosta-print-awb (order-ship مالوش أي مسار في الكود أصلاً من v80)
+const FN_SPY = `window.__FN = function(slug, body){ return { status: 404, body: { message: 'مش متوقع: ' + slug } }; };`;
+
+// عميل مشترك: يفتح صفحة بستب + هوكات. patch = {path, body} لموديول متعدّل (المعايرات)
 async function openApp(extra){
+  extra = extra || {};
   const p = await b.newPage({ viewport:{ width:1440, height:1100 } });
   p.on('pageerror', e => { console.log('  ⚠ pageerror:', e.message); bad++; });
-  if(extra && extra.pre) await p.addInitScript(extra.pre);
+  if(extra.patch) for(const pt of extra.patch)
+    await p.route('**/js/orders/' + pt.file, r => r.fulfill({ status: 200, contentType: 'application/javascript', body: pt.body }));
+  await p.addInitScript(FN_SPY + (extra.pre || ''));
   await p.addInitScript(STUB);
   await p.addInitScript(`
     window.__RPC = [];
@@ -37,10 +52,7 @@ async function openApp(extra){
         c.rpc = function(name, args){
           window.__RPC.push({ name: name, args: args });
           if(name === 'mark_shipped_manual'){
-            if(window.__MANUAL_ERR) return Promise.resolve({ data:null, error:{ message: window.__MANUAL_ERR } });
-            // محاكاة كتابة السيرفر: الـRPC الحقيقي بيحدّث صف الأوردر في الداتابيز،
-            // فأي refetch بعده (doFilter) لازم يرجّع الحالة الجديدة. من غير ده
-            // الفحص كان بيعدّي بالصدفة من تعديل sel بالمرجع (اتشال مع قفل النافذة)
+            // محاكاة كتابة السيرفر: أي refetch بعده (doFilter) لازم يرجّع الحالة الجديدة
             var row = (window.__ORDERS || []).filter(function(o){ return o.id === (args && args.p_order_id); })[0];
             if(row){ row.status = 'bosta_assigned'; if(args.p_tracking) row.tracking_no = args.p_tracking; }
             return Promise.resolve({ data:{ ok:true }, error:null });
@@ -66,101 +78,37 @@ async function openDetailOf(p, orderId){
   await p.waitForTimeout(250);
 }
 
-// ════ 1) تاجر رابط API — المسار الأوتوماتيك كامل ════
-{
-  const p = await openApp({ pre: `
-    // الـEF بترد ok — والحقيقة (التتبع) بتظهر في الصف بعد شوية زي الإنتاج
-    window.__FN = function(slug, body){
-      if(slug === 'order-ship'){
-        setTimeout(function(){
-          var o = (window.__ORDERS || []).filter(function(x){ return x.id === body.order_id; })[0];
-          if(o){ o.tracking_no = 'TRKAUTO9'; o.status = 'BOSTA AUTO'; }
-        }, 1200);
-        return { status: 200, body: { ok: true, requested_at: new Date().toISOString() } };
-      }
-      return { status: 404, body: { message: 'مش معروفة' } };
-    };
-  `});
-  console.log('──── الأوتوماتيك (تاجر رابط API) ────');
-  await openDetailOf(p, 'o3');   // pending من غير tracking
+const fnSlugs = (p) => p.evaluate(() => (window.__FNCALLS || []).map(c => c.slug));
 
-  const btns = await p.evaluate(() => ({
-    auto: !!document.getElementById('ship-auto'),
-    manual: !!document.getElementById('da-bs'),
-    manualTxt: (document.getElementById('da-bs')||{}).textContent || ''
-  }));
-  ok(btns.auto, 'زرار «شحن أوتوماتيك» ظاهر');
-  ok(btns.manual && /يدوي/.test(btns.manualTxt), `وزرار اليدوي جنبه — «${btns.manualTxt.trim()}»`);
-
-  // hit-test: الزرار مش مدفون (درس 31/35)
-  const hit = await p.evaluate(() => {
-    const el = document.getElementById('ship-auto');
-    const r = el.getBoundingClientRect();
-    if(r.top < 0 || r.bottom > innerHeight) el.scrollIntoView({ block:'center' });
-    const r2 = el.getBoundingClientRect();
-    const h = document.elementFromPoint(r2.left + r2.width/2, r2.top + r2.height/2);
-    return !!(h && (el === h || el.contains(h)));
-  });
-  ok(hit, 'الـhit-test: الزرار مكشوف');
-
-  await p.click('#ship-auto');
-  await p.waitForSelector('#cmodal-box', { state:'visible', timeout:5000 });
-  const conf = await p.evaluate(() => (document.getElementById('cmodal-sub')||{}).textContent || '');
-  ok(/بفلوس حقيقية/.test(conf), 'مودال التأكيد بيقول إنها بوليصة حقيقية بفلوس');
-  ok(/مش هتتغير غير لما/.test(conf), 'وبيوعد إن الحالة مش هتتغير غير بالبوليصة الفعلية');
-  // مراقب على الجدول: الضغطة ممنوع تسبب أي إعادة رسم — العلامة بتتحقن
-  // جراحياً في خلية الصف (قرار المالك بعد ما شاف الرسم كـ«ريفريش»)
-  await p.evaluate(() => {
-    window.__renders = 0;
-    new MutationObserver(function(){ window.__renders++; })
-      .observe(document.getElementById('tbody'), { childList: true, subtree: false });
-  });
-  await p.click('#cmodal-ok');
-  await p.waitForTimeout(600);
-
-  // النافذة اتقفلت فوراً (طلب المالك) — الموظف يكمّل شغله والجدول بيحكي
-  const closed = await p.evaluate(() => ({
-    ovlOpen: document.getElementById('ovl').classList.contains('open'),
-    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.wait'),
-    renders: window.__renders,
-    toasts: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
-  }));
-  ok(!closed.ovlOpen, 'نافذة التفاصيل اتقفلت فوراً بعد التأكيد');
-  ok(closed.tableInd, 'والعلامة بتلف على الصف في الجدول في نفس اللحظة');
-  ok(closed.renders === 0, `من غير أي إعادة رسم للجدول — ${closed.renders} رسمة`);
-  ok(closed.toasts.trim() === '', `ومن غير أي رسالة تحت — «${closed.toasts.slice(0,40)}»`);
-
-  const call = await p.evaluate(() => (window.__FNCALLS || []).filter(c => c.slug === 'order-ship').pop());
-  ok(!!call, 'الـEdge Function اتندهت');
-  ok(call && call.body.order_id === 'o3', `بالأوردر الصح — ${call && call.body.order_id}`);
-  ok(call && !('tenant_id' in call.body), '🔴 ومفيش tenant_id في الـbody — بييجي من الـJWT بس');
-  ok(call && call.auth, 'والـJWT متبعت في الهيدر');
-
-  const midToasts = await p.evaluate(() =>
-    [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '));
-  ok(!/البوليصة اتعملت/.test(midToasts), 'ومفيش إعلان نجاح قبل ما التتبع يظهر فعلاً');
-
-  // الـpoll يلقط التتبع والنافذة مقفولة خالص
-  await p.waitForFunction(() =>
-    [...document.querySelectorAll('.toast')].some(t => /البوليصة اتعملت/.test(t.textContent)),
-    { timeout: 15000 });
-  const done = await p.evaluate(() => ({
-    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
-    tableInd: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind')
-  }));
-  ok(/TRKAUTO9/.test(done.toast) && /#9003/.test(done.toast),
-     `النجاح معلن برقم التتبع ورقم الأوردر — ${done.toast.slice(0,70)}`);
-  ok(!done.tableInd, 'والعلامة اختفت من الجدول');
-  // ولما يفتح الأوردر تاني: التتبع موجود وولا زرار شحن
+// ════ 1) تاجر مش J&T — مفيش أوتوماتيك خالص ════
+async function bostaTenantCheck(label, extra){
+  const p = await openApp(Object.assign({ pre: `
+    // محاولة بوسطة قديمة من غير بوليصة (زي أوردرات سبتمبر) — كانت بتعمل شارة «ماكملتش» للأبد.
+    // الجدول مابقاش بيطلب العمود، فبيوصل لنافذة التفاصيل بس (select('*'))
+    window.__SHIP_REQS = { o3: new Date(Date.now() - 3*86400000).toISOString() };
+  ` }, extra || {}));
   await openDetailOf(p, 'o3');
-  const reopened = await p.evaluate(() => ({
-    hasTrk: (document.getElementById('dcnt')||{}).textContent.indexOf('TRKAUTO9') >= 0,
-    auto: !!document.getElementById('ship-auto'),
-    manual: !!document.getElementById('da-bs')
-  }));
-  ok(reopened.hasTrk, 'فتحه تاني: رقم التتبع موجود');
-  ok(!reopened.auto && !reopened.manual, 'وولا زرار شحن — بوليصة واحدة بس');
+  const st = await p.evaluate(async () => {
+    const os = await import('./js/orders/state.js');
+    return {
+      auto: !!document.getElementById('ship-auto'),
+      manual: !!document.getElementById('da-bs'),
+      manualTxt: (document.getElementById('da-bs') || {}).textContent || '',
+      chip: !!document.getElementById('ship-chip'),
+      selReq: !!(os.sel && os.sel.shipping_requested_at)
+    };
+  });
   await p.close();
+  return { st };
+}
+{
+  console.log('──── تاجر مش J&T ────');
+  const r = await bostaTenantCheck();
+  ok(!r.st.auto, 'مفيش زرار «شحن أوتوماتيك» — مسار بوسطة اتشال');
+  ok(r.st.manual && /يدوي/.test(r.st.manualTxt), `وزرار اليدوي موجود — «${r.st.manualTxt.trim()}»`);
+  // الفحص اللي بعده مايبقاش أعمى: المحاولة القديمة لازم تكون وصلت النافذة فعلاً
+  ok(r.st.selReq, 'الأوردر المفتوح فيه محاولة بوسطة قديمة (shipping_requested_at وصل النافذة)');
+  ok(!r.st.chip, 'ومع ذلك مفيش شارة «محاولة ماكملتش» جوّه النافذة');
 }
 
 // ════ 2) المسار اليدوي — التتبع بيتسجل عبر الـRPC ════
@@ -194,7 +142,7 @@ async function openDetailOf(p, orderId){
   ok(after.row.status === 'bosta_assigned' && after.row.tracking_no === 'TRK-MANUAL-77',
      `صف الجدول (fil) اتحدّث — ${after.row.status} / ${after.row.tracking_no}`);
   ok(/اتسجل/.test(after.toast), 'والرسالة بتأكد تسجيل التتبع');
-  // «الموظف يدوس ويمشي» — نافذة التفاصيل لازم تتقفل مع التأكيد زي الأوتوماتيك
+  // «الموظف يدوس ويمشي» — نافذة التفاصيل لازم تتقفل مع التأكيد
   // (باج المالك 15 أغسطس: كانت بتفضل مفتوحة على نفس الأوردر)
   const ovlOpen = await p.evaluate(() => document.getElementById('ovl').classList.contains('open'));
   ok(!ovlOpen, 'نافذة التفاصيل اتقفلت ورجّعتنا للجدول');
@@ -202,8 +150,7 @@ async function openDetailOf(p, orderId){
 }
 
 // ════ 2ب) اليدوي من غير تتبع — «اختياري» يعني اختياري ════
-// (باج المالك 8 أغسطس: المودال العام كان بيرفض أي خانة فاضية ويحمّرها،
-//  فالـplaceholder بيقول «اختياري» والضغطة بتنوّر أحمر ومفيش حاجة بتحصل)
+// (باج المالك 8 أغسطس: المودال العام كان بيرفض أي خانة فاضية ويحمّرها)
 {
   const p = await openApp({});
   console.log('──── اليدوي من غير رقم تتبع ────');
@@ -234,201 +181,178 @@ async function openDetailOf(p, orderId){
 
 // ════ 3) أوردر له بوليصة = ولا زرار ════
 {
-  const p = await openApp({});
+  const p = await openApp({ pre: `window.__TENANT = { shipping_provider: 'jt' };` });
   console.log('──── أوردر له بوليصة ────');
   await openDetailOf(p, 'o1');   // delivered + TRK001
   const none = await p.evaluate(() => ({
     auto: !!document.getElementById('ship-auto'),
     manual: !!document.getElementById('da-bs')
   }));
-  ok(!none.auto && !none.manual, 'مفيش ولا زرار شحن — بوليصة واحدة بس');
+  ok(!none.auto && !none.manual, 'مفيش ولا زرار شحن — بوليصة واحدة بس (حتى لتاجر J&T)');
   await p.close();
 }
 
-// ════ 4) تاجر مش رابط API — اليدوي بس ════
+// ════ 4) تاجر J&T = زرار «🚚 شحن J&T» ════
 {
-  const p = await openApp({ pre: `window.__SHIP_API = false;` });
-  console.log('──── تاجر من غير API ────');
+  const p = await openApp({ pre: `window.__TENANT = { shipping_provider: 'jt' };` });
+  console.log('──── تاجر J&T ────');
   await openDetailOf(p, 'o3');
   const st = await p.evaluate(() => ({
-    auto: !!document.getElementById('ship-auto'),
+    txt: (document.getElementById('ship-auto') || {}).textContent || '',
     manual: !!document.getElementById('da-bs')
   }));
-  ok(!st.auto, 'مفيش زرار أوتوماتيك');
-  ok(st.manual, 'وزرار «اتشحن يدوي» موجود — المسار بتاعه كامل');
+  ok(/J&T/.test(st.txt), `زرار «شحن J&T» ظاهر — «${st.txt.trim()}»`);
+  ok(st.manual, 'واليدوي جنبه');
   await p.close();
 }
 
-// ════ 5) فشل الـEF بيبان بصراحة — من غير نجاح كاذب ════
-{
-  const p = await openApp({ pre: `
-    window.__FN = function(slug){
-      if(slug === 'order-ship') return { status: 422, body: { error:'bad_address',
-        message: 'العنوان قصير أو فاضي — كمّله الأول (المنطقة والشارع على الأقل) وبعدين اشحن' } };
-      return { status: 404, body: {} };
-    };
-  `});
-  console.log('──── فشل الفحص القبلي (عنوان قصير) ────');
-  await openDetailOf(p, 'o3');
-  await p.click('#ship-auto');
-  await p.waitForSelector('#cmodal-box', { state:'visible' });
-  await p.click('#cmodal-ok');
-  await p.waitForTimeout(800);
-  const fail = await p.evaluate(() => {
-    const ind = document.querySelector('#tbody tr[data-id="o3"] .ship-ind');
-    return {
-      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
-      row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {}),
-      ovlOpen: document.getElementById('ovl').classList.contains('open'),
-      indCls: ind ? ind.className : '',
-      indTitle: ind ? (ind.title || '') : ''
-    };
-  });
-  ok(fail.toast.trim() === '', `صفر رسايل تحت — الفشل صامت (قرار المالك) — «${fail.toast.slice(0,40)}»`);
-  ok(/warn/.test(fail.indCls), 'العلامة الصفرا ظهرت على الصف فوراً');
-  ok(/العنوان قصير/.test(fail.indTitle), `والسبب الحقيقي جوه تلميحها — ${fail.indTitle.slice(0,50)}`);
-  ok(fail.row.status === 'pending' && !fail.row.tracking_no, 'والأوردر فضل زي ما هو — مفيش حالة كاذبة');
-  ok(!fail.ovlOpen, 'والنافذة مقفولة برضه — مفيش رجوع ليها');
-  // فتح الأوردر: السبب مكتوب في الشارة جوه النافذة + الزرار متاح يجرب تاني
-  await openDetailOf(p, 'o3');
-  const inPopup = await p.evaluate(() => ({
-    chip: ((document.getElementById('ship-chip')||{}).textContent || ''),
-    auto: !!document.getElementById('ship-auto')
+// ════ 5) طباعة البوالص — J&T بس ════
+async function printCheck(extra){
+  extra = extra || {};
+  // الـpre بتاع الحالة بيتضاف على الأساسي (مش بيستبدله)
+  const p = await openApp(Object.assign({}, extra, { pre: `
+    window.__TENANT = { shipping_provider: 'jt' };
+    window.__PROPS = { o1: { shipping_carrier: 'jt' } };   // o1 بوليصة J&T · o2 بوليصة قديمة من غير شركة
+  ` + (extra.pre || '') }));
+  const r = await p.evaluate(() => ({
+    jtBtn: !!document.querySelector('#tbody tr[data-id="o1"] .awb-btn'),
+    oldBtn: !!document.querySelector('#tbody tr[data-id="o2"] .awb-btn'),
+    oldTrk: (document.querySelector('#tbody tr[data-id="o2"] .awb-cell') || {}).textContent || ''
   }));
-  ok(/العنوان قصير/.test(inPopup.chip), 'وفتح الأوردر: السبب مكتوب في الشارة');
-  ok(inPopup.auto, 'وزرار الأوتوماتيك متاح يجرب تاني بعد ما يصلّح');
+  return { p, r };
+}
+async function unprintedCheck(p){
+  return p.evaluate(async () => {
+    document.getElementById('fst').value = '__operation__';   // من غير change — بنحسب على الصفحة المعروضة
+    const t = await import('./js/orders/table.js');
+    t.updateUnprintedBtn();
+    const btn = document.getElementById('bb-sel-unprinted');
+    const txt = btn.textContent;
+    btn.click();
+    const st = await import('./js/orders/state.js');
+    const sel = [...st.selectedIds].sort();
+    document.getElementById('fst').value = '';
+    return { txt, sel };
+  });
+}
+{
+  console.log('──── طباعة البوالص ────');
+  const { p, r } = await printCheck();
+  ok(r.jtBtn, 'زرار 🖨️ على صف بوليصة J&T');
+  ok(!r.oldBtn, 'ومفيش زرار على صف بوليصة قديمة — زرار مابيعملش حاجة أسوأ من مفيش زرار');
+  ok(/TRK002/.test(r.oldTrk), 'ورقم التتبع القديم لسه ظاهر');
+  // «✓ حدد غير المطبوع» بيعدّ ويحدد بوالص J&T بس — بوليصة قديمة لو اتحددت مابتتطبعش
+  // فكانت هتفضل «غير مطبوعة» للأبد (o1 = J&T · o2/o4/o5 = بوالص قديمة)
+  const un = await unprintedCheck(p);
+  ok(/\(1\)/.test(un.txt), `«حدد غير المطبوع» بيعدّ بوليصة J&T بس — «${un.txt}»`);
+  ok(JSON.stringify(un.sel) === '["o1"]', `وبيحدد J&T بس — ${JSON.stringify(un.sel)}`);
+  await p.evaluate(async () => { const st = await import('./js/orders/state.js'); st.selectedIds.clear(); });
+  // الطباعة الجماعية لأوردر مش J&T: رسالة بالسبب ومفيش نداء لـbosta-print-awb
+  // (الستب بيطبّق `.in('id', …)` زي PostgREST — o1 اللي مش مختار مابيرجعش)
+  await p.click('#tbody tr[data-id="o2"] .cb-row');
+  await p.waitForSelector('#bb-print', { state:'visible' });
+  await p.click('#bb-print');
+  await p.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /J&T/.test(t.textContent)), { timeout: 5000 }).catch(() => {});
+  const after = await p.evaluate(() => ({
+    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
+    btnOn: !document.getElementById('bb-print').disabled
+  }));
+  const slugs = await fnSlugs(p);
+  ok(/مالوش بوليصة J&T/.test(after.toast), `رسالة بالسبب — «${after.toast.slice(0, 90)}»`);
+  ok(!slugs.includes('bosta-print-awb'), `ومفيش نداء لـbosta-print-awb — ${JSON.stringify(slugs)}`);
+  ok(after.btnOn, 'وزرار الطباعة رجع شغّال بعدها');
   await p.close();
 }
-
-// ════ 5-ب) الفشل الصامت: العتبة بتخلص والعلامة بتتقلب صفرا برسالة ════
 {
-  const p = await openApp({ pre: `
-    window.__SHIP_STALE_MIN = 0.1;   // 6 ثواني — poll تريين وخلاص
-    window.__FN = function(slug){
-      if(slug === 'order-ship')   // الـEF قبلت... وn8n فشل في صمت (مفيش tracking أبداً)
-        return { status: 200, body: { ok:true, requested_at: new Date().toISOString() } };
-      return { status: 404, body: {} };
-    };
-  `});
-  console.log('──── n8n فشل في صمت: العلامة بتتقلب صفرا لوحدها ────');
-  await openDetailOf(p, 'o3');
-  await p.click('#ship-auto');
-  await p.waitForSelector('#cmodal-box', { state:'visible' });
-  await p.click('#cmodal-ok');
-  // العلامة نفسها هي الإشارة — بنستنى انقلابها مش رسالة
-  await p.waitForFunction(() =>
-    !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.warn'),
-    { timeout: 20000 });
-  const dead = await p.evaluate(() => {
-    const ind = document.querySelector('#tbody tr[data-id="o3"] .ship-ind.warn');
+  // اختيار مخلوط: o1 (J&T) + o2 (قديمة) → قالب J&T بيتطلب لـo1 بس ورسالة إن 1 اتساب.
+  // ⚠️ window.open = null: الخطوط مابتوصلش نافذة document.write في الهارنس فـdoc.fonts.ready
+  // بيعلّق والطباعة مابترجعش (درس v77) — كده printJtAwb بترجع بعد ما تطلب الصفوف
+  const { p } = await printCheck({ pre: `window.open = function(){ return null; };` });
+  await p.click('#tbody tr[data-id="o1"] .cb-row');
+  await p.click('#tbody tr[data-id="o2"] .cb-row');
+  await p.waitForSelector('#bb-print', { state:'visible' });
+  await p.click('#bb-print');
+  await p.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /مالوش بوليصة J&T/.test(t.textContent)), { timeout: 12000 }).catch(() => {});
+  const mixed = await p.evaluate(() => {
+    const awb = (window.__calls || []).filter(c => c.table === 'orders' && /jt_sorting_code/.test(String(c.cols || '')) && (c.f || []).some(f => f.op === 'in' && f.col === 'id'));
     return {
-      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
-      indTitle: ind ? (ind.title || '') : '',
-      row: ((window.__ORDERS || []).filter(x => x.id === 'o3')[0] || {})
+      printed: awb.length ? [...new Set(awb.flatMap(c => c.f.filter(f => f.op === 'in' && f.col === 'id').flatMap(f => f.val)))].sort() : null,
+      toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | ')
     };
   });
-  ok(dead.toast.trim() === '', `العلامة اتقلبت صفرا من غير أي رسالة — «${dead.toast.slice(0,40)}»`);
-  ok(/يدوي/.test(dead.indTitle), `والتلميح بيوجّه لليدوي — ${dead.indTitle.slice(0,50)}`);
-  ok(dead.row.status === 'pending' && !dead.row.tracking_no, 'والحالة ماتغيّرتش — مفيش حالة كاذبة');
-  await p.close();
+  ok(JSON.stringify(mixed.printed) === '["o1"]', `اختيار مخلوط: قالب J&T اتطلب لـo1 بس — ${JSON.stringify(mixed.printed)}`);
+  ok(/1 أوردر مالوش بوليصة J&T/.test(mixed.toast), `ورسالة إن أوردر واحد اتساب — «${mixed.toast.slice(0, 120)}»`);
+  await p.context().close();
 }
 
-// ════ 5-ج) التيكر صامت: مفيش «ريفريش على الفاضي» ════
-{
-  const p = await openApp({ pre: `
+// ════ 6) التيكر: شحنات J&T اللي في السكة بس — صامت لحد التغيير ════
+async function tickerWatch(extra){
+  const p = await openApp(Object.assign({ pre: `
     window.__SHIP_TICK_MS = 700;
-    // محاولة معلّقة لسه في نافذة «بيتبعت» (عمرها ثانية) — التيكر هيسأل
-    // السيرفر كل تيك، بس ممنوع يرسم الجدول طول ما مفيش جديد
-    window.__SHIP_REQS = { o3: new Date().toISOString() };
-  `});
-  console.log('──── التيكر مايعملش ريفريش على الفاضي ────');
+    window.__TENANT = { shipping_provider: 'jt' };
+    // o2 = شحنة J&T لسه في السكة · o3 = pending من غير بوليصة (المفروض التيكر يطنّشه)
+    window.__PROPS = { o2: { shipping_carrier: 'jt' } };
+  `}, extra || {}));
   await p.evaluate(() => {
     window.__renders = 0;
     new MutationObserver(function(){ window.__renders++; })
       .observe(document.getElementById('tbody'), { childList: true, subtree: false });
   });
-  await p.waitForTimeout(3000);   // ~4 تيكات
-  const quiet = await p.evaluate(() => ({
-    renders: window.__renders,
-    tickerAsked: (window.__calls || []).filter(c => c.table === 'orders'
-      && String(c.cols||'') === 'id,status,tracking_no,shipping_requested_at').length
+  await p.waitForTimeout(2600);   // ~3 تيكات
+  const quiet = await p.evaluate(() => {
+    const tick = (window.__calls || []).filter(c => c.table === 'orders'
+      && String(c.cols || '').indexOf('id,status,tracking_no,carrier_status_raw') === 0);
+    return { renders: window.__renders, asked: tick.length,
+             ids: [...new Set(tick.flatMap(c => (c.f || []).filter(f => f.op === 'in' && f.col === 'id').flatMap(f => f.val || [])))].sort() };
+  });
+  return { p, quiet };
+}
+{
+  console.log('──── التيكر ────');
+  const { p, quiet } = await tickerWatch();
+  ok(quiet.asked >= 2, `التيكر بيسأل السيرفر عن شحنة J&T اللي في السكة — ${quiet.asked} استعلام`);
+  ok(JSON.stringify(quiet.ids) === '["o2"]', `وبيراقب شحنة J&T بس — مش أوردر من غير بوليصة ولا متقفل — ${JSON.stringify(quiet.ids)}`);
+  ok(quiet.renders === 0, `ومفيش إعادة رسم للجدول من غير تغيير — ${quiet.renders}`);
+  // الشحنة اتسلّمت على السيرفر (ريل-تايم ضاع) — التيكر بيلقطها
+  await p.evaluate(() => { const o = (window.__ORDERS || []).filter(x => x.id === 'o2')[0]; if(o) o.status = 'Delivered'; });
+  await p.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /9002/.test(t.textContent)), { timeout: 5000 }).catch(() => {});
+  const moved = await p.evaluate(() => ({
+    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join(' | '),
+    renders: window.__renders
   }));
-  ok(quiet.tickerAsked >= 2, `التيكر بيسأل السيرفر فعلاً — ${quiet.tickerAsked} استعلام`);
-  ok(quiet.renders === 0, `ومفيش ولا إعادة رسم للجدول من غير تغيير — ${quiet.renders} رسمة`);
+  ok(/9002/.test(moved.toast) && /بقى/.test(moved.toast), `والتغيير وصل برسالة — «${moved.toast.slice(0, 80)}»`);
+  ok(moved.renders >= 1, 'والجدول اترسم مع التغيير الفعلي بس');
   await p.close();
 }
 
-// ════ 6) علامة «بيتبعت» جوه إطار الحالة في الجدول ════
+// ════ 7) معايرات ════
 {
-  const p = await openApp({ pre: `window.__SHIP_REQS = { o3: new Date().toISOString() };` });
-  console.log('──── علامة الجدول: بيتبعت ────');
-  const ind = await p.evaluate(() => {
-    const tr = document.querySelector('#tbody tr[data-id="o3"]');
-    const el = tr && tr.querySelector('.ship-ind');
-    return el ? { cls: el.className, inBadge: !!el.closest('.badge'),
-                  title: el.title || '' } : null;
-  });
-  ok(!!ind, 'العلامة ظاهرة على صف الأوردر');
-  ok(ind && /wait/.test(ind.cls), 'وبتلف (تحميل) — الطلب لسه طازة');
-  ok(ind && ind.inBadge, 'وجوه نفس إطار كلمة الحالة (طلب المالك)');
-  ok(ind && /أوتوماتيك/.test(ind.title), 'والتلميح بيشرح');
-  // الأوردرات التانية من غير علامة
-  const others = await p.evaluate(() => document.querySelectorAll('#tbody .ship-ind').length);
-  ok(others === 1, `والعلامة على أوردر واحد بس — ${others}`);
+  console.log('──── معايرات ────');
+  // (أ) زرار الشحن يرجع يبان لغير J&T → فحص (1) لازم يقع
+  const A = "if(shippable(o) && isJt()){";
+  if(SHIP_SRC.split(A).length !== 2) throw new Error('المعايرة (أ) مالقتش المرساة');
+  const r = await bostaTenantCheck('', { patch: [{ file: 'ship.js', body: SHIP_SRC.replace(A, 'if(shippable(o)){') }] });
+  ok(r.st.auto, 'معايرة (أ): زرار لغير J&T رجع = فحص «مفيش أوتوماتيك» كان هيقع');
+  // (ب) زرار الطباعة لكل صف → فحص (5) لازم يقع
+  const B = "(o.shipping_carrier==='jt'?'<button class=\"awb-btn\"";
+  if(TABLE_SRC.split(B).length !== 2) throw new Error('المعايرة (ب) مالقتش المرساة');
+  const { p, r: pr } = await printCheck({ patch: [{ file: 'table.js', body: TABLE_SRC.replace(B, "(true?'<button class=\"awb-btn\"") }] });
+  ok(pr.oldBtn, 'معايرة (ب): زرار على البوليصة القديمة = فحص «J&T بس» كان هيقع');
   await p.close();
-}
-
-// ════ 7) العلامة الصفرا — المحاولة ماكملتش ════
-{
-  const p = await openApp({ pre: `window.__SHIP_REQS = { o3: new Date(Date.now() - 10*60000).toISOString() };` });
-  console.log('──── علامة الجدول: صفرا (ماكملتش) ────');
-  const ind = await p.evaluate(() => {
-    const tr = document.querySelector('#tbody tr[data-id="o3"]');
-    const el = tr && tr.querySelector('.ship-ind');
-    return el ? { cls: el.className, inBadge: !!el.closest('.badge'), title: el.title || '',
-                  bg: getComputedStyle(el).backgroundColor } : null;
-  });
-  ok(ind && /warn/.test(ind.cls), 'العلامة بقت تحذير — الطلب قديم من غير بوليصة');
-  ok(ind && /245, 158, 11/.test(ind.bg), `ولونها أصفر فعلاً — ${ind && ind.bg}`);
-  ok(ind && /يدوي/.test(ind.title), 'والتلميح بيوجّه للشحن اليدوي');
-  // وجوه النافذة: تحذير مكتوب + زرار الأوتوماتيك راجع للمحاولة تاني
-  await openDetailOf(p, 'o3');
-  const inPopup = await p.evaluate(() => ({
-    chip: ((document.getElementById('ship-chip')||{}).textContent || ''),
-    auto: !!document.getElementById('ship-auto'),
-    manual: !!document.getElementById('da-bs')
-  }));
-  ok(/ماكملتش/.test(inPopup.chip), 'وجوه النافذة التحذير مكتوب صريح');
-  ok(inPopup.auto && inPopup.manual, 'والزرارين متاحين — يعيد المحاولة أو يشحن يدوي');
-  await p.close();
-}
-
-// ════ 8) التيكر: الموظف مشي يشتغل — العلامة بتتحدث لوحدها ════
-{
-  const p = await openApp({ pre: `
-    window.__SHIP_TICK_MS = 700;
-    window.__SHIP_REQS = { o3: new Date().toISOString() };
-  ` });
-  console.log('──── التيكر: النجاح بيوصل للجدول من غير ما يفتح الأوردر ────');
-  const before = await p.evaluate(() =>
-    !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind.wait'));
-  ok(before, 'العلامة بتلف في الأول');
-  // «n8n» كتب البوليصة على السيرفر — من غير ما النافذة تكون مفتوحة خالص
-  await p.evaluate(() => {
-    const o = (window.__ORDERS || []).filter(x => x.id === 'o3')[0];
-    o.tracking_no = 'TRKTICK1'; o.status = 'BOSTA AUTO';
-  });
-  await p.waitForFunction(() =>
-    [...document.querySelectorAll('.toast')].some(t => /TRKTICK1/.test(t.textContent)),
-    { timeout: 10000 });
-  const after = await p.evaluate(() => ({
-    ind: !!document.querySelector('#tbody tr[data-id="o3"] .ship-ind'),
-    toast: [...document.querySelectorAll('.toast')].map(t => t.textContent).join('|'),
-    badge: (document.querySelector('#tbody tr[data-id="o3"] .badge')||{}).textContent || ''
-  }));
-  ok(/9003/.test(after.toast), `الرسالة بتقول أنهي أوردر — ${after.toast.slice(0,70)}`);
-  ok(!after.ind, 'والعلامة اختفت — الأوردر بقى له بوليصة');
-  await p.close();
+  // (ب2) «حدد غير المطبوع» يرجع يعدّ أي بوليصة → فحص (5) لازم يقع
+  const B2 = "if(o.shipping_carrier === 'jt' && o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)) cnt++;";
+  if(TABLE_SRC.split(B2).length !== 2) throw new Error('المعايرة (ب2) مالقتش المرساة');
+  const pb = await printCheck({ patch: [{ file: 'table.js', body: TABLE_SRC.replace(B2, "if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)) cnt++;") }] });
+  const unB = await unprintedCheck(pb.p);
+  ok(!/\(1\)/.test(unB.txt), `معايرة (ب2): العدّ لكل البوالص = فحص «J&T بس» كان هيقع — «${unB.txt}»`);
+  await pb.p.close();
+  // (ج) التيكر يراقب أي أوردر من غير بوليصة (زي ما فرع بوسطة القديم كان بيراقب المحاولات) → فحص (6) لازم يقع
+  const C = "if(o.shipping_carrier === 'jt' && (o.tracking_no||'').trim() && !shipmentSettled(o)){";
+  if(SHIP_SRC.split(C).length !== 2) throw new Error('المعايرة (ج) مالقتش المرساة');
+  const tw = await tickerWatch({ patch: [{ file: 'ship.js', body: SHIP_SRC.replace(C,
+    "if((o.shipping_carrier === 'jt' && (o.tracking_no||'').trim() && !shipmentSettled(o)) || (!(o.tracking_no||'').trim() && !shipmentSettled(o))){") }] });
+  ok(JSON.stringify(tw.quiet.ids) !== '["o2"]', `معايرة (ج): تيكر بيراقب أوردرات من غير بوليصة = فحص «J&T بس» كان هيقع — ${JSON.stringify(tw.quiet.ids)}`);
+  await tw.p.close();
 }
 
 await b.close();

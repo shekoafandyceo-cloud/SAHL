@@ -3,8 +3,8 @@
 import { emptyState } from '../core/empty.js';
 import { renderLoadError } from '../core/loaderr.js';
 import { veilDone } from '../core/veil.js';
-import { loadCommissions, renderCommissions, wireCommissionEvents } from './commissions.js';
-import { BOSTA_POSITIVE_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
+import { loadCommissions, wireCommissionEvents } from './commissions.js';
+import { DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
 import { fmtD, num } from '../core/format.js';
 import { autoChartGran, financePeriod, getPeriodRange } from './period.js';
@@ -15,7 +15,6 @@ import { BOSTA_EXPECTED_STATUSES, CANCELLED_STATUSES } from '../core/constants.j
 import { pad2 } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { loadIssues, renderIssuesTable } from '../issues/issues.js';
 import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { tourDemoExpenses, tourDemoStock } from '../tour/demo-data.js';
 import { currentTenantId, currentUser } from '../auth/auth.js';
@@ -75,11 +74,6 @@ export function expensesInRange(range){
     var d = new Date(e.expense_date);
     return d >= range.from && d < range.to;
   });
-}
-
-export function fmtMoney(n){
-  var v = parseFloat(n) || 0;
-  return (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('ar-EG-u-nu-latn', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + 'ج';
 }
 
 export function loadFinance(){
@@ -375,18 +369,6 @@ export function renderFinanceChart(){
   });
 }
 
-export function isConfirmedForFinance(o){
-  // Explicitly exclude pending/cancelled from confirmation calculations.
-  if(!o || o.status==='pending' || o.status==='cancelled') return false;
-  return o.status==='confirmed'
-    || statusIn(o.status, BOSTA_POSITIVE_STATUSES)
-    || statusIn(o.status, DELIVERED_STATUSES)
-    || statusIn(o.status, RETURNED_STATUSES)
-    || o.status==='Exception'
-    || o.status==='exception'
-    || o.status==='failed';
-}
-
 // ────────────────── EXPENSES TAB ──────────────────
 export function renderExpenses(){
   var q = ($id('exp-search').value || '').trim().toLowerCase();
@@ -419,7 +401,6 @@ export function renderExpenses(){
     + '<th>التاريخ</th><th>الفئة</th><th>المبلغ</th><th>ملاحظة</th><th></th>'
     + '</tr></thead><tbody>';
   list.forEach(function(e){
-    var catSafe = e.category.replace(' ','-').replace('فيسبوك','');
     h += '<tr>'
       + '<td class="mn">'+fmtD(e.expense_date)+'</td>'
       + '<td><span class="exp-cat-badge exp-cat-'+e.category.split(' ')[0]+'">'+esc(e.category)+'</span></td>'
@@ -573,10 +554,6 @@ export function initFinanceAndIssues(){
   $id('exp-search').addEventListener('input', renderExpenses);
   $id('exp-filter-cat').addEventListener('change', renderExpenses);
   $id('add-expense-btn').addEventListener('click', function(){ openExpenseEditor(null); });
-  if($id('issues-refresh'))$id('issues-refresh').addEventListener('click',loadIssues);
-  if($id('issues-search'))$id('issues-search').addEventListener('input',renderIssuesTable);
-  if($id('issues-filter-prio'))$id('issues-filter-prio').addEventListener('change',renderIssuesTable);
-  if($id('issues-filter-scope'))$id('issues-filter-scope').addEventListener('change',renderIssuesTable);
 
   // ═══════════════════ END FINANCE SECTION ═══════════════════════
 

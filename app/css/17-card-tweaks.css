@@ -8,6 +8,5 @@
 .sc{transition:transform .18s ease, box-shadow .18s ease;}
 .rev-card{transition:transform .18s ease, box-shadow .18s ease;}
 .sc .slb::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--vc,var(--blue));margin-inline-end:6px;vertical-align:1px;}
-.rev-card .rv-lbl::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--rv,var(--blue));margin-inline-end:6px;vertical-align:1px;}
 /* 3: hover lift */
 .sc:hover,.rev-card:hover{transform:translateY(-5px);box-shadow:0 14px 34px rgba(15,23,42,.13);}

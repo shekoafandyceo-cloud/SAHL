@@ -44,7 +44,7 @@ export function refreshSetupChecklist(force){
   lastComputed = now;
 
   Promise.all([
-    sb.from('v_my_tenant').select('shipping_api_key,telegram_chat_id')
+    sb.from('v_my_tenant').select('telegram_chat_id')
       .eq('id', currentTenantId).maybeSingle(),
     sb.from('orders').select('id', { count: 'exact', head: true })
       .eq('tenant_id', currentTenantId).limit(1),
@@ -67,8 +67,6 @@ export function refreshSetupChecklist(force){
         hint: hasOrders ? 'الأوردرات بتوصل ✓' : 'انسخه من الإعدادات وحطه في موقعك — الأوردرات هتيجي لوحدها' },
       { done: hasStock, label: 'سجّل منتجاتك', act: 'goto-stock',
         hint: hasStock ? 'المخزون شغّال ✓' : 'عشان المخزون يتخصم أوتوماتيك مع كل أوردر' },
-      { done: !!(t.shipping_api_key && String(t.shipping_api_key).trim()), label: 'اربط شركة الشحن', act: 'goto-settings',
-        hint: 'عشان البوالص تتطلع والتتبع يشتغل أوتوماتيك' },
       { done: !!(t.telegram_chat_id && String(t.telegram_chat_id).trim()), label: 'اربط بوت تلجرام', act: 'goto-settings',
         hint: 'تنبيهات لحظية بكل اللي بيحصل في متجرك' }
     ];

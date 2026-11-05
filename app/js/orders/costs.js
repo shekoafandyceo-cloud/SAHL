@@ -5,12 +5,11 @@ import { buildProductPerformance } from '../analytics/analytics.js';
 import { ratePill } from '../analytics/rate.js';
 import { nameKey, normalizeProductName, parseProductItems, tokenSortKey } from '../analytics/product-match.js';
 import { currentTenantId } from '../auth/auth.js';
-import { BOSTA_INVENTORY_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, statusIn } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
 import { money, num, short } from '../core/format.js';
 import { sb } from '../core/supabase.js';
 import { unmatchedCogsItems } from '../finance/finance.js';
-import { stockMovements, stockProducts, stockSetMovements, stockSetProducts } from '../stock/stock.js';
+import { stockProducts, stockSetProducts } from '../stock/stock.js';
 import { isAdmin } from './guards.js';
 import { all } from './state.js';
 
@@ -200,23 +199,6 @@ export function renderProductPerformance(){
   $id('perf-tbody').innerHTML=h;
 }
 
-export function loadStockMovementsForOps(done){
-  if(stockMovements && stockMovements.length){done&&done();return;}
-  sb.from('stock_movements').select('*').eq('tenant_id',currentTenantId).order('created_at',{ascending:false}).limit(1000).then(function(r){
-    if(!r.error && r.data)stockSetMovements(r.data);
-    done&&done();
-  });
-}
-
-export function shippedOrOperational(o){
-  return BOSTA_INVENTORY_STATUSES.indexOf(o.status)>=0 || statusIn(o.status,DELIVERED_STATUSES) || statusIn(o.status,RETURNED_STATUSES) || o.status==='failed';
-}
-
-export function productExists(name){
-  var nn=normalizeProductName(name).toLowerCase();
-  return (stockProducts||[]).some(function(p){return normalizeProductName(p.name).toLowerCase()===nn;});
-}
-
 export function ordersInRange(range){
   return all.filter(function(o){
     var d = new Date(o.created_at);
@@ -226,9 +208,3 @@ export function ordersInRange(range){
 
 // Status category helpers
 export function isDeliveredOrder(o){ return o.status === 'delivered' || o.status === 'Delivered'; }
-
-export function isWithBosta(o){
-  return ['bosta_assigned','BOSTA AUTO','BOSTA2','bosta_auto','bosta2',
-    'Out for delivery','Received at warehouse','Route Assigned','In transit between Hubs',
-    'Picking up from consignee','Out for exchange'].indexOf(o.status) >= 0;
-}

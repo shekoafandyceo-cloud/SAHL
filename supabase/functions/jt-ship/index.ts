@@ -1,0 +1,322 @@
+// jt-ship — إنشاء شحنة J&T لأوردر واحد (order/addOrder) وتسجيل رقم البوليصة وكود الفرز.
+//
+// 🔴 ده المسار الوحيد اللي بيخلق شحنة J&T بفلوس حقيقية. الحراسات بالترتيب:
+//   1. التصريح: موظف نشط (tenant من الـJWT) · أو service_role (n8n — tenant من صف الأوردر) · أو diag.
+//   2. الأوردر في المتجر ده · من غير بوليصة · حالته pending/confirmed · تليفون مصري صالح · عنوان ≥ 10.
+//   3. المرسل (tenants.sender_*) كامل · حقول addOrder الستة متسجّلة في platform_settings.jt_addorder_fields
+//      (من طلب Postman الناجح — مش تخمين) · الإنتاج مفتوح بمفتاح platform_settings.jt_production_enabled=true.
+//   4. عنوان المستلم: المحافظة/المدينة بأسماء J&T من قايمة jt_pca (address_not_in_pca لو مش فيها)،
+//      والمنطقة (area) **نص حر مطلوب** ≤ 60 حرف — قرار المالك 21 سبتمبر من قالب البوابة:
+//      «الخانة التالتة مطلوبة بس ملهاش اسطمبة أصلاً». المصدر: الـbody (اختيار الموظف) → الأوردر →
+//      مرادفات المدينة. مفيش = رفض صريح address_unresolved (صفر تخمين صامت).
+//   5. منع التكرار: txlogisticId = orders.id (J&T بترفض التكرار بـ145002001/145003101)،
+//      وقبل أي addOrder لو فيه محاولة سابقة بنستعلم getOrders command:1 — موجود = نسجّله بدل ما نكرر.
+//      timeout بعد الإرسال = نستعلم قبل ما نعلن فشل.
+//   6. الحالة بتتكتب **بعد** رد J&T بس (app.jt_record_shipment ذرية + سطر status_log).
+//   7. الاشتراك في التتبع (trace/subscribe) بعد التسجيل — من غيره مفيش أي callback
+//      بيوصل للبوليصة دي والأوردر بيفضل على آخر حالة للأبد. فشله بيتسجّل في
+//      orders.jt_subscribe_error ومابيضيّعش الشحنة.
+//
+//   8. (v6 — 3 أكتوبر) ملاحظة البوليصة: `note` من الـbody = اللي الموظف راجعه في نافذة الشحن (متعبّي من
+//      ملاحظة العميل) → سطر «ملاحظة: …» في الـremark (_shared/jt-remark.ts — المنتجات أولاً والملاحظة
+//      بالباقي). من غير `note`: موظف = مفيش ملاحظة (نسخة واجهة قديمة مابتعرضهاش عليه) · n8n/diag = ملاحظة
+//      العميل زي ما هي. 🔴 internal_notes عمرها ما بتتبعت. والـremark اللي اتبعت بيتسجّل في jt_remark
+//      والبوليصة المطبوعة بتطبعه هو بالحرف.
+//   9. (v7 — مراجعة 3 أكتوبر) اللي بيتسجّل = اللي **عند J&T** مش اللي في الطلب ده:
+//      · المسارات اللي بتلاقي شحنة من محاولة سابقة (timeout/تكرار) بتسجّل remark وitemsValue بتوع J&T
+//        (getOrders) — الموظف ممكن يكون عدّل المنتجات أو الملاحظة بين المحاولتين. COD مختلف = jt_cod_amount
+//        بقيمة J&T (بانر «حسابات J&T محتاجة مراجعة» بيولّع فوراً) + رد mismatch للواجهة.
+//      · لحظة المحاولة: jt_ship_error بيتمسح (save_order_products بترفض التعديل وهي «في السكة» —
+//        jt_ship_in_flight) والصف بيتقري تاني بعد التعليم: اتعدّل بين القراية والتعليم = رفض order_changed.
+//      · ملاحظة فاضية بتتحفظ '' مش NULL (= «من غير ملاحظة» صريحة؛ NULL = الموظف لسه ماختارش) ·
+//        dry_run مابيحفظش الملاحظة.
+//
+// الحمولة: { order_id, receiver?: {prov, city, area}, weight_kg?, note?, dry_run? }
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildRequest, JT_PATHS, jtCall, redactRequest, withBusinessDigest } from "../_shared/jt.ts";
+import { authCaller, cors, defaultEnv, egMobile, json, loadJtConfig, normPlace } from "../_shared/jt-runtime.ts";
+import { cleanShipNote, composeRemark } from "../_shared/jt-remark.ts";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+
+const MIN_ADDRESS = 10;
+const AREA_MAX = 60;             // من توثيق مصر: receiver.area String(60) — نص حر (قرار 21 سبتمبر)
+// الحقول من طلب Postman الناجح على الـSandbox (المالك، 20 سبتمبر): expressType "EZ" ·
+// deliveryType "04" · goodsType "ITN1" · operateType 1 (رقم) · payType "PP_PM".
+// serviceType **مش موجود** في الطلب الناجح — فاختياري: بيتبعت بس لو متسجّل.
+const ADDORDER_REQUIRED = ["expressType", "deliveryType", "goodsType", "operateType", "payType"];
+// عُقد التتبع اللي بنشترك فيها (توثيق trace/subscribe): 2 معطّلة عند J&T و7 تحصيل وكالة.
+// 10 = تسليم · 11 = مشكلة · 13/14 = مرتجع — دول اللي الحالات بتتبني عليهم.
+// نفس القيمة الافتراضية في jt-lookup action=subscribe — لازم يفضلوا متطابقين.
+const TRACE_NODES = "1&3&4&5&6&8&9&10&11&12&13&14&15";
+
+const ORDER_COLS = "id, tenant_id, order_uid, status, tracking_no, customer_name, phone, alt_phone, city, address, product_name, manufacturer_note, var, customer_notes, total_cost, shipping_carrier, carrier_ref, ship_prov, ship_city, ship_area, shipping_weight_kg, jt_ship_attempted_at, jt_ship_error";
+
+async function setError(orderId: string, msg: string) {
+  await admin.from("orders").update({ jt_ship_error: msg.slice(0, 500) }).eq("id", orderId);
+}
+
+// deno-lint-ignore no-explicit-any
+function firstOrder(data: any): Record<string, unknown> | null {
+  if (!data) return null;
+  if (Array.isArray(data)) return data.length ? data[0] : null;
+  if (typeof data === "object") {
+    if (Array.isArray(data.list)) return data.list[0] || null;
+    if (Array.isArray(data.records)) return data.records[0] || null;
+    if (data.billCode) return data;
+  }
+  return null;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: cors });
+  if (req.method !== "POST") return json({ error: "method", message: "POST بس" }, 405);
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: "config", message: "إعدادات السيرفر ناقصة" }, 500);
+
+  const caller = await authCaller(req, admin, SERVICE_ROLE_KEY);
+  if (caller instanceof Response) return caller;
+
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* فاضي */ }
+  const orderId = typeof body.order_id === "string" ? body.order_id.trim() : "";
+  if (!orderId) return json({ error: "bad_request", message: "order_id ناقص" }, 400);
+  const dryRun = body.dry_run === true;
+  const byName = caller.mode === "user" ? (caller.name || "موظف") : (caller.mode === "service" ? "واتساب" : "diag");
+
+  // ── الأوردر ────────────────────────────────────────────────────────
+  const { data: order } = await admin.from("orders").select(ORDER_COLS).eq("id", orderId).maybeSingle();
+  if (!order) return json({ error: "order_not_found", message: "الأوردر مش موجود" }, 404);
+  if (caller.mode === "user" && order.tenant_id !== caller.tenantId) {
+    return json({ error: "order_not_found", message: "الأوردر مش موجود في متجرك" }, 404);
+  }
+  const tenantId = order.tenant_id as string;
+
+  if ((order.tracking_no || "").trim()) {
+    return json({ error: "already_has_tracking", message: "الأوردر له بوليصة بالفعل (" + order.tracking_no + ") — مفيش شحنة تانية",
+      tracking_no: order.tracking_no, idempotent: true }, 409);
+  }
+  const status = String(order.status || "").toLowerCase();
+  if (status !== "pending" && status !== "confirmed") {
+    return json({ error: "bad_status", message: "الشحن للأوردرات الجديدة أو المؤكدة بس — الحالة الحالية: " + order.status }, 422);
+  }
+  const mobile = egMobile(String(order.phone || ""));
+  if (!mobile) { await setError(orderId, "رقم التليفون مش مفهوم: " + order.phone); return json({ error: "bad_phone", message: "رقم التليفون مش رقم مصري صالح (11 خانة) — صلّحه الأول" }, 422); }
+  const altMobile = egMobile(String(order.alt_phone || ""));
+  const street = String(order.address || "").replace(/\s+/g, " ").trim();
+  if (street.length < MIN_ADDRESS) { await setError(orderId, "العنوان قصير"); return json({ error: "bad_address", message: "العنوان قصير أو فاضي — كمّله الأول وبعدين اشحن" }, 422); }
+
+  // ── التاجر: المرسل + الشركة ─────────────────────────────────────────
+  const { data: tenant } = await admin.from("tenants")
+    .select("id, active, shipping_provider, store_name, sender_name, sender_phone, sender_prov, sender_city, sender_area, sender_street")
+    .eq("id", tenantId).maybeSingle();
+  if (!tenant || tenant.active !== true) return json({ error: "forbidden", message: "المتجر مش مفعّل" }, 403);
+  if (tenant.shipping_provider !== "jt") return json({ error: "provider_not_jt", message: "شركة الشحن للمتجر مش J&T (shipping_provider=" + tenant.shipping_provider + ")" }, 422);
+  const senderMobile = egMobile(String(tenant.sender_phone || ""));
+  const senderMissing = ["sender_name", "sender_prov", "sender_city", "sender_area", "sender_street"].filter((k) => !String(tenant[k] || "").trim());
+  if (!senderMobile) senderMissing.push("sender_phone");
+  if (senderMissing.length) return json({ error: "sender_incomplete", message: "بيانات المرسل ناقصة في إعدادات المتجر: " + senderMissing.join(", ") }, 422);
+
+  // ── حقول addOrder الستة — من Postman الناجح، مش تخمين ─────────────
+  const { data: fRow } = await admin.from("platform_settings").select("value").eq("key", "jt_addorder_fields").maybeSingle();
+  let fields: Record<string, unknown> = {};
+  try { fields = fRow?.value ? JSON.parse(fRow.value) : {}; } catch { fields = {}; }
+  const missingFields = ADDORDER_REQUIRED.filter((k) => fields[k] == null || String(fields[k]).trim() === "");
+  if (missingFields.length) return json({ error: "fields_not_configured", message: "حقول addOrder مش متسجّلة: " + missingFields.join(", ") }, 422);
+  const serviceType = fields.serviceType != null && String(fields.serviceType).trim() !== "" ? String(fields.serviceType).trim() : null;
+
+  // ── عنوان المستلم بأسماء J&T ────────────────────────────────────────
+  let prov = "", city = "", area = "";
+  const rc = body.receiver && typeof body.receiver === "object" ? body.receiver as Record<string, unknown> : null;
+  if (rc && rc.prov && rc.city && rc.area) {
+    prov = String(rc.prov).trim(); city = String(rc.city).trim(); area = String(rc.area).trim();
+  } else if (order.ship_prov && order.ship_city && order.ship_area) {
+    prov = order.ship_prov; city = order.ship_city; area = order.ship_area;
+  } else {
+    const key = normPlace(String(order.city || ""));
+    if (key) {
+      const { data: al } = await admin.from("jt_pca_alias").select("prov, city, area").eq("tenant_id", tenantId).eq("alias_norm", key).maybeSingle();
+      if (al) { prov = al.prov; city = al.city; area = al.area; }
+    }
+  }
+  if (!prov || !city || !area) {
+    await setError(orderId, "العنوان محتاج اختيار المحافظة/المدينة بأسماء J&T + كتابة المنطقة");
+    return json({ error: "address_unresolved", message: "مش عارفين نحدد المحافظة/المدينة بأسماء J&T للمدينة «" + (order.city || "") + "» — اختارها من نافذة الشحن واكتب المنطقة", city: order.city }, 422);
+  }
+  if ([...area].length > AREA_MAX) return json({ error: "area_too_long", message: "المنطقة أطول من " + AREA_MAX + " حرف (توثيق J&T: area String(60))" }, 422);
+  // المحافظة/المدينة لازم يبقوا من نطاق J&T (jt_pca) — اسم غلط بيترفض عند J&T بـ145003060–61 وبيضيّع لفة.
+  // المنطقة مش بتتفحص على القايمة: نص حر (قرار 21 سبتمبر) — صف area='' في jt_pca معناه المدينة متسجّلة.
+  const { count: pcaCount } = await admin.from("jt_pca").select("id", { count: "exact", head: true });
+  if ((pcaCount ?? 0) > 0) {
+    const { data: pcaRow } = await admin.from("jt_pca").select("id").eq("prov", prov).eq("city", city).limit(1).maybeSingle();
+    if (!pcaRow) return json({ error: "address_not_in_pca", message: "العنوان (" + prov + " / " + city + ") مش في نطاق J&T المتسجّل" }, 422);
+    // عنوان المرسل كمان لازم يبقى بأسماء J&T — غلطة فيه بتترفض عند J&T على كل شحنة
+    const { data: sRow } = await admin.from("jt_pca").select("id").eq("prov", tenant.sender_prov).eq("city", tenant.sender_city).limit(1).maybeSingle();
+    if (!sRow) return json({ error: "sender_not_in_pca", message: "عنوان المرسل (" + tenant.sender_prov + " / " + tenant.sender_city + ") مش في نطاق J&T المتسجّل" }, 422);
+  }
+
+  // ── الوزن ───────────────────────────────────────────────────────────
+  let weight = Number(body.weight_kg);
+  if (!(weight > 0)) weight = Number(order.shipping_weight_kg);
+  if (!(weight > 0)) {
+    const { data: w } = await admin.from("platform_settings").select("value").eq("key", "jt_default_weight_kg").maybeSingle();
+    weight = Number(w?.value);
+  }
+  if (!(weight > 0) || weight > 100) return json({ error: "weight_missing", message: "الوزن (كجم) مطلوب لـJ&T — حدده في نافذة الشحن" }, 422);
+
+  // ملاحظة البوليصة: من الموظف (حتى لو فاضية = «من غير ملاحظة» صريحة) · غير كده n8n/diag بياخدوا ملاحظة العميل
+  const noteGiven = typeof body.note === "string";
+  const shipNote = noteGiven ? cleanShipNote(body.note) : (caller.mode === "user" ? "" : cleanShipNote(order.customer_notes));
+
+  // نحفظ اختيار الموظف على الأوردر (حتى لو الإرسال فشل بعدين — عشان مايعيدش الاختيار).
+  // الملاحظة: '' = «من غير ملاحظة» صريحة (NULL = لسه ماتختارتش → النافذة بتعبّيها من ملاحظة العميل) ·
+  // dry_run مابيلمسهاش (تجربة diag بملاحظة كانت بتتحفظ وتتبعت في الشحنة الحقيقية بعدها).
+  await admin.from("orders").update({ ship_prov: prov, ship_city: city, ship_area: area, shipping_weight_kg: weight,
+    ...(noteGiven && !dryRun ? { ship_note: shipNote } : {}) }).eq("id", orderId);
+
+  // ── إعدادات J&T ─────────────────────────────────────────────────────
+  const env = caller.mode !== "user" && String(body.env || "") === "sandbox" ? "sandbox" : defaultEnv();
+  const cfg = await loadJtConfig(env, admin);
+  if (!cfg) return json({ error: "no_creds", message: "أسرار J&T (" + env + ") مش متسجّلة" }, 500);
+  if (env === "production") {
+    const { data: pe } = await admin.from("platform_settings").select("value").eq("key", "jt_production_enabled").maybeSingle();
+    if ((pe?.value || "") !== "true") return json({ error: "production_disabled", message: "إنشاء الشحنات على إنتاج J&T مقفول (jt_production_enabled)" }, 423);
+  }
+  const creds = cfg.creds;
+  const cod = Number(order.total_cost) || 0;
+  const remark = composeRemark(order.product_name, order.manufacturer_note || order.var, shipNote);
+
+  const biz = withBusinessDigest({
+    txlogisticId: order.id,                        // مرجعنا عندهم = id الأوردر — بيمنع التكرار عند J&T نفسها
+    expressType: String(fields.expressType),
+    deliveryType: String(fields.deliveryType),
+    goodsType: String(fields.goodsType),
+    operateType: Number(fields.operateType),
+    payType: String(fields.payType),
+    ...(serviceType ? { serviceType } : {}),
+    sender: {
+      name: String(tenant.sender_name).trim().slice(0, 50), mobile: senderMobile, phone: senderMobile, countryCode: "EGY",
+      prov: tenant.sender_prov, city: tenant.sender_city, area: tenant.sender_area, street: String(tenant.sender_street).trim().slice(0, 200),
+    },
+    receiver: {
+      name: String(order.customer_name || "عميل").trim().slice(0, 50), mobile, phone: altMobile || mobile, countryCode: "EGY",
+      prov, city, area, street: street.slice(0, 200),
+    },
+    weight: String(weight),
+    totalQuantity: 1,
+    itemsValue: String(cod),
+    remark,
+  }, creds);
+
+  if (dryRun) {
+    return json({ ok: true, dry_run: true, env, request: redactRequest(buildRequest(cfg, JT_PATHS.addOrder, biz), creds), remark, weight, receiver: { prov, city, area } });
+  }
+
+  // ── منع التكرار: محاولة سابقة → اسأل J&T الأول ─────────────────────
+  const lookup = async (): Promise<Record<string, unknown> | null> => {
+    try {
+      const q = await jtCall(cfg, JT_PATHS.getOrders, withBusinessDigest({ command: 1, serialNumber: [order.id] }, creds), { timeoutMs: 15000 });
+      const found = firstOrder(q.data);
+      return found && found.billCode ? found : null;
+    } catch { return null; }
+  };
+  // held = اللي J&T شايلاه فعلاً: الشحنة الجديدة = اللي بعتناه دلوقتي · المسترجعة = رد getOrders
+  // (remark/itemsValue). مجهول = null ومابنكتبش حاجة بنقول إنها «عند J&T» وإحنا مش متأكدين.
+  const record = async (bill: string, sorting: unknown, fee: unknown, held: { remark: string | null; cod: number | null }) => {
+    const { data, error } = await admin.rpc("jt_record_shipment_v1", { p_order_id: orderId, p_bill_code: bill, p_sorting_code: sorting == null ? null : String(sorting), p_fee_estimated: fee == null || fee === "" ? null : Number(fee), p_weight: weight, p_by: "J&T API · " + byName });
+    if (error) throw new Error("db:" + error.message);
+    // idempotent = البوليصة متسجّلة من قبل — اللقطة اللي اتكتبت ساعتها هي الصح، مانكتبش فوقها
+    if (!(data && (data as Record<string, unknown>).idempotent)) {
+      // اللي عند J&T بالحرف — البوليصة المطبوعة بتطبعه هو (مش بتعيد التركيب من صف ممكن يتعدّل بعد الشحن)
+      if (held.remark != null) await admin.from("orders").update({ jt_remark: held.remark }).eq("id", orderId);
+      // المبلغ اللي المندوب هيحصّله — لو مختلف عن total_cost البانر بيولّع من دلوقتي مش بعد مصالحة الـ15 دقيقة
+      if (held.cod != null) await admin.rpc("jt_set_cod_v1", { p_bill_code: bill, p_cod: held.cod });
+    }
+    // مرادف المدينة → عنوان J&T (بيخلي الأوردر الجاي بنفس المدينة يتحل أوتوماتيك)
+    const key = normPlace(String(order.city || ""));
+    if (key) {
+      await admin.from("jt_pca_alias").upsert({ tenant_id: tenantId, alias_norm: key, prov, city, area, updated_at: new Date().toISOString() }, { onConflict: "tenant_id,alias_norm" });
+    }
+    // الاشتراك في تحديثات التتبع — من غيره J&T مابتبعتش أي callback للبوليصة دي،
+    // والأوردر بيفضل على آخر حالة للأبد. 🔴 **بعد** تسجيل البوليصة عن قصد: الشحنة
+    // اتعملت خلاص وفلوسها راحت، فأي فشل هنا مايضيّعش الرقم — بيتسجّل في
+    // jt_subscribe_error ويتعاد من jt-lookup action=subscribe. (⚠️ ده بيشتغل بس لما
+    // J&T تكون مسجّلة URL بتاعنا عندها — التسجيل إجراء إداري، مفيش endpoint ليه.)
+    try {
+      const sub = await jtCall(cfg, JT_PATHS.subscribe,
+        withBusinessDigest({ id: String(creds.apiAccount), list: [{ traceNode: TRACE_NODES, waybillCode: bill }] }, creds),
+        { timeoutMs: 15000 });
+      if (sub.code !== "1") await admin.from("orders").update({ jt_subscribe_error: String(sub.code) + " " + String(sub.msg || "") }).eq("id", orderId);
+      else await admin.from("orders").update({ jt_subscribe_error: null }).eq("id", orderId);
+    } catch (e) {
+      await admin.from("orders").update({ jt_subscribe_error: "exception: " + String((e as Error)?.message || e) }).eq("id", orderId);
+    }
+    return data;
+  };
+
+  // شحنة لقيناها عند J&T من محاولة سابقة: نسجّلها باللي J&T شايلاه، ولو مختلف عن الطلب ده نقول
+  const recover = async (prior: Record<string, unknown>) => {
+    const heldRemark = typeof prior.remark === "string" && prior.remark.trim() ? String(prior.remark) : null;
+    const iv = prior.itemsValue == null || prior.itemsValue === "" ? NaN : Number(prior.itemsValue);
+    const heldCod = isFinite(iv) && iv >= 0 ? Math.round(iv * 100) / 100 : null;
+    const bill = String(prior.billCode);
+    const rec = await record(bill, prior.sortingCode, prior.sumFreight, { remark: heldRemark, cod: heldCod });
+    const codDiff = heldCod != null && heldCod !== Math.round(cod * 100) / 100;
+    // المسافات/السطور ممكن تتطبّع عند J&T — المقارنة على النص مش على التنسيق (مايطلعش إنذار كاذب)
+    const flat = (x: string) => x.replace(/\s+/g, " ").trim();
+    const remarkDiff = heldRemark != null && flat(heldRemark) !== flat(remark);
+    if (codDiff || remarkDiff) {
+      await setError(orderId, "⚠️ الشحنة اتعملت عند J&T من محاولة سابقة" + (codDiff ? " بمبلغ " + heldCod + " ج (السيستم " + cod + " ج)" : "") +
+        (remarkDiff ? " ومنتجاتها/ملاحظتها غير الحالية" : "") + " — صلّحها عند J&T أو هنا");
+    }
+    return json({ ok: true, recovered: true, tracking_no: bill, sorting_code: prior.sortingCode ?? null, fee_estimated: prior.sumFreight ?? null, record: rec, env,
+      ...(codDiff || remarkDiff ? { mismatch: { cod_jt: heldCod, cod_sahl: cod, remark_differs: remarkDiff } } : {}) });
+  };
+
+  if (order.jt_ship_attempted_at) {
+    const prior = await lookup();
+    if (prior) return await recover(prior);
+  }
+  // تعليم المحاولة + مسح الخطأ القديم (save_order_products بتقفل التعديل طول ما المحاولة «في السكة»)،
+  // وقراية الصف تاني في نفس الخطوة: لو اتعدّل بعد ما قريناه فوق وقبل القفل = نرفض بدل ما نبعت القديم.
+  const { data: fresh } = await admin.from("orders").update({ jt_ship_attempted_at: new Date().toISOString(), jt_ship_error: null })
+    .eq("id", orderId).select("total_cost, product_name, manufacturer_note, var, tracking_no").maybeSingle();
+  if (!fresh || String(fresh.tracking_no || "").trim() || (Number(fresh.total_cost) || 0) !== cod ||
+      String(fresh.product_name || "") !== String(order.product_name || "") ||
+      String(fresh.manufacturer_note || fresh.var || "") !== String(order.manufacturer_note || order.var || "")) {
+    await setError(orderId, "الأوردر اتعدّل أثناء الشحن — مااتبعتش لـJ&T");
+    return json({ error: "order_changed", message: "المنتجات أو المبلغ اتغيّروا وإحنا بنجهّز الشحنة — مابعتناش حاجة لـJ&T. افتح النافذة تاني وراجع." }, 409);
+  }
+
+  // ── الإنشاء ─────────────────────────────────────────────────────────
+  let res;
+  try {
+    res = await jtCall(cfg, JT_PATHS.addOrder, biz, { allowCreateInProduction: env === "production", timeoutMs: 25000 });
+  } catch (e) {
+    // timeout/شبكة بعد الإرسال — ممكن تكون اتعملت. نسأل قبل ما نعلن فشل.
+    const prior = await lookup();
+    if (prior) return await recover(prior);
+    await setError(orderId, "J&T مردّتش (" + String((e as Error).message || e) + ") — استعلمنا ومفيش شحنة");
+    // ⚠️ «مالقيناش» مش «ماتعملتش»: ممكن تكون اتعملت والاستعلام لسه مش شايفها — المحاولة الجاية
+    // بتستعلم الأول (jt_ship_attempted_at) فمفيش تكرار، ولو اتعملت بمبلغ قديم بنقول (recover → mismatch).
+    return json({ error: "jt_unreachable", message: "J&T مردّتش ومالقيناش الشحنة عندها لسه — جرّب تاني بعد دقيقة (لو كانت اتعملت هنسجّلها من غير تكرار). ماتعدّلش المنتجات قبل ما تجرّب تاني." }, 502);
+  }
+
+  if (res.code === "1" && res.data && typeof res.data === "object") {
+    const d = res.data as Record<string, unknown>;
+    const bill = String(d.billCode || "").trim();
+    if (!bill) { await setError(orderId, "رد J&T من غير billCode"); return json({ error: "no_bill_code", message: "J&T ردّت بنجاح من غير رقم بوليصة", data: d }, 502); }
+    const rec = await record(bill, d.sortingCode, d.sumFreight, { remark, cod: Math.round(cod * 100) / 100 });
+    return json({ ok: true, env, tracking_no: bill, sorting_code: d.sortingCode ?? null, fee_estimated: d.sumFreight ?? null, last_center: d.lastCenterName ?? null, record: rec });
+  }
+
+  // تكرار عند J&T (اتعملت قبل كده وردّها ضاع) → نجيب البوليصة ونسجّلها
+  if (res.code === "145002001" || res.code === "145003101") {
+    const prior = await lookup();
+    if (prior) return await recover(prior);
+  }
+  const why = "J&T رفضت (" + (res.code || res.status) + "): " + (res.msg || res.raw.slice(0, 200));
+  await setError(orderId, why);
+  return json({ error: "jt_rejected", code: res.code, message: why, env }, 502);
+});

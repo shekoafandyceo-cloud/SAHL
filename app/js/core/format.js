@@ -56,13 +56,7 @@ export function fmtDateOnly(raw){
   return s;
 }
 
-export function fmtMovementDate(v,createdAt){
-  // In movements table we display created_at time; movement_date remains date-only for filtering/grouping.
-  if(createdAt)return fmtStoredDateTime(createdAt);
-  return fmtDateOnly(v);
-}
-
-// نفس بيانات fmtMovementDate بس مقسومة: التاريخ لوحده والوقت لوحده.
+// تاريخ الحركة (created_at لو موجود وإلا movement_date) مقسوم: التاريخ لوحده والوقت لوحده.
 // السبب مش تجميل — التاريخ أرقام (LTR) والوقت بينتهي بـ«م»/«ص» (حرف عربي RTL).
 // لما يتحطوا في سترينج واحد جوّه خلية LTR، الـ«م» بتفتح مقطع RTL في آخر السطر
 // والمقاطع بتتزحلق. فصلهم في عنصرين = كل واحد صندوق اتجاه مستقل، فمفيش تفاعل

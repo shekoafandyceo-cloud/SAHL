@@ -1,4 +1,5 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -13,6 +14,9 @@ const cors = {
 
 const J = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
+
+// 🔴 صور الردود المحفوظة بتتبعت بالـ`media id` بتاع ميتا (4 نوفمبر — `Egress`) — المنطق كله في
+// `_shared/wa-media.ts` (صافي ومتختبر من Node: tools/test-wa-media.mjs). أي فشل = اللينك زي الأول بالظبط.
 
 Deno.serve(async (req: Request) => {
   // CORS preflight (المتصفح بيبعت OPTIONS الأول)
@@ -59,6 +63,18 @@ Deno.serve(async (req: Request) => {
         console.error("wa-send bad media path", String(mediaPath).slice(0, 80));
         return J({ ok: false, error: "bad_media_path" }, 400);
       }
+    }
+
+    // 1أ‌ج) 🔴 **واتساب بيقبل الصور JPEG وPNG بس** (Cloud API — Supported Media Types).
+    // أي صيغة تانية (webp…) ميتا بتقبل الطلب بـ200 و`wamid`، وبعدها بثواني
+    // الـwebhook يرجّع `failed` — الموظف شاف ✓ والعميل عمره ما استلم.
+    // اتقاس 2 أكتوبر: webp **17 من 17** وقعوا (رد «بيت مجات» · «ميكروويف» ·
+    // مرفقات)، jpg 1 من 498. فالرفض هنا **قبل** ميتا وبسبب صريح.
+    // (اللوحة من v64 بتحوّل أي صورة لـJPEG قبل الرفع — ده للمسارات القديمة.)
+    if (imagePath && !/\.(jpe?g|png)$/i.test(String(imagePath))) {
+      // 200 مش 400 عن قصد: supabase-js بيخفي جسم أي رد مش 2xx فالواجهة كانت
+      // هتقول «حاول تاني» بدل السبب (نفس شكل `window_closed`).
+      return J({ ok: false, error: "unsupported_image_type" });
     }
 
     // 1ب) 🔴 مين اللي بيبعت؟ **من التوكن مش من الـbody**.
@@ -119,11 +135,21 @@ Deno.serve(async (req: Request) => {
     let payload: any;
     let storedType = "text";
     let storedBody: string | null = text || null;
+    let usedMediaId = false;
     if (imagePath) {
-      const signed = await svc.storage.from("wa-media").createSignedUrl(imagePath, 600);
-      const link = signed.data?.signedUrl;
-      if (!link) return J({ ok: false, error: "media_url_failed" }, 500);
-      payload = { messaging_product: "whatsapp", to: conv.wa_id, type: "image", image: { link, ...(caption ? { caption } : {}) } };
+      // صور الردود المحفوظة بس — مرفق الشات (`<tenant>/<conv>/…`) بيتبعت مرة فبيفضل باللينك
+      const mediaId = isQuickReplyPath(conv.tenant_id, imagePath)
+        ? await quickReplyMediaId({ svc, graph: GRAPH }, conv.tenant_id, String(tenant.whatsapp_phone_id), tenant.whatsapp_token, String(imagePath))
+        : null;
+      if (mediaId) {
+        usedMediaId = true;
+        payload = { messaging_product: "whatsapp", to: conv.wa_id, type: "image", image: { id: mediaId, ...(caption ? { caption } : {}) } };
+      } else {
+        const signed = await svc.storage.from("wa-media").createSignedUrl(imagePath, 600);
+        const link = signed.data?.signedUrl;
+        if (!link) return J({ ok: false, error: "media_url_failed" }, 500);
+        payload = { messaging_product: "whatsapp", to: conv.wa_id, type: "image", image: { link, ...(caption ? { caption } : {}) } };
+      }
       storedType = "image"; storedBody = caption || null;
     } else if (documentPath) {
       const signed = await svc.storage.from("wa-media").createSignedUrl(documentPath, 600);
@@ -139,12 +165,27 @@ Deno.serve(async (req: Request) => {
     if (ctxId) payload.context = { message_id: ctxId };
 
     // 5) إرسال عبر Cloud API
-    const waRes = await fetch(`${GRAPH}/${tenant.whatsapp_phone_id}/messages`, {
+    const sendWa = () => fetch(`${GRAPH}/${tenant.whatsapp_phone_id}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${tenant.whatsapp_token}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const waJson = await waRes.json().catch(() => ({}));
+    let waRes = await sendWa();
+    let waJson = await waRes.json().catch(() => ({}));
+    // الـ`media id` اترفض بخطأ ممكن يكون من الصورة (`shouldRetryWithLink` — مش 5xx ولا نافذة/توكن/rate limit)
+    // = نبعت **مرة** باللينك. والكاش بيتمسح **بس لو اللينك نجح** (ده الدليل إن الـid هو اللي كان بايظ) —
+    // لو اللينك وقع كمان (اقتباس مرفوض مثلاً) الـid السليم بيفضل.
+    if (!waRes.ok && usedMediaId && shouldRetryWithLink(waRes.status, waJson?.error?.code)) {
+      console.error("wa-send media id rejected — retry with link", JSON.stringify(waJson?.error || {}));
+      const signed = await svc.storage.from("wa-media").createSignedUrl(imagePath, 600);
+      const link = signed.data?.signedUrl;
+      if (link) {
+        payload.image = { link, ...(caption ? { caption } : {}) };
+        waRes = await sendWa();
+        waJson = await waRes.json().catch(() => ({}));
+        if (waRes.ok) await forgetMediaId(svc, conv.tenant_id, String(tenant.whatsapp_phone_id), String(imagePath));
+      }
+    }
     if (!waRes.ok) {
       const code = waJson?.error?.code;
       if (code === 131047 || code === 131051 || code === 470) return J({ ok: false, error: "window_closed" });
