@@ -12,16 +12,15 @@ export function startTimerTick(){
 }
 
 export function tickTimers(){
-  var cells = document.querySelectorAll('.timer-cell[data-deadline]');
+  // التاب في الخلفية أو صفحة الأوردرات مستخبية = مفيش حد بيبص (v79) — الخانة الفاضية
+  // عمرها ما بتتغيّر (renderTable بيرسمها فاضية من غير call-due-row) فمالهاش لازمة كل ثانية
+  if(document.hidden) return;
+  var pg = document.getElementById('page-orders'); if(pg && pg.style.display === 'none') return;
+  var cells = document.querySelectorAll('.timer-cell[data-deadline]:not([data-deadline=""])');
   var now = Date.now();
   cells.forEach(function(cell){
     var deadline = cell.getAttribute('data-deadline');
     var row = cell.closest('tr');
-    if(!deadline){
-      cell.innerHTML = '';
-      if(row) row.classList.remove('call-due-row');
-      return;
-    }
     var remaining = new Date(deadline).getTime() - now;
     if(remaining <= 0){
       // Timer expired — alert the employee to call

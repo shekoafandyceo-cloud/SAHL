@@ -29,18 +29,20 @@ export function initReadyCard(){
       if(fst){ fst.value = 'bosta_assigned'; }
       if(window.__syncFilterUI) window.__syncFilterUI();
       try{ doFilter(); }catch(e){ swallow('refreshOrdersScope/doFilter', e); }
-      window.scrollTo({ top: $id('fbar') ? $id('fbar').offsetTop - 80 : 200, behavior:'smooth' });
+      window.scrollTo({ top: 200, behavior:'smooth' });
     });
   })();
 
-  // زرار "حدد غير المطبوع" — يحدّد كل الأوردرات اللي لسه ماتطبعش في القايمة الحالية
+  // زرار "حدد غير المطبوع" — يحدّد بوالص J&T اللي لسه ماتطبعتش في القايمة الحالية
+  // (الطباعة J&T بس من v80 — بوليصة شركة قديمة أو شحن يدوي مابتتطبعش من هنا، فلو اتحددت
+  //  كانت هتفضل «غير مطبوعة» للأبد)
   (function(){
     var btn = document.getElementById('bb-sel-unprinted');
     if(!btn) return;
     btn.addEventListener('click', function(){
       var added = 0;
       (fil||[]).forEach(function(o){
-        if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
+        if(o.shipping_carrier === 'jt' && o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)){
           selectedIds.add(o.id);
           added++;
         }
@@ -281,25 +283,42 @@ export function renderStatsDeltas(cur, prev, prevLabel){
 }
 
 // تنبيه الدمج: عملاء معاهم أوردرين+ جاهزين للشحن — كويري مخصّص بدل المصفوفة الكاملة
+// ⚠️ نفس القايمة بالحرف في الـSQL بتاع merge_candidates_v1 — أي حالة تتضاف هنا تتضاف هناك (migration جديد)
 export var MERGE_QUERY_STATUSES = ['bosta_assigned','BOSTA AUTO','bosta_auto','BOSTA2','bosta2'];
-export var mergeQueryCapped = false;   // الكويري رجع سقف PostgREST (1000) — العدّ ناقص
+export var mergeQueryCapped = false;   // الكويري رجع سقف PostgREST (1000) — العدّ ناقص (المسار القديم بس)
 
+// 🔴 v82: `merge_candidates_v1` بترجّع **الصفوف اللي تليفونها متكرر بس** (التطبيع = normalizePhone بالحرف) —
+// كان بيتجاب كل «جاهز للشحن» (~768 صف ≈ 138 KB) مع كل حدث ريل-تايم في كل تاب، ~2,600 مرة في اليوم، والنتيجة صفر.
+// التجميع هنا زي ما هو: detectMergeable بتشترط 2+ برضه. الدالة مش موجودة (الواجهة اترفعت قبل الـSQL) = المسار القديم.
+var mergeGen = 0;
 export function loadMergeCandidates(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
-  sb.from('orders').select('order_uid,tracking_no,customer_name,city,phone,total_cost,status')
-    .eq('tenant_id',currentTenantId).in('status',MERGE_QUERY_STATUSES).then(function(r){
-      if(tourActive) return;
-      if(r.error) return;
-      mergeQueryCapped=((r.data||[]).length===1000);
-      ordersSetPendingBosta({});
-      (r.data||[]).forEach(function(o){
-        var p=normalizePhone(o.phone); if(!p)return;
-        if(!pendingBostaByPhone[p]) pendingBostaByPhone[p]=[];
-        pendingBostaByPhone[p].push(o);
-      });
-      detectMergeable();
+  var myGen = ++mergeGen;
+  function apply(rows, capped){
+    if(tourActive || myGen !== mergeGen) return;   // رد أقدم وصل بعد طلب أحدث
+    mergeQueryCapped = !!capped;
+    ordersSetPendingBosta({});
+    (rows||[]).forEach(function(o){
+      var p=normalizePhone(o.phone); if(!p)return;
+      if(!pendingBostaByPhone[p]) pendingBostaByPhone[p]=[];
+      pendingBostaByPhone[p].push(o);
     });
+    detectMergeable();
+  }
+  sb.rpc('merge_candidates_v1', { p_tenant: currentTenantId }).then(function(r){
+    if(!r.error){ apply(r.data, (r.data||[]).length >= 1000); return; }   // سقف PostgREST (1000 صف) بيتطبّق على الـRPC كمان
+    if(!mergeRpcMissing(r.error)) return;   // عطل تاني = التنبيه بيفضل على آخر نسخة (زي الأول)
+    sb.from('orders').select('order_uid,tracking_no,customer_name,city,phone,total_cost,status')
+      .eq('tenant_id',currentTenantId).in('status',MERGE_QUERY_STATUSES).then(function(q){
+        if(q.error) return;
+        apply(q.data, (q.data||[]).length===1000);
+      });
+  });
+}
+function mergeRpcMissing(err){
+  var s = String((err && err.code) || '') + ' ' + String((err && err.message) || '');
+  return /PGRST202|42883/.test(s) || /Could not find the function/i.test(s);
 }
 
 // كارت "قيمة بضاعة مع شركة الشحن": تكلفة بضاعة الأوردرات في تشغيل بوسطة — كويري مخصّص
@@ -310,7 +329,8 @@ export function loadBostaInventoryCard(){
   if(tourActive) return;
   if(!sb||!currentTenantId) return;
   loadStockProductsForCosts(function(){
-    // BOSTA_OPERATION_STATUSES هنا مقصودة — مش BOSTA_INVENTORY_STATUSES:
+    // BOSTA_OPERATION_STATUSES هنا مقصودة — مش قايمة فيها BOSTA2/bosta2 (زي
+    // BOSTA_INVENTORY_STATUSES اللي اتشالت في v80 لما آخر مستخدم ليها اتشال):
     // BOSTA2/bosta2 معناها السكانر بتاعنا ضرب الأوردر في مخزننا وبوسطة
     // لسه ماستلمتش، فمش "بضاعة مع بوسطة" (قرار المالك 1 أغسطس — أي مراجعة
     // تقترح "تصليح" ده تعتبر غلط)

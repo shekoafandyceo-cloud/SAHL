@@ -1,0 +1,25 @@
+{
+  "sample": true,
+  "waybill_no": "UEG088902573105",
+  "service_type": "Standard",
+  "sorting_code": "20 C01-03",
+  "cod_amount": 450,
+  "weight_kg": 1,
+  "recipient": {
+    "name": "عميل تجريبي",
+    "phone": "01000000000",
+    "phone_alt": "01100000000",
+    "governorate": "القاهرة",
+    "city": "مدينة نصر",
+    "address": "الحي السابع، شارع تجريبي، عمارة 12، الدور 3، شقة 5"
+  },
+  "sender": {
+    "name": "عتبة",
+    "brand_en": "3ataba.com",
+    "phone": "01200000000",
+    "address": "القاهرة — عنوان المرسل (تجريبي)"
+  },
+  "printed_at": "2026-09-17 14:10",
+  "remark": "عدد 2 تيشيرت أسود مقاس L\nبنطلون بيج مقاس 32\nتيشيرت أبيض مقاس M",
+  "jt_hotline": "15865"
+}

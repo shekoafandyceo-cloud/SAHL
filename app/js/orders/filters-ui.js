@@ -1,11 +1,11 @@
 // شريط الفلاتر والبحث وكروت الحالة
 
 import { loadAnalytics } from '../analytics/analytics.js';
-import { loadBilling, loadWalletState, wireBillingEvents } from '../billing/billing.js';
+import { loadWalletState } from '../billing/billing.js';
 import { $id } from '../core/dom.js';
 import { loadFinance } from '../finance/finance.js';
 import { loadInbox, waActiveId, waFetchMessages } from '../inbox/inbox.js';
-import { loadIssues } from '../issues/issues.js';
+import { loadJtIssues } from '../exceptions/exceptions.js';
 import { loadSettings } from '../settings/settings.js';
 import { loadStock } from '../stock/stock.js';
 import { tourActive } from '../tour/tour.js';
@@ -25,18 +25,16 @@ export function initRefreshAndSearch(){
     } else if(page === 'finance'){
       loadFinance();
       loadWalletState();
-    } else if(page === 'billing'){
-      loadBilling();
     } else if(page === 'settings'){
       loadSettings();
-    } else if(page === 'issues' && typeof loadIssues === 'function'){
-      loadIssues();
-      loadWalletState();
     } else if(page === 'analytics'){
       // ↻ كان بيقع على loadAll (فرع الأوردرات) — بيصفّر allLoaded من غير
       // ما يرندر الصفحة نفسها. هنا: تصفير الكاش + إعادة جلب فعلية ورندر
       ordersSetAll([]); ordersSetAllLoaded(false);
       loadAnalytics();
+      loadWalletState();
+    } else if(page === 'exceptions'){
+      loadJtIssues(true);   // تحميل كامل (مش تدريجي) — اللي داس ↻ عايز نسخة طازة
       loadWalletState();
     } else if(page === 'inbox'){
       loadInbox();   // بيعيد فحص البوابة والنفاد وبيجيب المحادثات
@@ -101,7 +99,6 @@ export function initFilterDropdowns(){
   (function(){ var b=$id('cxbar'); if(b) b.addEventListener('click', showCancelRequested); })();
   document.addEventListener('click', function(ev){ var t=ev.target; if(t && t.id==='cx-resolve'){ ev.preventDefault(); resolveCancelRequest(); } });
   enhanceFilters();
-  wireBillingEvents();
 
   // ---- clickable status cards: tap a card to filter orders by that status (no-op during the demo/tour) ----
 }
@@ -127,7 +124,6 @@ export function wireStatusCards(){
       var fst=$id('fst'); if(!fst)return;
       fst.value=val;
       fst.dispatchEvent(new Event('change',{bubbles:true}));  // runs doFilter + syncs UI + highlights card
-      var anchor=$id('fbar'); if(anchor) window.scrollTo({top:Math.max(0,anchor.offsetTop-80),behavior:'smooth'});
     });
   });
 }

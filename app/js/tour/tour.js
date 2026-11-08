@@ -14,9 +14,10 @@ import { buildIndexes, doFilter } from '../orders/orders.js';
 import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards, updateRevenueStats, updateStats } from '../orders/cards.js';
 import { openDetail } from '../orders/detail.js';
 import { isAdmin } from '../orders/guards.js';
+import { jxCatchUp } from '../exceptions/exceptions.js';
 import { all, ordersPeriod, ordersSetAll, ordersSetAllLoaded } from '../orders/state.js';
 
-export var tourActive=false, tourStep=0, tourSavedHTML=null;
+export var tourActive=false, tourStep=0;
 
 // ===== PRODUCT TOUR (interactive walkthrough with demo data) =====
 export var TOUR_KEY='sahl_tour_done_';
@@ -37,7 +38,6 @@ export function markTourDone(){ try{
 
 export function tourBackupAndInject(){
   // remember current table + stats; swap in demo data
-  tourSavedHTML = $id('tbody') ? $id('tbody').innerHTML : null;
   // حالة الفلاتر والبحث والمدة الحقيقية — الجولة بتفلتر الديمو بنفس doFilter،
   // فبحث/فلتر/مدة قديمة كانت بتخلي جدول الديمو فاضي وخطوات تتخطى في صمت
   window.__tourSavedUI = {
@@ -60,22 +60,22 @@ export function tourBackupAndInject(){
       if(ovTab) ovTab.click();
     }
   }catch(e){ swallow('tourBackupAndInject/financeTab', e); }
-  window.__tourRealAll = (typeof all!=='undefined') ? all : null;
-  window.__tourRealStock = (typeof stockProducts!=='undefined') ? stockProducts : null;
-  window.__tourRealMov = (typeof stockMovements!=='undefined') ? stockMovements : null;
-  window.__tourRealExp = (typeof financeExpenses!=='undefined') ? financeExpenses : null;
+  window.__tourRealAll = all;
+  window.__tourRealStock = stockProducts;
+  window.__tourRealMov = stockMovements;
+  window.__tourRealExp = financeExpenses;
   ordersSetAll(tourDemoOrders());
   stockSetProducts(tourDemoStock());
   stockSetMovements(tourDemoMovements());
   try{ financeSetExpenses(tourDemoExpenses()); }catch(e){ swallow('tourBackupAndInject/tourDemoExpenses', e); }
-  try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourBackupAndInject/buildIndexes', e); }
-  try{ updateStats && updateStats(); }catch(e){ swallow('tourBackupAndInject/updateStats', e); }
-  try{ updateRevenueStats && updateRevenueStats(); }catch(e){ swallow('tourBackupAndInject/updateRevenueStats', e); }
-  try{ renderFinanceOverview && renderFinanceOverview(); }catch(e){ swallow('tourBackupAndInject/renderFinanceOverview', e); }
-  try{ updateStockStats && updateStockStats(); }catch(e){ swallow('tourBackupAndInject/updateStockStats', e); }
-  try{ renderProducts && renderProducts(); }catch(e){ swallow('tourBackupAndInject/renderProducts', e); }
-  try{ renderMovements && renderMovements(); }catch(e){ swallow('tourBackupAndInject/renderMovements', e); }
-  try{ doFilter && doFilter(); }catch(e){ swallow('tourBackupAndInject/doFilter', e); }
+  try{ buildIndexes(); }catch(e){ swallow('tourBackupAndInject/buildIndexes', e); }
+  try{ updateStats(); }catch(e){ swallow('tourBackupAndInject/updateStats', e); }
+  try{ updateRevenueStats(); }catch(e){ swallow('tourBackupAndInject/updateRevenueStats', e); }
+  try{ renderFinanceOverview(); }catch(e){ swallow('tourBackupAndInject/renderFinanceOverview', e); }
+  try{ updateStockStats(); }catch(e){ swallow('tourBackupAndInject/updateStockStats', e); }
+  try{ renderProducts(); }catch(e){ swallow('tourBackupAndInject/renderProducts', e); }
+  try{ renderMovements(); }catch(e){ swallow('tourBackupAndInject/renderMovements', e); }
+  try{ doFilter(); }catch(e){ swallow('tourBackupAndInject/doFilter', e); }
 }
 
 export function tourRestore(){
@@ -100,11 +100,12 @@ export function tourRestore(){
   }
   // بعد الجولة: all الحقيقي بقى فاضي (مش بيتحمّل عند البداية) — فنرجّع صفحة الأوردرات
   // الحقيقية من السيرفر بدل ما نحسبها من الذاكرة الفاضية.
-  try{ buildIndexes && buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)
+  try{ buildIndexes(); }catch(e){ swallow('tourRestore/buildIndexes', e); }   // يصفّر phoneCounts (all فاضي)
   try{ loadOrdersCards(); }catch(e){ swallow('tourRestore/loadOrdersCards', e); }                 // الكروت + الإيرادات من الـ RPC
   try{ loadMergeCandidates(); }catch(e){ swallow('tourRestore/loadMergeCandidates', e); }
   try{ loadBostaInventoryCard(); }catch(e){ swallow('tourRestore/loadBostaInventoryCard', e); }
   try{ doFilter(); }catch(e){ swallow('tourRestore/doFilter', e); }                        // الجدول: صفحة من السيرفر
+  try{ jxCatchUp(); }catch(e){ swallow('tourRestore/jxCatchUp', e); }                      // استثناءات نزلت وقت الجولة (أحداثها اتطنشت)
 }
 
 // ---- the steps ----
@@ -169,7 +170,7 @@ export function tourRender(){
   // close the order overlay unless this step wants it open
   if(!s.openOrder){ try{ if($id('ovl')) $id('ovl').classList.remove('open'); }catch(e){ swallow('tourRender/$id', e); } }
   // switch page if needed
-  if(s.page && typeof showPage==='function'){
+  if(s.page){
     var cur=document.querySelector('.tnav-btn.active');
     var curPage=cur?cur.getAttribute('data-page'):'orders';
     if(curPage!==s.page){ showPage(s.page); }
@@ -228,7 +229,7 @@ export function tourNext(){ var steps=tourSteps(); tourStep++; if(tourStep>=step
 export function tourPrev(){ if(tourStep>0){tourStep--; tourRender();} }
 
 export function tourStart(){
-  if(typeof isAdmin==='function' && !isAdmin()) return;
+  if(!isAdmin()) return;
   tourActive=true; tourStep=0;
   var center=document.getElementById('tour-center'); if(center)center.style.display='none';
   var ov=document.getElementById('tour-overlay'); ov.classList.add('active');
@@ -246,11 +247,11 @@ export function tourFinish(){
   var center=document.getElementById('tour-center'); if(center) center.style.display='none';
   markTourDone();
   tourRestore();
-  if(typeof showPage==='function') showPage('orders');
+  showPage('orders');
 }
 
 export function tourMaybeAutoStart(){
-  if(typeof isAdmin==='function' && !isAdmin()) return;
+  if(!isAdmin()) return;
   // 🔴 زرار «🎓 جولة تعريفية» العايم اتشال (طلب المالك 19 سبتمبر) — كان
   // بيفضل ظاهر للأدمن **على طول** حتى بعد ما يخلّص الجولة، يعني عنصر
   // دايم على الشاشة مقابل استخدام مرة واحدة. الجولة نفسها لسه شغّالة:

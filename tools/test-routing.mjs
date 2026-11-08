@@ -51,7 +51,7 @@ async function open(path, opts) {
 }
 
 const visiblePage = (p) => p.evaluate(() =>
-  ['orders', 'stock', 'inbox', 'finance', 'analytics', 'billing', 'settings', 'mycommission']   // billing سايبينها في القايمة عمداً: الفحص لازم يكشف لو ظهرت
+  ['orders', 'stock', 'inbox', 'exceptions', 'warehouse', 'finance', 'analytics', 'billing', 'settings', 'mycommission']   // billing سايبينها في القايمة عمداً: الفحص لازم يكشف لو ظهرت
     .filter(n => { const el = document.getElementById('page-' + n); return el && getComputedStyle(el).display !== 'none'; }));
 
 const activeNav = (p) => p.evaluate(() => {
@@ -66,6 +66,8 @@ const urlPath = (p) => p.evaluate(() => location.pathname);
   console.log('──── فتح لينك مباشر ────');
   const CASES = [
     ['/orders', 'orders'], ['/inventory', 'stock'], ['/chats', 'inbox'],
+    ['/exceptions', 'exceptions'],   // استثناءات الشحن (8 أكتوبر)
+    ['/warehouse', 'warehouse'],     // سكانر المخزن (14 أكتوبر)
     ['/finance', 'finance'], ['/analytics', 'analytics'],
     ['/settings', 'settings']
   ];
@@ -247,7 +249,7 @@ console.log('──── معايرات ────');
 {
   console.log('──── عنوان التاب ────');
   const T = [['/orders','الطلبات'], ['/inventory','المخزون'], ['/chats','المحادثات'],
-             ['/finance','الماليات'], ['/settings','الإعدادات']];
+             ['/finance','الماليات'], ['/settings','الإعدادات'], ['/warehouse','سكانر المخزن']];
   for (const [path, want] of T) {
     const p = await open(path);
     const t = await p.title();
@@ -325,6 +327,32 @@ console.log('──── معايرات ────');
   if (tab1) await tab1.close();
 }
 
+// ════ 11هـ) سكانر المخزن في تاب لوحده (14 أكتوبر) — نفس آلية المحادثات باسم تاني ════
+{
+  console.log('──── تاب سكانر المخزن ────');
+  const p = await open('/orders');
+  const [tw] = await Promise.all([
+    p.waitForEvent('popup', { timeout: 8000 }).catch(() => null),
+    p.click('#nav-warehouse')
+  ]);
+  await p.waitForTimeout(500);
+  ok(!!tw, 'الضغط على «سكانر المخزن» فتح تاب جديدة');
+  if (tw) {
+    await tw.waitForLoadState('domcontentloaded').catch(() => {});
+    await tw.waitForTimeout(900);
+    ok(tw.url().endsWith('/warehouse'), `والتاب الجديدة على /warehouse — ${tw.url()}`);
+    ok(await tw.evaluate(() => window.name) === 'sahl-warehouse', `واسمها sahl-warehouse (مش sahl-chats) — ${await tw.evaluate(() => window.name)}`);
+  }
+  ok(await urlPath(p) === '/orders', `والتاب الأصلية فضلت على الأوردرات — ${await urlPath(p)}`);
+  const ctx = p.context();
+  const before = ctx.pages().length;
+  await p.click('#nav-warehouse');
+  await p.waitForTimeout(1200);
+  ok(ctx.pages().length === before, `الضغطة التانية ما فتحتش تاب زيادة — ${before} → ${ctx.pages().length}`);
+  await p.close();
+  if (tw) await tw.close();
+}
+
 // ════ 11ب) الرجوع للتنقّل العادي لما التاب مش مضمونة ════
 {
   // استضافة مش بتخدم اللينكات → التاب الجديدة كانت هتطلّع 404. المتوقع:
@@ -371,8 +399,10 @@ console.log('──── معايرات ────');
       const res = await r.fetch();
       let body = await res.text();
       // الشكل الساذج: تاب جديدة كل مرة بدل إعادة استخدام تاب بالاسم
-      body = body.replace("var OWN_TAB = { inbox: 'sahl-chats' };",
-                          "var OWN_TAB = { inbox: '_blank' };");
+      const before = body;
+      body = body.replace("var OWN_TAB = { inbox: 'sahl-chats', warehouse: 'sahl-warehouse' };",
+                          "var OWN_TAB = { inbox: '_blank', warehouse: 'sahl-warehouse' };");
+      if (body === before) throw new Error('المعايرة مالقتش المرساة (درس 47)');
       await r.fulfill({ response: res, body });
     }
   });
@@ -410,12 +440,14 @@ console.log('──── معايرات ────');
     const m = await import('/js/main.js');
     m.showPage('billing');
     await new Promise(r => setTimeout(r, 200));
+    const bill = document.getElementById('page-billing');   // اتشالت من الـmarkup (v79)
     return { path: location.pathname,
-             billingVisible: getComputedStyle(document.getElementById('page-billing')).display !== 'none',
+             billingGone: !bill,
+             billingVisible: !!bill && getComputedStyle(bill).display !== 'none',
              ordersVisible:  getComputedStyle(document.getElementById('page-orders')).display !== 'none' };
   });
-  ok(!after.billingVisible && after.ordersVisible && after.path.indexOf('billing') < 0,
-     `12هـ) 🔴 showPage('billing') رجّعت للأوردرات واللينك مافيهوش billing (${after.path})`);
+  ok(after.billingGone && !after.billingVisible && after.ordersVisible && after.path.indexOf('billing') < 0,
+     `12هـ) 🔴 showPage('billing') رجّعت للأوردرات واللينك مافيهوش billing وصفحة المحفظة مش في الـmarkup (${after.path})`);
   await p.close();
 }
 
@@ -433,9 +465,10 @@ console.log('──── معايرات ────');
     const m = await import('/js/main.js');
     m.showPage('billing');
     await new Promise(r => setTimeout(r, 200));
-    return getComputedStyle(document.getElementById('page-billing')).display !== 'none';
+    // الصفحة مابقتش موجودة — من غير الحارس كل الصفحات بتستخبّى ومفيش حاجة بتظهر
+    return getComputedStyle(document.getElementById('page-orders')).display === 'none';
   });
-  ok(after, 'معايرة و: من غير الحارس صفحة المحفظة ظهرت — فحص 12هـ بيمسكها');
+  ok(after, 'معايرة و: من غير الحارس الأوردرات اختفت ومفيش صفحة ظاهرة — فحص 12هـ بيمسكها');
   await p.close();
 }
 

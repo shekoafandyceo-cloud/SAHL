@@ -13,6 +13,7 @@ import { lockMaybe } from './billing-summary.js';
 import { CALL_WAIT_MS, startTimerTick } from './call-timer.js';
 import { openDetail } from './detail.js';
 import { customerOrderCount } from './merge.js';
+import { deliveryScoreBadges } from './delivery-score.js';
 import { fetchOrdersPage } from './orders.js';
 import { cur, fil, ordersPeriod, ordersSetPage, PS, selectedIds, totalCount } from './state.js';
 
@@ -23,17 +24,21 @@ export var RANK_GOOD = 80, RANK_MID = 50;
 // Get deadline ISO string ONLY if order is pending and has call attempts
 // Returns '' if order is not pending, or has no calls, or deadline already passed long ago
 // Parse status_log safely — Supabase sometimes returns it as a JSON string
+// 🔴 وممكن يبقى **مخلوط** (613 أوردر اتقاسوا 30 سبتمبر): نود n8n بتكتبه string، وبعدها
+// أي دالة SQL بتعمل `status_log || jsonb_build_array(...)` فبيطلع
+// `["[{…},{…}]", {…}, {…}]` — أول عنصر السجل القديم كله كنص. قبل كده المصفوفة
+// كانت بترجع زي ما هي، فالتايم لاين كان بيعمل Object.assign على النص (مفاتيح
+// حروف ومفيش `at`) فيترتب الأول ويكسر سلسلة «من ← إلى» ويضيّع تاريخ التأكيد.
+// فبنفكّ أي عنصر نص جوّه المصفوفة ونحط عناصره مكانه بنفس الترتيب.
 export function parseStatusLog(val){
-  if(!val) return [];
-  if(Array.isArray(val)) return val;
-  // May be a JSON string, or even a double-encoded JSON string ("\"[...]\"")
-  var v = val;
-  for(var i=0;i<3;i++){
-    if(Array.isArray(v)) return v;
-    if(typeof v !== 'string') return [];
-    try{ v = JSON.parse(v); }catch(e){ return []; }
-  }
-  return Array.isArray(v) ? v : [];
+  var out = [];
+  (function walk(v, depth, inArr){
+    if(v == null || depth > 6) return;
+    if(typeof v === 'string'){ try{ walk(JSON.parse(v), depth + 1, inArr); }catch(e){} return; }
+    if(Array.isArray(v)){ for(var i=0;i<v.length;i++) walk(v[i], depth + 1, true); return; }
+    if(typeof v === 'object' && inArr) out.push(v);   // object لوحده بره مصفوفة = مش سجل
+  })(val, 0, false);
+  return out;
 }
 
 export function getCallDeadline(o){
@@ -79,14 +84,9 @@ export function renderTable(){
 // بايناً على 1440px+ (والتاجر لسه يقدر يوسّع أي عمود بالسحب)
 var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,addr:138,prod:146,pay:92,status:118,timer:104,date:94};
   var widths;
-  // sb_cols2: ترقية مرة واحدة — المفتاح القديم sb_cols فيه مقاسات من عهد
-  // ما كان fixed layout معطّل (width:auto)، فكانت شكلية مش فعلية. النسخة
-  // الجديدة بتبدأ الكل من الافتراضيات المتوزنة، وأي تعديل يدوي بيتحفظ عادي.
+  // sb_cols2 (من 31 يوليو) — المفتاح القديم sb_cols بيتطنّش. أي تعديل يدوي بيتحفظ هنا.
   try{ widths = JSON.parse(localStorage.getItem('sb_cols2')||'null'); }catch(e){ widths = null; }
-  try{ localStorage.removeItem('sb_cols'); }catch(e){}
   if(!widths) widths = Object.assign({},DEFAULT_WIDTHS);
-  if(!widths.pay)widths.pay=75;
-  if(!widths.timer)widths.timer=90;
 
   var h='<table><colgroup>'
     +'<col style="width:'+widths.cb+'px">'
@@ -130,15 +130,8 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     var noteIcon=(o.customer_notes&&o.customer_notes.trim())?'<span class="note-icon" title="يوجد ملاحظة من العميل">📝</span>':'';
     var vipCount=customerOrderCount(o);
     var vipBadge=vipCount>1?'<span class="vip-badge" title="عميل متكرر — '+vipCount+' طلبات">×'+vipCount+'</span>':'';
-    var rankBadge='';
-    if(o.customer_ranking !== null && o.customer_ranking !== undefined && o.customer_ranking !== ''){
-      var _rk=Number(o.customer_ranking);
-      if(!isNaN(_rk)){
-        var _rkCls=_rk>=RANK_GOOD?'rk-good':(_rk>=RANK_MID?'rk-mid':'rk-bad');
-        var _rkLbl=_rk>=RANK_GOOD?'جامد':(_rk>=RANK_MID?'متوسط':'زبالة');
-        rankBadge='<span class="rk-badge '+_rkCls+'" title="نسبة استلام العميل عبر شركة الشحن: '+_rk.toFixed(1)+'%">'+_rkLbl+'</span>';
-      }
-    }
+    // نسبة استلام العميل من شركة الشحن (نسبة %) — orders/delivery-score.js
+    var rankBadge=deliveryScoreBadges(o);
     // شارة الـupsell — الأوردر اتزوّد فيه منتج بعد ما اتسجّل. العلامة جاية
     // من عمود `has_upsell` على السيرفر (بيتحط جوّه save_order_products)
     // مش من حساب في المتصفح — فبتشتغل حتى لو الحدث القديم مش محمّل.
@@ -153,8 +146,8 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     var prodTitle = locked ? '' : esc(fmt(o.product_name));
     h+='<tr data-id="'+o.id+'"'+clsAttr+'>'
       +'<td class="cbcol"><input type="checkbox" class="cb cb-row" data-id="'+o.id+'" '+checked+'></td>'
-      +'<td class="id'+(cancelBadge?' has-cx':'')+'">'+noteIcon+esc(fmt(o.order_uid))+cancelBadge+'</td>'
-      +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة الشحن">🖨️</button>'+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
+      +'<td class="id'+(cancelBadge?' has-cx':'')+'">'+noteIcon+(o.exchange_of?'<span class="ex-badge" title="أوردر استبدال — افتحه تشوف الأصلي">🔁</span>':'')+esc(fmt(o.order_uid))+cancelBadge+'</td>'
+      +'<td class="mn awb-cell">'+(o.tracking_no?esc(o.tracking_no)+(o.shipping_carrier==='jt'?'<button class="awb-btn" data-id="'+o.id+'" title="طبع بوليصة J&amp;T">🖨️</button>':'')+(o.awb_print_count>0?'<span class="awb-printed-badge" title="مطبوع '+o.awb_print_count+' مرة'+(o.awb_printed_at?' — آخر طباعة: '+fmtD(o.awb_printed_at):'')+'">✓×'+o.awb_print_count+'</span>':''):'<span class="notrack">في الانتظار</span>')+'</td>'
       +'<td class="nm">'+vipBadge+upBadge+lockMaybe(fmt(o.customer_name))+rankBadge+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.phone))+'</td>'
       +'<td class="mn">'+lockMaybe(fmt(o.alt_phone))+'</td>'
@@ -197,7 +190,7 @@ var DEFAULT_WIDTHS = {cb:42,uid:84,track:150,name:132,phone:104,alt:96,city:84,a
     btn.addEventListener('click', function(e){
       e.stopPropagation();
       var id = btn.getAttribute('data-id');
-      if(id && typeof printAwbForOrders === 'function'){
+      if(id){
         printAwbForOrders([id], btn);
       }
     });
@@ -277,7 +270,7 @@ export function updateBulkBar(){
   $id('bcnt').textContent=num(n)+' طلب محدد';
 }
 
-// زرار "حدد غير المطبوع" — يظهر بس في فلتر بوسطة/OPERATION ويحدّد كل اللي لسه ماتطبعش
+// زرار "حدد غير المطبوع" — يظهر بس في فلتر «شحن»/OPERATION ويعدّ بوالص J&T اللي لسه ماتطبعتش (v80 — الطباعة J&T بس)
 export function updateUnprintedBtn(){
   var btn = $id('bb-sel-unprinted');
   if(!btn) return;
@@ -286,7 +279,7 @@ export function updateUnprintedBtn(){
   if(!relevant){ btn.classList.remove('show'); return; }
   var cnt = 0;
   (fil||[]).forEach(function(o){
-    if(o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)) cnt++;
+    if(o.shipping_carrier === 'jt' && o.tracking_no && String(o.tracking_no).trim() && !(o.awb_print_count > 0)) cnt++;
   });
   if(cnt > 0){
     btn.classList.add('show');

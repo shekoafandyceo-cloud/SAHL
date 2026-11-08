@@ -11,3 +11,60 @@
 .fld-edit-status{font-size:.78rem;color:var(--muted);font-weight:700;}
 .copy-prod-btn{font-family:'Cairo',sans-serif;font-weight:800;font-size:.85rem;padding:9px 14px;border-radius:11px;border:1.5px solid var(--brd2);background:var(--sur);color:var(--blue);cursor:pointer;margin-inline-start:8px;}
 .copy-prod-btn:hover{border-color:var(--blue);background:rgba(37,99,235,.06);}
+
+/* نافذة شحن J&T — المحافظة/المدينة/المنطقة بأسماء J&T + الوزن (ship.js jtShipFlow) */
+.jt-bd{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(6px);z-index:9998;align-items:center;justify-content:center;}
+.jt-bd.open{display:flex;}
+.jt-box{background:var(--card);border-radius:22px;padding:24px 22px;max-width:460px;width:94%;box-shadow:0 24px 64px rgba(0,0,0,.18);max-height:92vh;max-height:92dvh;overflow-y:auto;}
+/* (مراجعة 3 أكتوبر) خانة الملاحظة + معاينة الـremark طوّلوا نافذة J&T لـ940px على الموبايل — من غير السقف ده
+   العنوان بيطلع فوق الشاشة وزرار «إنشاء البوليصة» تحتها على 375×667، والـ.jt-bd ثابت فمفيش سكرول يوصلهم. */
+.jt-ttl{font-size:1.08rem;font-weight:900;color:var(--txt);margin-bottom:6px;}
+.jt-sub{font-size:.84rem;color:var(--muted);white-space:pre-line;line-height:1.55;margin-bottom:14px;}
+.jt-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.jt-grid label{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:700;color:var(--muted);}
+.jt-grid .fsel{width:100%;}
+.jt-note{font-size:.8rem;color:var(--muted);line-height:1.6;margin-top:12px;white-space:pre-line;}
+.jt-err{color:#b91c1c;font-size:.86rem;font-weight:700;margin-top:8px;min-height:1.2em;white-space:pre-line;}
+@media(max-width:600px){.jt-grid{grid-template-columns:1fr;}}
+
+/* بانر «مزامنة حالات J&T واقفة» — jt-health.js (30 سبتمبر) */
+.jt-sync-alert{display:flex;align-items:flex-start;gap:12px;background:#fef2f2;border:2px solid #dc2626;
+  border-radius:14px;padding:12px 16px;margin-bottom:14px;color:#7f1d1d}
+.jt-sync-alert .jsa-ic{font-size:1.4rem;line-height:1.2}
+.jt-sync-alert .jsa-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;font-size:.88rem}
+.jt-sync-alert .jsa-body b{font-size:.95rem}
+.jt-sync-alert .jsa-err{font-size:.78rem;opacity:.8;word-break:break-word}
+.jt-sync-alert .jsa-issue{font-size:.84rem;line-height:1.5}
+.jt-sync-alert .jsa-x{background:none;border:0;font-size:1.3rem;line-height:1;cursor:pointer;color:inherit;padding:2px 6px}
+
+/* قفل المنتجات بعد بوليصة J&T — detail.js (17532 — 3 أكتوبر) */
+.prod-lock{margin-top:8px;padding:8px 10px;border-radius:10px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;font-size:.8rem;font-weight:700;line-height:1.6}
+.jt-cod{font-size:.86rem;font-weight:800;color:var(--txt);white-space:pre-line;line-height:1.6;margin:-6px 0 12px;padding:8px 10px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe}
+
+/* «➕ أوردر جديد» + «🔁 طلب استبدال» — order-form.js (3 أكتوبر) */
+.new-order-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:.82rem;font-weight:800;border:1px solid #059669;background:#10b981;color:#fff;border-radius:10px;cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s}
+.new-order-btn:hover{background:#059669;transform:translateY(-1px)}
+.of-box{max-width:600px;max-height:92vh;overflow-y:auto}
+.of-full{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:700;color:var(--muted);margin-top:10px}
+.of-full textarea{width:100%;resize:vertical;font-family:inherit}
+.of-items-head{font-size:.84rem;font-weight:800;color:var(--txt);margin:12px 0 6px}
+.of-hint{font-weight:600;color:var(--muted);font-size:.76rem}
+#of-items{display:flex;flex-direction:column;gap:7px;margin-bottom:8px}
+.of-row{display:grid;grid-template-columns:1fr 96px 64px 38px;gap:6px;align-items:center}
+.of-row .fsel{width:100%;min-width:0}
+.of-row .of-qty{text-align:center}
+.of-sum{font-size:.86rem;font-weight:800;color:var(--txt);margin-top:10px;line-height:1.6;white-space:pre-line}
+/* الاستبدال: المنتجات اللي راجعة — الفرق بيتحسب على المعلَّم بس (مراجعة 3 أكتوبر) */
+.of-ret-wrap{margin-top:4px}
+.of-ret-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--brd);border-radius:10px;margin-bottom:5px;font-size:.84rem;font-weight:700;color:var(--txt);cursor:pointer}
+.of-ret-row input{width:17px;height:17px;flex:0 0 auto;accent-color:#10b981}
+.of-ret-name{flex:1;min-width:0}
+.of-ret-val{font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--muted);white-space:nowrap}
+.jt-note-lbl{display:flex;flex-direction:column;gap:5px;font-size:.8rem;font-weight:700;color:var(--muted);margin-top:10px}
+.jt-note-lbl textarea{width:100%;resize:vertical;font-family:inherit}
+.ex-badge{margin-inline-end:4px;font-size:.85em}
+.ex-links{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#f0fdf4;border:1px solid #86efac;color:#14532d;font-size:.84rem;line-height:1.7}
+.ex-link{background:none;border:none;padding:0 2px;color:#1d4ed8;font-weight:800;cursor:pointer;font-family:inherit;font-size:inherit;text-decoration:underline}
+.ex-btn{background:#ecfdf5!important;color:#065f46!important;border:1px solid #6ee7b7!important}
+@media(max-width:600px){.of-row{grid-template-columns:1fr 80px 54px 38px}}
+#page-settings .jxs-rows{display:flex;flex-direction:column;gap:10px;}

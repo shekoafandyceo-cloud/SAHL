@@ -6,11 +6,12 @@ import { $id } from '../core/dom.js';
 import { showModal } from '../core/modal.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
-import { loadBostaInventoryCard, loadOrdersCards } from './cards.js';
+import { loadBostaInventoryCard, loadMergeCandidates, loadOrdersCards } from './cards.js';
+import { jxNoteOrderChange } from '../exceptions/exceptions.js';
 import { renderDetail } from './detail.js';
 import { ensureTenant } from './guards.js';
-import { doFilter } from './orders.js';
-import { all, allLoaded, ordersSetSelected, sel, selectedIds } from './state.js';
+import { doFilter, rtNoteLightRefresh, rtNoteLocalCommit } from './orders.js';
+import { all, allLoaded, fil, ordersSetSelected, sel, selectedIds } from './state.js';
 import { updateBulkBar } from './table.js';
 
 export function saveInternalNotes(){
@@ -100,7 +101,11 @@ export function doUpdate(ns,cancelReason){
     for(var i=0;i<all.length;i++){if(all[i].id===id){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(ns==='cancelled'&&cancelReason)all[i].cancel_reason=cancelReason;break;}}
     if(sel===ord){ $id('ovl').classList.remove('open'); ordersSetSelected(null); }
     toast('تم تحديث الحالة ✓','ok');
-    loadOrdersCards();loadBostaInventoryCard();doFilter();
+    rtNoteLocalCommit(id, { status: ns });
+    // v82: الصفحة اللي doFilter بيجيبها ممكن تنزل قبل صدى الحدث فتتسجّل نسخة السيرفر بالحالة الجديدة والصدى يبان «مفيش تغيير»
+    // — فالدمج ونتيجة الاستثناء بيتحدّثوا من هنا مش من الصدى
+    loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();rtNoteLightRefresh();doFilter();
+    if(ord.tracking_no) jxNoteOrderChange(ord.tracking_no);
   });
 }
 
@@ -127,12 +132,18 @@ export function doBulkUpdate(ns){
     sb.rpc('set_order_status',{p_order_id:oid, p_status:ns, p_by:byLabel, p_cancel_reason:bulkReason}).then(function(r){
       done++;
       if(r.error || !r.data){errors++;}
-      else if(allLoaded){ for(var i=0;i<all.length;i++){if(all[i].id===oid){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(bulkReason)all[i].cancel_reason=bulkReason;break;}} }
+      else{
+        // الاستثناءات من هنا لكل أوردر (البوليصة من نسخة السيرفر — الأوردر ممكن يكون متختار من صفحة/بحث تاني ومش في fil)
+        var was = rtNoteLocalCommit(oid, { status: ns });
+        var trk0 = (was && was.tracking_no) || ((fil.filter(function(x){ return x.id===oid; })[0] || all.filter(function(x){ return x.id===oid; })[0] || {}).tracking_no);
+        if(trk0) jxNoteOrderChange(trk0);
+        if(allLoaded){ for(var i=0;i<all.length;i++){if(all[i].id===oid){all[i].status=ns;all[i].status_changed_at=nowISO;all[i].status_log=r.data;if(bulkReason)all[i].cancel_reason=bulkReason;break;}} }
+      }
       if(done===n){
         selectedIds.clear();updateBulkBar();
         if(errors)toast('تم تحديث '+(n-errors)+' من '+count+' (فيه '+errors+' خطأ)','er');
         else toast('تم تحديث '+count+' طلب ✓','ok');
-        loadOrdersCards();loadBostaInventoryCard();doFilter();
+        loadOrdersCards();loadBostaInventoryCard();loadMergeCandidates();rtNoteLightRefresh();doFilter();
       }
     });
   });

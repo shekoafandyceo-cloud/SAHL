@@ -1,6 +1,5 @@
 // حالة الاشتراك وبانر قرب الانتهاء
 
-import { $id } from '../core/dom.js';
 
 // SUBSCRIPTION LOCK
 export function subscriptionLockState(t){

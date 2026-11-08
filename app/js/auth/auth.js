@@ -31,16 +31,12 @@ export function tenantDisplayName(){
 export function applyTenantBranding(){
   var name = tenantDisplayName();
   if($id('brand-logo'))$id('brand-logo').textContent = name;
-  if($id('login-logo'))$id('login-logo').textContent = '🔐 ' + name;
-  if($id('setup-logo'))$id('setup-logo').textContent = '🗂 ' + name;
   document.title = name + ' — لوحة الطلبات';
 }
 
 export function resetTenantBranding(){
   currentTenant = null;
   if($id('brand-logo'))$id('brand-logo').textContent = 'سهل';
-  if($id('login-logo'))$id('login-logo').textContent = '🔐 سهل';
-  if($id('setup-logo'))$id('setup-logo').textContent = '🗂 سهل';
   document.title = 'سهل — لوحة الطلبات';
 }
 
@@ -90,7 +86,7 @@ export function loadTenantAndEnter(){
   // حساب منتهي، ومتقدمة كانت بتقفل حساب دافع.
   Promise.all([
     sb.from('v_my_tenant')
-      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price,has_shipping_api,wa_followup_template,wa_followup_body')
+      .select('id,slug,store_name,shipping_provider,active,created_at,plan,plan_expires_at,subscription_status,grace_period_days,monthly_price,wa_followup_template,wa_followup_body')
       .eq('id', currentTenantId)
       .single(),
     sb.from('tenant_subscription_state')
@@ -125,10 +121,11 @@ export function loadTenantAndEnter(){
       $id('login').style.display = 'none';
       $id('app').style.cssText = 'display:flex;';   // الاتجاه والارتفاع من CSS (.sidenav layout) — مش inline (درس 27)
       maybeShowExpiryBanner(r.data, lockState);
-      loadAll();
       // القسم اللي التاجر فتح لينكه (app.sahlgedan.com/chats مثلاً) —
-      // بيتقرا بعد ما اللوحة تبان، فالدخول على لينك مباشر بيوصّل لمكانه
+      // بيتقرا بعد ما اللوحة تبان، فالدخول على لينك مباشر بيوصّل لمكانه.
+      // 🔴 قبل loadAll (v79): loadAll بتجيب الأوردرات بس لو صفحتها هي اللي ظاهرة.
       applyInitialRoute();
+      loadAll();
       // loadWalletState بتتنده جوّه loadAll() — النداء التاني هنا كان بيطلق
       // طلبين متزامنين لنفس الفيو والردود مالهاش ترتيب مضمون
       refreshSetupChecklist();  // كارت تجهيز المتجر — أدمن بس وبيقفل نفسه لما يكمل

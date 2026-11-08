@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://gdphjfhelxaofugyiknb.supabase.co" crossorigin>
 <title>سهل — لوحة التحكم</title>
 <link rel="icon" type="image/svg+xml" href="./img/favicon.svg">
 <link rel="icon" type="image/png" sizes="128x128" href="./img/icon-128.png">
 <link rel="apple-touch-icon" href="./img/icon-128.png">
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="preload" href="./fonts/cairo-var-arabic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="./fonts/cairo-var-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="./css/00-fonts.css">
 <link rel="stylesheet" href="./css/01-tokens.css">
 <link rel="stylesheet" href="./css/02-base.css">
@@ -24,13 +26,14 @@
 <link rel="stylesheet" href="./css/13-topbar-extras.css">
 <link rel="stylesheet" href="./css/14-finance.css">
 <link rel="stylesheet" href="./css/15-merge-alert.css">
-<link rel="stylesheet" href="./css/16-billing.css">
 <link rel="stylesheet" href="./css/17-card-tweaks.css">
 <link rel="stylesheet" href="./css/18-tour.css">
 <link rel="stylesheet" href="./css/19-mobile.css">
 <link rel="stylesheet" href="./css/20-orders-extras.css">
 <link rel="stylesheet" href="./css/21-inbox.css">
-<link rel="stylesheet" href="./css/22-dark.css">
+<link rel="stylesheet" href="./css/22-exceptions.css">
+<link rel="stylesheet" href="./css/23-warehouse.css">
+<link rel="stylesheet" href="./css/24-dark.css">
 </head>
 <body>
 
@@ -111,7 +114,9 @@
       <div class="sn-label">التشغيل</div>
       <button class="tnav-btn active" data-page="orders" id="nav-orders" title="الطلبات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M14 8H8"/><path d="M16 12H8"/><path d="M13 16H8"/></svg></span><span class="nv-txt">الطلبات</span></button>
       <button class="tnav-btn" data-page="stock" id="nav-stock" title="المخزون"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg></span><span class="nv-txt">المخزون</span></button>
+      <button class="tnav-btn" data-page="warehouse" id="nav-warehouse" title="سكانر المخزن"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 7v10"/><path d="M12 7v10"/><path d="M17 7v10"/></svg></span><span class="nv-txt">سكانر المخزن</span><span class="wa-nav-badge wh-nav-badge" id="wh-nav-badge" style="display:none"></span><span class="wa-nav-badge wh-nav-badge2 admin-only" id="wh-nav-badge2" style="display:none"></span></button>
       <button class="tnav-btn" data-page="inbox" id="nav-inbox" title="المحادثات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg></span><span class="nv-txt">المحادثات</span><span class="wa-nav-badge" id="wa-nav-badge" style="display:none"></span></button>
+      <button class="tnav-btn" data-page="exceptions" id="nav-exceptions" title="استثناءات الشحن"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span><span class="nv-txt">استثناءات الشحن</span><span class="wa-nav-badge jx-nav-badge" id="jx-nav-badge" style="display:none"></span><span class="wa-nav-badge jx-nav-badge2 admin-only" id="jx-nav-badge2" style="display:none"></span></button>
       <div class="sn-label admin-only">الأعمال</div>
       <button class="tnav-btn" data-page="mycommission" id="nav-mycommission" title="عمولتي" style="display:none"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6"/><circle cx="9.5" cy="9.5" r=".5" fill="currentColor"/><circle cx="14.5" cy="14.5" r=".5" fill="currentColor"/></svg></span><span class="nv-txt">عمولتي</span></button>
       <button class="tnav-btn admin-only" data-page="finance" id="nav-finance" title="الماليات"><span class="nv-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01"/><path d="M18 12h.01"/></svg></span><span class="nv-txt">الماليات</span></button>
@@ -139,10 +144,10 @@
     </div>
   </div>
   <div class="main" id="page-orders">
-    <!-- PRODUCT TOUR mount point -->
-    <div id="tour-container"></div>
     <!-- MERGE ALERT — auto-shows when customers have 2+ orders ready to ship -->
     <div id="merge-alert-container" style="display:none"></div>
+    <!-- مزامنة حالات J&T واقفة — أدمن بس (jt_sync_health بترجع null لغيره) -->
+    <div id="jt-sync-alert" style="display:none"></div>
     <!-- checklist الإعداد الموجّه — أدمن بس، بيقفل نفسه لما يكمل -->
     <div id="setup-checklist" style="display:none"></div>
     <div class="pbar" id="orders-period-bar">
@@ -215,7 +220,8 @@
         <option value="paymob">Paymob</option>
       </select>
       <span class="fcnt" id="fcnt"></span>
-      <button class="unprinted-btn" id="bb-sel-unprinted" title="يحدّد كل الأوردرات اللي لسه ماتطبعتش بوليصتها في القايمة دي مرة واحدة">✓ حدد غير المطبوع</button>
+      <button class="unprinted-btn" id="bb-sel-unprinted" title="يحدّد كل بوالص J&amp;T اللي لسه ماتطبعتش في القايمة دي مرة واحدة">✓ حدد غير المطبوع</button>
+      <button class="new-order-btn" id="ord-new-btn" type="button" title="سجّل أوردر جاي من فيسبوك/إنستجرام/التليفون — بيتسجّل مؤكد وتشحنه J&amp;T من نافذة الأوردر">➕ أوردر جديد</button>
     </div>
 
     <div class="bulkbar" id="bulkbar">
@@ -226,7 +232,7 @@
       <button class="bbtn bs" id="bb-bs">📦 شحن</button>
       <button class="bbtn cn" id="bb-cn">✕ إلغاء</button>
          <div class="bsep"></div>
-         <button class="bbtn" id="bb-print" style="background:#1d6ef2;color:#fff;border-color:#1d6ef2;" title="يطبع بوليصة الشحن لكل الأوردرات المحددة (لازم يكون فيها tracking_no)">🖨️ طبع البوالص</button>
+         <button class="bbtn" id="bb-print" style="background:#1d6ef2;color:#fff;border-color:#1d6ef2;" title="يطبع بوليصة J&amp;T لكل الأوردرات المحددة اللي ليها بوليصة J&amp;T">🖨️ طبع البوالص</button>
       <select class="fsel" id="bb-sel" style="padding:6px 10px;font-size:.82rem;">
         <option value="">حالة أخرى...</option>
         <option value="pending">قيد الانتظار</option>
@@ -312,10 +318,8 @@
       </div>
     </div>
 
-    <!-- product performance moved to the إحصائيات الأداء page -->
   </div>
 
-  <!-- ────────────────────── FINANCE PAGE (admin only) ────────────────────── -->
   <div class="main" id="page-inbox" style="display:none">
     <div class="wa-wrap" id="wa-wrap">
       <!-- 🔴 شريط الفلاتر بره العمود عمداً: التصنيفات التسعة محتاجة 689px
@@ -339,7 +343,7 @@
         </div>
         <div class="wa-list-body" id="wa-list-body"><div class="wa-empty">جاري التحميل…</div></div>
       </div>
-      <div class="wa-chat" id="wa-chat-pane">
+      <div class="wa-chat">
         <div class="wa-chat-empty" id="wa-chat-empty">اختر محادثة من القائمة عشان تشوف الرسائل</div>
         <div class="wa-chat-inner" id="wa-chat-inner" style="display:none">
           <div class="wa-chat-head">
@@ -385,28 +389,14 @@
           <div class="wa-msgs" id="wa-msgs"></div>
           <div class="wa-compose" id="wa-compose">
             <div class="wa-window-closed" id="wa-window-closed" style="display:none">🔒 نافذة الرد (24 ساعة) قفلت — العميل لازم يبعتلك رسالة جديدة عشان تقدر ترد عليه.</div>
-            <div class="wa-qr-panel" id="wa-qr-panel"></div>
-            <div class="wa-qr-editor" id="wa-qr-editor" style="display:none">
-              <div class="wa-qr-ed-head">🖼️ رد جاهز جديد<button class="wa-qr-ed-x" id="wa-qr-ed-cancel" title="إلغاء">✕</button></div>
-              <textarea id="wa-qr-ed-text" class="wa-qr-ed-text" rows="2" placeholder="نص الرد (اختياري لو فيه صور)"></textarea>
-              <div class="wa-qr-ed-thumbs" id="wa-qr-ed-thumbs"></div>
-              <div class="wa-qr-ed-actions">
-                <button class="wa-qr-ed-add" id="wa-qr-ed-addimg">＋ ضيف صورة</button>
-                <input type="file" id="wa-qr-ed-file" accept="image/*" style="display:none">
-                <button class="wa-qr-ed-save" id="wa-qr-ed-save">احفظ الرد</button>
-              </div>
-            </div>
-            <div class="wa-qr-staged" id="wa-qr-staged" style="display:none">
-              <div class="wa-qr-staged-body" id="wa-qr-staged-body"></div>
-              <button class="wa-reply-cancel" id="wa-qr-staged-cancel" title="إلغاء الرد الجاهز">✕</button>
-            </div>
             <div class="wa-attach-preview" id="wa-attach-preview" style="display:none"></div>
             <div class="wa-reply-bar" id="wa-reply-bar" style="display:none">
               <div class="wa-reply-bar-body" id="wa-reply-bar-body"></div>
               <button class="wa-reply-cancel" id="wa-reply-cancel" title="إلغاء الرد">✕</button>
             </div>
+            <div class="wa-qr-panel open" id="wa-qr-panel"></div>
             <div class="wa-compose-row" id="wa-compose-row">
-              <button class="wa-qr-btn" id="wa-qr-btn" title="ردود جاهزة">⚡</button>
+              <button class="wa-qr-btn" id="wa-qr-btn" title="إظهار/إخفاء الردود المحفوظة">⚡</button>
               <button class="wa-attach" id="wa-attach" title="إرفاق صورة">📷</button>
               <input type="file" id="wa-file" accept="image/*" style="display:none">
               <button class="wa-attach" id="wa-docattach" title="إرفاق ملف">📎</button>
@@ -419,6 +409,106 @@
       </div>
       </div>
     </div>
+  </div>
+
+  <!-- ════════════════ EXCEPTIONS PAGE — استثناءات الشحن (8 أكتوبر) ════════════════
+       كل مسح «استثناء» من J&T (أو رجوع من غير سبب) بينزل هنا لوحده من تريجر على
+       jt_events. الموظف بيكلّم العميل ويختار الحقيقة ويكتب عمل إيه — js/exceptions/. -->
+  <div class="main" id="page-exceptions" style="display:none" data-stage="open">
+    <div class="sp-head">
+      <div class="sp-head-ico">⚠️</div>
+      <div>
+        <h2>استثناءات الشحن</h2>
+        <p>أي مشكلة J&amp;T على شحنة بتنزل هنا لوحدها — الموظف يتعامل، الأدمن يراجع، وبعدين نتابع اتسلمت ولا رجعت.</p>
+      </div>
+    </div>
+    <div class="jx-bar">
+      <div class="jx-chips" id="jx-chips">
+        <button type="button" class="jx-chip on" data-jx-chip="open">📥 محتاجة تعامل <span class="n">0</span></button>
+        <span class="jx-flow" aria-hidden="true">←</span>
+        <button type="button" class="jx-chip" data-jx-chip="review"><span class="jx-rv-lbl">👀 مستنية مراجعتك</span> <span class="n">0</span></button>
+        <span class="jx-flow" aria-hidden="true">←</span>
+        <button type="button" class="jx-chip" data-jx-chip="done">✅ اتراجعت — تابع النتيجة <span class="n">0</span></button>
+        <button type="button" class="jx-chip" data-jx-chip="reports">📣 بلاغاتنا لـJ&amp;T <span class="n">0</span><span class="jx-nn" hidden></span></button>
+        <button type="button" class="jx-chip jx-chip-all" data-jx-chip="all">🗂️ الكل <span class="n">0</span></button>
+      </div>
+      <div class="jx-filters">
+        <select id="jx-fout" class="jx-sel jx-f-out" title="J&amp;T عملت إيه في الشحنة">
+          <option value="">أي نتيجة</option>
+          <option value="with_jt">لسه مع J&amp;T</option>
+          <option value="delivered">اتسلمت</option>
+          <option value="returned">رجعت / راجعة</option>
+          <option value="cancelled">اتلغت عندنا</option>
+        </select>
+        <select id="jx-frep" class="jx-sel jx-f-rep" title="نوع البلاغ">
+          <option value="">كل البلاغات</option>
+          <option value="fake_update">FAKE UPDATE</option>
+          <option value="jt_error">غلطة من J&amp;T</option>
+        </select>
+        <select id="jx-fdays" class="jx-sel jx-f-days" title="الفترة">
+          <option value="1">النهارده</option>
+          <option value="3">آخر 3 أيام</option>
+          <option value="7" selected>آخر 7 أيام</option>
+          <option value="30">آخر 30 يوم</option>
+        </select>
+        <select id="jx-freason" class="jx-sel jx-f-all" title="سبب J&amp;T"><option value="">كل الأسباب</option></select>
+        <select id="jx-fverdict" class="jx-sel jx-f-all" title="الحقيقة إيه؟ (تصنيف الفريق)"></select>
+        <select id="jx-fwho" class="jx-sel jx-f-all" title="مين اتعامل"><option value="">أي حد اتعامل</option></select>
+        <input id="jx-search" class="jx-search" type="search" placeholder="بوليصة · تليفون · اسم · رقم أوردر" autocomplete="off">
+        <button type="button" class="jx-btn jx-f-out" id="jx-export" title="الصفوف اللي قدامك بالفلتر الحالي — ملف بيتفتح في Excel">⬇️ تصدير</button>
+        <button type="button" class="jx-btn" id="jx-sound" title="صوت التنبيه على الجهاز ده">🔔</button>
+        <button type="button" class="jx-btn" id="jx-refresh" title="تحديث">↻</button>
+      </div>
+    </div>
+    <div class="jx-hint" id="jx-hint"></div>
+    <div class="jx-newbar" id="jx-newbar" style="display:none"></div>
+    <div class="jx-list" id="jx-list"></div>
+    <details class="jx-report-box" id="jx-report-box">
+      <summary>📊 تقرير J&amp;T للفترة — حسب الفرع والمندوب والسبب</summary>
+      <div id="jx-report"></div>
+    </details>
+  </div>
+
+  <div class="main" id="page-warehouse" style="display:none" data-tab="scan">
+    <div class="sp-head">
+      <div class="sp-head-ico">📦</div>
+      <div>
+        <h2>سكانر المخزن</h2>
+        <p>اضرب كل بوليصة خارجة بالسكانر — حالتها بتبقى «اوردر اتضرب» وبتتخصم من المخزن. والمرتجع يتضرب أول ما يوصل — حالته بتبقى «مرتجع مضروب» ويرجع للمخزن.</p>
+      </div>
+    </div>
+    <div class="wh-tabs admin-only">
+      <button type="button" class="wh-tab on" data-wh-tab="scan">🔫 السكان</button>
+      <button type="button" class="wh-tab" data-wh-tab="map">🔗 ربط المنتجات</button>
+      <button type="button" class="wh-tab" data-wh-tab="count">⚙️ التشغيل</button>
+    </div>
+    <div class="wh-mode" id="wh-mode" hidden></div>
+    <div class="wh-orphan" id="wh-orphan" hidden></div>
+    <div class="wh-pane-scan">
+      <div class="wh-scanbox">
+        <input id="wh-input" class="wh-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" dir="ltr" placeholder="اضرب البوليصة — أو اكتب آخر 5 أرقام منها / رقم الأوردر واضغط Enter">
+        <div class="wh-scanbar">
+          <button type="button" class="wh-focus is-lost" id="wh-focus" data-wh-act="focus">⚠️ اضغط هنا الأول</button>
+          <span class="wh-queue" id="wh-queue" hidden></span>
+          <button type="button" class="wh-btn wh-btn-ghost" id="wh-cam" data-wh-act="cam" hidden title="صوّر باركود البوليصة بكاميرا الموبايل">📷 صوّر الباركود</button>
+          <input type="file" id="wh-cam-in" accept="image/*" capture="environment" hidden>
+          <button type="button" class="wh-btn wh-btn-ghost" id="wh-sound" data-wh-act="sound" title="أصوات السكانر">🔔</button>
+        </div>
+        <div class="wh-hint" id="wh-cam-hint" hidden>📱 الموبايل ده مابيقراش الباركود من الصورة — اكتب آخر 5 أرقام من البوليصة واضغط Enter (المرتجع بيتسجّل على طول لو هو الوحيد).</div>
+      </div>
+      <div class="wh-result is-idle" id="wh-result"><div class="wh-r-title">جاهز للسكان</div><div class="wh-r-sub">النتيجة بتظهر هنا بلون وصوت: أخضر = اتخصم · أزرق = مرتجع رجع · رمادي = اتضرب قبل كده · برتقاني = محتاج قرار · أحمر = وقّف.</div></div>
+      <div class="wh-attn" id="wh-attn" hidden></div>
+      <div class="wh-ret" id="wh-ret" hidden></div>
+      <div class="wh-stats" id="wh-stats"></div>
+      <div class="wh-chips" id="wh-chips"></div>
+      <div class="wh-lists" id="wh-lists"></div>
+      <details class="wh-logbox">
+        <summary>🕘 آخر سكانات من الجهاز ده</summary>
+        <div class="wh-log" id="wh-log"></div>
+      </details>
+    </div>
+    <div class="wh-pane-map admin-only"><div id="wh-map"></div></div>
+    <div class="wh-pane-count admin-only"><div id="wh-snd"></div><div id="wh-count"></div></div>
   </div>
 
   <div class="main" id="page-finance" style="display:none">
@@ -451,23 +541,23 @@
     <div id="finance-overview-tab">
       <!-- Revenue cards -->
       <div class="sgrid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;">
-        <div class="sc a"><span class="info-i" tabindex="0" title="إجمالي قيمة كل الطلبات داخل الفترة المختارة من غير استبعاد أي حالة. الرقم ده يقيس حجم الطلبات المسجلة، مش الفلوس اللي اتحصلت فعلاً." data-tip="إجمالي قيمة كل الطلبات داخل الفترة المختارة من غير استبعاد أي حالة. الرقم ده يقيس حجم الطلبات المسجلة، مش الفلوس اللي اتحصلت فعلاً.">i</span><div class="slb">قيمة الطلبات المسجلة</div><div class="sval" id="fin-revenue">—</div><div class="sdelta" id="fin-revenue-delta">تشمل كل الحالات</div></div>
-        <div class="sc d"><span class="info-i" tabindex="0" title="إجمالي قيمة الأوردرات اللي حالتها Delivered فقط. ده أقرب رقم للفلوس اللي المفروض دخلت فعليًا من التسليم." data-tip="إجمالي قيمة الأوردرات اللي حالتها Delivered فقط. ده أقرب رقم للفلوس اللي المفروض دخلت فعليًا من التسليم.">i</span><div class="slb">المتحصل فعلاً</div><div class="sval" id="fin-collected">—</div></div>
-        <div class="sc c"><span class="info-i" tabindex="0" title="قيمة الأوردرات اللي دخلت شركة الشحن أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة." data-tip="قيمة الأوردرات اللي دخلت شركة الشحن أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة.">i</span><div class="slb">متوقع التحصيل</div><div class="sval" id="fin-expected">—</div></div>
-        <div class="sc x"><span class="info-i" tabindex="0" title="قيمة الأوردرات الملغية أو المرتجعة أو الفاشلة داخل الفترة. ده رقم يساعدك تشوف حجم المبيعات اللي ضاعت." data-tip="قيمة الأوردرات الملغية أو المرتجعة أو الفاشلة داخل الفترة. ده رقم يساعدك تشوف حجم المبيعات اللي ضاعت.">i</span><div class="slb">المهدر</div><div class="sval" id="fin-lost">—</div></div>
+        <div class="sc a"><span class="info-i" tabindex="0" data-tip="إجمالي قيمة كل الطلبات داخل الفترة المختارة من غير استبعاد أي حالة. الرقم ده يقيس حجم الطلبات المسجلة، مش الفلوس اللي اتحصلت فعلاً.">i</span><div class="slb">قيمة الطلبات المسجلة</div><div class="sval" id="fin-revenue">—</div><div class="sdelta" id="fin-revenue-delta">تشمل كل الحالات</div></div>
+        <div class="sc d"><span class="info-i" tabindex="0" data-tip="إجمالي قيمة الأوردرات اللي حالتها Delivered فقط. ده أقرب رقم للفلوس اللي المفروض دخلت فعليًا من التسليم.">i</span><div class="slb">المتحصل فعلاً</div><div class="sval" id="fin-collected">—</div></div>
+        <div class="sc c"><span class="info-i" tabindex="0" data-tip="قيمة الأوردرات اللي دخلت شركة الشحن أو في التشغيل ولسه ما اتسلمتش. ده Pipeline متوقع، مش فلوس مضمونة.">i</span><div class="slb">متوقع التحصيل</div><div class="sval" id="fin-expected">—</div></div>
+        <div class="sc x"><span class="info-i" tabindex="0" data-tip="قيمة الأوردرات الملغية أو المرتجعة أو الفاشلة داخل الفترة. ده رقم يساعدك تشوف حجم المبيعات اللي ضاعت.">i</span><div class="slb">المهدر</div><div class="sval" id="fin-lost">—</div></div>
       </div>
 
       <!-- Profit cards -->
       <div class="sgrid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;">
         <div class="sc d" style="border-color:rgba(16,185,129,.4);background:rgba(16,185,129,.05);">
-          <span class="info-i" tabindex="0" title="صافي الربح = المتحصل فعلاً من الأوردرات المسلمة - تكلفة المنتجات - الشحن - التغليف - المصاريف اليدوية في نفس الفترة." data-tip="صافي الربح = المتحصل فعلاً من الأوردرات المسلمة - تكلفة المنتجات - الشحن - التغليف - المصاريف اليدوية في نفس الفترة.">i</span>
+          <span class="info-i" tabindex="0" data-tip="صافي الربح = المتحصل فعلاً من الأوردرات المسلمة - تكلفة المنتجات - الشحن - التغليف - المصاريف اليدوية في نفس الفترة.">i</span>
           <div class="slb">💰 صافي الربح</div>
           <div class="sval" id="fin-net-profit" style="color:var(--green);">—</div>
           <div class="sdelta" id="fin-margin">—</div>
         </div>
-        <div class="sc v" style="--vc:var(--pur);"><span class="info-i" tabindex="0" title="هامش الربح = صافي الربح ÷ المتحصل فعلاً. كل ما النسبة تزيد يبقى البيزنس أكفأ بعد التكاليف." data-tip="هامش الربح = صافي الربح ÷ المتحصل فعلاً. كل ما النسبة تزيد يبقى البيزنس أكفأ بعد التكاليف.">i</span><div class="slb">هامش الربح %</div><div class="sval" id="fin-margin-pct">—</div></div>
-        <div class="sc p"><span class="info-i" tabindex="0" title="مجموع تكلفة المنتجات بالجملة + سعر الشحن الحقيقي من Bosta لكل أوردر (وللي ماجبناش سعره الحقيقي 85 جنيه) + التغليف + كل المصاريف اليدوية المسجلة." data-tip="مجموع تكلفة المنتجات بالجملة + سعر الشحن الحقيقي من Bosta لكل أوردر (وللي ماجبناش سعره الحقيقي 85 جنيه) + التغليف + كل المصاريف اليدوية المسجلة.">i</span><div class="slb">إجمالي التكاليف</div><div class="sval" id="fin-total-costs">—</div></div>
-        <div class="sc r"><span class="info-i" tabindex="0" title="متوسط الأوردر المسلّم = المتحصل فعلاً ÷ عدد الأوردرات Delivered في الفترة. بيوضح متوسط قيمة الطلب الناجح." data-tip="متوسط الأوردر المسلّم = المتحصل فعلاً ÷ عدد الأوردرات Delivered في الفترة. بيوضح متوسط قيمة الطلب الناجح.">i</span><div class="slb">AOV (متوسط الأوردر)</div><div class="sval" id="fin-aov">—</div></div>
+        <div class="sc v" style="--vc:var(--pur);"><span class="info-i" tabindex="0" data-tip="هامش الربح = صافي الربح ÷ المتحصل فعلاً. كل ما النسبة تزيد يبقى البيزنس أكفأ بعد التكاليف.">i</span><div class="slb">هامش الربح %</div><div class="sval" id="fin-margin-pct">—</div></div>
+        <div class="sc p"><span class="info-i" tabindex="0" data-tip="مجموع تكلفة البضاعة على الأوردرات المسلّمة + تكلفة الشحن المسجّلة على المسلّم والمرتجع (اللي مالوش تكلفة مسجّلة بيتحسب صفر وعدده بيظهر في تفاصيل التكاليف تحت) + كل المصاريف اليدوية المسجلة (ومنها التغليف).">i</span><div class="slb">إجمالي التكاليف</div><div class="sval" id="fin-total-costs">—</div></div>
+        <div class="sc r"><span class="info-i" tabindex="0" data-tip="متوسط الأوردر المسلّم = المتحصل فعلاً ÷ عدد الأوردرات Delivered في الفترة. بيوضح متوسط قيمة الطلب الناجح.">i</span><div class="slb">AOV (متوسط الأوردر)</div><div class="sval" id="fin-aov">—</div></div>
       </div>
 
       <!-- Cost breakdown -->
@@ -501,12 +591,12 @@
       </div>
       <!-- Expense summary cards -->
       <div class="sgrid" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px;font-size:.85rem;">
-        <div class="sc" style="border-color:#fde68a;background:#fef3c7;"><span class="info-i" tabindex="0" title="إجمالي المصاريف المسجلة في فئة مرتبات خلال الفترة المختارة. بيتم خصمها من صافي الربح." data-tip="إجمالي المصاريف المسجلة في فئة مرتبات خلال الفترة المختارة. بيتم خصمها من صافي الربح.">i</span><div class="slb">مرتبات</div><div class="sval" id="exp-sum-salaries" style="font-size:1.2rem;">—</div></div>
-        <div class="sc" style="border-color:#bfdbfe;background:#eff6ff;"><span class="info-i" tabindex="0" title="إجمالي مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة المختارة. مهم تضيفه باستمرار عشان صافي الربح يبقى واقعي." data-tip="إجمالي مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة المختارة. مهم تضيفه باستمرار عشان صافي الربح يبقى واقعي.">i</span><div class="slb">إعلانات FB</div><div class="sval" id="exp-sum-ads" style="font-size:1.2rem;">—</div></div>
-        <div class="sc" style="border-color:#ddd6fe;background:#f5f3ff;"><span class="info-i" tabindex="0" title="إجمالي مصاريف التغليف اليدوية خلال الفترة. دي غير أي packaging_cost موجود على الأوردر نفسه." data-tip="إجمالي مصاريف التغليف اليدوية خلال الفترة. دي غير أي packaging_cost موجود على الأوردر نفسه.">i</span><div class="slb">تغليف</div><div class="sval" id="exp-sum-packaging" style="font-size:1.2rem;">—</div></div>
-        <div class="sc" style="border-color:#fecaca;background:#fef2f2;"><span class="info-i" tabindex="0" title="إجمالي الفواتير المسجلة يدويًا في الفترة، زي أدوات، اشتراكات، إنترنت، كهرباء أو أي بند مشابه." data-tip="إجمالي الفواتير المسجلة يدويًا في الفترة، زي أدوات، اشتراكات، إنترنت، كهرباء أو أي بند مشابه.">i</span><div class="slb">فواتير</div><div class="sval" id="exp-sum-bills" style="font-size:1.2rem;">—</div></div>
-        <div class="sc" style="border-color:#a7f3d0;background:#ecfdf5;"><span class="info-i" tabindex="0" title="إجمالي مصاريف المخزن المسجلة يدويًا في الفترة، زي إيجار، عمالة إضافية، أدوات تشغيل أو تجهيزات." data-tip="إجمالي مصاريف المخزن المسجلة يدويًا في الفترة، زي إيجار، عمالة إضافية، أدوات تشغيل أو تجهيزات.">i</span><div class="slb">مخزن</div><div class="sval" id="exp-sum-warehouse" style="font-size:1.2rem;">—</div></div>
-        <div class="sc" style="border-color:#e5e7eb;background:#f9fafb;"><span class="info-i" tabindex="0" title="أي مصاريف عامة مش داخلة في الفئات الأساسية. بتتخصم من صافي الربح في نفس الفترة." data-tip="أي مصاريف عامة مش داخلة في الفئات الأساسية. بتتخصم من صافي الربح في نفس الفترة.">i</span><div class="slb">متفرقات</div><div class="sval" id="exp-sum-other" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#fde68a;background:#fef3c7;"><span class="info-i" tabindex="0" data-tip="إجمالي المصاريف المسجلة في فئة مرتبات خلال الفترة المختارة. بيتم خصمها من صافي الربح.">i</span><div class="slb">مرتبات</div><div class="sval" id="exp-sum-salaries" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#bfdbfe;background:#eff6ff;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة المختارة. مهم تضيفه باستمرار عشان صافي الربح يبقى واقعي.">i</span><div class="slb">إعلانات FB</div><div class="sval" id="exp-sum-ads" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#ddd6fe;background:#f5f3ff;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف التغليف اليدوية خلال الفترة. دي غير أي packaging_cost موجود على الأوردر نفسه.">i</span><div class="slb">تغليف</div><div class="sval" id="exp-sum-packaging" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#fecaca;background:#fef2f2;"><span class="info-i" tabindex="0" data-tip="إجمالي الفواتير المسجلة يدويًا في الفترة، زي أدوات، اشتراكات، إنترنت، كهرباء أو أي بند مشابه.">i</span><div class="slb">فواتير</div><div class="sval" id="exp-sum-bills" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#a7f3d0;background:#ecfdf5;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف المخزن المسجلة يدويًا في الفترة، زي إيجار، عمالة إضافية، أدوات تشغيل أو تجهيزات.">i</span><div class="slb">مخزن</div><div class="sval" id="exp-sum-warehouse" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#e5e7eb;background:#f9fafb;"><span class="info-i" tabindex="0" data-tip="أي مصاريف عامة مش داخلة في الفئات الأساسية. بتتخصم من صافي الربح في نفس الفترة.">i</span><div class="slb">متفرقات</div><div class="sval" id="exp-sum-other" style="font-size:1.2rem;">—</div></div>
       </div>
       <div class="twrap">
         <div class="thscroll" id="exp-tbody"><div class="ldg">جاري التحميل...</div></div>
@@ -515,10 +605,10 @@
 
     <div id="finance-commissions-tab" style="display:none">
       <div class="sgrid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;">
-        <div class="sc"><span class="info-i" tabindex="0" title="عمولات اتسجّلت والأوردر لسه في السكة. بتبقى مستحقة أول ما يتسلّم، وبتتلغي لو رجع أو اتلغى." data-tip="عمولات اتسجّلت والأوردر لسه في السكة. بتبقى مستحقة أول ما يتسلّم، وبتتلغي لو رجع أو اتلغى.">i</span><div class="slb">معلّقة</div><div class="sval" id="cm-sum-pending">—</div></div>
-        <div class="sc"><span class="info-i" tabindex="0" title="إجمالي العمولات على أوردرات اتسلّمت فعلاً — من أول يوم." data-tip="إجمالي العمولات على أوردرات اتسلّمت فعلاً — من أول يوم.">i</span><div class="slb">مستحقة (الكل)</div><div class="sval" id="cm-sum-earned">—</div></div>
-        <div class="sc"><span class="info-i" tabindex="0" title="اللي اتصرف فعلاً في التسويات — بيتخصم من رصيد الموظف تلقائي." data-tip="اللي اتصرف فعلاً في التسويات — بيتخصم من رصيد الموظف تلقائي.">i</span><div class="slb">اتصرف</div><div class="sval" id="cm-sum-settled">—</div></div>
-        <div class="sc"><span class="info-i" tabindex="0" title="المستحق ناقص المتصرّف. ممكن يبقى بالسالب لو صرفت عمولة والأوردر رجع بعدها." data-tip="المستحق ناقص المتصرّف. ممكن يبقى بالسالب لو صرفت عمولة والأوردر رجع بعدها.">i</span><div class="slb">الرصيد المستحق</div><div class="sval" id="cm-sum-out">—</div></div>
+        <div class="sc"><span class="info-i" tabindex="0" data-tip="عمولات اتسجّلت والأوردر لسه في السكة. بتبقى مستحقة أول ما يتسلّم، وبتتلغي لو رجع أو اتلغى.">i</span><div class="slb">معلّقة</div><div class="sval" id="cm-sum-pending">—</div></div>
+        <div class="sc"><span class="info-i" tabindex="0" data-tip="إجمالي العمولات على أوردرات اتسلّمت فعلاً — من أول يوم.">i</span><div class="slb">مستحقة (الكل)</div><div class="sval" id="cm-sum-earned">—</div></div>
+        <div class="sc"><span class="info-i" tabindex="0" data-tip="اللي اتصرف فعلاً في التسويات — بيتخصم من رصيد الموظف تلقائي.">i</span><div class="slb">اتصرف</div><div class="sval" id="cm-sum-settled">—</div></div>
+        <div class="sc"><span class="info-i" tabindex="0" data-tip="المستحق ناقص المتصرّف. ممكن يبقى بالسالب لو صرفت عمولة والأوردر رجع بعدها.">i</span><div class="slb">الرصيد المستحق</div><div class="sval" id="cm-sum-out">—</div></div>
       </div>
       <div id="cm-by-user"></div>
       <div class="sc-divider"><span>📋 حركات الـupselling</span></div>
@@ -541,7 +631,6 @@
       </div>
     </div>
 
-    <!-- platform & product performance moved to the إحصائيات الأداء page -->
 
   </div>
 
@@ -607,95 +696,6 @@
         <div style="font-weight:900;font-size:1.15rem;color:var(--txt);">أداء الموظفين</div>
         <div style="margin-top:8px;color:var(--muted);font-size:.9rem;line-height:1.7;">القسم ده لسه بنجهّزه — هتقدر تتابع منه أداء كل موظف قريب.</div>
       </div>
-    </div>
-  </div>
-
-  <!-- BILLING PAGE (admin only) -->
-  <div class="main" id="page-billing" style="display:none">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:18px;">
-      <div>
-        <h2 style="margin:0;font-size:1.5rem;font-weight:900;color:var(--txt);">💳 المحفظة</h2>
-        <p style="margin:6px 0 0;color:var(--muted);font-size:.9rem;font-weight:600;">إدارة رصيدك، باقتك، وسجل المعاملات</p>
-      </div>
-      <button class="rbtn" id="bill-refresh">↻ تحديث</button>
-    </div>
-
-    <!-- Wallet Summary Stats -->
-    <div class="wallet-summary" id="wallet-summary">
-      <div class="wstat" style="--c:#1d4ed8">
-        <div class="wsl">💰 الرصيد الحالي</div>
-        <div class="wsv" id="bill-balance">—</div>
-        <div class="wsh" id="bill-balance-hint">جاري التحميل...</div>
-      </div>
-      <div class="wstat" style="--c:#10b981">
-        <div class="wsl">📦 الباقة الحالية</div>
-        <div class="wsv" id="bill-plan-name" style="font-size:1.4rem;">—</div>
-        <div class="wsh" id="bill-plan-price">—</div>
-      </div>
-      <div class="wstat" id="bill-cycle-stat" style="--c:#9333ea">
-        <div class="wsl">📅 الأوردرات في الدورة</div>
-        <div class="wsv" id="bill-cycle-used">—</div>
-        <div class="wsh" id="bill-cycle-hint">—</div>
-      </div>
-      <div class="wstat" id="bill-renew-stat" style="--c:#f59e0b">
-        <div class="wsl">🔄 التجديد القادم</div>
-        <div class="wsv" id="bill-renew-date" style="font-size:1.3rem;">—</div>
-        <div class="wsh" id="bill-renew-hint">—</div>
-      </div>
-    </div>
-
-    <!-- Plans -->
-    <div class="dsec" style="padding:22px;">
-      <div class="dstt" style="margin-bottom:6px;">🎯 اختر باقتك</div>
-      <p style="margin:0;color:var(--muted);font-size:.86rem;font-weight:600;">الترقية أو التبديل بين الباقات. يُخصم سعر الباقة من محفظتك عند الاختيار.</p>
-      <div class="plan-grid" id="plan-grid"></div>
-    </div>
-
-    <!-- Topup -->
-    <div class="dsec" style="padding:22px;margin-top:18px;">
-      <div class="dstt">⚡ شحن المحفظة</div>
-      <div class="topup-box">
-        <h3>📱 حوّل عبر فودافون كاش</h3>
-        <div class="vfcash-info">
-          حوّل المبلغ على رقم فودافون كاش: <span class="vfp" id="vfcash-number">01XXXXXXXXX</span><br>
-          <small style="color:#92400e;font-weight:700;">بعد التحويل، املأ النموذج اللي تحت بمبلغ التحويل ورقمك ولقطة الشاشة، وهنوافق على الشحن خلال ساعات.</small>
-        </div>
-        <div class="topup-form">
-          <div>
-            <label>المبلغ (جنيه)</label>
-            <input type="number" id="topup-amount" min="50" step="1" placeholder="مثلاً: 500">
-          </div>
-          <div>
-            <label>رقم اللي حوّلت منه</label>
-            <input type="tel" id="topup-phone" placeholder="مثلاً: 01012345678">
-          </div>
-          <div class="full">
-            <label>لقطة شاشة من التحويل (اختياري لكن مفضّل)</label>
-            <label class="file-wrap" for="topup-screenshot">
-              <span class="file-btn">📎 اختر صورة</span>
-              <span class="file-name" id="topup-fname">لم يتم اختيار ملف</span>
-              <input type="file" id="topup-screenshot" accept="image/*">
-            </label>
-          </div>
-          <div class="full" style="text-align:left;">
-            <button id="topup-submit">إرسال طلب الشحن</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- My recent topup requests -->
-    <div class="dsec" style="padding:22px;margin-top:18px;">
-      <div class="dstt">📋 طلبات الشحن</div>
-      <p style="margin:0 0 12px;color:var(--muted);font-size:.86rem;font-weight:600;">آخر طلبات الشحن اللي أرسلتها</p>
-      <div class="twrap"><div class="thscroll" id="my-topups-tbody"><div class="ldg">جاري التحميل...</div></div></div>
-    </div>
-
-    <!-- Wallet history -->
-    <div class="dsec" style="padding:22px;margin-top:18px;">
-      <div class="dstt">📜 سجل المحفظة</div>
-      <p style="margin:0 0 12px;color:var(--muted);font-size:.86rem;font-weight:600;">آخر 50 حركة في محفظتك (شحن، خصم باقة، خصم أوردرات...)</p>
-      <div class="twrap"><div class="thscroll" id="wallet-history-tbody"><div class="ldg">جاري التحميل...</div></div></div>
     </div>
   </div>
 
@@ -797,32 +797,7 @@
       </div>
     </section>
 
-    <!-- 4) شركة الشحن -->
-    <section class="settings-card" data-tone="orange">
-      <div class="sc-head">
-        <div class="sc-ico">📦</div>
-        <div class="sc-titles">
-          <h3>ربط شركة الشحن</h3>
-          <p>عشان النظام يطلّع بوالص ويتابع التسليم أوتوماتيك — شركة الشحن المدعومة حاليًا: بوسطة</p>
-        </div>
-      </div>
-      <div class="sc-body">
-        <div class="settings-grid">
-          <div class="settings-row">
-            <label>Bosta API Key</label>
-            <div class="settings-secret-wrap">
-              <input class="sinp" id="set-bosta-key" type="password" placeholder="يبدأ بـ b_..." autocomplete="off" style="direction:ltr;text-align:left;">
-              <button class="settings-eye-btn" data-target="set-bosta-key" type="button">👁</button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-actions">
-          <button class="sbtn settings-save-btn" id="set-save-bosta">💾 حفظ بيانات الشحن</button>
-        </div>
-      </div>
-    </section>
-
-    <!-- 5) واتساب -->
+    <!-- 4) واتساب -->
     <section class="settings-card" data-tone="green">
       <div class="sc-head">
         <div class="sc-ico">💬</div>
@@ -866,7 +841,7 @@
       </div>
     </section>
 
-    <!-- 6) ربط واتساب بميتا -->
+    <!-- 5) ربط واتساب بميتا -->
     <section class="settings-card" data-tone="green">
       <div class="sc-head">
         <div class="sc-ico">🔌</div>
@@ -903,7 +878,7 @@
       </div>
     </section>
 
-    <!-- 7) تلجرام + تنبيهات البوت -->
+    <!-- 6) تلجرام + تنبيهات البوت -->
     <section class="settings-card" data-tone="sky">
       <div class="sc-head">
         <div class="sc-ico">📱</div>
@@ -938,14 +913,41 @@
           <div class="sc-divider"><span>🔔 إيه اللي يوصلك؟</span></div>
           <div class="np-gate" id="np-gate">🔗 اربط تلجرام الأول (احفظ الـ Chat ID فوق) وبعدها تقدر تتحكم في التنبيهات.</div>
           <div class="np-list" id="np-list">
-            <label class="np-row"><span class="np-txt"><span class="np-name">حركات الموظفين</span><span class="np-desc">تغيير الحالة ومحاولات الاتصال — مين عمل إيه وامتى</span></span><input type="checkbox" class="swx np-sw" id="np-staff_activity"></label>
-            <label class="np-row"><span class="np-txt"><span class="np-name">تأكيدات العملاء</span><span class="np-desc">لما العميل يأكّد الأوردر على واتساب</span></span><input type="checkbox" class="swx np-sw" id="np-confirmations"></label>
-            <label class="np-row"><span class="np-txt"><span class="np-name">إلغاءات العملاء</span><span class="np-desc">لما العميل يلغي الأوردر على واتساب</span></span><input type="checkbox" class="swx np-sw" id="np-cancellations"></label>
-            <label class="np-row"><span class="np-txt"><span class="np-name">القطع الخارجة النهاردة</span><span class="np-desc">ملخّص بالشحنات اللي خرجت من المخزن</span></span><input type="checkbox" class="swx np-sw" id="np-outgoing_today"></label>
-            <label class="np-row"><span class="np-txt"><span class="np-name">الجرد اليومي</span><span class="np-desc">تقرير المخزون في آخر اليوم</span></span><input type="checkbox" class="swx np-sw" id="np-daily_inventory"></label>
+            <label class="np-row"><span class="np-txt"><span class="np-name">حركات الموظفين</span><span class="np-desc">تغيير الحالة ومحاولات الاتصال — مين عمل إيه وامتى</span></span><input type="checkbox" class="swx" id="np-staff_activity"></label>
+            <label class="np-row"><span class="np-txt"><span class="np-name">تأكيدات العملاء</span><span class="np-desc">لما العميل يأكّد الأوردر على واتساب</span></span><input type="checkbox" class="swx" id="np-confirmations"></label>
+            <label class="np-row"><span class="np-txt"><span class="np-name">إلغاءات العملاء</span><span class="np-desc">لما العميل يلغي الأوردر على واتساب</span></span><input type="checkbox" class="swx" id="np-cancellations"></label>
+            <label class="np-row"><span class="np-txt"><span class="np-name">القطع الخارجة النهاردة</span><span class="np-desc">ملخّص بالشحنات اللي خرجت من المخزن</span></span><input type="checkbox" class="swx" id="np-outgoing_today"></label>
+            <label class="np-row"><span class="np-txt"><span class="np-name">الجرد اليومي</span><span class="np-desc">تقرير المخزون في آخر اليوم</span></span><input type="checkbox" class="swx" id="np-daily_inventory"></label>
           </div>
           <p class="sc-hint np-note">⚠️ تنبيهات نفاد الرصيد وطلبات الإلغاء بعد التأكيد شغالة دايماً — تفويتها بيوقف شغلك.</p>
         </div>
+      </div>
+    </section>
+
+    <!-- صوت تنبيه الاستثناءات -->
+    <section class="settings-card" data-tone="orange">
+      <div class="sc-head">
+        <div class="sc-ico">🔔</div>
+        <div class="sc-titles">
+          <h3>صوت تنبيه الاستثناءات</h3>
+          <p>صوت إنذار أول ما استثناء جديد من J&amp;T ينزل في السيستم — من أي صفحة في اللوحة</p>
+        </div>
+      </div>
+      <div class="sc-body">
+        <div class="jxs-rows">
+          <label class="sc-toggle-row" for="set-jx-sound-team">
+            <span class="sc-toggle-txt"><span class="sc-toggle-name">الصوت للفريق كله</span><span class="sc-toggle-desc">لو قفلته، مفيش جهاز في المتجر هيرنّ — الإشعار المكتوب والشارة على الزرار بيفضلوا زي ما هم</span></span>
+            <input type="checkbox" class="swx" id="set-jx-sound-team">
+          </label>
+          <label class="sc-toggle-row" for="set-jx-sound-device">
+            <span class="sc-toggle-txt"><span class="sc-toggle-name">الصوت على الجهاز ده</span><span class="sc-toggle-desc">بيتحفظ في المتصفح ده بس — تكتمه عندك من غير ما يأثر على أجهزة الموظفين</span></span>
+            <input type="checkbox" class="swx" id="set-jx-sound-device">
+          </label>
+        </div>
+        <div class="settings-actions">
+          <button class="sbtn settings-save-btn" id="set-jx-sound-test" type="button">▶️ جرّب الصوت</button>
+        </div>
+        <p class="sc-hint">ℹ️ المتصفح مابيسمحش بأي صوت لحد ما تضغط مرة جوّه اللوحة بعد ما تفتحها — بعدها بيرنّ لوحده طول ما اللوحة مفتوحة، حتى لو إنت على صفحة تانية أو التاب في الخلفية.</p>
       </div>
     </section>
   </div>
@@ -975,7 +977,6 @@
 
 
 
-  <!-- ISSUES PAGE (admin only) -->
   </div><!-- /appcol -->
 </div>
 

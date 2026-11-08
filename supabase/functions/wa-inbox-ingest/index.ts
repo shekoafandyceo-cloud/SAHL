@@ -112,30 +112,64 @@ async function applyReferral(
 }
 
 // تحديث حالة الرسائل الصادرة (تسليم/قراءة/فشل) من webhook الحالات
+// 🔴 UPDATE واحد مشروط بدل SELECT ثم UPDATE (4 نوفمبر — `Log Ingestion`): الحالات أغلب
+// نداءات الـwebhook (~1,450 من ~1,676 في اليوم) وكل حالة كانت Requestين. الشرط في الـSQL نفسه
+// = نفس القاعدة بالحرف: الحالة الجديدة بتكتب بس لو رتبتها **أعلى** من الحالي (read وصلت قبل
+// delivered = delivered مابتنزّلهاش)، والحالة الحالية المش معروفة/الفاضية رتبتها صفر.
+// وبقى ذري كمان — مفيش نافذة بين القراية والكتابة.
+const WA_STATUS_RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
+function waStatusKeepFilter(st: string): string | null {
+  const newRank = WA_STATUS_RANK[st] || 0;
+  if (!newRank) return null;   // حالة مش معروفة — القديم كان مابيكتبهاش أبداً (0 > أي رتبة = false)
+  const notLower = Object.keys(WA_STATUS_RANK).filter((k) => WA_STATUS_RANK[k] >= newRank);
+  return "status.is.null,status.not.in.(" + notLower.join(",") + ")";
+}
 async function processStatuses(sb: any, tenantId: string, statuses: any[]): Promise<void> {
-  const RANK: Record<string, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
   for (const s of statuses) {
     const wamid = s?.id;
     const st = s?.status;
     if (!wamid || !st) continue;
-    const cur = await sb.from("wa_messages").select("id, status")
-      .eq("tenant_id", tenantId).eq("wa_message_id", wamid).maybeSingle();
-    if (!cur.data) continue;
-    const curRank = RANK[cur.data.status] || 0;
-    const newRank = RANK[st] || 0;
-    // ما ننزّلش الحالة لتحت (مثلاً read وصلت قبل delivered)
-    if (newRank > curRank) {
-      await sb.from("wa_messages").update({ status: st }).eq("id", cur.data.id);
-    }
+    const keep = waStatusKeepFilter(String(st));
+    if (!keep) continue;
+    await sb.from("wa_messages").update({ status: st })
+      .eq("tenant_id", tenantId).eq("wa_message_id", wamid).or(keep);
   }
+}
+
+// ── كاش في الذاكرة للسر والمتجر (4 نوفمبر — `Log Ingestion` عدّت حصة الـFree Plan) ──
+// كل webhook (رسالة أو حالة) كان بيقرا `platform_settings` و`tenants` = ~3,350 Request/يوم.
+// الكاش بيعيش جوّه الـisolate بس (بيتصفّر مع أي تشغيل جديد — والـworker عمره ~150ث على الـFree) وعمره قصير:
+//  · السر: لو ماطابقش اللي في الكاش بنقرا تاني قبل ما نرفض — سر جديد مايترفضش بسبب الكاش.
+//    ⚠️ السر القديم بيفضل مقبول لحد 5 دقايق بعد التغيير (مقبول — مش بيكشف حاجة).
+//  · المتجر: لو تنزيل الميديا وقع والمتجر من الكاش بنقراه تاني ونجرّب مرة — توكن اتجدّد مايضيّعش صورة.
+//  · قراية فشلت (خطأ) **مابتتكيّشش** — والمتجر المش موجود مابيتكيّشش (ممكن يتضاف).
+const CFG_TTL_MS = 5 * 60 * 1000;
+let secretCache: { v: string; at: number } | null = null;
+const tenantCache = new Map<string, { v: { id: string; whatsapp_token: string | null }; at: number }>();
+
+async function ingestSecret(sb: any, fresh: boolean): Promise<string> {
+  if (!fresh && secretCache && Date.now() - secretCache.at < CFG_TTL_MS) return secretCache.v;
+  const r = await sb.from("platform_settings").select("value").eq("key", "wa_ingest_secret").maybeSingle();
+  const v = r.data?.value || "";
+  if (!r.error) secretCache = { v, at: Date.now() };
+  return v;
+}
+
+async function tenantByPhone(sb: any, phoneNumberId: string, fresh: boolean): Promise<{ v: { id: string; whatsapp_token: string | null } | null; cached: boolean }> {
+  const hit = tenantCache.get(phoneNumberId);
+  if (!fresh && hit && Date.now() - hit.at < CFG_TTL_MS) return { v: hit.v, cached: true };
+  const r = await sb.from("tenants").select("id, whatsapp_token").eq("whatsapp_phone_id", phoneNumberId).maybeSingle();
+  if (r.data) tenantCache.set(phoneNumberId, { v: r.data, at: Date.now() });
+  else tenantCache.delete(phoneNumberId);
+  return { v: r.data || null, cached: false };
 }
 
 // كل الشغل التقيل (داتا بيز + تنزيل ميديا) بيحصل هنا في الخلفية
 async function processPayload(payload: any, secret: string): Promise<void> {
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  const secRow = await sb.from("platform_settings").select("value").eq("key", "wa_ingest_secret").maybeSingle();
-  const expected = secRow.data?.value || "";
+  let expected = await ingestSecret(sb, false);
+  if (expected && secret !== expected) expected = await ingestSecret(sb, true);
   if (expected && secret !== expected) return;
 
   const entry = payload?.entry?.[0] ?? payload?.body?.entry?.[0];
@@ -145,9 +179,9 @@ async function processPayload(payload: any, secret: string): Promise<void> {
   const phoneNumberId = value?.metadata?.phone_number_id;
   if (!phoneNumberId) return;
 
-  const tenantRes = await sb.from("tenants").select("id, whatsapp_token")
-    .eq("whatsapp_phone_id", String(phoneNumberId)).maybeSingle();
-  const tenant = tenantRes.data;
+  const tRes = await tenantByPhone(sb, String(phoneNumberId), false);
+  let tenant = tRes.v;
+  let tenantCached = tRes.cached;
   if (!tenant) return;
 
   // 1) webhook الحالات (delivery/read) — مفيهوش messages
@@ -225,10 +259,24 @@ async function processPayload(payload: any, secret: string): Promise<void> {
 
     let mediaPath: string | null = null;
     if (mediaId && tenant.whatsapp_token) {
+      const fileId = waMsgId || crypto.randomUUID();
       try {
-        mediaPath = await downloadMedia(sb, tenant.id, conversationId, waMsgId || crypto.randomUUID(), mediaId, mediaMime, tenant.whatsapp_token);
+        mediaPath = await downloadMedia(sb, tenant.id, conversationId, fileId, mediaId, mediaMime, tenant.whatsapp_token);
       } catch (e) {
         console.error("media download failed", String(e));
+        // التوكن من الكاش ممكن يكون اتجدّد — نقرا المتجر تاني ونجرّب مرة واحدة بالتوكن الجديد
+        if (tenantCached) {
+          const fresh = await tenantByPhone(sb, String(phoneNumberId), true);
+          tenantCached = false;
+          if (fresh.v && fresh.v.id === tenant.id && fresh.v.whatsapp_token && fresh.v.whatsapp_token !== tenant.whatsapp_token) {
+            tenant = fresh.v;
+            try {
+              mediaPath = await downloadMedia(sb, tenant.id, conversationId, fileId, mediaId, mediaMime, fresh.v.whatsapp_token);
+            } catch (e2) {
+              console.error("media download retry failed", String(e2));
+            }
+          }
+        }
       }
     }
 
