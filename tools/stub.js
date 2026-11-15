@@ -91,7 +91,9 @@
                 // سكانر المخزن (14 أكتوبر): الجرد المفتوح/اللي فات
                 stock_counts:'__WH_COUNTS',
                 // أصوات السكانر (15 أكتوبر — v78): wh_config.sounds
-                wh_config:'__WH_CONFIG' };
+                wh_config:'__WH_CONFIG',
+                // مسودات الـAI Agent (15 نوفمبر — v84): كارت «رد مقترح» في المحادثات
+                wa_ai_drafts:'__AI_DRAFTS' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -202,7 +204,7 @@
     // 🔴 جداول الاستثناءات: كل الفلاتر بتتطبّق فعلاً زي PostgREST (eq/gte/lt/in/is + order + limit)
     // — ستب بيرجّع كل الصفوف مهما اتطلب = أي فحص على الفترة أو المزامنة التدريجية بيعدّي أعمى (درس 33).
     // ونسخ مش نفس المراجع: الكود بيكتب حقول على الصفوف (`_t` · `_ymd`).
-    if(table === 'v_jt_issues' || table === 'jt_issues' || table === 'jt_issue_log' || table === 'wa_ofd_sends'){
+    if(table === 'v_jt_issues' || table === 'jt_issues' || table === 'jt_issue_log' || table === 'wa_ofd_sends' || table === 'wa_ai_drafts'){
       rows = rows.map(function(r){ return Object.assign({}, r); });
       (st.f || []).forEach(function(f){
         rows = rows.filter(function(r){
@@ -222,7 +224,7 @@
         rows.sort(function(a, b){ var r = String(a[ocol] || '').localeCompare(String(b[ocol] || '')); return oasc ? r : -r; });
       }
       if(st.limit) rows = rows.slice(0, st.limit);
-      if(window.__JT_FAIL) return null;
+      if(window.__JT_FAIL && table !== 'wa_ai_drafts') return null;
     }
     // حالة رسايل «المندوب في الطريق» (11 أكتوبر): `.in('wa_message_id', ids)` بس بيتطبّق — الاختبارات القديمة
     // على wa_messages بتعتمد إنه مابيفلترش غير كده (السلوك القديم بالحرف)

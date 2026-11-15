@@ -11,6 +11,8 @@ import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
 import { showModal } from '../core/modal.js';
 import { waMetaRow, waMsgInner, waQuoteBlock, waSenderTag, waTimeShort } from './message-view.js';
+// كارت «رد مقترح» من الـAI Agent (v84) — الموديول ده مابيستوردش مننا حاجة (مفيش دورة)
+import { aiDraftNoteSent, aiDraftReset, aiDraftSync, initAiDraft } from './ai-draft.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
@@ -103,6 +105,7 @@ var WA_LOCK_MSG='<div class="wa-empty">🔒 المحادثات مقفولة لح
 export function inboxDepletionLock(){
   if(waPollTimer){ clearInterval(waPollTimer); waPollTimer=null; }
   waActiveId=null; waRenderedState=[]; waRenderedCount=0;
+  aiDraftReset();
   var wrap=$id('wa-wrap'); if(wrap) wrap.classList.remove('show-chat');   // الموبايل: يرجع لعرض القايمة اللي فيها الرسالة
   var inner=$id('wa-chat-inner'); if(inner) inner.style.display='none';
   var empty=$id('wa-chat-empty'); if(empty) empty.style.display='';
@@ -756,6 +759,8 @@ function waFillChatHeader(c){
 }
 export function openConversation(id){
   waActiveId=id; waRenderedCount=0;
+  // 🔴 كارت الرد المقترح بتاع العميل اللي فات مايفضلش فوق شات العميل ده (v84)
+  aiDraftReset();
   var c=waConvById(id);
   $id('wa-chat-empty').style.display='none';
   $id('wa-chat-inner').style.display='flex';
@@ -993,6 +998,8 @@ export function renderMessages(msgs,scroll){
   var byWamid = {};
   for(var w=0; w<msgs.length; w++){ if(msgs[w].wa_message_id) byWamid[msgs[w].wa_message_id]=msgs[w]; }
   waLastMsgs = msgs;
+  // كارت «رد مقترح» (v84): بيتابع آخر رسالة من العميل — رخيص، مفيش طلب غير لما الرسالة دي تتغيّر
+  aiDraftSync(forConv, msgs);
   if(!msgs.length){ box.innerHTML='<div class="wa-empty">لسه مفيش رسايل — المحادثة دي اتفتحت مع أوردر العميل.<br>أول ما يبعت أي حاجة هتظهر هنا وتقدر ترد عليه.</div>'; waRenderedCount=0; waRenderedState=[]; return; }
   // تحديث تدريجي لو الرسائل المعروضة بادئة (prefix) من القائمة الجديدة → ما نعيدش بناء كل حاجة (يمنع القفز)
   var canInc = waRenderedState.length>0 && box.querySelector('.wa-msg') && msgs.length>=waRenderedState.length;
@@ -1327,6 +1334,8 @@ export function waSend(){
         sent_by_name: (d.sent_by_name || (currentUser && currentUser.name) || '')
       }, 'out');
       bubble.classList.remove('wa-msg-pending'); }
+    // v84: اترد على العميل — كارت الرد المقترح بيتشال (ولو الموظف كان حاططه في الخانة بيتسجّل اتبعت/اتعدّل)
+    aiDraftNoteSent(convAtSend, text);
     waRefreshConvos();
   }
   if(imgFile){
@@ -2621,8 +2630,9 @@ export function initInbox(){
   });
   if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
   if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waOnSearchInput(this.value); });
-  if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;renderConvos();});
+  if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;aiDraftReset();renderConvos();});
   if($id('wa-send-btn'))$id('wa-send-btn').addEventListener('click',waSend);
+  initAiDraft();
   if($id('wa-reply-cancel'))$id('wa-reply-cancel').addEventListener('click',waClearReplyTo);
   // Esc بيلغي الرد — أسرع من الوصول للزرار وانت بتكتب
   if($id('wa-input'))$id('wa-input').addEventListener('keydown',function(e){

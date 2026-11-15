@@ -638,6 +638,15 @@
     OFD_MSGS.push({ wa_message_id: 'wamid.ofd1', status: 'delivered' }, { wa_message_id: 'wamid.ofd2', status: 'read' });
     // (بعد تعريف TABLES — الـIIFE ده تحته في الملف)
     TABLES.wa_ofd_sends = OFD_SENDS;
+    // كارت «رد مقترح» من الـAI Agent (v84) — مسودة على آخر رسالة في محادثتين (إجابة + تصعيد بملاحظة)
+    TABLES.wa_ai_drafts = [
+      { id:'aid1', tenant_id:TENANT, conversation_id:'wc1', trigger_message_id:'wm3', behavior:'answer', intent:'سؤال عن السعر',
+        body:'الترولي متاح يا فندم بـ 1349 جنيه والشحن مجاني، والتوصيل من 24 إلى 48 ساعة إن شاء الله 🌷',
+        media:{ card:{ quick_reply_id:'qr2', title:'منظم المطبخ' }, note:null }, status:'pending', error:null, created_at:iso(0,13,41) },
+      { id:'aid2', tenant_id:TENANT, conversation_id:'wc3', trigger_message_id:'wm6', behavior:'clarify', intent:'عايزة تطلب',
+        body:'تحت أمرك يا فندم 🌷 حضرتك حابة تطلبي أنهي منتج؟',
+        media:{ card:null, note:'العميلة ماقالتش المنتج — اسألها الأول' }, status:'pending', error:null, created_at:iso(1,19,21) }
+    ];
     TABLES.wa_messages = TABLES.wa_messages.concat(OFD_MSGS);
   })();
 
@@ -799,6 +808,11 @@
         rows = rows.filter(function(c){ return Array.isArray(c[nc]) && c[nc].length > 0; });
       }
       rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
+      if(st.limit) rows = rows.slice(0, st.limit);
+    }
+    // مسودات الـAI Agent (v84): الكارت بيسأل بالـtrigger_message_id
+    if(t === 'wa_ai_drafts'){
+      (st.f || []).forEach(function(f){ if(f.op === 'eq') rows = rows.filter(function(r){ return String(r[f.col]) === String(f.val); }); });
       if(st.limit) rows = rows.slice(0, st.limit);
     }
     if(t === 'wa_ofd_sends'){
@@ -1072,6 +1086,10 @@
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
       if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:true, has_number:true, has_token:true, sahl_ready:false, wa_enabled:true }, error:null });
+      if(name === 'wa_ai_draft_review'){
+        (TABLES.wa_ai_drafts || []).forEach(function(d){ if(d.id === (args && args.p_id) && d.status === 'pending'){ d.status = args.p_status; d.final_body = args.p_final_body || null; } });
+        return Promise.resolve({ data:null, error:null });
+      }
       if(name === 'get_notify_prefs')  return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null });
       if(name === 'update_notify_prefs'){ Object.assign(PREVIEW_PREFS, (args && args.p_prefs) || {}); return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null }); }
       return Promise.resolve({ data:null, error:null });
