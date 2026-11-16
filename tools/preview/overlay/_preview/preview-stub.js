@@ -680,7 +680,7 @@
         media:{ card:null, note:'العميلة ماقالتش المنتج — اسألها الأول' }, status:'pending', error:null, created_at:iso(1,19,21) }
     ];
     // زرار البوت (v86): مقفول (بيقترح بس) — المالك يجرّب يشغّله ويقفله من الشريط فوق قايمة المحادثات
-    TABLES.ai_settings = [{ tenant_id:TENANT, mode:'shadow', auto_changed_at:null, auto_changed_by_name:null }];
+    TABLES.ai_settings = [{ tenant_id:TENANT, mode:'shadow', idle_mode:'shadow', auto_changed_at:null, auto_changed_by_name:null }];
     TABLES.wa_messages = TABLES.wa_messages.concat(OFD_MSGS);
   })();
 
@@ -1128,7 +1128,7 @@
       if(name === 'ai_agent_set_auto'){
         var as0 = (TABLES.ai_settings || [])[0];
         if(!as0) return Promise.resolve({ data:{ ok:false, error:'agent_off' }, error:null });
-        as0.mode = (args && args.p_on) ? 'auto' : 'shadow'; as0.auto_changed_at = new Date().toISOString(); as0.auto_changed_by_name = 'أدمن المعاينة';
+        as0.mode = (args && args.p_on) ? 'auto' : (as0.idle_mode === 'off' ? 'off' : 'shadow'); as0.auto_changed_at = new Date().toISOString(); as0.auto_changed_by_name = 'أدمن المعاينة';
         return Promise.resolve({ data:{ ok:true, mode:as0.mode, by:'أدمن المعاينة' }, error:null });
       }
       if(name === 'wa_ai_escalation_dismiss'){

@@ -312,9 +312,12 @@ async function autoBreaker(tenantId: string): Promise<void> {
     .gte("auto_sent_at", since).not("auto_result->>error", "is", null);
   if ((Number(count) || 0) < AUTO_FAIL_TRIP) return;
   const by = "إيقاف تلقائي — أخطاء إرسال";
-  const { data } = await admin.from("ai_settings").update({ mode: "shadow", auto_changed_at: new Date().toISOString(), auto_changed_by_name: by })
+  // OFF = ai_settings.idle_mode: 'off' واقف خالص · غير كده (أو القراية وقعت) 'shadow' — الاتنين مابيبعتوش للعميل.
+  const { data: cur } = await admin.from("ai_settings").select("idle_mode").eq("tenant_id", tenantId).maybeSingle();
+  const back = cur?.idle_mode === "off" ? "off" : "shadow";
+  const { data } = await admin.from("ai_settings").update({ mode: back, auto_changed_at: new Date().toISOString(), auto_changed_by_name: by })
     .eq("tenant_id", tenantId).eq("mode", "auto").select("tenant_id");
-  if (data && data.length) await admin.from("ai_mode_log").insert({ tenant_id: tenantId, mode: "shadow", by_name: by });
+  if (data && data.length) await admin.from("ai_mode_log").insert({ tenant_id: tenantId, mode: back, by_name: by });
 }
 
 // deno-lint-ignore no-explicit-any

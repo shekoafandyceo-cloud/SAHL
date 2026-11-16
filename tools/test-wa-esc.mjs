@@ -65,7 +65,7 @@ async function open(opts) {
       if(name === 'ai_agent_set_auto'){
         if(window.__ROLE !== 'admin') return { data:{ ok:false, error:'admin_only' }, error:null };
         var s = (window.__AI_SETTINGS || [])[0]; if(!s) return { data:{ ok:false, error:'agent_off' }, error:null };
-        s.mode = args.p_on ? 'auto' : 'shadow'; s.auto_changed_at = new Date().toISOString(); s.auto_changed_by_name = 'أدمن الاختبار';
+        s.mode = args.p_on ? 'auto' : (s.idle_mode === 'off' ? 'off' : 'shadow'); s.auto_changed_at = new Date().toISOString(); s.auto_changed_by_name = 'أدمن الاختبار';
         return { data:{ ok:true, mode:s.mode, by:'أدمن الاختبار' }, error:null };
       }
       if(name === 'wa_ai_escalation_dismiss'){
@@ -158,6 +158,7 @@ async function botScenario(opts) {
       R.barOn = await bar();
       await p.click('#wa-ai-sw'); await p.waitForTimeout(250);
       R.modalOffTxt = await p.evaluate(() => document.getElementById('cmodal-title').textContent);
+      R.modalOffSub = await p.evaluate(() => document.getElementById('cmodal-sub').textContent);
       await p.click('#cmodal-ok'); await p.waitForTimeout(500);
       R.rpcOff = await rpcs(p, 'ai_agent_set_auto');
       R.barOff = await bar();
@@ -198,7 +199,16 @@ async function botScenario(opts) {
   const Z = await botScenario({ settings: [] });
   const O = await botScenario({ settings: [{ tenant_id: TENANT, mode: 'off', auto_changed_at: null, auto_changed_by_name: null }] });
   ok(Z.bar0 === null && O.bar0 === null && Z.chip === '🚩 تصعيد (3)', '9) الـAgent مش متفعّل (مفيش صف / off) = مفيش شريط — والشريحة زي ما هي');
+  // 12) طلب المالك: OFF = واقف خالص (idle_mode='off') — الشريط لازم يفضل ظاهر وإلا مفيش طريق يشغّله
+  const I = await botScenario({ settings: [{ tenant_id: TENANT, mode: 'off', idle_mode: 'off', auto_changed_at: null, auto_changed_by_name: null }] });
+  ok(I.bar0 && /off/.test(I.bar0.cls) && /واقف خالص/.test(I.bar0.txt) && I.bar0.sw === 'OFF' && I.swHit, '12أ) القفل الكامل (off + idle off): الشريط ظاهر وبيقول «واقف خالص»');
+  ok(I.rpcOn && I.rpcOn.length === 1 && I.barOn && /شغّال/.test(I.barOn.txt) && /هيقف خالص/.test(I.modalOffSub || '') && I.barOff && /واقف خالص/.test(I.barOff.txt),
+     '12ب) بيشتغل من القفل الكامل · ومودال القفل بيقول إنه هيقف خالص · وبيرجع «واقف خالص»');
+  ok(!/هيقف خالص/.test(B.modalOffSub || '') && /يقترح بس/.test(B.modalOffSub || '') && /بيقترح بس/.test(B.barOff.txt), '12ج) ضابط: idle shadow = «بيقترح بس» زي ما هو');
 }
+{ const I = await botScenario({ settings: [{ tenant_id: TENANT, mode: 'off', idle_mode: 'off', auto_changed_at: null, auto_changed_by_name: null }],
+    patch: [[" || (d.mode==='off' && idle==='off')", '']] });
+  cal(I.anchorMissing ? I : I.bar0 === null, '(ح) القفل الكامل من غير شريط → 12أ بيقع'); }
 { const R = await filterScenario([['waEscExtra=(r.data||[]).filter(waIsEscalated);', 'waEscExtra=[];']]);
   cal(R.anchorMissing ? R : R.chip !== '🚩 تصعيد (3)', '(أ) الفلتر على المحمّل بس → 1 بيقع (' + R.chip + ')'); }
 { const R = await filterScenario([[' waConvReplaceIn(waEscExtra, n);', '']]);

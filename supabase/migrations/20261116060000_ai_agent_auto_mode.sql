@@ -10,7 +10,10 @@
 --   3) wa_ai_drafts.auto_sent_at / auto_sent_n / auto_result — إيه اللي البوت بعته فعلاً (للتقرير وللحماية من الإرسال مرتين).
 --      🔴 مفيش تغيير على CHECK بتاع status (كان هيحتاج DROP CONSTRAINT): الرد اللي اتبعت تلقائي = status 'sent' + auto_sent_at.
 --   4) ai_settings.auto_changed_at / auto_changed_by_name + جدول ai_mode_log (مين شغّل/طفّى وإمتى).
---   5) ai_agent_set_auto(p_on) — الزرار: أدمن المتجر بس · 'shadow' ⇄ 'auto' · لو الـAgent 'off' = رفض (مايشغّلوش من الصفر).
+--   5) ai_agent_set_auto(p_on) — الزرار: أدمن المتجر بس · ON = 'auto' · OFF = ai_settings.idle_mode ('shadow' بيقترح بس — الافتراضي ·
+--      'off' واقف خالص من غير توكنز — طلب المالك 16 نوفمبر: «لما يكون مقفول ميقترحش حاجة خالص»). 'off' و idle_mode = 'shadow' = إيقاف يدوي: رفض.
+--      التحويل (بقرار المالك بعد تقرير اليوم الأول):
+--        update public.ai_settings set idle_mode = 'off', mode = case when mode = 'shadow' then 'off' else mode end where tenant_id = '<tenant>';
 --   6) wa_ai_escalation_dismiss(p_conversation_id) — «✓ اتعاملت» من غير ما يبعت رسالة (أي موظف نشط في المتجر).
 --   7) ai_settings.facts.hold_message — نص رسالة الاعتذار وقت التصعيد (المواعيد من كلام المالك: السبت–الخميس 12–7).
 --      المفتاح ده إعداد مش معلومة للموديل (FACT_SKIP في _shared/ai-draft.ts) — مابيدخلش الـprompt.
@@ -35,6 +38,8 @@ begin
   -- 4) مين شغّل/طفّى
   alter table public.ai_settings add column if not exists auto_changed_at timestamptz;
   alter table public.ai_settings add column if not exists auto_changed_by_name text;
+  -- الزرار OFF بيرجّع لإيه: 'shadow' = بيقترح للموظف بس (الافتراضي) · 'off' = واقف خالص (مفيش نداء للموديل = مفيش توكنز) — طلب المالك 16 نوفمبر.
+  alter table public.ai_settings add column if not exists idle_mode text not null default 'shadow' check (idle_mode in ('shadow', 'off'));
   create table if not exists public.ai_mode_log (
     id bigint generated always as identity primary key,
     tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -80,21 +85,22 @@ begin
     language plpgsql security definer
     set search_path to 'public', 'app', 'pg_temp'
     as $fn$
-    declare me record; v_mode text; v_new text;
+    declare me record; v_mode text; v_idle text; v_new text;
     begin
       select * into me from app.wh_me();
       if me.uid is null or me.tenant_id is null then return jsonb_build_object('ok', false, 'error', 'not_allowed'); end if;
       if not coalesce(me.is_admin, false) then return jsonb_build_object('ok', false, 'error', 'admin_only'); end if;
       if p_on is null then return jsonb_build_object('ok', false, 'error', 'bad_value'); end if;
-      select mode into v_mode from public.ai_settings where tenant_id = me.tenant_id for update;
-      if v_mode is null or v_mode not in ('shadow', 'auto') then return jsonb_build_object('ok', false, 'error', 'agent_off'); end if;
-      v_new := case when p_on then 'auto' else 'shadow' end;
-      if v_new = v_mode then return jsonb_build_object('ok', true, 'mode', v_mode, 'unchanged', true); end if;
+      select mode, coalesce(idle_mode, 'shadow') into v_mode, v_idle from public.ai_settings where tenant_id = me.tenant_id for update;
+      -- 'off' و idle_mode = 'shadow' = إيقاف يدوي من برّه الزرار (مايتشغّلش من اللوحة) · 'off' و idle_mode = 'off' = وضع القفل العادي
+      if v_mode is null or (v_mode not in ('shadow', 'auto') and v_idle <> 'off') then return jsonb_build_object('ok', false, 'error', 'agent_off'); end if;
+      v_new := case when p_on then 'auto' else v_idle end;
+      if v_new = v_mode then return jsonb_build_object('ok', true, 'mode', v_mode, 'idle', v_idle, 'unchanged', true); end if;
       update public.ai_settings
          set mode = v_new, auto_changed_at = now(), auto_changed_by_name = me.name, updated_at = now()
        where tenant_id = me.tenant_id;
       insert into public.ai_mode_log (tenant_id, mode, by_user, by_name) values (me.tenant_id, v_new, me.uid, me.name);
-      return jsonb_build_object('ok', true, 'mode', v_new, 'by', me.name);
+      return jsonb_build_object('ok', true, 'mode', v_new, 'idle', v_idle, 'by', me.name);
     end $fn$ $f$;
   execute 'revoke all on function public.ai_agent_set_auto(boolean) from public, anon';
   execute 'grant execute on function public.ai_agent_set_auto(boolean) to authenticated';

@@ -672,19 +672,21 @@ function waEscDismiss(){
 // ── زرار البوت: OFF = بيقترح والموظف بيبعت (shadow) · ON = بيرد على العملاء بنفسه (auto) ──
 // 🔴 الحالة من السيرفر (`ai_settings.mode`) والتغيير بـRPC `ai_agent_set_auto` (أدمن المتجر بس — السيرفر هو اللي بيتحقق).
 // 🔴 الشريط مابيظهرش لو الـAgent مش متفعّل للمتجر، أو السيرفر لسه مافيهوش أعمدة الزرار (42703) — زرار مالوش RPC = وعد كاذب (درس 16).
-export var waAi={ known:false, mode:null, at:null, by:null };
+export var waAi={ known:false, mode:null, idle:'shadow', at:null, by:null };
 var waAiBusy=false, waAiCols=true, waAiGen=0;
 export function waLoadAiState(){
   if(!sb||!currentTenantId) return;
   var myGen=++waAiGen;
-  sb.from('ai_settings').select(waAiCols?'mode,auto_changed_at,auto_changed_by_name':'mode').eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
+  sb.from('ai_settings').select(waAiCols?'mode,idle_mode,auto_changed_at,auto_changed_by_name':'mode').eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
     if(myGen!==waAiGen) return;   // رد قديم مايكتبش فوق حالة أحدث (ضغطة الزرار بتعيد القراية)
     if(r.error){
       if(r.error.code==='42703' && waAiCols){ waAiCols=false; waLoadAiState(); }
       return;   // غير كده: الشريط بيفضل على آخر حالة معروفة
     }
     var d=r.data;
-    waAi={ known: !!(waAiCols && d && (d.mode==='shadow' || d.mode==='auto')), mode: d?d.mode:null,
+    // 'off' بيبان بس لو ده وضع القفل العادي (idle_mode='off') — 'off' والـidle 'shadow' = إيقاف يدوي من برّه الزرار = مفيش شريط
+    var idle=(d && d.idle_mode==='off')?'off':'shadow';
+    waAi={ known: !!(waAiCols && d && (d.mode==='shadow' || d.mode==='auto' || (d.mode==='off' && idle==='off'))), mode: d?d.mode:null, idle: idle,
            at: d?(d.auto_changed_at||null):null, by: d?(d.auto_changed_by_name||null):null };
     waRenderAiBar();
   });
@@ -699,7 +701,7 @@ function waRenderAiBar(){
   bar.className='wa-ai-bar '+(on?'on':'off');
   var when=(waAi.at?(' · من '+waTimeShort(waAi.at)):'')+(waAi.by?(' ('+waAi.by+')'):'');
   bar.innerHTML='<span class="wa-ai-bar-txt">'
-    +(on?('🤖 <b>البوت شغّال</b> وبيرد على العملاء لوحده'+esc(when)):'🤖 البوت <b>مقفول</b> — بيقترح بس والموظف بيرد')+'</span>'
+    +(on?('🤖 <b>البوت شغّال</b> وبيرد على العملاء لوحده'+esc(when)):(waAi.mode==='off'?'🤖 البوت <b>مقفول</b> — واقف خالص ومابيقترحش':'🤖 البوت <b>مقفول</b> — بيقترح بس والموظف بيرد'))+'</span>'
     +'<button type="button" class="wa-ai-sw'+(on?' on':'')+(admin?'':' ro')+'" id="wa-ai-sw" role="switch" aria-checked="'+(on?'true':'false')+'"'
     +' title="'+(admin?(on?'اقفل البوت — الموظفين هم اللي هيردوا':'شغّل البوت — هيرد على العملاء لوحده'):'الأدمن بس اللي بيشغّل ويقفل البوت')+'">'
     +'<span class="wa-ai-sw-knob"></span><span class="wa-ai-sw-lbl">'+(on?'ON':'OFF')+'</span></button>';
@@ -711,7 +713,7 @@ function waAiToggleAsk(){
   var on=(waAi.mode==='auto');
   if(on){
     showModal({ icon:'🤖', title:'تقفل البوت؟',
-      sub:'البوت هيبطّل يبعت للعملاء، ويرجع يقترح بس والموظفين هم اللي يردوا.\nراجع «🚩 تصعيد» — فيها المحادثات اللي وقف عندها.',
+      sub:(waAi.idle==='off'?'البوت هيبطّل يبعت للعملاء وهيقف خالص — من غير اقتراحات — لحد ما تشغّله تاني.':'البوت هيبطّل يبعت للعملاء، ويرجع يقترح بس والموظفين هم اللي يردوا.')+'\nراجع «🚩 تصعيد» — فيها المحادثات اللي وقف عندها.',
       okLabel:'اقفله', onOk:function(){ waAiSet(false); } });
   } else {
     showModal({ icon:'🤖', title:'تشغّل البوت؟',
@@ -731,7 +733,7 @@ function waAiSet(on){
       waLoadAiState();
       return;
     }
-    toast(d.mode==='auto'?'🤖 البوت اشتغل — هيرد على العملاء لوحده':'🤖 البوت اتقفل — الموظفين هم اللي بيردوا');
+    toast(d.mode==='auto'?'🤖 البوت اشتغل — هيرد على العملاء لوحده':(d.mode==='off'?'🤖 البوت اتقفل — واقف خالص لحد ما تشغّله':'🤖 البوت اتقفل — الموظفين هم اللي بيردوا'));
     waLoadAiState();
     if(d.mode!=='auto') waFetchEscConvos();
   });
