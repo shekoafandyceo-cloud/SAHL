@@ -584,18 +584,20 @@
           <option value="تغليف">تغليف</option>
           <option value="فواتير">فواتير</option>
           <option value="مخزن">مخزن</option>
+          <option value="تطوير">تطوير</option>
           <option value="متفرقات">متفرقات</option>
         </select>
         <button class="rbtn" id="add-expense-btn" style="background:var(--acc);color:#000;font-weight:700;">+ إضافة مصروف</button>
         <span class="fcnt" id="exp-count"></span>
       </div>
       <!-- Expense summary cards -->
-      <div class="sgrid" style="grid-template-columns:repeat(6,1fr);margin-bottom:14px;font-size:.85rem;">
+      <div class="sgrid exp-sum-grid" style="margin-bottom:14px;font-size:.85rem;">
         <div class="sc" style="border-color:#fde68a;background:#fef3c7;"><span class="info-i" tabindex="0" data-tip="إجمالي المصاريف المسجلة في فئة مرتبات خلال الفترة المختارة. بيتم خصمها من صافي الربح.">i</span><div class="slb">مرتبات</div><div class="sval" id="exp-sum-salaries" style="font-size:1.2rem;">—</div></div>
         <div class="sc" style="border-color:#bfdbfe;background:#eff6ff;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف إعلانات فيسبوك المسجلة يدويًا في الفترة المختارة. مهم تضيفه باستمرار عشان صافي الربح يبقى واقعي.">i</span><div class="slb">إعلانات FB</div><div class="sval" id="exp-sum-ads" style="font-size:1.2rem;">—</div></div>
         <div class="sc" style="border-color:#ddd6fe;background:#f5f3ff;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف التغليف اليدوية خلال الفترة. دي غير أي packaging_cost موجود على الأوردر نفسه.">i</span><div class="slb">تغليف</div><div class="sval" id="exp-sum-packaging" style="font-size:1.2rem;">—</div></div>
         <div class="sc" style="border-color:#fecaca;background:#fef2f2;"><span class="info-i" tabindex="0" data-tip="إجمالي الفواتير المسجلة يدويًا في الفترة، زي أدوات، اشتراكات، إنترنت، كهرباء أو أي بند مشابه.">i</span><div class="slb">فواتير</div><div class="sval" id="exp-sum-bills" style="font-size:1.2rem;">—</div></div>
         <div class="sc" style="border-color:#a7f3d0;background:#ecfdf5;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف المخزن المسجلة يدويًا في الفترة، زي إيجار، عمالة إضافية، أدوات تشغيل أو تجهيزات.">i</span><div class="slb">مخزن</div><div class="sval" id="exp-sum-warehouse" style="font-size:1.2rem;">—</div></div>
+        <div class="sc" style="border-color:#a5f3fc;background:#ecfeff;"><span class="info-i" tabindex="0" data-tip="إجمالي مصاريف التطوير المسجلة يدويًا في الفترة، زي تجهيزات المقر، أدوات ومعدات جديدة، أو أي صرف على تطوير الشغل. بتتخصم من صافي الربح.">i</span><div class="slb">تطوير</div><div class="sval" id="exp-sum-dev" style="font-size:1.2rem;">—</div></div>
         <div class="sc" style="border-color:#e5e7eb;background:#f9fafb;"><span class="info-i" tabindex="0" data-tip="أي مصاريف عامة مش داخلة في الفئات الأساسية. بتتخصم من صافي الربح في نفس الفترة.">i</span><div class="slb">متفرقات</div><div class="sval" id="exp-sum-other" style="font-size:1.2rem;">—</div></div>
       </div>
       <div class="twrap">

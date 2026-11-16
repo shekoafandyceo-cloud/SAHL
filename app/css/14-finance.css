@@ -130,4 +130,15 @@ th.psort.on .psort-ar{opacity:1;}
 .exp-cat-تغليف{background:#f5f3ff;color:#6d28d9;}
 .exp-cat-فواتير{background:#fee2e2;color:#991b1b;}
 .exp-cat-مخزن{background:#d1fae5;color:#065f46;}
+.exp-cat-تطوير{background:#cffafe;color:#155e75;}
 .exp-cat-متفرقات{background:#f3f4f6;color:#374151;}
+/* كروت ملخص المصاريف (v87 — بقوا 7 بفئة «تطوير»): عدد الأعمدة كان مثبّت inline على 6.
+   auto-fit بحد أدنى 130px للكارت: السبعة في صف واحد لما العرض يكفّي (لابتوب 1366 وأكبر)،
+   ولو مايكفّيش بينزلوا صف تاني بدل ما الأرقام الكبيرة تتقص — وبيتبع العرض الفعلي (السايدبار
+   المطوي). الخصوصية (.sgrid.exp-sum-grid) مقصودة: لازم تكسب قاعدة `.sgrid` بتاعة
+   15-merge-alert (4 أعمدة تحت 1200px). التابلت والموبايل زي ما هم (19-mobile بـ!important). */
+.sgrid.exp-sum-grid{grid-template-columns:repeat(auto-fit,minmax(130px,1fr));}
+/* الكارت بقى أضيق (7 بدل 6) والرقم كان 2.1rem (`#page-finance .sval` فوق): رقم من 5 خانات كان بينزّل
+   «ج» في سطر لوحده على 1440/1366. 1.7rem = نفس سلوك الستة القدام بالظبط (اتقاس على 1280–1920:
+   5 خانات في سطر واحد من 1366 وطالع). */
+#page-finance .exp-sum-grid .sval{font-size:1.7rem !important;}

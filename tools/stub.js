@@ -95,7 +95,9 @@
                 // مسودات الـAI Agent (15 نوفمبر — v84): كارت «رد مقترح» في المحادثات
                 wa_ai_drafts:'__AI_DRAFTS',
                 // زرار البوت (16 نوفمبر — v86): صف ai_settings للمتجر. الافتراضي مفيش = الشريط مايبانش (الاختبارات القديمة زي ما هي)
-                ai_settings:'__AI_SETTINGS' };
+                ai_settings:'__AI_SETTINGS',
+                // المصاريف (16 نوفمبر — v87 فئة «تطوير»): الافتراضي [] زي ما كان في TABLES بالحرف
+                expenses:'__EXPENSES' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])

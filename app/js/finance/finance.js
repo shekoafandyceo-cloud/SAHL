@@ -155,8 +155,12 @@ export function renderFinanceOverview(){
   var expPackaging = expenses.filter(function(e){return e.category==='تغليف';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
   var expBills     = expenses.filter(function(e){return e.category==='فواتير';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
   var expWarehouse = expenses.filter(function(e){return e.category==='مخزن';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
+  // «تطوير» (v87 — طلب المالك 16 نوفمبر). 🔴 المجموع تحت بيجمع الفئات **بالاسم**:
+  // فئة جديدة ماتتضافش هنا = مصروفها بيتسجّل وصافي الربح مابيتخصمش منه في صمت
+  // (الرسم البياني بيجمع كل المصاريف من غير فئات، فالرقمين كانوا هيختلفوا).
+  var expDev       = expenses.filter(function(e){return e.category==='تطوير';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
   var expOther     = expenses.filter(function(e){return e.category==='متفرقات';}).reduce(function(s,e){return s+parseFloat(e.amount);},0);
-  var totalManualExpenses = expSalaries + expAds + expPackaging + expBills + expWarehouse + expOther;
+  var totalManualExpenses = expSalaries + expAds + expPackaging + expBills + expWarehouse + expDev + expOther;
 
   var totalCosts = manufacturerCost + shippingCost + totalManualExpenses;
   var netProfit = collected - totalCosts;
@@ -209,6 +213,7 @@ export function renderFinanceOverview(){
     {label:'📦 تغليف', value:-expPackaging, tip:'مصاريف التغليف المسجلة يدويًا في تبويب المصاريف.'},
     {label:'🧾 فواتير', value:-expBills, tip:'إجمالي الفواتير المسجلة يدويًا في الفترة.'},
     {label:'🏭 مخزن', value:-expWarehouse, tip:'مصاريف المخزن المسجلة يدويًا في الفترة.'},
+    {label:'🚀 تطوير', value:-expDev, tip:'مصاريف التطوير المسجلة يدويًا في الفترة — تجهيزات، معدات، أو أي صرف على تطوير الشغل.'},
     {label:'🔧 متفرقات', value:-expOther, tip:'أي مصاريف أخرى مسجلة يدويًا في الفترة.'},
     {label:'💎 صافي الربح', value:netProfit, isProfit:true, tip:'صافي الربح النهائي بعد خصم كل التكاليف والمصاريف من المتحصل فعلاً.'}
   ];
@@ -390,6 +395,7 @@ export function renderExpenses(){
   $id('exp-sum-packaging').textContent = num(sumCat('تغليف').toFixed(0))+' ج';
   $id('exp-sum-bills').textContent = num(sumCat('فواتير').toFixed(0))+' ج';
   $id('exp-sum-warehouse').textContent = num(sumCat('مخزن').toFixed(0))+' ج';
+  $id('exp-sum-dev').textContent = num(sumCat('تطوير').toFixed(0))+' ج';
   $id('exp-sum-other').textContent = num(sumCat('متفرقات').toFixed(0))+' ج';
 
   if(!list.length){ $id('exp-tbody').innerHTML = emptyState({icon:'🧾',
@@ -440,7 +446,7 @@ export function openExpenseEditor(id){
   $id('dcnt').innerHTML = '<div class="dsec">'
     + '<label class="slbl" style="text-align:right;display:block">الفئة</label>'
     + '<select class="fsel" id="exp-cat" style="width:100%">'
-    +   ['مرتبات','إعلانات فيسبوك','تغليف','فواتير','مخزن','متفرقات'].map(function(c){
+    +   ['مرتبات','إعلانات فيسبوك','تغليف','فواتير','مخزن','تطوير','متفرقات'].map(function(c){
           return '<option value="'+c+'" '+(c===exp.category?'selected':'')+'>'+c+'</option>';
         }).join('')
     + '</select>'
