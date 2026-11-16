@@ -8,7 +8,7 @@
 //    أسعار الموقع (أوردرات آخر 24 ساعة) · أسماء المخزون · أوردرات العميل برقمه · آخر رسايل المحادثة. الموديل مالوش أي tool بيكتب.
 //
 // الحمولة (3 أشكال):
-//   1) { message_id, dry_run? }  — المسار العادي (التريجر على wa_messages — لسه مااتركّبش). من غير dry_run: بيرد 202 على طول ويشتغل في
+//   1) { message_id, dry_run? }  — المسار العادي (التريجر trg_wa_ai_draft_enqueue على wa_messages — شغّال من 15 نوفمبر). من غير dry_run: بيرد 202 على طول ويشتغل في
 //      الخلفية: mode لازم shadow/auto · بيستنى 12ث (debounce) · رسالة أحدث من العميل = الأحدث هي اللي بترد · موظف رد خلاص = مفيش مسودة.
 //      مع dry_run: بيرجّع المسودة في الرد من غير انتظار ومن غير أي كتابة (وبيتجاهل mode) — للتجربة على رسايل حقيقية.
 //   2) { action: "eval", from, to, model?, gen?, rules_extra? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
@@ -51,6 +51,12 @@ async function authorized(req: Request): Promise<boolean> {
 }
 
 // ── Gemini ───────────────────────────────────────────────────────────
+// 🔴 سقف التفكير (16 نوفمبر — بلاغ المالك عن التكلفة): الموديل كان بيفكّر براحته (medium) والتفكير بيتحاسب خرج — مسودة «بكام» خدت 4,009
+//    توكن و31 ثانية والرد 75 حرف. على الـ150 حالة: low = 142 (medium 144 — جوّه التذبذب) · الخرج 89 توكن بدل ~530 · 2.8ث بدل 5.6ث.
+//    thinkingLevel لموديلات gemini-3 بس (2.5 بترفضه). `gen` من التقييم بيكسب (عشان نقارن مستويات تانية).
+function thinkingFor(model: string): Record<string, unknown> {
+  return /^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: "low" } } : {};
+}
 interface GemOut { text: string; tokensIn: number; tokensOut: number; ms: number; error: string | null }
 // deno-lint-ignore no-explicit-any
 async function callGemini(model: string, system: string, user: string, gen?: Record<string, any>): Promise<GemOut> {
@@ -60,7 +66,7 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
   const payload = {
     system_instruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA, ...(gen || {}) },
+    generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA, ...thinkingFor(model), ...(gen || {}) },
   };
   let last = "gemini_unknown";
   for (let attempt = 0; attempt < 2; attempt++) {
