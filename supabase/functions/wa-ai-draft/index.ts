@@ -11,11 +11,14 @@
 //   1) { message_id, dry_run? }  — المسار العادي (التريجر trg_wa_ai_draft_enqueue على wa_messages — شغّال من 15 نوفمبر). من غير dry_run: بيرد 202 على طول ويشتغل في
 //      الخلفية: mode لازم shadow/auto · بيستنى 12ث (debounce) · رسالة أحدث من العميل = الأحدث هي اللي بترد · موظف رد خلاص = مفيش مسودة.
 //      مع dry_run: بيرجّع المسودة في الرد من غير انتظار ومن غير أي كتابة (وبيتجاهل mode) — للتجربة على رسايل حقيقية.
-//      مع dry_run: بيقبل كمان layout (v1/v2/v3) لتجربة شكل دخل تاني على رسالة حقيقية.
-//   2) { action: "eval", from, to, model?, gen?, rules_extra?, layout? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
+//      مع dry_run: بيقبل كمان layout (v1/v2/v3) لتجربة شكل دخل تاني على رسالة حقيقية، وcard_notes ({اسم الكارت: معلومات}) لتجربة
+//      «معلومات للـAgent» على كارت من غير أي كتابة.
+//   2) { action: "eval", from, to, model?, gen?, rules_extra?, layout?, card_notes? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
 //      rules_extra = قواعد تجريبية بتتضاف لتعليمات الموديل في التقييم بس (عمرها ما بتوصل المسار العادي).
 //      layout = شكل الدخل (v1 الحالي · v2 الثابت الأول · v3 كروت المحادثة بس + فهرس) — من غيره = شكل الحي.
 // 🔴 شكل الدخل على الحي = ai_settings.facts.prompt_layout (الغايب = v1) — مش من الـbody. التحويل والرجوع بسطر إعداد بقرار المالك.
+// 🔴 معلومات للـAgent (v6 — 16 نوفمبر): wa_quick_replies.ai_notes بتتحط تحت نص الكارت في الـprompt (cardBlock) — مابتتبعتش للعميل مع الكارت.
+//    card_notes من الـbody للتقييم والـdry_run بس — المسار العادي بيقرا العمود وبس.
 // 🔴 tokens_cached (16 نوفمبر): cachedContentTokenCount من Gemini بيتسجّل مع كل مسودة — عشان نعرف الـimplicit caching بيتطبّق فعلاً ولا لأ.
 //   3) { action: "models" } — أسماء موديلات Gemini المتاحة للمفتاح (بيأكد إن المفتاح شغّال).
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
@@ -119,7 +122,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
   const [set, prods, qr, stock, site, ads] = await Promise.all([
     admin.from("ai_settings").select("mode, model, facts").eq("tenant_id", tenantId).maybeSingle(),
     admin.from("ai_products").select("id, name, aliases, site_names, quick_reply_id, assembled, facts").eq("tenant_id", tenantId).eq("active", true),
-    admin.from("wa_quick_replies").select("id, title, body, sort").eq("tenant_id", tenantId).order("sort", { ascending: true }),
+    admin.from("wa_quick_replies").select("id, title, body, sort, ai_notes").eq("tenant_id", tenantId).order("sort", { ascending: true }),
     admin.from("stock_products").select("name").eq("tenant_id", tenantId).eq("active", true).limit(400),
     admin.from("orders").select("product_name, total_cost, var, manufacturer_note, platform, exchange_of, line_prices, has_upsell")
       .eq("tenant_id", tenantId).gte("created_at", since).limit(1000),
@@ -128,10 +131,14 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
   if (set.error || !set.data) return null;
   const facts = { ...((set.data.facts as Record<string, unknown>) || {}), ...(factsExtra || {}) };
   const skip = Array.isArray(facts.skip_cards) ? (facts.skip_cards as unknown[]).map((x) => String(x).trim()) : [];
+  // الاستعلام بالعمود الجديد وقع (العمود اتشال/الكاش قديم) = الكروت ماتختفيش: نرجع للاستعلام القديم من غير المعلومات
   // deno-lint-ignore no-explicit-any
-  const allCards: CardLite[] = (qr.data || []).filter((c: any) => String(c.title || "").trim() && String(c.body || "").trim())
+  let qrRows: any[] | null = qr.data;
+  if (qr.error) qrRows = (await admin.from("wa_quick_replies").select("id, title, body, sort").eq("tenant_id", tenantId).order("sort", { ascending: true })).data;
+  // deno-lint-ignore no-explicit-any
+  const allCards: CardLite[] = (qrRows || []).filter((c: any) => String(c.title || "").trim() && String(c.body || "").trim())
     // deno-lint-ignore no-explicit-any
-    .map((c: any) => ({ id: c.id, title: String(c.title).trim(), body: String(c.body) }));
+    .map((c: any) => ({ id: c.id, title: String(c.title).trim(), body: String(c.body), notes: String(c.ai_notes || "").trim() || null }));
   return {
     mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), facts,
     products: (prods.data || []) as ProductLite[],
@@ -142,6 +149,13 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
     // deno-lint-ignore no-explicit-any
     ads: new Map((ads.data || []).map((a: any) => [String(a.ad_id), { name: a.ad_name || null, productId: a.ai_product_id || null }])),
   };
+}
+
+// تجربة «معلومات للـAgent» على كارت من غير أي كتابة — للتقييم والـdry_run بس (المسار العادي = عمود ai_notes وبس)
+function withCardNotes(st: Static, m: Record<string, unknown> | null): void {
+  if (!m) return;
+  const put = (c: CardLite): CardLite => (typeof m[c.title] === "string" ? { ...c, notes: String(m[c.title]).slice(0, 1500) } : c);
+  st.cards = st.cards.map(put); st.allCards = st.allCards.map(put);
 }
 
 interface ConvCtx {
@@ -170,7 +184,7 @@ async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: 
 }
 
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
-async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null): Promise<Record<string, unknown>> {
+async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null): Promise<Record<string, unknown>> {
   const { data: msg } = await admin.from("wa_messages")
     .select("id, tenant_id, conversation_id, direction, type, body, created_at").eq("id", messageId).maybeSingle();
   if (!msg) return { skipped: "not_found" };
@@ -178,6 +192,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   const st = await loadStatic(msg.tenant_id);
   if (!st) return { skipped: "no_settings" };
   if (dry && layoutOverride) st.layout = layoutOverride; // تجربة شكل دخل تاني — dry_run بس (المسار العادي = إعداد المتجر)
+  if (dry) withCardNotes(st, notesOverride);
   if (!dry && st.mode !== "shadow" && st.mode !== "auto") return { skipped: "mode_off" };
   if (!dry) await sleep(DEBOUNCE_MS);
 
@@ -238,10 +253,11 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
 
 // ── التقييم: حالات eval-cases.ts بسياق وهمي — صفر كتابة ──────────────
 // deno-lint-ignore no-explicit-any
-async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null): Promise<Record<string, unknown>> {
+async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null, cardNotes?: Record<string, unknown> | null): Promise<Record<string, unknown>> {
   const st = await loadStatic(EVAL_TENANT, EVAL_FACTS_EXTRA);
   if (!st) return { error: "no_settings" };
   if (layout) st.layout = layout;
+  withCardNotes(st, cardNotes || null);
   const model = modelOverride || st.model;
   const cases = EVAL_CASES.filter((c) => c[0] >= from && c[0] <= to).slice(0, EVAL_MAX);
   const now = Date.now();
@@ -305,20 +321,21 @@ Deno.serve(async (req: Request) => {
   const action = String(body?.action || "");
   const model = typeof body?.model === "string" && /^[\w.\-]{3,60}$/.test(body.model) ? body.model : null;
   const layout: Layout | null = body?.layout === "v1" || body?.layout === "v2" || body?.layout === "v3" ? body.layout : null;
+  const cardNotes: Record<string, unknown> | null = body?.card_notes && typeof body.card_notes === "object" && !Array.isArray(body.card_notes) ? body.card_notes : null;
   if (action === "models") return json(await listModels());
   if (action === "eval") {
     const from = Math.max(1, Number(body?.from) || 1), to = Math.max(from, Number(body?.to) || from);
     const gen = body?.gen && typeof body.gen === "object" ? body.gen : undefined;
     const evalRules = typeof body?.rules_extra === "string" ? body.rules_extra.slice(0, 4000) : undefined;
-    return json(await runEval(from, to, model, gen, evalRules, layout));
+    return json(await runEval(from, to, model, gen, evalRules, layout, cardNotes));
   }
 
   const messageId = String(body?.message_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return json({ error: "bad_message_id" }, 400);
   const dry = body?.dry_run === true;
-  if (dry) return json(await handleMessage(messageId, true, model, layout));
+  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes));
   // المسار العادي: رد فوري والشغل في الخلفية (الانتظار 12ث + الموديل أطول من مهلة pg_net)
-  const job = handleMessage(messageId, false, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
+  const job = handleMessage(messageId, false, null, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
   // deno-lint-ignore no-explicit-any
   const rt = (globalThis as any).EdgeRuntime;
   if (rt && typeof rt.waitUntil === "function") { rt.waitUntil(job); return json({ queued: true }, 202); }

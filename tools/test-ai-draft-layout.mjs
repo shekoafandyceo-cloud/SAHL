@@ -5,7 +5,8 @@
 //  4) v3: كارت منتج الإعلان + الكارت اللي اتبعت + كروت كلمات العميل · الفهرس فيه كل الكروت · مفيش كارت اتعرف = كل الكروت
 //  5) v3: «بيتحمل» مابتجيبش «بيت مجات» (الكلمة القصيرة بالتطابق مش بالاحتواء) · «التروللي» بتجيب الترولي
 //  6) v2 و v3 فيهم نفس سطور «المحادثة دي/الأوردرات/الرسايل» بتاعة v1 بالحرف
-// المعايرات: (أ) الافتراضي v2 · (ب) prompt_layout بيدخل الـprompt · (ج) علامة الإعلان في الجزء الثابت · (د) الكلمة القصيرة بالاحتواء · (هـ) مفيش fallback
+//  7) معلومات للـAgent (ai_notes) تحت نص الكارت · من غيرها نفس النص بالحرف · v3 للكارت المعروض بس · سقف 1500
+// المعايرات: (و) السطر من غير معلومات · (ز) v1 من غيرها · (ح) من غير سقف · (أ) الافتراضي v2 · (ب) prompt_layout بيدخل الـprompt · (ج) علامة الإعلان في الجزء الثابت · (د) الكلمة القصيرة بالاحتواء · (هـ) مفيش fallback
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -65,6 +66,16 @@ function run(M) {
   r.c5 = titles(M.pickCards(C.tahmol)) === 'مطبخ' && titles(M.pickCards(C.trolley)) === 'تروولي 3 دور ايكيا';
   const tail = (p) => p.slice(p.indexOf('# المحادثة دي'));
   r.c6 = tail(M.buildUserPrompt(C.turbo, 'v2')) === tail(M.buildUserPrompt(C.turbo)) && tail(M.buildUserPrompt(C.turbo, 'v3')) === tail(M.buildUserPrompt(C.turbo));
+  // 7) معلومات للـAgent (ai_notes): تحت نص الكارت في كل الأشكال · كارت من غير معلومات = نفس النص بالحرف · v3 للكارت المعروض بس · سقف 1500
+  const NOTE = 'الخامة ستانلس 304 — بيتحمل لحد 15 كيلو للدور';
+  const withN = (ctx, n) => ({ ...ctx, cards: ctx.cards.map((c) => (c.title === 'تيربو' ? { ...c, notes: n } : c)) });
+  const after = (p) => { const i = p.indexOf('### كارت «تيربو»'); return i < 0 ? '' : p.slice(i, i + 400); };
+  const same = (n) => ['v1', 'v2', 'v3'].every((L) => M.buildUserPrompt(withN(C.turbo, n), L) === M.buildUserPrompt(C.turbo, L));
+  r.c7 = ['v1', 'v2', 'v3'].every((L) => { const a = after(M.buildUserPrompt(withN(C.turbo, NOTE), L)); return a.includes('1285\n(معلومات مؤكدة من صاحب المتجر') && a.includes('مابتتبعتش للعميل زي ما هي)\n' + NOTE); })
+    && same(null) && same('') && same('  \n ')
+    && ['v1', 'v2', 'v3'].every((L) => !M.buildUserPrompt(C.turbo, L).includes('معلومات مؤكدة من صاحب المتجر') && !M.buildUserPrompt(withN(C.turbo, ' '), L).includes('معلومات مؤكدة من صاحب المتجر'))
+    && !M.buildUserPrompt(withN(C.kitchen, NOTE), 'v3').includes(NOTE) && M.buildUserPrompt(withN(C.kitchen, NOTE), 'v2').includes(NOTE)
+    && !M.buildUserPrompt(withN(C.turbo, 'ن'.repeat(1700)), 'v1').includes('ن'.repeat(1501)) && M.buildUserPrompt(withN(C.turbo, 'ن'.repeat(1700)), 'v1').includes('ن'.repeat(1500) + '…');
   return r;
 }
 let bad = 0;
@@ -76,6 +87,7 @@ ok(R.c3, '3) v2: الجزء الثابت نفس البايتات ومن غير �
 ok(R.c4, '4) v3: كروت المحادثة + الفهرس · مفيش كارت اتعرف = الكل');
 ok(R.c5, '5) v3: الكلمة القصيرة بالتطابق · الحرف المكرر');
 ok(R.c6, '6) ذيل المحادثة = v1 بالحرف');
+ok(R.c7, '7) معلومات للـAgent تحت نص الكارت · من غيرها نفس النص بالحرف · v3 للكارت المعروض بس · سقف 1500');
 const cal = async (name, mut, key) => {
   let fired = false;
   try { const r = run(await load(mut)); fired = r[key] === false; } catch (e) { console.log('  ✗ معايرة', name, '—', e.message); bad++; return; }
@@ -86,5 +98,8 @@ await cal('(ب) prompt_layout بيدخل الـprompt', (s) => s.replace('"skip_
 await cal('(ج) علامة الإعلان في الجزء الثابت', (s) => s.replace('const noAd: DraftCtx = { ...ctx, linkedProductId: null };', 'const noAd: DraftCtx = ctx;'), 'c3');
 await cal('(د) الكلمة القصيرة بالاحتواء', (s) => s.replace('k.length >= 5 ? hay.includes(k) : words.has(k)', 'hay.includes(k)'), 'c5');
 await cal('(هـ) مفيش fallback', (s) => s.replace('if (!hit.size || hit.size > Math.max(4, Math.floor(ctx.cards.length / 2))) return null;', 'if (hit.size > 99) return null;'), 'c4');
-console.log(bad ? '\n✗ فيه ' + bad + ' فحص وقع' : '\n✓ كله تمام (6 فحوص + 5 معايرات)');
+await cal('(و) سطر المعلومات بيتحط من غير معلومات', (s) => s.replace('(notes ? "\\n" + NOTES_LABEL + "\\n" + cut(notes, 1500) : "")', '("\\n" + NOTES_LABEL + "\\n" + cut(notes, 1500))'), 'c7');
+await cal('(ز) v1 من غير المعلومات', (s) => s.replace('ctx.cards.map(cardBlock)', 'ctx.cards.map((c) => "### كارت «" + c.title + "»\\n" + cut(c.body, 1200))'), 'c7');
+await cal('(ح) من غير سقف للمعلومات', (s) => s.replace('cut(notes, 1500)', 'notes'), 'c7');
+console.log(bad ? '\n✗ فيه ' + bad + ' فحص وقع' : '\n✓ كله تمام (7 فحوص + 8 معايرات)');
 process.exit(bad ? 1 : 0);

@@ -184,6 +184,9 @@ html.dark .wa-nc-f input,html.dark .wa-nc-f select{background:#0f1622;border-col
 html.dark .wa-nc-prev{background:#0f1622;border-color:var(--brd);}
 html.dark .wa-qr-ed-text{background:#0f1622;border-color:var(--brd);color:var(--txt);}
 html.dark .wa-qr-ed-add,html.dark .wa-qr-badge{background:#1a2233;}
+html.dark .wa-qrm-ai-lbl{color:#b9a6ff;}
+html.dark .wa-qr-ed-text.wa-qrm-ai{background:#171429;border-color:#4a3d86;}
+html.dark .wa-qr-badge.wa-qrm-aibadge{background:#241d42;color:#b9a6ff;}
 html.dark .wa-qrm-open{background:#2a2110;color:#f5c451;}
 html.dark .wa-qrm-b,html.dark .wa-qrm-n{background:#1a2233;}
 html.dark .wa-fad.active{background:#2a5cc4;border-color:#2a5cc4;color:#fff;}

@@ -301,6 +301,10 @@
         if(st.deleted) window.__QR = window.__QR.filter(function(q){ return q.id !== st.eqId; });
         else if(st.payload && !st.inserted) window.__QR.forEach(function(q){ if(q.id === st.eqId) Object.assign(q, st.payload); });
       }
+      // `__QR_NO_NOTES`: السيرفر لسه مافيهوش عمود ai_notes (v85 اترفعت قبل الـmigration) — نفس خطأ PostgREST للعمود المجهول
+      if(window.__QR_NO_NOTES && table === 'wa_quick_replies' && String(st.cols||'').indexOf('ai_notes') >= 0){
+        return Promise.resolve({data:null, error:{code:'42703', message:'column wa_quick_replies.ai_notes does not exist'}}).then(res);
+      }
       var raw = rowsFor(table, st);
       if(raw === null){
         // الجدول مش موجود (الـSQL لسه ماتطبّقش) — نفس شكل خطأ PostgREST الحقيقي

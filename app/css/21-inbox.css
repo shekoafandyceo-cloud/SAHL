@@ -132,6 +132,12 @@
 .wa-qrm-lbl{font-size:.76rem;font-weight:800;color:var(--muted);margin-top:4px;}
 .wa-qrm-ph{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.1rem;}
 .wa-qrm-empty{padding:14px 4px;}
+/* 🤖 معلومات للـAI Agent بس (v85) — لون مختلف عن نص الرد عشان مايتلخبطوش: دي مابتتبعتش للعميل */
+.wa-qrm-ai-lbl{color:#5b3fc4;margin-top:10px;}
+.wa-qrm-ai-lbl span{font-weight:600;color:var(--muted);}
+.wa-qr-ed-text.wa-qrm-ai{background:#f7f4ff;border-color:#cdbff5;}
+.wa-qrm-ai-hint{font-size:.72rem;line-height:1.6;color:var(--muted);}
+.wa-qr-badge.wa-qrm-aibadge{color:#5b3fc4;background:#efe9ff;}
 .wa-qr-btn{background:transparent;border:none;cursor:pointer;font-size:1.15rem;padding:0 4px;color:var(--muted);}
 .wa-qr-btn:hover{color:var(--acc);}
 .wa-cmeta{border-bottom:1px solid var(--brd);background:#fff;padding:7px 14px;flex-shrink:0;}

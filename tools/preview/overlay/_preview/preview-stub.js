@@ -235,7 +235,9 @@
   var WA_QR = [
     // qr1 من غير اسم عمداً — زي الـ4 ردود اللي على الحي (بيظهر أول كلامه + «بدون اسم» في النافذة)
     { id:'qr1', tenant_id:TENANT, title:null, body:'أهلاً بحضرتك 👋 تحت أمرك', media:[], sort:0 },
+    // ai_notes (v85): «معلومات للـAI Agent بس» — بتبان في فورم التعديل وعلامة «🤖 معلومات» في القايمة، ومابتتبعتش للعميل
     { id:'qr2', tenant_id:TENANT, title:'منظم المطبخ', body:'دي صور المنتج — السعر 450ج والشحن مجاني',
+      ai_notes:'الخامة حديد مجلفن ضد الصدأ · الوزن 5.5 كيلو · بييجي مفكك ومعاه كتالوج · أسود بس',
       media:[{ path:QR_IMG1, mime:'image/png', name:'kitchen-1.png' },
              { path:QR_IMG2, mime:'image/png', name:'kitchen-2.png' }], sort:1 },
     { id:'qr3', tenant_id:TENANT, title:'صور بس', body:'',

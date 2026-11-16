@@ -1572,10 +1572,20 @@ export function waNotify(m){
 // (إضافة · تعديل · حذف · ترتيب) من نافذة «إضافة و تعديل رد محفوظ».
 export var waQuickReplies=[];
 
+// 🤖 «معلومات للـAI Agent بس» (v85 — عمود `ai_notes`): بتتكتب في فورم الرد وبيقراها wa-ai-draft تحت نص الكارت.
+// 🔴 عمرها ما بتتبعت للعميل — الإرسال بيقرا `body` و`media` بس. لو العمود مش موجود على السيرفر (42703) الواجهة
+// بترجع للأعمدة القديمة والخانة مابتتعرضش (متوافقة الاتجاهين — الردود مابتختفيش).
+var waQrNotesOk=true;
+function waQrCols(){ return 'id,title,body,media,sort'+(waQrNotesOk?',ai_notes':''); }
+export var WA_QR_NOTES_MAX=2000;
+
 export function waLoadQuickReplies(){
   if(!sb||!currentTenantId) return;
-  sb.from('wa_quick_replies').select('id,title,body,media,sort').eq('tenant_id',currentTenantId).order('sort',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
-    if(r.error) return;
+  sb.from('wa_quick_replies').select(waQrCols()).eq('tenant_id',currentTenantId).order('sort',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
+    if(r.error){
+      if(waQrNotesOk && String(r.error.code||'')==='42703'){ waQrNotesOk=false; waLoadQuickReplies(); }
+      return;
+    }
     waQuickReplies=r.data||[];
     waRenderQuickReplies();
     waQrmRender();
@@ -1756,6 +1766,7 @@ export function waQrmRender(){
       +'<div class="wa-qrm-main"><div class="wa-qrm-name">'+esc(waQrLabel(q))
       +(named?'':' <span class="wa-qrm-noname">بدون اسم</span>')
       +(med.length?' <span class="wa-qr-badge">📎'+med.length+'</span>':'')
+      +(String(q.ai_notes||'').trim()?' <span class="wa-qr-badge wa-qrm-aibadge" title="الرد ده عليه معلومات للـAI Agent — مابتتبعتش للعميل">🤖 معلومات</span>':'')
       +(waQrBroken(q)?' <span class="wa-qrm-bad">⚠️ صورة webp — عدّلها</span>':'')
       +(function(h){ return h.n ? ' <span class="wa-qrm-bad wa-qrm-heavy" title="الصور دي بتتنزل مع كل إرسال وكل فتح للشات — صغّرها من ✏️">⚠️ صور تقيلة ('+waFmtBytes(h.bytes)+') — ✏️ وصغّرها</span>' : ''; })(waQrHeavy(q))
       +'</div>'
@@ -1822,6 +1833,11 @@ export function waQrmEdit(id, presetBody){
     +'<div class="wa-qrm-lbl">الصور (لحد 5 — بتتبعت بالترتيب ده والنص على آخر صورة)</div>'
     +'<div class="wa-qr-ed-thumbs" id="wa-qrm-thumbs"></div>'
     +'<div id="wa-qrm-heavy"></div>'
+    +(waQrNotesOk
+      ? '<label class="wa-qrm-lbl wa-qrm-ai-lbl" for="wa-qrm-ainotes">🤖 معلومات للـAI Agent بس <span>— مابتتبعتش للعميل</span></label>'
+        +'<textarea id="wa-qrm-ainotes" class="wa-qr-ed-text wa-qrm-ai" rows="4" maxlength="'+WA_QR_NOTES_MAX+'" placeholder="مثال: الخامة حديد مجلفن ضد الصدأ · الوزن 5.5 كيلو · بييجي مفكك ومعاه كتالوج · أسود بس"></textarea>'
+        +'<div class="wa-qrm-ai-hint">اكتب هنا اللي العملاء بيسألوا عنه ومش مكتوب في نص الرد (الخامة · المقاسات · الوزن · التركيب · الألوان). الـAI Agent بيجاوب منها بصياغته. السعر مكانه نص الرد مش هنا.</div>'
+      : '')
     +'<div class="wa-qr-ed-actions">'
     +'<button type="button" class="wa-qr-ed-add" id="wa-qrm-addimg">＋ ضيف صورة</button>'
     +'<input type="file" id="wa-qrm-file" accept="image/*" multiple style="display:none">'
@@ -1832,6 +1848,7 @@ export function waQrmEdit(id, presetBody){
   $id('wa-qrm-title').textContent = q ? '✏️ تعديل رد محفوظ' : '＋ رد محفوظ جديد';
   $id('wa-qrm-name').value = q ? String(q.title||'') : '';
   $id('wa-qrm-text').value = q ? String(q.body||'') : (presetBody||'');
+  if($id('wa-qrm-ainotes')) $id('wa-qrm-ainotes').value = q ? String(q.ai_notes||'') : '';
   $id('wa-qrm-addimg').addEventListener('click',function(){ $id('wa-qrm-file').click(); });
   $id('wa-qrm-file').addEventListener('change',waQrmPick);
   $id('wa-qrm-cancel').addEventListener('click',function(){ if(waQrmBusy) return; waQrmEditId=null; waQrmResetForm(); $id('wa-qrm-title').textContent='⚡ الردود المحفوظة'; waQrmRender(); });
@@ -1968,6 +1985,9 @@ export function waQrmSave(){
   if(!title){ toast('اكتب اسم مختصر للرد — ده اللي هيظهر على الزرار','er'); $id('wa-qrm-name').focus(); return; }
   if(title.length>40){ toast('الاسم طويل (الحد 40 حرف)','er'); return; }
   if(!body && !waQrmKeep.length && !waQrmFiles.length){ toast('اكتب نص أو ضيف صورة','er'); return; }
+  var notesEl=$id('wa-qrm-ainotes');
+  var aiNotes=notesEl ? (notesEl.value||'').trim() : null;
+  if(aiNotes && aiNotes.length>WA_QR_NOTES_MAX){ toast('معلومات الـAI Agent طويلة (الحد '+WA_QR_NOTES_MAX+' حرف)','er'); notesEl.focus(); return; }
   // صورة قديمة webp فاضلة = رد هيتحفظ وهو عارف إنه مش هيوصل
   if(waQrmKeep.some(function(m){ return !m.file && !waIsSendableImagePath(m.path); })){
     toast('فيه صورة ⚠️ بصيغة webp واتساب مابيقبلهاش — شيلها بـ✕ وضيفها تاني وهتتحول JPG لوحدها','er'); return;
@@ -2011,6 +2031,8 @@ export function waQrmSave(){
   }
   function save(){
     var row={title:title, body:body, media:media};
+    // الخانة مش معروضة (العمود مش على السيرفر) = المفتاح مايتبعتش خالص — مانمسحش حاجة مانعرفهاش
+    if(notesEl) row.ai_notes=aiNotes||null;
     var q;
     if(id==='new'){
       var maxSort=-1;
@@ -2020,7 +2042,7 @@ export function waQrmSave(){
     } else {
       q=sb.from('wa_quick_replies').update(row).eq('id',id).eq('tenant_id',currentTenantId);
     }
-    q.select('id,title,body,media,sort').single().then(function(r){
+    q.select(waQrCols()).single().then(function(r){
       if(r.error){ fail(); return; }
       // المعاينة بترجّع data=null على أي كتابة — الصف بيتبني من اللي اتبعت
       // التعديل: الصف بيتبني من اللي اتبعت (هو اللي اتكتب) — مش من الرد

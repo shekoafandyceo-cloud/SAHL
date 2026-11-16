@@ -15,7 +15,7 @@ export interface OrderLite {
   order_uid: string; status: string; product_name: string; props?: string | null;
   total: number | null; created_at: string; cancel_requested?: boolean; carrier?: string | null;
 }
-export interface CardLite { id: string; title: string; body: string }
+export interface CardLite { id: string; title: string; body: string; notes?: string | null }
 export interface ProductLite {
   id: string; name: string; aliases: string[]; site_names: string[]; quick_reply_id: string | null;
   assembled: boolean | null; facts: Record<string, unknown>;
@@ -183,6 +183,14 @@ function daysAgo(iso: string, nowIso: string): string {
   return d <= 0 ? "النهارده" : d === 1 ? "إمبارح" : "من " + d + " يوم";
 }
 
+// معلومات للـAgent بس (wa_quick_replies.ai_notes — 16 نوفمبر، طلب المالك «كله في السيستم»): بتتكتب في فورم الرد المحفوظ ومابتتبعتش
+// للعميل مع الكارت. بتتحط تحت نص الكارت. 🔴 كارت من غير معلومات = نفس النص القديم بالحرف (التقييمات كلها اتعملت عليه).
+const NOTES_LABEL = "(معلومات مؤكدة من صاحب المتجر عن المنتج ده — جاوب منها بصياغتك لما العميل يسأل. مش جزء من نص الكارت ومابتتبعتش للعميل زي ما هي)";
+export function cardBlock(c: CardLite): string {
+  const notes = String(c.notes || "").replace(/\r/g, "").trim();
+  return "### كارت «" + c.title + "»\n" + cut(c.body, 1200) + (notes ? "\n" + NOTES_LABEL + "\n" + cut(notes, 1500) : "");
+}
+
 export function productBlock(p: ProductLite, ctx: DraftCtx): string {
   const lines: string[] = [];
   const linked = ctx.linkedProductId === p.id;
@@ -283,7 +291,7 @@ function buildUserPromptV1(ctx: DraftCtx): string {
   out.push(ctx.products.length ? ctx.products.map((p) => productBlock(p, ctx)).join("\n\n") : "(مفيش)");
 
   out.push("", "# كروت المنتجات (النص اللي بيتبعت للعميل مع الصور)");
-  out.push(ctx.cards.length ? ctx.cards.map((c) => "### كارت «" + c.title + "»\n" + cut(c.body, 1200)).join("\n\n") : "(مفيش)");
+  out.push(ctx.cards.length ? ctx.cards.map(cardBlock).join("\n\n") : "(مفيش)");
 
   out.push("", "# أسعار الموقع (الأكتر تكراراً في أوردرات آخر 24 ساعة — منتج واحد × قطعة واحدة)");
   const groups = new Map<string, SiteRow[]>();
@@ -429,7 +437,7 @@ function buildUserPromptStaticFirst(ctx: DraftCtx, layout: Layout): string {
 
   const cards = [...ctx.cards].sort((a, b) => byText(a.title, b.title));
   const picked = layout === "v3" ? pickCards(ctx) : null;
-  const cardText = (c: CardLite) => "### كارت «" + c.title + "»\n" + cut(c.body, 1200);
+  const cardText = cardBlock;
   if (!picked) {
     out.push("", "# كروت المنتجات (النص اللي بيتبعت للعميل مع الصور)");
     out.push(cards.length ? cards.map(cardText).join("\n\n") : "(مفيش)");
