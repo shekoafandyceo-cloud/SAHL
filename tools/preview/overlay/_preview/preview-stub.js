@@ -224,6 +224,21 @@
       unread_count:0, status:'open', labels:['شكوى'], note:null, created_at:iso(17,10,0),
       complaint_at:iso(16,12,0), complaint_at_estimated:true,
       ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null },
+    // «🚩 تصعيد» (v86): محادثتين البوت وقف عندهم بالليل — طلب شراء بياناته كاملة + طلب استرجاع بعد رسالة الاعتذار
+    { id:'wc7', tenant_id:TENANT, wa_id:'201001234507', customer_name:'سارة محمود',
+      customer_phone:'01001234507', last_message_at:iso(0,2,14), last_inbound_at:iso(0,2,13),
+      last_message_text:'تمام يا فندم، زميلي هيأكد الأوردر مع حضرتك', last_message_type:'text', last_direction:'out',
+      unread_count:2, status:'open', labels:[], note:null, created_at:iso(0,2,5),
+      ai_escalated_at:iso(0,2,14), ai_escalation_note:'🛒 طلب شراء — البيانات كاملة (منظم المطبخ مقاس 85)', ai_hold_at:null,
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null },
+    { id:'wc8', tenant_id:TENANT, wa_id:'201001234508', customer_name:'أحمد علي',
+      customer_phone:'01001234508', last_message_at:iso(0,1,41), last_inbound_at:iso(0,1,40),
+      last_message_text:'معلش يا فندم، أنا المساعد الآلي لعتبة والنقطة دي محتاجة زميل مختص…', last_message_type:'text', last_direction:'out',
+      unread_count:1, status:'open', labels:[], note:null, created_at:iso(3,15,0),
+      ai_escalated_at:iso(0,1,41), ai_escalation_note:'العميل عايز يسترجع الأوردر — المنتج مش مناسب للمكان', ai_hold_at:iso(0,1,41),
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null }
   ];
   // ردود جاهزة — واحد نصي وواحد بصور وواحد صور بس، عشان المالك يجرّب
@@ -255,7 +270,22 @@
   PREVIEW_MEDIA[QR_IMG1] = previewImg('صورة منتج 1', '#2563eb');
   PREVIEW_MEDIA[QR_IMG2] = previewImg('صورة منتج 2', '#7c3aed');
 
+  var BOT = '🤖 AI Agent';
   var WA_MSGS = [
+    // «تصعيد» (v86): ردود البوت بالليل — باسمه في الشات
+    { id:'wm71', tenant_id:TENANT, conversation_id:'wc7', direction:'in', type:'text', body:'عايزة أطلب منظم المطبخ مقاس 85', is_read:false,
+      created_at:iso(0,2,6), wa_timestamp:iso(0,2,6), status:null, wa_message_id:'wamid.p71' },
+    { id:'wm72', tenant_id:TENANT, conversation_id:'wc7', direction:'out', type:'text', body:'تحت أمر حضرتك يا فندم، ممكن الاسم والعنوان بالتفصيل ورقم الموبايل؟', is_read:true,
+      created_at:iso(0,2,7), wa_timestamp:iso(0,2,7), status:'read', wa_message_id:'wamid.p72', sent_by_name:BOT },
+    { id:'wm73', tenant_id:TENANT, conversation_id:'wc7', direction:'in', type:'text', body:'سارة محمود — 12 شارع الطيران، مدينة نصر، القاهرة — 01001234507', is_read:false,
+      created_at:iso(0,2,13), wa_timestamp:iso(0,2,13), status:null, wa_message_id:'wamid.p73' },
+    { id:'wm74', tenant_id:TENANT, conversation_id:'wc7', direction:'out', type:'text', body:'تمام يا فندم، زميلي هيأكد الأوردر مع حضرتك', is_read:true,
+      created_at:iso(0,2,14), wa_timestamp:iso(0,2,14), status:'delivered', wa_message_id:'wamid.p74', sent_by_name:BOT },
+    { id:'wm81', tenant_id:TENANT, conversation_id:'wc8', direction:'in', type:'text', body:'عايز أرجّع الأوردر، المقاس طلع كبير على المكان', is_read:false,
+      created_at:iso(0,1,40), wa_timestamp:iso(0,1,40), status:null, wa_message_id:'wamid.p81' },
+    { id:'wm82', tenant_id:TENANT, conversation_id:'wc8', direction:'out', type:'text',
+      body:'معلش يا فندم، أنا المساعد الآلي لعتبة والنقطة دي محتاجة زميل مختص يرد على حضرتك فيها. مواعيد الشغل من السبت للخميس من 12 الضهر لـ 7 مساءً، وهيتواصلوا مع حضرتك أول ما يبدأوا 🙏',
+      is_read:true, created_at:iso(0,1,41), wa_timestamp:iso(0,1,41), status:'delivered', wa_message_id:'wamid.p82', sent_by_name:BOT },
     { id:'wm1', tenant_id:TENANT, conversation_id:'wc1', direction:'in', type:'text',
       body:'شفت الإعلان على فيسبوك', is_read:true, created_at:iso(0,13,38),
       wa_timestamp:iso(0,13,38), status:null, wa_message_id:'wamid.p1' },
@@ -649,6 +679,8 @@
         body:'تحت أمرك يا فندم 🌷 حضرتك حابة تطلبي أنهي منتج؟',
         media:{ card:null, note:'العميلة ماقالتش المنتج — اسألها الأول' }, status:'pending', error:null, created_at:iso(1,19,21) }
     ];
+    // زرار البوت (v86): مقفول (بيقترح بس) — المالك يجرّب يشغّله ويقفله من الشريط فوق قايمة المحادثات
+    TABLES.ai_settings = [{ tenant_id:TENANT, mode:'shadow', auto_changed_at:null, auto_changed_by_name:null }];
     TABLES.wa_messages = TABLES.wa_messages.concat(OFD_MSGS);
   })();
 
@@ -808,6 +840,11 @@
       if(st.not && st.not.op === 'eq' && st.not.val === '{}'){
         var nc = st.not.col;
         rows = rows.filter(function(c){ return Array.isArray(c[nc]) && c[nc].length > 0; });
+      }
+      // «تصعيد» (v86): `.not('ai_escalated_at','is',null)` لازم يتطبّق — من غيره العدّاد = كل المحادثات
+      if(st.not && st.not.op === 'is' && st.not.val === null){
+        var ec = st.not.col;
+        rows = rows.filter(function(c){ return c[ec] != null; });
       }
       rows.sort(function(a,b){ return String(a.last_message_at||'') < String(b.last_message_at||'') ? 1 : -1; });
       if(st.limit) rows = rows.slice(0, st.limit);
@@ -1088,6 +1125,16 @@
       // الصندوق **مفتوح في المعاينة** (14 سبتمبر) — قبل كده كان verified:false
       // فالصفحة بتقفل على بانر «ركّب واتساب» والمالك مايقدرش يجرّب أي ميزة شات.
       if(name === 'wa_inbox_status')   return Promise.resolve({ data:{ verified:true, has_number:true, has_token:true, sahl_ready:false, wa_enabled:true }, error:null });
+      if(name === 'ai_agent_set_auto'){
+        var as0 = (TABLES.ai_settings || [])[0];
+        if(!as0) return Promise.resolve({ data:{ ok:false, error:'agent_off' }, error:null });
+        as0.mode = (args && args.p_on) ? 'auto' : 'shadow'; as0.auto_changed_at = new Date().toISOString(); as0.auto_changed_by_name = 'أدمن المعاينة';
+        return Promise.resolve({ data:{ ok:true, mode:as0.mode, by:'أدمن المعاينة' }, error:null });
+      }
+      if(name === 'wa_ai_escalation_dismiss'){
+        WA_CONVOS.forEach(function(c){ if(c.id === (args && args.p_conversation_id)){ c.ai_escalated_at = null; c.ai_escalation_note = null; c.ai_hold_at = null; } });
+        return Promise.resolve({ data:{ ok:true, cleared:1 }, error:null });
+      }
       if(name === 'wa_ai_draft_review'){
         (TABLES.wa_ai_drafts || []).forEach(function(d){ if(d.id === (args && args.p_id) && d.status === 'pending'){ d.status = args.p_status; d.final_body = args.p_final_body || null; } });
         return Promise.resolve({ data:null, error:null });
@@ -1124,6 +1171,8 @@
       if(slug === 'wa-send'){
         var bd = (opts && opts.body) || {};
         var cid = bd.conversation_id;
+        // موظف رد = التصعيد اتشال (على الحي: تريجر trg_wa_ai_escalation_clear)
+        WA_CONVOS.forEach(function(c){ if(c.id === cid){ c.ai_escalated_at = null; c.ai_escalation_note = null; c.ai_hold_at = null; } });
         var nid = 'wm-prev-' + (WA_MSGS.length + 1);
         WA_MSGS.push({ id:nid, tenant_id:TENANT, conversation_id:cid, direction:'out',
           type: bd.image_path ? 'image' : (bd.document_path ? 'document' : 'text'),

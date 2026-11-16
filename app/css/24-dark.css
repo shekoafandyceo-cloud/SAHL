@@ -286,3 +286,15 @@ html.dark .ex-links{background:#052e16;border-color:#166534;color:#bbf7d0}
 html.dark .ex-link{color:#93c5fd}
 html.dark .ex-btn{background:#052e16!important;color:#bbf7d0!important;border-color:#166534!important}
 html.dark .rk-new{background:#334155;color:#e2e8f0;}
+
+/* v86: تصعيد + زرار البوت */
+html.dark .wa-conv-esc{color:#fca5a5;}
+html.dark .wa-esc-banner{background:#3b0f0f;color:#fca5a5;border-color:#b91c1c;}
+html.dark .wa-esc-done{background:transparent;color:#fca5a5;border-color:#b91c1c;}
+html.dark .wa-esc-done:hover{background:#b91c1c;color:#fff;}
+html.dark .wa-ai-bar{background:#111827;color:#9ca3af;}
+html.dark .wa-ai-bar.on{background:#052e25;color:#6ee7b7;border-bottom-color:#047857;}
+html.dark .wa-ai-bar.on .wa-ai-bar-txt b{color:#6ee7b7;}
+html.dark .wa-ai-sw{background:#374151;border-color:#4b5563;}
+html.dark .wa-ai-sw-lbl{color:#d1d5db;}
+html.dark .wa-ai-sw.on{background:#059669;border-color:#047857;}

@@ -93,7 +93,9 @@
                 // أصوات السكانر (15 أكتوبر — v78): wh_config.sounds
                 wh_config:'__WH_CONFIG',
                 // مسودات الـAI Agent (15 نوفمبر — v84): كارت «رد مقترح» في المحادثات
-                wa_ai_drafts:'__AI_DRAFTS' };
+                wa_ai_drafts:'__AI_DRAFTS',
+                // زرار البوت (16 نوفمبر — v86): صف ai_settings للمتجر. الافتراضي مفيش = الشريط مايبانش (الاختبارات القديمة زي ما هي)
+                ai_settings:'__AI_SETTINGS' };
     var rows = (DYN[table] ? (window[DYN[table]] || []) : (TABLES[table] || [])).slice();
     // منتجات المخزون بهوك اختياري — لو الاختبار محقّنش __STOCK بيفضل الصف
     // الافتراضي القديم بالحرف (نفس نمط __MOVEMENTS بس بـ fallback مش [])
@@ -192,7 +194,7 @@
           return f.op === 'gt' ? a > b : (f.op === 'gte' ? a >= b : true);
         });
       });
-      if(st.order === 'last_message_at' || st.order === 'updated_at'){
+      if(st.order === 'last_message_at' || st.order === 'updated_at' || st.order === 'ai_escalated_at'){
         var asc = !!(st.orderOpts && st.orderOpts.ascending), ocol0 = st.order;
         rows.sort(function(a,b){
           var r = String(a[ocol0]||'').localeCompare(String(b[ocol0]||''));
@@ -300,6 +302,13 @@
       if(table === 'wa_quick_replies' && st.eqId && Array.isArray(window.__QR)){
         if(st.deleted) window.__QR = window.__QR.filter(function(q){ return q.id !== st.eqId; });
         else if(st.payload && !st.inserted) window.__QR.forEach(function(q){ if(q.id === st.eqId) Object.assign(q, st.payload); });
+      }
+      // v86 — السيرفر لسه مافيهوش أعمدة الـAgent الجديدة (الواجهة اترفعت قبل الـmigration): نفس خطأ PostgREST للعمود المجهول
+      if(window.__ESC_NO_COL && table === 'wa_conversations' && st.not && st.not.col === 'ai_escalated_at'){
+        return Promise.resolve({data:null, error:{code:'42703', message:'column wa_conversations.ai_escalated_at does not exist'}}).then(res);
+      }
+      if(window.__AI_NO_COLS && table === 'ai_settings' && String(st.cols||'').indexOf('auto_changed_at') >= 0){
+        return Promise.resolve({data:null, error:{code:'42703', message:'column ai_settings.auto_changed_at does not exist'}}).then(res);
       }
       // `__QR_NO_NOTES`: السيرفر لسه مافيهوش عمود ai_notes (v85 اترفعت قبل الـmigration) — نفس خطأ PostgREST للعمود المجهول
       if(window.__QR_NO_NOTES && table === 'wa_quick_replies' && String(st.cols||'').indexOf('ai_notes') >= 0){

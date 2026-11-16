@@ -83,6 +83,9 @@ export function loadInbox(){
   // نفس السبب بالظبط لعدّادات التصنيفات — استعلام واحد لكل الـ9
   waFetchLabelConvos();
   waFetchConvos(true);
+  // «تصعيد» وحالة زرار البوت (v86) — نفس السبب: العدّاد والحالة صح من أول رسمة
+  waFetchEscConvos();
+  waLoadAiState();
   if(waPollTimer) clearInterval(waPollTimer);
   waPollTimer=setInterval(function(){
     var p=$id('page-inbox');
@@ -138,6 +141,10 @@ export function waFetchConvos(showLoading){
       renderConvos();
       waFlushNotify();
       if(waConvDeltaDraws!==draws0) waFetchConvosDelta();
+      // 🔴 الكامل بيستبدل `waConvos` بس — المتصعّد الأقدم من الـ200 نسخته في `waEscExtra` وبتتحدّث من الدلتا. كامل من غير
+      // دلتا (↻ · كل 10 دقايق · اللي اتغيّر 200+) = نسخة قديمة تفضل «متصعّدة» بعد ما موظف رد. فكل كامل بيجيبها تاني
+      // (إلا لو لسه متجابة من ثواني — الفتح بيطلب الاتنين مع بعض).
+      if(Date.now()-waEscAt>5000) waFetchEscConvos();
       veilDone('inbox');
       // طلب «افتح شات العميل ده» جاي من تاب الاستثناءات — بعد ما القايمة اتحمّلت
       waConsumeOpenRequest();
@@ -146,7 +153,12 @@ export function waFetchConvos(showLoading){
 
 // الـpoll والريل-تايم والإرسال: اللي اتغيّر بس — والكامل لو العلامة مش موجودة أو آخر كامل أقدم من 10 دقايق
 export function waRefreshConvos(){
-  if(!waConvWm || !waConvFullAt || Date.now()-waConvFullAt>WA_CONV_FULL_MS){ waFetchConvos(false); return; }
+  if(!waConvWm || !waConvFullAt || Date.now()-waConvFullAt>WA_CONV_FULL_MS){
+    waFetchConvos(false);
+    // مع الكامل الدوري (كل 10 دقايق): حالة الزرار (الأدمن شغّله/قفله من جهاز تاني). المتصعّد بيتجاب مع كل كامل (waFetchConvos)
+    waLoadAiState();
+    return;
+  }
   waFetchConvosDelta();
 }
 function waFetchConvosDelta(){
@@ -187,7 +199,7 @@ function waMergeConvRows(rows){
     var n=rows[j], at=byId[n.id];
     if(at===undefined){ waConvos.push(n); byId[n.id]=waConvos.length-1; }
     else if(waConvNewer(n, waConvos[at])) waConvos[at]=n;
-    waConvReplaceIn(waAdExtra, n); waConvReplaceIn(waLabelExtra, n); waConvReplaceIn(waSearchExtra, n);
+    waConvReplaceIn(waAdExtra, n); waConvReplaceIn(waLabelExtra, n); waConvReplaceIn(waSearchExtra, n); waConvReplaceIn(waEscExtra, n);
   }
   waConvos.sort(function(a,b){
     var ta=waLastMsgMs(a), tb=waLastMsgMs(b);
@@ -228,6 +240,7 @@ function waSearchDigits(q){
 export function waConvMatches(c){
   if(waFilter==='unread' && !((c.unread_count||0)>0)) return false;
   if(waFilter==='ctwa' && !waIsFromAd(c)) return false;
+  if(waFilter==='esc' && !waIsEscalated(c)) return false;
   if(waFilter.indexOf('label:')===0){
     var want=waFilter.slice(6);
     if(!(c.labels && c.labels.indexOf(want)>=0)) return false;
@@ -322,6 +335,9 @@ export function waBuildFilters(){
   var html='<div class="wa-f-sys">'
     +'<button class="wa-filter'+(waFilter==='all'?' active':'')+'" data-f="all">الكل</button>'
     +'<button class="wa-filter'+(waFilter==='unread'?' active':'')+'" id="wa-filter-unread" data-f="unread">غير مقروءة</button>'
+    // 🚩 chip نظام (v86): المحادثات اللي الـAI Agent وقف عندها — من عمود `ai_escalated_at` (السيرفر بس اللي بيكتبه)
+    +(waEscOk?('<button class="wa-filter wa-fesc'+(waFilter==='esc'?' active':'')+'" id="wa-filter-esc" data-f="esc"'
+      +' title="المحادثات اللي البوت وقف عندها ومحتاجة موظف — بتتشال أول ما موظف يرد على العميل">🚩 تصعيد</button>'):'')
     // 📣 chip نظام مش تصنيف — بيتحسب من أعمدة `ctwa_*` مش من `labels[]`
     +'<button class="wa-filter wa-fad'+(waFilter==='ctwa'?' active':'')+'" id="wa-filter-ctwa" data-f="ctwa"'
     +' title="المحادثات اللي العميل دخلها من إعلان Click-to-WhatsApp">📣 جه من إعلان</button>'
@@ -344,6 +360,7 @@ export function waSetFilter(f){
   // والـpoll العادي (كل 20 ثانية) بيجيب أي محادثة إعلان جديدة لأنها بتبقى
   // في الأحدث أصلاً.
   if(f==='ctwa') waFetchAdConvos();
+  if(f==='esc') waFetchEscConvos();
   // نفس المنطق: الجلب عند التبديل عشان الصفوف المصنّفة اللي بره أحدث 200
   // تنزل. العدّادات نفسها نزلت مع `loadInbox` فالرقم على الـchip مابيتغيرش
   // لما تدوس عليه.
@@ -535,6 +552,8 @@ export function waConvById(id){
   for(var m=0;m<waLabelExtra.length;m++){ if(waLabelExtra[m].id===id) return waLabelExtra[m]; }
   // وشات قديم اتفتح من البحث — نفس السبب بالحرف
   for(var n=0;n<waSearchExtra.length;n++){ if(waSearchExtra[n].id===id) return waSearchExtra[n]; }
+  // وصف متصعّد أقدم من الـ200 اتفتح من فلتر «تصعيد»
+  for(var e=0;e<waEscExtra.length;e++){ if(waEscExtra[e].id===id) return waEscExtra[e]; }
   return undefined;
 }
 
@@ -581,12 +600,150 @@ export function waFetchAdConvos(){
     });
 }
 
+// ----- «🚩 تصعيد» + زرار البوت ON/OFF (v86 — طلب المالك 16 نوفمبر) -----
+// «تصعيد» = الـAI Agent وقف عند المحادثة دي وهو شغّال لوحده (سؤال مش عارفه · شكوى · طلب شراء محتاج تسجيل).
+// 🔴 ده **مش label**: عمود `ai_escalated_at` بيكتبه السيرفر بس (wa-ai-draft) وبيتشال لوحده أول ما **موظف** يبعت رد
+// (تريجر على السيرفر) — المتصفح مابيكتبوش. فهو chip نظام زي «غير مقروءة» و«جه من إعلان».
+// 🔴 بيستعلم من السيرفر زي الإعلانات والتصنيفات: القايمة أحدث 200 بس، ومحادثة اتصعّدت من أول الليل ممكن تبقى براهم
+// (درس 6). والنتيجة في مصفوفة منفصلة — `waConvos` بتفضل نسخة السيرفر.
+// 🔴 متوافق الاتجاهين: السيرفر من غير العمود (42703 — الواجهة اترفعت قبل الـmigration) = الشريحة مابتظهرش خالص.
+export var waEscExtra=[], waEscCapped=false, waEscOk=true;
+var WA_ESC_LIMIT=200, waEscAt=0, waEscGen=0;
+export function waIsEscalated(c){ return !!(c && c.ai_escalated_at); }
+function waEscNote(c){ return String((c&&c.ai_escalation_note)||'').trim(); }
+function waEscTitle(c){
+  var n=waEscNote(c);
+  return 'البوت صعّدها'+(c&&c.ai_escalated_at?(' · '+fmtStoredDateTime(c.ai_escalated_at)):'')+(n?('\n'+n):'')+'\nبتتشال من «تصعيد» أول ما موظف يرد على العميل';
+}
+export function waFetchEscConvos(){
+  if(!sb||!currentTenantId||!waEscOk) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  waEscAt=Date.now();
+  var myGen=++waEscGen;
+  sb.from('wa_conversations').select('*').eq('tenant_id',currentTenantId)
+    .not('ai_escalated_at','is',null)
+    .order('ai_escalated_at',{ascending:true}).limit(WA_ESC_LIMIT)
+    .then(function(r){
+      if(myGen!==waEscGen) return;   // طلب أحدث خرج بعدنا
+      if(r.error){
+        // العمود مش موجود على السيرفر = الميزة لسه ماتفعّلتش — الشريحة تختفي بدل ما تفضل «0» للأبد
+        if(r.error.code==='42703'){ waEscOk=false; waEscExtra=[]; if(waFilter==='esc') waFilter='all'; waBuildFilters(); if(waConvos.length) renderConvos(); }
+        return;   // غير كده: الفلتر بيفضل على المحمّل
+      }
+      waEscExtra=(r.data||[]).filter(waIsEscalated);
+      waEscCapped=((r.data||[]).length===WA_ESC_LIMIT);
+      if(waConvos.length) renderConvos();
+    });
+}
+// بانر فوق الشات المفتوح: ليه اتصعّدت + «✓ اتعاملت» (شيل من غير ما تبعت رسالة — مكالمة تليفون مثلاً).
+// بيتنادى من فتح المحادثة ومن renderConvos — الرد بتاع الموظف بيشيله مع أول تحديث للقايمة.
+export function waUpdateEsc(c){
+  var old=$id('wa-esc-banner');
+  var box=$id('wa-cmeta');
+  if(!waIsEscalated(c) || !box){ if(old) old.remove(); return; }
+  var note=waEscNote(c), key=c.id+'|'+note;
+  if(old && old.getAttribute('data-k')===key) return;   // نفس المحتوى — مانعيدش الرسم (الزرار ممكن يكون تحت الماوس)
+  if(!old){ old=document.createElement('div'); old.id='wa-esc-banner'; old.className='wa-esc-banner'; box.appendChild(old); }
+  old.setAttribute('data-k', key);
+  old.innerHTML='<div class="wa-esc-txt">🚩 البوت صعّد المحادثة دي'+(note?(': <b>'+esc(note)+'</b>'):'')
+    +'<span class="wa-esc-hint">بتتشال من «تصعيد» أول ما ترد على العميل</span></div>'
+    +'<button type="button" class="wa-esc-done" id="wa-esc-done" title="شيلها من «تصعيد» من غير ما تبعت رسالة (اتكلمت مع العميل تليفون مثلاً)">✓ اتعاملت</button>';
+  var b=$id('wa-esc-done'); if(b) b.addEventListener('click', waEscDismiss);
+}
+var waEscBusy=false;
+function waEscDismiss(){
+  var id=waActiveId;
+  if(!id||!sb||waEscBusy) return;
+  waEscBusy=true;
+  sb.rpc('wa_ai_escalation_dismiss',{p_conversation_id:id}).then(function(r){
+    waEscBusy=false;
+    if(r.error || !r.data || !r.data.ok){ toast('معرفناش نشيل التصعيد — جرّب تاني','er'); return; }
+    // السيرفر شالها — النسخ المحلية كمان (الصف الجديد هييجي مع أول تحديث للقايمة)
+    var lists=[waConvos, waAdExtra, waLabelExtra, waSearchExtra, waEscExtra];
+    for(var i=0;i<lists.length;i++){
+      for(var j=0;j<lists[i].length;j++){
+        if(lists[i][j].id===id){ lists[i][j].ai_escalated_at=null; lists[i][j].ai_escalation_note=null; lists[i][j].ai_hold_at=null; }
+      }
+    }
+    renderConvos();
+  });
+}
+
+// ── زرار البوت: OFF = بيقترح والموظف بيبعت (shadow) · ON = بيرد على العملاء بنفسه (auto) ──
+// 🔴 الحالة من السيرفر (`ai_settings.mode`) والتغيير بـRPC `ai_agent_set_auto` (أدمن المتجر بس — السيرفر هو اللي بيتحقق).
+// 🔴 الشريط مابيظهرش لو الـAgent مش متفعّل للمتجر، أو السيرفر لسه مافيهوش أعمدة الزرار (42703) — زرار مالوش RPC = وعد كاذب (درس 16).
+export var waAi={ known:false, mode:null, at:null, by:null };
+var waAiBusy=false, waAiCols=true, waAiGen=0;
+export function waLoadAiState(){
+  if(!sb||!currentTenantId) return;
+  var myGen=++waAiGen;
+  sb.from('ai_settings').select(waAiCols?'mode,auto_changed_at,auto_changed_by_name':'mode').eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
+    if(myGen!==waAiGen) return;   // رد قديم مايكتبش فوق حالة أحدث (ضغطة الزرار بتعيد القراية)
+    if(r.error){
+      if(r.error.code==='42703' && waAiCols){ waAiCols=false; waLoadAiState(); }
+      return;   // غير كده: الشريط بيفضل على آخر حالة معروفة
+    }
+    var d=r.data;
+    waAi={ known: !!(waAiCols && d && (d.mode==='shadow' || d.mode==='auto')), mode: d?d.mode:null,
+           at: d?(d.auto_changed_at||null):null, by: d?(d.auto_changed_by_name||null):null };
+    waRenderAiBar();
+  });
+}
+function waRenderAiBar(){
+  var bar=$id('wa-ai-bar');
+  var head=document.querySelector('#wa-list-pane .wa-list-head');
+  if(!waAi.known || !head){ if(bar) bar.remove(); return; }
+  if(!bar){ bar=document.createElement('div'); bar.id='wa-ai-bar'; head.insertAdjacentElement('afterend', bar); }
+  var on=(waAi.mode==='auto');
+  var admin=!!(currentUser && currentUser.role==='admin');
+  bar.className='wa-ai-bar '+(on?'on':'off');
+  var when=(waAi.at?(' · من '+waTimeShort(waAi.at)):'')+(waAi.by?(' ('+waAi.by+')'):'');
+  bar.innerHTML='<span class="wa-ai-bar-txt">'
+    +(on?('🤖 <b>البوت شغّال</b> وبيرد على العملاء لوحده'+esc(when)):'🤖 البوت <b>مقفول</b> — بيقترح بس والموظف بيرد')+'</span>'
+    +'<button type="button" class="wa-ai-sw'+(on?' on':'')+(admin?'':' ro')+'" id="wa-ai-sw" role="switch" aria-checked="'+(on?'true':'false')+'"'
+    +' title="'+(admin?(on?'اقفل البوت — الموظفين هم اللي هيردوا':'شغّل البوت — هيرد على العملاء لوحده'):'الأدمن بس اللي بيشغّل ويقفل البوت')+'">'
+    +'<span class="wa-ai-sw-knob"></span><span class="wa-ai-sw-lbl">'+(on?'ON':'OFF')+'</span></button>';
+  var sw=$id('wa-ai-sw'); if(sw) sw.addEventListener('click', waAiToggleAsk);
+}
+function waAiToggleAsk(){
+  if(waAiBusy) return;
+  if(!(currentUser && currentUser.role==='admin')){ toast('الأدمن بس اللي بيشغّل ويقفل البوت','er'); return; }
+  var on=(waAi.mode==='auto');
+  if(on){
+    showModal({ icon:'🤖', title:'تقفل البوت؟',
+      sub:'البوت هيبطّل يبعت للعملاء، ويرجع يقترح بس والموظفين هم اللي يردوا.\nراجع «🚩 تصعيد» — فيها المحادثات اللي وقف عندها.',
+      okLabel:'اقفله', onOk:function(){ waAiSet(false); } });
+  } else {
+    showModal({ icon:'🤖', title:'تشغّل البوت؟',
+      sub:'من دلوقتي البوت هيرد على رسايل العملاء بنفسه، من غير ما حد يراجع الرد.\nاللي مايعرفش يرد عليه هيعتذر للعميل ويحط المحادثة في «🚩 تصعيد».\nشغّله والموظفين مش موجودين، واقفله أول ما يرجعوا.',
+      okLabel:'شغّله', onOk:function(){ waAiSet(true); } });
+  }
+}
+function waAiSet(on){
+  if(!sb||waAiBusy) return;
+  waAiBusy=true;
+  sb.rpc('ai_agent_set_auto',{p_on:on}).then(function(r){
+    waAiBusy=false;
+    var d=r&&r.data;
+    if(!r || r.error || !d || !d.ok){
+      var why=(d&&d.error)||'';
+      toast(why==='admin_only'?'الأدمن بس اللي بيشغّل ويقفل البوت':(why==='agent_off'?'الـAI Agent متوقف للمتجر ده':'حصلت مشكلة — حالة البوت ماتغيّرتش'),'er');
+      waLoadAiState();
+      return;
+    }
+    toast(d.mode==='auto'?'🤖 البوت اشتغل — هيرد على العملاء لوحده':'🤖 البوت اتقفل — الموظفين هم اللي بيردوا');
+    waLoadAiState();
+    if(d.mode!=='auto') waFetchEscConvos();
+  });
+}
+
 export function renderConvos(){
   var body=$id('wa-list-body'); if(!body) return;
-  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={}, cmpAlert=0;
+  var totalUnread=0, unreadConvs=0, labelCounts={}, adIds={}, seenConvIds={}, cmpAlert=0, escCount=0;
   for(var k=0;k<waConvos.length;k++){
     seenConvIds[waConvos[k].id]=1;
     if(waIsFromAd(waConvos[k])) adIds[waConvos[k].id]=1;
+    if(waIsEscalated(waConvos[k])) escCount++;
     var u=waConvos[k].unread_count||0; totalUnread+=u; if(u>0)unreadConvs++;
     var ls=waConvos[k].labels||[];
     for(var li=0;li<ls.length;li++){ labelCounts[ls[li]]=(labelCounts[ls[li]]||0)+1; }
@@ -596,6 +753,8 @@ export function renderConvos(){
   // استعلام سيرفر) — **غير المقروء لوحده** هو اللي لسه على نسخة الـ200،
   // وده مقصود: الرسايل الجديدة بتبقى في الأحدث أصلاً.
   for(var ax=0;ax<waAdExtra.length;ax++) adIds[waAdExtra[ax].id]=1;
+  // المتصعّد الأقدم من الـ200 — `waConvos` بتكسب لو الصف في الاتنين (هي الأحدث: موظف رد = اتشال)
+  for(var ex=0;ex<waEscExtra.length;ex++){ if(!seenConvIds[waEscExtra[ex].id] && waIsEscalated(waEscExtra[ex])) escCount++; }
   // الصفوف اللي بره أحدث 200 بتتعدّ هنا. الـdedupe بالـid و`waConvos`
   // هي الأحدث (مصدر الـpoll) فبتكسب لو الصف في الاتنين.
   for(var lx=0;lx<waLabelExtra.length;lx++){
@@ -611,6 +770,12 @@ export function renderConvos(){
   var uf=$id('wa-filter-unread'); if(uf) uf.textContent= unreadConvs>0 ? ('غير مقروءة ('+unreadConvs+')') : 'غير مقروءة';
   var af=$id('wa-filter-ctwa');
   if(af) af.textContent= adCount>0 ? ('📣 جه من إعلان ('+adCount+(waAdCapped?'+':'')+')') : '📣 جه من إعلان';
+  var ef=$id('wa-filter-esc');
+  if(ef){
+    ef.textContent= escCount>0 ? ('🚩 تصعيد ('+escCount+(waEscCapped?'+':'')+')') : '🚩 تصعيد';
+    // لازم يبان من غير ما حد يفتح الفلتر — ده أول حاجة الموظف يبص عليها لما ييجي الصبح
+    ef.classList.toggle('has-alert', escCount>0);
+  }
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
   for(var ci=0;ci<lchips.length;ci++){
     var lk=lchips[ci].getAttribute('data-label'); var ln=labelCounts[lk]||0;
@@ -641,6 +806,14 @@ export function renderConvos(){
       if(!seen[waAdExtra[z].id] && waConvMatches(waAdExtra[z])) list.push(waAdExtra[z]);
     }
     list.sort(function(a,b){ return String(b.last_message_at||'').localeCompare(String(a.last_message_at||'')); });
+  } else if(waFilter==='esc'){
+    // المتصعّد اللي بره أحدث 200 بيتضاف هنا — والأقدم تصعيداً فوق (العميل اللي مستني من أول الليل الأول)
+    var seenE={};
+    for(var y4=0;y4<list.length;y4++) seenE[list[y4].id]=1;
+    for(var z4=0;z4<waEscExtra.length;z4++){
+      if(!seenE[waEscExtra[z4].id] && !seenConvIds[waEscExtra[z4].id] && waConvMatches(waEscExtra[z4])) list.push(waEscExtra[z4]);
+    }
+    list.sort(function(a,b){ return String(a.ai_escalated_at||'').localeCompare(String(b.ai_escalated_at||'')); });
   } else if(waFilter.indexOf('label:')===0){
     // نفس منطق الإعلانات بالحرف: المحادثات المصنّفة اللي بره أحدث 200
     // بتتضاف **هنا بس**. `waLabelExtra` بتفضل منفصلة عن `waConvos` —
@@ -682,6 +855,7 @@ export function renderConvos(){
     // ويكتب تاني فاكر إنه غلط في الرقم
     if(waSearchQuery && waSearchPending) emptyMsg='بيدوّر في كل المحادثات…';
     if(waFilter==='unread') emptyMsg='مفيش رسائل غير مقروءة 🎉';
+    else if(waFilter==='esc') emptyMsg='مفيش محادثات متصعّدة 🎉<br><span style="font-size:.76rem">المحادثة بتدخل هنا لما البوت يقف عندها وهو شغّال لوحده، وبتتشال أول ما موظف يرد على العميل.</span>';
     // 🔴 السياق ضروري هنا: المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش
     // بيانات إعلان **حتى لو جت من إعلان فعلاً** — من غير السطر ده التاجر
     // بيقرا «صفر» على إنها عطل في الميزة.
@@ -704,6 +878,7 @@ export function renderConvos(){
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
         +(waComplaintState(c)?('<div class="wa-conv-cmp lvl-'+waComplaintState(c).level+'" title="'+esc(waComplaintTitle(waComplaintState(c)))+'">'+esc(waComplaintText(waComplaintState(c)))+'</div>'):'')
+        +(waIsEscalated(c)?('<div class="wa-conv-esc" title="'+esc(waEscTitle(c))+'">🚩 <span>'+esc(waEscNote(c)||'محتاجة موظف')+'</span></div>'):'')
         +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span>'
         +(waCtwaUrl(c)?('<a class="wa-conv-ad-link" href="'+esc(waCtwaUrl(c))+'" target="_blank" rel="noopener noreferrer" title="افتح الإعلان على فيسبوك">↗</a>'):'')
         +'</div>'):'')
@@ -718,6 +893,8 @@ export function renderConvos(){
   if(waSearchQuery){
     if(waSearchPending) html+='<div class="wa-cap-note">بيدوّر في المحادثات الأقدم…</div>';
     else if(searchLive && waSearchCapped) html+='<div class="wa-cap-note">معروض أحدث '+WA_SEARCH_LIMIT+' نتيجة — لو مش لاقي المحادثة، اكتب الرقم كامل</div>';
+  } else if(waFilter==='esc'){
+    if(waEscCapped) html+='<div class="wa-cap-note">معروض أقدم '+WA_ESC_LIMIT+' محادثة متصعّدة — رد عليهم والباقي هيظهر</div>';
   } else if(waFilter==='ctwa'){
     if(waAdCapped) html+='<div class="wa-cap-note">معروض أحدث 200 محادثة من إعلانات — الأقدم مش هنا</div>';
   } else if(waFilter.indexOf('label:')===0){
@@ -745,7 +922,7 @@ export function renderConvos(){
   if(waActiveId){ var ac=waConvById(waActiveId); if(ac){
     // المحادثة اتفتحت قبل ما صفها يوصل (الجلب برقمها وقع) — الهيدر واللوحات مرة واحدة أول ما يوصل
     if(waHdrPendingId===waActiveId){ waHdrPendingId=null; waFillChatHeader(ac); waLoadConvMeta(ac); waLoadOrders(ac); }
-    waUpdateWindow(ac); waUpdateCtwa(ac); waRenderConvLabels(ac);
+    waUpdateWindow(ac); waUpdateCtwa(ac); waRenderConvLabels(ac); waUpdateEsc(ac);
     var lp=$id('wa-label-picker'); if(lp && lp.style.display!=='none') waRenderLabelPicker(ac);
   } }
 }
@@ -776,10 +953,11 @@ export function openConversation(id){
       if(!row || waActiveId!==id || waHdrPendingId!==id) return;
       waHdrPendingId=null;
       var cr=waConvById(id) || row;
-      waFillChatHeader(cr); waUpdateCtwa(cr); waUpdateWindow(cr); waLoadConvMeta(cr); waLoadOrders(cr);
+      waFillChatHeader(cr); waUpdateCtwa(cr); waUpdateWindow(cr); waLoadConvMeta(cr); waLoadOrders(cr); waUpdateEsc(cr);
       renderConvos();
     });
   }
+  waUpdateEsc(c);   // بانر «تصعيد» بتاع العميل اللي فات مايفضلش فوق شات ده
   // محادثة مش موجودة في القايمة = مفيش شارة، مش شارة اللي قبليها
   waUpdateCtwa(c);
   renderConvos();
@@ -2298,7 +2476,7 @@ export function waConsumeOpenRequest(){
 }
 
 function waFindByWaId(waId){
-  var lists=[waConvos, waAdExtra, waLabelExtra, waSearchExtra];
+  var lists=[waConvos, waAdExtra, waLabelExtra, waSearchExtra, waEscExtra];
   for(var i=0;i<lists.length;i++){
     for(var j=0;j<lists[i].length;j++){ if(lists[i][j].wa_id===waId) return lists[i][j]; }
   }
@@ -2650,7 +2828,7 @@ export function initInbox(){
     waRefreshConvos();
     if(waActiveId) waRefreshMessages(waActiveId,true);
   });
-  if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);if(waActiveId)waFetchMessages(waActiveId,true,false);});
+  if($id('wa-refresh'))$id('wa-refresh').addEventListener('click',function(){waFetchConvos(true);waLoadAiState();if(waActiveId)waFetchMessages(waActiveId,true,false);});
   if($id('wa-search'))$id('wa-search').addEventListener('input',function(){ waOnSearchInput(this.value); });
   if($id('wa-back'))$id('wa-back').addEventListener('click',function(){var w=$id('wa-wrap');if(w)w.classList.remove('show-chat');waActiveId=null;aiDraftReset();renderConvos();});
   if($id('wa-send-btn'))$id('wa-send-btn').addEventListener('click',waSend);

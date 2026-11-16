@@ -327,3 +327,30 @@
 .wa-qr-thumb-size{position:absolute;bottom:0;inset-inline-start:0;font-size:.55rem;line-height:1.2;background:rgba(0,0,0,.6);color:#fff;padding:1px 3px;border-start-end-radius:6px;direction:ltr;}
 .wa-qrm-heavybar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 2px;padding:6px 8px;border-radius:8px;background:rgba(217,119,6,.1);color:#b45309;font-size:.76rem;font-weight:700;}
 .wa-qrm-heavybar span{flex:1;min-width:160px;}
+
+/* ── v86: «🚩 تصعيد» من الـAI Agent + زرار البوت ON/OFF ── */
+.wa-conv-esc{display:flex;align-items:center;gap:3px;margin-top:3px;min-width:0;font-size:.66rem;font-weight:800;color:#b91c1c;}
+.wa-conv-esc span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.wa-esc-banner{display:flex;align-items:flex-start;gap:10px;margin-top:6px;padding:7px 10px;border-radius:8px;font-size:.78rem;font-weight:700;line-height:1.5;background:#fef2f2;color:#991b1b;border:1px solid #f87171;}
+.wa-esc-txt{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;}
+.wa-esc-txt b{font-weight:800;}
+.wa-esc-hint{display:block;font-size:.68rem;font-weight:600;opacity:.8;}
+.wa-esc-done{flex:0 0 auto;padding:4px 10px;border:1px solid #f87171;border-radius:999px;background:#fff;color:#991b1b;cursor:pointer;font-size:.72rem;font-weight:800;font-family:inherit;white-space:nowrap;}
+.wa-esc-done:hover{background:#991b1b;color:#fff;border-color:#991b1b;}
+.wa-ai-bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--brd);font-size:.74rem;font-weight:600;line-height:1.45;color:var(--muted);background:#f8fafc;}
+.wa-ai-bar.on{background:#ecfdf5;color:#065f46;border-bottom-color:#6ee7b7;}
+.wa-ai-bar-txt{flex:1 1 auto;min-width:0;}
+.wa-ai-bar-txt b{font-weight:800;color:var(--txt);}
+.wa-ai-bar.on .wa-ai-bar-txt b{color:#047857;}
+.wa-ai-sw{flex:0 0 auto;position:relative;display:inline-flex;align-items:center;width:58px;height:26px;padding:0 8px;border:1px solid var(--brd);border-radius:999px;background:#e2e8f0;cursor:pointer;font-family:inherit;direction:ltr;justify-content:flex-end;transition:background .15s;}
+.wa-ai-sw-knob{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s;}
+.wa-ai-sw-lbl{font-size:.62rem;font-weight:800;color:#475569;letter-spacing:.3px;}
+.wa-ai-sw.on{background:#10b981;border-color:#059669;justify-content:flex-start;}
+.wa-ai-sw.on .wa-ai-sw-knob{left:34px;}
+.wa-ai-sw.on .wa-ai-sw-lbl{color:#fff;}
+.wa-ai-sw.ro{cursor:not-allowed;opacity:.65;}
+@media (max-width:768px){
+  /* v86: chips النظام بقوا 4 («تصعيد») ومابيكفّوش 390px — بيتزحلقوا في صفهم زي التصنيفات بدل ما يعملوا صف تالت */
+  .wa-f-sys{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .wa-f-sys::-webkit-scrollbar{display:none;}
+}

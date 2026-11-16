@@ -1,8 +1,13 @@
-// wa-ai-draft — الـAI Agent بتاع الشات (shadow mode — 14 نوفمبر، طلب المالك).
+// wa-ai-draft — الـAI Agent بتاع الشات (shadow من 14 نوفمبر · الإرسال التلقائي بزرار ON/OFF من 16 نوفمبر — طلب المالك).
 // بيكتب «رد مقترح» لرسالة العميل الواردة ويخزّنه في wa_ai_drafts — والموظف يبعته/يعدّله/يرفضه من الصندوق.
 //
-// 🔴 الدالة دي عمرها ما بتبعت حاجة للعميل: مفيش أي نداء لميتا ولا لـwa-send هنا — الكتابة الوحيدة صف في wa_ai_drafts.
-//    حتى mode='auto' بيتعامل زي 'shadow' (الإرسال التلقائي مرحلة تانية بقرار المالك).
+// 🔴 الإرسال للعميل (autoRun) بيحصل في حالة واحدة بس: المسار العادي (مش dry_run ولا eval) **و** ai_settings.mode = 'auto'
+//    (الزرار ON — الأدمن بيشغّله من الصندوق عبر ai_agent_set_auto). في 'shadow' الدالة مابتبعتش حاجة: الكتابة الوحيدة صف في wa_ai_drafts.
+//    حراسات autoRun بالترتيب: الزرار بيتقري تاني قبل الإرسال · حجز ذري للمسودة (auto_sent_at) = مفيش إرسال مرتين ·
+//    العميل كتب تاني أو موظف رد = مفيش إرسال · نافذة الـ24 ساعة · سقف لكل محادثة ولكل يوم (_shared/ai-auto.ts) ·
+//    الرسالة بتتسجّل في wa_messages باسم BOT_NAME ومن غير sent_by (فمابتشيلش «تصعيد») · فشل الإرسال = تصعيد من غير إعادة ·
+//    3 أخطاء إرسال في ربع ساعة = الزرار بيرجع OFF لوحده. القرار نفسه (يبعت إيه) منطق نقي في _shared/ai-auto.ts.
+// 🔴 wa-send و wa-inbox-ingest و trg_wa_after_message_insert مايتلمسوش — الإرسال هنا نداء مباشر لميتا بنفس شكل wa-send.
 // 🔴 المفتاح: Secret `GEMINI_API_KEY` (Google AI Studio — Paid tier) — المالك ضافه بإيده، وعمره ما بيتطبع ولا بيرجع في رد.
 // 🔴 كل المعلومات اللي الموديل بيرد منها بتتجاب من الداتابيز هنا (قراية بس): ai_settings.facts · ai_products · كروت الردود المحفوظة ·
 //    أسعار الموقع (أوردرات آخر 24 ساعة) · أسماء المخزون · أوردرات العميل برقمه · آخر رسايل المحادثة. الموديل مالوش أي tool بيكتب.
@@ -21,12 +26,15 @@
 //    card_notes من الـbody للتقييم والـdry_run بس — المسار العادي بيقرا العمود وبس.
 // 🔴 tokens_cached (16 نوفمبر): cachedContentTokenCount من Gemini بيتسجّل مع كل مسودة — عشان نعرف الـimplicit caching بيتطبّق فعلاً ولا لأ.
 //   3) { action: "models" } — أسماء موديلات Gemini المتاحة للمفتاح (بيأكد إن المفتاح شغّال).
+// 🔴 dry_run والتقييم بيرجّعوا كمان «لو الزرار ON كان هيبعت إيه» (auto_preview / auto) — قرار بس، من غير أي إرسال.
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildSystemPrompt, buildUserPrompt, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
   type CardLite, type Draft, type DraftCtx, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
+import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan } from "../_shared/ai-auto.ts";
+import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
 import { CTX, EVAL_CASES, EVAL_FACTS_EXTRA, EVAL_TENANT, EXPECT } from "./eval-cases.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -36,6 +44,10 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefresh
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEBOUNCE_MS = 12000, HISTORY_N = 20, GEMINI_TIMEOUT_MS = 40000, EVAL_MAX = 60, EVAL_POOL = 6;
+const GRAPH = "https://graph.facebook.com/v18.0";
+// 🔴 نفس قايمة التريجر و preRule و AI_SKIP_TYPES (الواجهة): الأنواع دي مالهاش مسودة، فمابتتحسبش «رسالة أحدث من العميل»
+const SKIP_TYPES = ["button", "reaction", "sticker", "unsupported"];
+const AUTO_GAP_MS = 700, AUTO_SEND_TIMEOUT_MS = 20000, AUTO_FAIL_WINDOW_MS = 15 * 60000, AUTO_FAIL_TRIP = 3;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -115,6 +127,7 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
 interface Static {
   mode: string; model: string; layout: Layout; facts: Record<string, unknown>;
   products: ProductLite[]; cards: CardLite[]; allCards: CardLite[]; siteRows: SiteRow[]; stockNames: string[];
+  cardMedia: Map<string, string[]>; // صور كل كارت (مسارات wa-media) — للإرسال التلقائي بس، مابتدخلش الـprompt
   ads: Map<string, { name: string | null; productId: string | null }>;
 }
 async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>): Promise<Static | null> {
@@ -122,7 +135,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
   const [set, prods, qr, stock, site, ads] = await Promise.all([
     admin.from("ai_settings").select("mode, model, facts").eq("tenant_id", tenantId).maybeSingle(),
     admin.from("ai_products").select("id, name, aliases, site_names, quick_reply_id, assembled, facts").eq("tenant_id", tenantId).eq("active", true),
-    admin.from("wa_quick_replies").select("id, title, body, sort, ai_notes").eq("tenant_id", tenantId).order("sort", { ascending: true }),
+    admin.from("wa_quick_replies").select("id, title, body, sort, media, ai_notes").eq("tenant_id", tenantId).order("sort", { ascending: true }),
     admin.from("stock_products").select("name").eq("tenant_id", tenantId).eq("active", true).limit(400),
     admin.from("orders").select("product_name, total_cost, var, manufacturer_note, platform, exchange_of, line_prices, has_upsell")
       .eq("tenant_id", tenantId).gte("created_at", since).limit(1000),
@@ -134,7 +147,14 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
   // الاستعلام بالعمود الجديد وقع (العمود اتشال/الكاش قديم) = الكروت ماتختفيش: نرجع للاستعلام القديم من غير المعلومات
   // deno-lint-ignore no-explicit-any
   let qrRows: any[] | null = qr.data;
-  if (qr.error) qrRows = (await admin.from("wa_quick_replies").select("id, title, body, sort").eq("tenant_id", tenantId).order("sort", { ascending: true })).data;
+  if (qr.error) qrRows = (await admin.from("wa_quick_replies").select("id, title, body, sort, media").eq("tenant_id", tenantId).order("sort", { ascending: true })).data;
+  const cardMedia = new Map<string, string[]>();
+  // deno-lint-ignore no-explicit-any
+  for (const c of (qrRows || []) as any[]) {
+    // deno-lint-ignore no-explicit-any
+    const paths = Array.isArray(c.media) ? c.media.map((m: any) => String(m?.path || "")).filter(Boolean) : [];
+    if (paths.length) cardMedia.set(String(c.id), paths);
+  }
   // deno-lint-ignore no-explicit-any
   const allCards: CardLite[] = (qrRows || []).filter((c: any) => String(c.title || "").trim() && String(c.body || "").trim())
     // deno-lint-ignore no-explicit-any
@@ -142,7 +162,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
   return {
     mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), facts,
     products: (prods.data || []) as ProductLite[],
-    allCards, cards: allCards.filter((c) => !skip.includes(c.title)),
+    allCards, cards: allCards.filter((c) => !skip.includes(c.title)), cardMedia,
     siteRows: siteRowsFrom(site.data || []),
     // deno-lint-ignore no-explicit-any
     stockNames: (stock.data || []).map((s: any) => String(s.name || "").trim()).filter(Boolean),
@@ -183,6 +203,182 @@ async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: 
   return { draft, model, tokensIn: g.tokensIn, tokensOut: g.tokensOut, tokensCached: g.tokensCached, ms: g.ms, error: draft ? null : "bad_output" };
 }
 
+// ── الإرسال التلقائي (الزرار ON) ─────────────────────────────────────
+interface AutoState {
+  ok: boolean; waId: string | null; lastInboundAt: string | null; escAt: string | null; escNote: string | null;
+  holdSent: boolean; turnsInConv: number; turnsToday: number; cardRepeat: number;
+}
+const NO_STATE: AutoState = { ok: false, waId: null, lastInboundAt: null, escAt: null, escNote: null, holdSent: false, turnsInConv: 0, turnsToday: 0, cardRepeat: 0 };
+/** حالة المحادثة والسقوف. أي استعلام وقع (أعمدة لسه مااتضافتش مثلاً) = ok:false = مفيش إرسال. */
+async function autoState(tenantId: string, convId: string, cardTitle: string | null, exceptDraftId: string | null): Promise<AutoState> {
+  const sinceConv = new Date(Date.now() - AUTO_TURNS_WINDOW_MS).toISOString();
+  const sinceDay = new Date(Date.now() - 24 * 3600000).toISOString();
+  const [cv, inConv, today] = await Promise.all([
+    admin.from("wa_conversations").select("wa_id, last_inbound_at, ai_escalated_at, ai_escalation_note, ai_hold_at")
+      .eq("id", convId).eq("tenant_id", tenantId).maybeSingle(),
+    admin.from("wa_ai_drafts").select("id, auto_result").eq("tenant_id", tenantId).eq("conversation_id", convId)
+      .gt("auto_sent_n", 0).gte("auto_sent_at", sinceConv).limit(80),
+    admin.from("wa_ai_drafts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)
+      .gt("auto_sent_n", 0).gte("auto_sent_at", sinceDay),
+  ]);
+  if (cv.error || !cv.data || inConv.error || today.error) return NO_STATE;
+  // deno-lint-ignore no-explicit-any
+  const rows = ((inConv.data || []) as any[]).filter((r) => r.id !== exceptDraftId);
+  return {
+    ok: true, waId: cv.data.wa_id || null, lastInboundAt: cv.data.last_inbound_at || null,
+    escAt: cv.data.ai_escalated_at || null, escNote: cv.data.ai_escalation_note || null, holdSent: !!cv.data.ai_hold_at,
+    turnsInConv: rows.length, turnsToday: Number(today.count) || 0,
+    cardRepeat: cardTitle ? rows.filter((r) => r.auto_result?.card === cardTitle).length : 0,
+  };
+}
+function planFor(st: Static, r: Result, state: AutoState, tenantId: string): { plan: AutoPlan; card: AutoCard | null } {
+  const cardRow = r.draft?.card ? st.cards.find((c) => c.title === r.draft!.card) : null;
+  // صور الكارت: مسارات `<tenant>/quick-replies/…` بس (نفس شرط wa-media) — صورة بمسار تاني بتتساب بدل ما توقّع الرد كله
+  const card: AutoCard | null = cardRow
+    ? { title: cardRow.title, body: cardRow.body, images: (st.cardMedia.get(cardRow.id) || []).filter((p) => isQuickReplyPath(tenantId, p)) } : null;
+  const plan = autoPlan({
+    draft: r.draft, fromModel: !!r.model, error: r.error, card, cardRepeat: state.cardRepeat, holdSent: state.holdSent,
+    turnsInConv: state.turnsInConv, turnsToday: state.turnsToday,
+    holdMessage: typeof st.facts.hold_message === "string" ? st.facts.hold_message as string : null,
+  });
+  return { plan, card };
+}
+function planPreview(plan: AutoPlan): Record<string, unknown> {
+  return {
+    reason: plan.reason, escalate: plan.escalate,
+    actions: plan.actions.map((a) => a.kind === "image" ? { kind: "image", caption: a.caption ? a.caption.slice(0, 80) : null } : { kind: "text", tag: a.tag, body: a.body }),
+  };
+}
+
+/** رسالة واحدة لميتا + صف في wa_messages باسم البوت. بيرجّع null لو اتبعتت، أو سبب الفشل (من غير أي إعادة — التكرار أسوأ من الغياب). */
+async function sendAction(a: AutoAction, tenantId: string, convId: string, to: string, phoneId: string, token: string): Promise<string | null> {
+  // deno-lint-ignore no-explicit-any
+  let payload: any;
+  let storedType = "text", storedBody: string | null = null, mediaPath: string | null = null, usedMediaId = false;
+  if (a.kind === "image") {
+    if (!isQuickReplyPath(tenantId, a.path)) return "bad_media_path";
+    const cap = a.caption ? { caption: a.caption } : {};
+    const mediaId = await quickReplyMediaId({ svc: admin, graph: GRAPH }, tenantId, phoneId, token, a.path);
+    if (mediaId) { usedMediaId = true; payload = { messaging_product: "whatsapp", to, type: "image", image: { id: mediaId, ...cap } }; }
+    else {
+      const signed = await admin.storage.from("wa-media").createSignedUrl(a.path, 600);
+      const link = signed.data?.signedUrl;
+      if (!link) return "media_url_failed";
+      payload = { messaging_product: "whatsapp", to, type: "image", image: { link, ...cap } };
+    }
+    storedType = "image"; storedBody = a.caption || null; mediaPath = a.path;
+  } else {
+    payload = { messaging_product: "whatsapp", to, type: "text", text: { body: a.body } };
+    storedBody = a.body;
+  }
+  // deno-lint-ignore no-explicit-any
+  const post = async (): Promise<{ ok: boolean; status: number; j: any } | null> => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), AUTO_SEND_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${GRAPH}/${phoneId}/messages`, {
+        method: "POST", signal: ctl.signal,
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      return { ok: res.ok, status: res.status, j: await res.json().catch(() => ({})) };
+    } catch { return null; } finally { clearTimeout(timer); }
+  };
+  let out = await post();
+  if (!out) return "wa_fetch_error"; // مش عارفين اتبعتت ولا لأ — مابنعيدش
+  if (!out.ok && usedMediaId && a.kind === "image" && shouldRetryWithLink(out.status, out.j?.error?.code)) {
+    const signed = await admin.storage.from("wa-media").createSignedUrl(a.path, 600);
+    const link = signed.data?.signedUrl;
+    if (link) {
+      payload.image = { link, ...(a.caption ? { caption: a.caption } : {}) };
+      out = await post();
+      if (!out) return "wa_fetch_error";
+      if (out.ok) await forgetMediaId(admin, tenantId, phoneId, a.path);
+    }
+  }
+  if (!out.ok) return "wa_" + out.status + ": " + String(out.j?.error?.message || "").slice(0, 160);
+  const ins = await admin.from("wa_messages").insert({
+    tenant_id: tenantId, conversation_id: convId, wa_message_id: out.j?.messages?.[0]?.id || null, direction: "out",
+    type: storedType, body: storedBody, media_path: mediaPath, status: "sent", wa_timestamp: new Date().toISOString(),
+    sent_by: null, sent_by_name: BOT_NAME,
+  });
+  if (ins.error) console.error("wa-ai-draft auto: message sent but not stored", ins.error.code || "");
+  return null;
+}
+
+/** 3 أخطاء إرسال في ربع ساعة = الزرار بيرجع OFF لوحده (توكن اتلغى · الرقم اتقفل · ميتا واقعة) — البوت مايفضلش يحاول طول الليل. */
+async function autoBreaker(tenantId: string): Promise<void> {
+  const since = new Date(Date.now() - AUTO_FAIL_WINDOW_MS).toISOString();
+  const { count } = await admin.from("wa_ai_drafts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)
+    .gte("auto_sent_at", since).not("auto_result->>error", "is", null);
+  if ((Number(count) || 0) < AUTO_FAIL_TRIP) return;
+  const by = "إيقاف تلقائي — أخطاء إرسال";
+  const { data } = await admin.from("ai_settings").update({ mode: "shadow", auto_changed_at: new Date().toISOString(), auto_changed_by_name: by })
+    .eq("tenant_id", tenantId).eq("mode", "auto").select("tenant_id");
+  if (data && data.length) await admin.from("ai_mode_log").insert({ tenant_id: tenantId, mode: "shadow", by_name: by });
+}
+
+// deno-lint-ignore no-explicit-any
+async function autoRun(msg: any, st: Static, r: Result, draftId: string): Promise<Record<string, unknown>> {
+  // 1) الزرار لسه ON؟ (المالك ممكن يكون طفّاه وإحنا مستنيين الموديل)
+  const { data: now1 } = await admin.from("ai_settings").select("mode").eq("tenant_id", msg.tenant_id).maybeSingle();
+  if (now1?.mode !== "auto") return { auto: "mode_changed" };
+  // 2) حجز ذري — نداء مكرر لنفس الرسالة مايبعتش مرتين
+  const { data: claim } = await admin.from("wa_ai_drafts").update({ auto_sent_at: new Date().toISOString(), auto_sent_n: 0 })
+    .eq("id", draftId).is("auto_sent_at", null).select("id");
+  if (!claim || !claim.length) return { auto: "already_claimed" };
+  const finish = async (res: Record<string, unknown>, n: number, markSent: boolean): Promise<Record<string, unknown>> => {
+    await admin.from("wa_ai_drafts").update({ auto_sent_n: n, auto_result: res }).eq("id", draftId);
+    if (markSent) await admin.from("wa_ai_drafts").update({ status: "sent" }).eq("id", draftId).eq("status", "pending");
+    return { auto: res.reason, sent: n, error: res.error || null };
+  };
+  // 3) العميل كتب تاني (رسالته هي اللي هترد) أو حد رد خلاص
+  //    (نفس شكل الفحص اللي قبل الموديل: أحدث الرسايل والمقارنة هنا — من غير فلتر وقت في الاستعلام)
+  const { data: latest, error: newerErr } = await admin.from("wa_messages").select("id, direction, type, sent_by, created_at")
+    .eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id).order("created_at", { ascending: false }).limit(30);
+  if (newerErr) return finish({ reason: "recheck_error", error: null }, 0, false);
+  // deno-lint-ignore no-explicit-any
+  const newer = (latest || []).filter((x: any) => x.created_at > msg.created_at && x.id !== msg.id);
+  // deno-lint-ignore no-explicit-any
+  if ((newer || []).some((x: any) => x.direction === "in" && !SKIP_TYPES.includes(String(x.type)))) return finish({ reason: "superseded", error: null }, 0, false);
+  // deno-lint-ignore no-explicit-any
+  if ((newer || []).some((x: any) => x.direction === "out" && x.sent_by)) return finish({ reason: "answered", error: null }, 0, false);
+  // 4) الحالة والسقوف ونافذة الـ24 ساعة
+  const state = await autoState(msg.tenant_id, msg.conversation_id, r.draft?.card || null, draftId);
+  if (!state.ok) return finish({ reason: "state_error", error: null }, 0, false);
+  const lastIn = state.lastInboundAt ? Date.parse(state.lastInboundAt) : 0;
+  if (!lastIn || Date.now() - lastIn >= 24 * 3600000) return finish({ reason: "window_closed", error: null }, 0, false);
+  const { plan, card } = planFor(st, r, state, msg.tenant_id);
+  // 5) الإرسال — بالترتيب، وأول فشل بيوقّف الباقي
+  let sent = 0, sendErr: string | null = null, holdNow = false, cardSent = false;
+  const kinds: string[] = [];
+  if (plan.actions.length) {
+    const { data: tenant } = await admin.from("tenants").select("whatsapp_token, whatsapp_phone_id").eq("id", msg.tenant_id).maybeSingle();
+    if (!tenant?.whatsapp_token || !tenant?.whatsapp_phone_id || !state.waId) sendErr = "no_wa_config";
+    else for (const a of plan.actions) {
+      if (sent) await sleep(AUTO_GAP_MS);
+      const e = await sendAction(a, msg.tenant_id, msg.conversation_id, state.waId, String(tenant.whatsapp_phone_id), String(tenant.whatsapp_token));
+      if (e) { sendErr = e; break; }
+      sent++;
+      if (a.kind === "image") { kinds.push("image"); cardSent = true; }
+      else { kinds.push(a.tag); if (a.tag === "hold") holdNow = true; if (a.tag === "card_text") cardSent = true; }
+    }
+  }
+  // 6) «تصعيد» على المحادثة (بيتشال لما موظف يرد — trg_wa_ai_escalation_clear)
+  const escNote = sendErr ? mergeEscNote(plan.escalate, "البوت معرفش يبعت الرد (" + sendErr.slice(0, 120) + ")") : plan.escalate;
+  if (escNote || holdNow) {
+    const patch: Record<string, unknown> = {};
+    if (escNote) { patch.ai_escalated_at = state.escAt || new Date().toISOString(); patch.ai_escalation_note = mergeEscNote(state.escNote, escNote); }
+    if (holdNow) patch.ai_hold_at = new Date().toISOString();
+    const up = await admin.from("wa_conversations").update(patch).eq("id", msg.conversation_id).eq("tenant_id", msg.tenant_id);
+    if (up.error) console.error("wa-ai-draft auto: escalation flag failed", up.error.code || "");
+  }
+  // 7) الأثر على المسودة — «sent» للرد الحقيقي اللي اتبعت كله بس (التصعيد بيفضل pending عشان الموظف يشوف الملاحظة)
+  const realReply = ["answer", "collect", "clarify", "order_lookup"].includes(plan.reason);
+  const out = await finish({ reason: plan.reason, kinds, card: cardSent && card ? card.title : null, escalated: !!escNote, error: sendErr }, sent, realReply && sent > 0 && !sendErr);
+  if (sendErr) await autoBreaker(msg.tenant_id);
+  return out;
+}
+
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
 async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null): Promise<Record<string, unknown>> {
   const { data: msg } = await admin.from("wa_messages")
@@ -197,16 +393,18 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   if (!dry) await sleep(DEBOUNCE_MS);
 
   const { data: recent } = await admin.from("wa_messages")
-    .select("id, direction, type, body, created_at").eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id)
+    .select("id, direction, type, body, created_at, sent_by").eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id)
     .order("created_at", { ascending: false }).limit(HISTORY_N + 20);
   const rows = recent || [];
   // deno-lint-ignore no-explicit-any
   const newer = rows.filter((r: any) => r.created_at > msg.created_at && r.id !== msg.id);
   if (!dry) {
     // deno-lint-ignore no-explicit-any
-    if (newer.some((r: any) => r.direction === "in")) return { skipped: "superseded" }; // الرسالة الأحدث هي اللي هتعمل المسودة
+    if (newer.some((r: any) => r.direction === "in" && !SKIP_TYPES.includes(String(r.type)))) return { skipped: "superseded" }; // الرسالة الأحدث هي اللي هتعمل المسودة (تفاعل/زرار مالوش مسودة فمابيتحسبش)
     // deno-lint-ignore no-explicit-any
-    if (newer.some((r: any) => r.direction === "out")) return { skipped: "answered" };  // موظف رد خلاص
+    // 🔴 «اترد عليها» = رسالة من **موظف** (sent_by) بس. رسالة البوت نفسه أو رسالة «المندوب في الطريق» التلقائية مش رد على رسالة العميل دي:
+    //    من غير الشرط، عميل كتب رسالة تانية في الثانية اللي البوت بيبعت فيها رد الأولى كانت رسالته التانية بتتساب من غير رد.
+    if (newer.some((r: any) => r.direction === "out" && r.sent_by)) return { skipped: "answered" };
   }
   // deno-lint-ignore no-explicit-any
   const history: HistMsg[] = rows.filter((r: any) => r.created_at <= msg.created_at).slice(0, HISTORY_N).reverse()
@@ -235,7 +433,12 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     orders, ordersKnown: forms.length > 0, history,
   };
   const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body }, modelOverride || st.model);
-  if (dry) return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error };
+  if (dry) {
+    // «لو الزرار ON كان هيبعت إيه» — قراية بس، من غير أي إرسال ولا كتابة
+    const state = await autoState(msg.tenant_id, msg.conversation_id, r.draft?.card || null, null);
+    const auto_preview = { state_ok: state.ok, ...planPreview(planFor(st, r, state, msg.tenant_id).plan) };
+    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview };
+  }
 
   if (r.draft && r.draft.behavior === "skip" && !r.model) return { skipped: "pre_rule_skip" }; // ضغطة زرار/تفاعل — مش محتاجة صف
   const cardRow = r.draft?.card ? st.cards.find((c) => c.title === r.draft!.card) : null;
@@ -247,8 +450,12 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     model: r.model, tokens_in: r.tokensIn || null, tokens_out: r.tokensOut || null, tokens_cached: r.model ? r.tokensCached : null, latency_ms: r.ms || null,
     error: r.error ? String(r.error).slice(0, 300) : null,
   };
-  const { error } = await admin.from("wa_ai_drafts").upsert(row, { onConflict: "trigger_message_id", ignoreDuplicates: true });
-  return { drafted: !error, behavior: row.behavior, error: error ? "insert_failed" : r.error };
+  // select = نعرف الصف اتدخل فعلاً ولا كان موجود (نداء مكرر) — المكرر مابيبعتش حاجة
+  const { data: ins, error } = await admin.from("wa_ai_drafts").upsert(row, { onConflict: "trigger_message_id", ignoreDuplicates: true }).select("id");
+  const draftId = !error && ins && ins.length ? String(ins[0].id) : null;
+  // 🔴 الإرسال للعميل: الزرار ON بس (mode = 'auto') — وفي shadow مفيش أي نداء لميتا
+  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId) : null;
+  return { drafted: !error, behavior: row.behavior, error: error ? "insert_failed" : r.error, ...(auto || {}) };
 }
 
 // ── التقييم: حالات eval-cases.ts بسياق وهمي — صفر كتابة ──────────────
@@ -282,9 +489,11 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       };
       const r = await draftFor(st, cv, { type: type || "text", body: text }, model, gen, evalRules);
       const want = EXPECT[exp];
+      const ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
       results.push({
         n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",
         card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error,
+        auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
       });
     }
   }

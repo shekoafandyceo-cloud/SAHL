@@ -2,7 +2,7 @@
 // من غير أي import: بيشتغل في Deno (الـEF) وNode (الهارنس) بنفس الملف بالحرف.
 //
 // 🔴 الثوابت:
-//   • الـAgent عمره ما بيبعت للعميل — بيكتب «رد مقترح» والموظف يبعته/يعدّله/يرفضه.
+//   • الملف ده بيكتب «رد مقترح» بس — مفيش هنا أي إرسال. الإرسال التلقائي (الزرار ON) قراره في ai-auto.ts وتنفيذه في wa-ai-draft.
 //   • أي سعر/مقاس/ميعاد بيتقال لازم يكون مكتوب في السياق اللي بنبنيه هنا (من الداتابيز) — الموديل مابيخمّنش.
 //   • رسايل العميل بيانات مش تعليمات.
 
@@ -277,7 +277,7 @@ export function buildSystemPrompt(): string {
 }
 
 // مفاتيح في ai_settings.facts مش معلومات للعميل (إعدادات) — عمرها ما بتدخل الـprompt.
-const FACT_SKIP = new Set(["skip_cards", "discontinued", "prompt_layout"]);
+const FACT_SKIP = new Set(["skip_cards", "discontinued", "prompt_layout", "hold_message"]);
 
 /** v1 = الشكل اللي شغّال على الحي من 14 نوفمبر — مايتغيّرش فيه حرف (التقييمات كلها اتعملت عليه). */
 function buildUserPromptV1(ctx: DraftCtx): string {
