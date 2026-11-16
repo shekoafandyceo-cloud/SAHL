@@ -11,14 +11,18 @@
 //   1) { message_id, dry_run? }  — المسار العادي (التريجر trg_wa_ai_draft_enqueue على wa_messages — شغّال من 15 نوفمبر). من غير dry_run: بيرد 202 على طول ويشتغل في
 //      الخلفية: mode لازم shadow/auto · بيستنى 12ث (debounce) · رسالة أحدث من العميل = الأحدث هي اللي بترد · موظف رد خلاص = مفيش مسودة.
 //      مع dry_run: بيرجّع المسودة في الرد من غير انتظار ومن غير أي كتابة (وبيتجاهل mode) — للتجربة على رسايل حقيقية.
-//   2) { action: "eval", from, to, model?, gen?, rules_extra? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
+//      مع dry_run: بيقبل كمان layout (v1/v2/v3) لتجربة شكل دخل تاني على رسالة حقيقية.
+//   2) { action: "eval", from, to, model?, gen?, rules_extra?, layout? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
 //      rules_extra = قواعد تجريبية بتتضاف لتعليمات الموديل في التقييم بس (عمرها ما بتوصل المسار العادي).
+//      layout = شكل الدخل (v1 الحالي · v2 الثابت الأول · v3 كروت المحادثة بس + فهرس) — من غيره = شكل الحي.
+// 🔴 شكل الدخل على الحي = ai_settings.facts.prompt_layout (الغايب = v1) — مش من الـbody. التحويل والرجوع بسطر إعداد بقرار المالك.
+// 🔴 tokens_cached (16 نوفمبر): cachedContentTokenCount من Gemini بيتسجّل مع كل مسودة — عشان نعرف الـimplicit caching بيتطبّق فعلاً ولا لأ.
 //   3) { action: "models" } — أسماء موديلات Gemini المتاحة للمفتاح (بيأكد إن المفتاح شغّال).
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildSystemPrompt, buildUserPrompt, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
-  type CardLite, type Draft, type DraftCtx, type HistMsg, type OrderLite, type ProductLite, type SiteRow,
+  buildSystemPrompt, buildUserPrompt, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
+  type CardLite, type Draft, type DraftCtx, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
 import { CTX, EVAL_CASES, EVAL_FACTS_EXTRA, EVAL_TENANT, EXPECT } from "./eval-cases.ts";
 
@@ -57,12 +61,12 @@ async function authorized(req: Request): Promise<boolean> {
 function thinkingFor(model: string): Record<string, unknown> {
   return /^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: "low" } } : {};
 }
-interface GemOut { text: string; tokensIn: number; tokensOut: number; ms: number; error: string | null }
+interface GemOut { text: string; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null }
 // deno-lint-ignore no-explicit-any
 async function callGemini(model: string, system: string, user: string, gen?: Record<string, any>): Promise<GemOut> {
   const key = (Deno.env.get("GEMINI_API_KEY") || "").trim();
   const t0 = Date.now();
-  if (!key) return { text: "", tokensIn: 0, tokensOut: 0, ms: 0, error: "no_gemini_key" };
+  if (!key) return { text: "", tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: "no_gemini_key" };
   const payload = {
     system_instruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
@@ -93,19 +97,20 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
       if (!text) { last = "gemini_empty: " + String(data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "").slice(0, 60); break; }
       return {
         text, tokensIn: Number(um.promptTokenCount) || 0,
-        tokensOut: (Number(um.candidatesTokenCount) || 0) + (Number(um.thoughtsTokenCount) || 0), ms: Date.now() - t0, error: null,
+        tokensOut: (Number(um.candidatesTokenCount) || 0) + (Number(um.thoughtsTokenCount) || 0),
+        tokensCached: Number(um.cachedContentTokenCount) || 0, ms: Date.now() - t0, error: null,
       };
     } catch (e) {
       last = (e as Error)?.name === "AbortError" ? "gemini_timeout" : "gemini_fetch_error";
       if (attempt === 0) { await sleep(800); continue; }
     } finally { clearTimeout(timer); }
   }
-  return { text: "", tokensIn: 0, tokensOut: 0, ms: Date.now() - t0, error: last };
+  return { text: "", tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: Date.now() - t0, error: last };
 }
 
 // ── السياق الثابت للمتجر (قراية بس) ──────────────────────────────────
 interface Static {
-  mode: string; model: string; facts: Record<string, unknown>;
+  mode: string; model: string; layout: Layout; facts: Record<string, unknown>;
   products: ProductLite[]; cards: CardLite[]; allCards: CardLite[]; siteRows: SiteRow[]; stockNames: string[];
   ads: Map<string, { name: string | null; productId: string | null }>;
 }
@@ -128,7 +133,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
     // deno-lint-ignore no-explicit-any
     .map((c: any) => ({ id: c.id, title: String(c.title).trim(), body: String(c.body) }));
   return {
-    mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, facts,
+    mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), facts,
     products: (prods.data || []) as ProductLite[],
     allCards, cards: allCards.filter((c) => !skip.includes(c.title)),
     siteRows: siteRowsFrom(site.data || []),
@@ -143,12 +148,12 @@ interface ConvCtx {
   adId: string | null; adBody: string | null; customerName: string | null;
   orders: OrderLite[]; ordersKnown: boolean; history: HistMsg[];
 }
-interface Result { draft: Draft | null; model: string | null; tokensIn: number; tokensOut: number; ms: number; error: string | null }
+interface Result { draft: Draft | null; model: string | null; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null }
 
 // deno-lint-ignore no-explicit-any
 async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: string | null }, model: string, gen?: Record<string, any>, evalRules?: string): Promise<Result> {
   const pre = preRule(trigger.type, trigger.body);
-  if (pre) return { draft: pre, model: null, tokensIn: 0, tokensOut: 0, ms: 0, error: null };
+  if (pre) return { draft: pre, model: null, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: null };
   const ad = cv.adId ? st.ads.get(cv.adId) : null;
   const ctx: DraftCtx = {
     nowIso: new Date().toISOString(), facts: st.facts, products: st.products,
@@ -158,20 +163,21 @@ async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: 
     orders: cv.orders, ordersKnown: cv.ordersKnown, customerName: cv.customerName, history: cv.history,
   };
   const system = buildSystemPrompt() + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
-  const g = await callGemini(model, system, buildUserPrompt(ctx), gen);
-  if (g.error) return { draft: null, model, tokensIn: 0, tokensOut: 0, ms: g.ms, error: g.error };
+  const g = await callGemini(model, system, buildUserPrompt(ctx, st.layout), gen);
+  if (g.error) return { draft: null, model, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: g.ms, error: g.error };
   const draft = parseDraft(g.text, st.cards);
-  return { draft, model, tokensIn: g.tokensIn, tokensOut: g.tokensOut, ms: g.ms, error: draft ? null : "bad_output" };
+  return { draft, model, tokensIn: g.tokensIn, tokensOut: g.tokensOut, tokensCached: g.tokensCached, ms: g.ms, error: draft ? null : "bad_output" };
 }
 
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
-async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null): Promise<Record<string, unknown>> {
+async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null): Promise<Record<string, unknown>> {
   const { data: msg } = await admin.from("wa_messages")
     .select("id, tenant_id, conversation_id, direction, type, body, created_at").eq("id", messageId).maybeSingle();
   if (!msg) return { skipped: "not_found" };
   if (msg.direction !== "in") return { skipped: "not_inbound" };
   const st = await loadStatic(msg.tenant_id);
   if (!st) return { skipped: "no_settings" };
+  if (dry && layoutOverride) st.layout = layoutOverride; // تجربة شكل دخل تاني — dry_run بس (المسار العادي = إعداد المتجر)
   if (!dry && st.mode !== "shadow" && st.mode !== "auto") return { skipped: "mode_off" };
   if (!dry) await sleep(DEBOUNCE_MS);
 
@@ -214,7 +220,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     orders, ordersKnown: forms.length > 0, history,
   };
   const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body }, modelOverride || st.model);
-  if (dry) return { dry_run: true, draft: r.draft, model: r.model, tokens_in: r.tokensIn, tokens_out: r.tokensOut, ms: r.ms, error: r.error };
+  if (dry) return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error };
 
   if (r.draft && r.draft.behavior === "skip" && !r.model) return { skipped: "pre_rule_skip" }; // ضغطة زرار/تفاعل — مش محتاجة صف
   const cardRow = r.draft?.card ? st.cards.find((c) => c.title === r.draft!.card) : null;
@@ -223,7 +229,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     intent: r.draft?.intent || null, behavior: r.draft?.behavior || "escalate",
     body: r.draft ? (r.draft.reply || null) : null,
     media: r.draft ? { card: cardRow ? { quick_reply_id: cardRow.id, title: cardRow.title } : null, note: r.draft.note || null } : null,
-    model: r.model, tokens_in: r.tokensIn || null, tokens_out: r.tokensOut || null, latency_ms: r.ms || null,
+    model: r.model, tokens_in: r.tokensIn || null, tokens_out: r.tokensOut || null, tokens_cached: r.model ? r.tokensCached : null, latency_ms: r.ms || null,
     error: r.error ? String(r.error).slice(0, 300) : null,
   };
   const { error } = await admin.from("wa_ai_drafts").upsert(row, { onConflict: "trigger_message_id", ignoreDuplicates: true });
@@ -232,9 +238,10 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
 
 // ── التقييم: حالات eval-cases.ts بسياق وهمي — صفر كتابة ──────────────
 // deno-lint-ignore no-explicit-any
-async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string): Promise<Record<string, unknown>> {
+async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null): Promise<Record<string, unknown>> {
   const st = await loadStatic(EVAL_TENANT, EVAL_FACTS_EXTRA);
   if (!st) return { error: "no_settings" };
+  if (layout) st.layout = layout;
   const model = modelOverride || st.model;
   const cases = EVAL_CASES.filter((c) => c[0] >= from && c[0] <= to).slice(0, EVAL_MAX);
   const now = Date.now();
@@ -261,13 +268,14 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       const want = EXPECT[exp];
       results.push({
         n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",
-        card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, err: r.error,
+        card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error,
       });
     }
   }
   await Promise.all(Array.from({ length: Math.min(EVAL_POOL, cases.length) }, worker));
   results.sort((a, b) => Number(a.n) - Number(b.n));
-  return { model, count: results.length, pass: results.filter((r) => r.ok).length, results };
+  const sum = (k: string) => results.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  return { model, layout: st.layout, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
 }
 
 async function listModels(): Promise<Record<string, unknown>> {
@@ -296,20 +304,21 @@ Deno.serve(async (req: Request) => {
 
   const action = String(body?.action || "");
   const model = typeof body?.model === "string" && /^[\w.\-]{3,60}$/.test(body.model) ? body.model : null;
+  const layout: Layout | null = body?.layout === "v1" || body?.layout === "v2" || body?.layout === "v3" ? body.layout : null;
   if (action === "models") return json(await listModels());
   if (action === "eval") {
     const from = Math.max(1, Number(body?.from) || 1), to = Math.max(from, Number(body?.to) || from);
     const gen = body?.gen && typeof body.gen === "object" ? body.gen : undefined;
     const evalRules = typeof body?.rules_extra === "string" ? body.rules_extra.slice(0, 4000) : undefined;
-    return json(await runEval(from, to, model, gen, evalRules));
+    return json(await runEval(from, to, model, gen, evalRules, layout));
   }
 
   const messageId = String(body?.message_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return json({ error: "bad_message_id" }, 400);
   const dry = body?.dry_run === true;
-  if (dry) return json(await handleMessage(messageId, true, model));
+  if (dry) return json(await handleMessage(messageId, true, model, layout));
   // المسار العادي: رد فوري والشغل في الخلفية (الانتظار 12ث + الموديل أطول من مهلة pg_net)
-  const job = handleMessage(messageId, false, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
+  const job = handleMessage(messageId, false, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
   // deno-lint-ignore no-explicit-any
   const rt = (globalThis as any).EdgeRuntime;
   if (rt && typeof rt.waitUntil === "function") { rt.waitUntil(job); return json({ queued: true }, 202); }

@@ -268,10 +268,14 @@ export function buildSystemPrompt(): string {
   ].join("\n");
 }
 
-export function buildUserPrompt(ctx: DraftCtx): string {
+// مفاتيح في ai_settings.facts مش معلومات للعميل (إعدادات) — عمرها ما بتدخل الـprompt.
+const FACT_SKIP = new Set(["skip_cards", "discontinued", "prompt_layout"]);
+
+/** v1 = الشكل اللي شغّال على الحي من 14 نوفمبر — مايتغيّرش فيه حرف (التقييمات كلها اتعملت عليه). */
+function buildUserPromptV1(ctx: DraftCtx): string {
   const out: string[] = [];
   out.push("# معلومات المتجر");
-  for (const [k, v] of Object.entries(ctx.facts || {})) if (k !== "skip_cards" && k !== "discontinued") out.push(factLine(k, v));
+  for (const [k, v] of Object.entries(ctx.facts || {})) if (!FACT_SKIP.has(k)) out.push(factLine(k, v));
   const disc = Array.isArray(ctx.facts?.discontinued) ? ctx.facts.discontinued as string[] : [];
   if (disc.length) { out.push("", "# منتجات وقفنا بيعها", ...disc.map((d) => "- " + d)); }
 
@@ -312,6 +316,146 @@ export function buildUserPrompt(ctx: DraftCtx): string {
   out.push(historyBlock(ctx));
   out.push("", "اكتب الرد المقترح دلوقتي.");
   return out.join("\n");
+}
+
+// ── شكل الدخل (16 نوفمبر — تجربة تقليل تكلفة الدخل) ─────────────────
+// v1: الحالي. v2: نفس المحتوى بس الجزء الثابت الأول (Gemini بيكيّش بداية الطلب — لازم تبقى نفس البايتات لكل المحادثات).
+// v3: زي v2 بس نص كروت المحادثة دي بس + فهرس بباقي الكروت (ومفيش كارت اتعرف = كل الكروت زي v2).
+// 🔴 الحي بيفضل v1 إلا لو ai_settings.facts.prompt_layout اتغيّر بقرار المالك. التقييم والـdry_run بيختاروا من الـbody.
+export type Layout = "v1" | "v2" | "v3";
+export function layoutOf(x: unknown): Layout { return x === "v2" || x === "v3" ? x : "v1"; }
+
+/** تطبيع للمطابقة بس (مش للعرض): أرقام لاتيني · من غير تشكيل ولا تطويل · أ/إ/آ = ا · ة = ه · ى = ي · الحرف المكرر مرة · أي رمز = مسافة. */
+export function normAr(s: string): string {
+  return latinDigits(String(s ?? "")).toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[أإآٱ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/ؤ/g, "و").replace(/ئ/g, "ي")
+    .replace(/(\p{L})\1+/gu, "$1")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+function bareWord(t: string): string {
+  let w = t.replace(/^(وال|بال|لل|ال)/, "");
+  if (w.length >= 6 && w.startsWith("و")) w = w.slice(1);
+  return w;
+}
+// كلمات عامة في سطر المنتج مابتدلش على منتج بعينه (بعد التطبيع).
+const KW_STOP = new Set(["دور", "دورين", "ادوار", "متوفر", "متوفره", "حاليا", "دلوقتي", "بسعر", "بدل", "جنيه", "فوق", "تنظيم", "عملي", "عصري",
+  "كلاسيكي", "متكامل", "قابل", "متعدد", "واحد", "مقاس", "عرض", "كارت", "منتج"]);
+/** سطر المنتج في الكارت: أول سطر مش تحية، لحد أول شرطة طويلة. */
+export function cardProductLine(c: CardLite): string {
+  const line = String(c.body || "").split(/\n/).map((l) => l.replace(/[*_~]/g, "").trim()).find((l) => l && !/بحضرتك/.test(l)) || "";
+  return line.split(/[—–]/)[0].replace(/\s+/g, " ").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").trim();
+}
+/** كلمات بتدل على الكارت: اسمه + سطر المنتج في نصه + أسماء المنتج المعتمد المربوط بيه. */
+export function cardKeywords(c: CardLite, products: ProductLite[]): string[] {
+  const linked = products.filter((p) => p.quick_reply_id === c.id);
+  const src = [c.title, cardProductLine(c), ...linked.flatMap((p) => [p.name, ...(p.aliases || []), ...(p.site_names || [])])];
+  const kws = new Set<string>();
+  for (const t of normAr(src.join(" ")).split(" ")) {
+    const w = bareWord(t);
+    if (w.length >= 3 && !/^\d+$/.test(w) && !KW_STOP.has(w)) kws.add(w);
+  }
+  return [...kws];
+}
+/**
+ * كروت ليها علاقة بالمحادثة: كارت منتج الإعلان · كروت اتبعتت في المحادثة · كروت كلماتها جت في كلام العميل/الإعلان/أوردراته.
+ * null = مفيش كارت اتعرف (أو أغلبها) → الكل. الزيادة هنا آمنة (كارت زيادة) والنقص هو الخطر — عشان كده الفهرس دايماً معاها.
+ */
+export function pickCards(ctx: DraftCtx): CardLite[] | null {
+  const hit = new Set<string>();
+  const linked = ctx.products.find((p) => p.id === ctx.linkedProductId);
+  if (linked?.quick_reply_id) hit.add(linked.quick_reply_id);
+  const texts: string[] = [];
+  for (const m of ctx.history) {
+    const body = String(m.body || "").trim();
+    if (!body) continue;
+    const sent = m.dir === "out" ? ctx.cards.find((c) => c.body && body.slice(0, 60) === c.body.trim().slice(0, 60)) : undefined;
+    if (sent) hit.add(sent.id); else texts.push(body);
+  }
+  if (ctx.ad) texts.push(String(ctx.ad.name || ""), String(ctx.ad.body || ""));
+  for (const o of ctx.orders) texts.push(String(o.product_name || ""));
+  const hay = normAr(texts.join(" "));
+  const words = new Set(hay.split(" ").map(bareWord));
+  for (const c of ctx.cards) {
+    if (hit.has(c.id)) continue;
+    if (cardKeywords(c, ctx.products).some((k) => k.length >= 5 ? hay.includes(k) : words.has(k))) hit.add(c.id);
+  }
+  if (!hit.size || hit.size > Math.max(4, Math.floor(ctx.cards.length / 2))) return null;
+  return ctx.cards.filter((c) => hit.has(c.id));
+}
+
+/** «المحادثة دي» + الأوردرات + الرسايل — نفس سطور v1 بالحرف (للشكل الجديد). */
+function convoBlocks(ctx: DraftCtx, out: string[]): void {
+  out.push("", "# المحادثة دي");
+  out.push("- الوقت دلوقتي (القاهرة): " + new Intl.DateTimeFormat("ar-EG-u-nu-latn", { timeZone: "Africa/Cairo", weekday: "long", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(ctx.nowIso)));
+  if (ctx.customerName) out.push("- اسم العميل على واتساب: " + cut(ctx.customerName, 40));
+  if (ctx.ad) {
+    const linked = ctx.products.find((p) => p.id === ctx.linkedProductId);
+    out.push("- العميل جه من إعلان" + (linked ? " عن: " + linked.name : ctx.ad.name ? " اسمه «" + ctx.ad.name + "»" : ""));
+    if (!linked && ctx.ad.body) out.push("- أول نص الإعلان: " + cut(String(ctx.ad.body).replace(/\s+/g, " "), 260));
+  } else out.push("- العميل ماجاش من إعلان معروف.");
+
+  out.push("", "# أوردرات العميل (بنفس رقم الواتساب — آخر 60 يوم)");
+  if (!ctx.ordersKnown) out.push("(مقدرناش ندوّر — رقم العميل مش معروف)");
+  else if (!ctx.orders.length) out.push("(مفيش أوردر متسجّل بالرقم ده)");
+  else for (const o of ctx.orders) {
+    out.push("- أوردر #" + o.order_uid + " · " + daysAgo(o.created_at, ctx.nowIso) + " · " + cut(String(o.product_name || "").replace(/\s+/g, " "), 160)
+      + (o.props ? " · " + cut(o.props, 60) : "") + " · المطلوب عند الاستلام: " + (o.total == null ? "مش متسجّل" : o.total + " جنيه (شامل الشحن)")
+      + " · الحالة: " + statusLabel(o.status) + (o.cancel_requested ? " · العميل طلب إلغاءه قبل كده" : ""));
+  }
+
+  out.push("", "# الرسايل (الأقدم فوق — آخر رسايل «العميل» هي اللي مطلوب الرد عليها)");
+  out.push(historyBlock(ctx));
+  out.push("", "اكتب الرد المقترح دلوقتي.");
+}
+
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+function buildUserPromptStaticFirst(ctx: DraftCtx, layout: Layout): string {
+  const out: string[] = [];
+  // ── الجزء الثابت: نفس البايتات لكل المحادثات (من غير علامة الإعلان · مترتّب بالاسم) ──
+  out.push("# معلومات المتجر");
+  for (const [k, v] of Object.entries(ctx.facts || {})) if (!FACT_SKIP.has(k)) out.push(factLine(k, v));
+  const disc = Array.isArray(ctx.facts?.discontinued) ? ctx.facts.discontinued as string[] : [];
+  if (disc.length) { out.push("", "# منتجات وقفنا بيعها", ...disc.map((d) => "- " + d)); }
+
+  const noAd: DraftCtx = { ...ctx, linkedProductId: null };
+  const prods = [...ctx.products].sort((a, b) => byText(a.name, b.name));
+  out.push("", "# المنتجات المعتمدة");
+  out.push(prods.length ? prods.map((p) => productBlock(p, noAd)).join("\n\n") : "(مفيش)");
+
+  out.push("", "# المخزون (كل اسم هنا = متوفر)");
+  out.push(ctx.stockNames.length ? [...ctx.stockNames].sort(byText).join(" · ") : "(مش متاح)");
+
+  const cards = [...ctx.cards].sort((a, b) => byText(a.title, b.title));
+  const picked = layout === "v3" ? pickCards(ctx) : null;
+  const cardText = (c: CardLite) => "### كارت «" + c.title + "»\n" + cut(c.body, 1200);
+  if (!picked) {
+    out.push("", "# كروت المنتجات (النص اللي بيتبعت للعميل مع الصور)");
+    out.push(cards.length ? cards.map(cardText).join("\n\n") : "(مفيش)");
+  } else {
+    out.push("", "# فهرس كروت المنتجات (كل منتج ليه كارت بيتبعت للعميل بالصور والسعر)");
+    out.push(cards.map((c) => "- كارت «" + c.title + "»: " + cut(cardProductLine(c), 70)).join("\n"));
+    // ── من هنا الجزء المتغيّر ──
+    const ids = new Set(picked.map((c) => c.id));
+    out.push("", "# نص كروت المحادثة دي (النص اللي بيتبعت للعميل مع الصور)");
+    out.push(cards.filter((c) => ids.has(c.id)).map(cardText).join("\n\n"));
+    out.push("", "لو العميل سأل عن منتج من الفهرس ونص كارته مش معروض هنا: ابعت كارته (card) برد قصير، ومن غير أي سعر أو تفاصيل مش مكتوبة قدامك.");
+  }
+
+  out.push("", "# أسعار الموقع (الأكتر تكراراً في أوردرات آخر 24 ساعة — منتج واحد × قطعة واحدة)");
+  const groups = new Map<string, SiteRow[]>();
+  for (const r of ctx.siteRows) { const k = r.name + (r.variant ? " — " + r.variant : ""); groups.set(k, [...(groups.get(k) || []), r]); }
+  const siteLines = [...groups.entries()].map(([k, rows]) => { const m = modePrice(rows); return m ? "- " + k + ": " + m.price + " جنيه (" + m.n + " من " + m.total + " أوردر)" : ""; }).filter(Boolean);
+  out.push(siteLines.length ? siteLines.join("\n") : "(مفيش أوردرات في آخر 24 ساعة)");
+
+  convoBlocks(ctx, out);
+  return out.join("\n");
+}
+
+export function buildUserPrompt(ctx: DraftCtx, layout: Layout = "v1"): string {
+  if (layout === "v1") return buildUserPromptV1(ctx);
+  return buildUserPromptStaticFirst(ctx, layout);
 }
 
 // ── شكل الإخراج المطلوب من الموديل + تحليله ─────────────────────────
