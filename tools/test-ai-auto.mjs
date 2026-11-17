@@ -13,6 +13,8 @@
 // 11) نص الاعتذار الفاضي = الافتراضي
 // 12) mergeEscNote: من غير تكرار · الأحدث في الآخر · بسقف
 // 13) الملف من غير import · اسم البوت ثابت
+// 14) escTalk (esc_style = v2 — 18 نوفمبر): رد التصعيد من الموديل بيتبعت في كل دور (حتى والاعتذار اتبعت قبل كده) · رد فاضي = الاعتذار
+//     الثابت · من غير escTalk = القديم بالحرف · «حالاً/دلوقتي» عن رد الزميل بتتشال و«حالياً» بتفضل · السقف لسه بيسكّته
 // المعايرات: (أ) التصعيد بيبعت رد الموديل · (ب) الاعتذار بيتكرر · (ج) السقف مش بيتشاف · (د) caption على كل صورة ·
 //            (هـ) التحويل لموظف من غير تصعيد · (ط) رد الموديل بيتبعت مع تأكيد الأوردر · (ي) collect اللي لسه بيجمّع بيتصعّد (الشكل القديم) · (و) الكارت بيتكرر · (ز) webp بيعدّي · (ح) السقف بيسيب الاعتذار يتبعت
 import fs from 'node:fs';
@@ -169,17 +171,40 @@ function run(m) {
   ok('13أ من غير import', !/^\s*import\s/m.test(SRC));
   ok('13ب اسم البوت', m.BOT_NAME === '🤖 AI Agent');
   ok('13ج isSendableImage', m.isSendableImage('t/quick-replies/a.JPG') && !m.isSendableImage('t/quick-replies/a.webp') && !m.isSendableImage('t/../a.jpg') && !m.isSendableImage(null));
+
+  // 14 — escTalk
+  const TALK = 'تمام يا فندم، سجّلت إن حضرتك هتستلم أول الشهر، وزميلي المختص هيأكد مع حضرتك في مواعيد العمل.';
+  p = m.autoPlan(IN({ draft: D('escalate', TALK, '', 'تأجيل لأول الشهر'), escTalk: true }));
+  ok('14أ escTalk = رد الموديل بيتبعت + تصعيد', p.actions.length === 1 && p.actions[0].kind === 'text' && p.actions[0].tag === 'reply' && p.actions[0].body === TALK && p.escalate === 'تأجيل لأول الشهر' && p.reason === 'escalate');
+  p = m.autoPlan(IN({ draft: D('escalate', 'تمام يا فندم، سجّلت ده مع طلب حضرتك', '', 'معلومة زيادة'), escTalk: true, holdSent: true }));
+  ok('14ب بيتبعت حتى والاعتذار اتبعت قبل كده', p.actions.length === 1 && p.actions[0].tag === 'reply' && p.escalate === 'معلومة زيادة');
+  p = m.autoPlan(IN({ draft: D('escalate', '   ', '', 'n'), escTalk: true }));
+  ok('14ج رد فاضي = الاعتذار الثابت', p.actions.length === 1 && p.actions[0].tag === 'hold' && p.actions[0].body === HOLD && p.escalate === 'n');
+  p = m.autoPlan(IN({ draft: D('escalate', '   ', '', 'n'), escTalk: true, holdSent: true }));
+  ok('14د رد فاضي والاعتذار اتبعت = سكوت وتصعيد', p.actions.length === 0 && p.escalate === 'n');
+  p = m.autoPlan(IN({ draft: D('escalate', TALK, '', 'n') }));
+  ok('14هـ من غير escTalk = القديم (اعتذار مش رد الموديل)', p.actions.length === 1 && p.actions[0].tag === 'hold' && p.actions[0].body === HOLD);
+  p = m.autoPlan(IN({ draft: D('escalate', 'آسفين يا فندم، زميلي هيتابع مع حضرتك حالاً.', '', 'n'), escTalk: true }));
+  ok('14و «حالاً» عن رد الزميل بتتشال', p.actions[0].body === 'آسفين يا فندم، زميلي هيتابع مع حضرتك.');
+  ok('14ز «حالياً» وباقي الكلام زي ما هو', m.escReply('الأوردر بيتجهز حالياً يا فندم، وزميلي هيرد على حضرتك دلوقتي') === 'الأوردر بيتجهز حالياً يا فندم، وزميلي هيرد على حضرتك'
+    && m.escReply('يناسب حضرتك تستلم إمتى؟') === 'يناسب حضرتك تستلم إمتى؟' && m.escReply(null) === '');
+  p = m.autoPlan(IN({ draft: D('escalate', TALK, '', 'n'), escTalk: true, turnsInConv: m.AUTO_MAX_TURNS_PER_CONV }));
+  ok('14ح السقف بيسكّت رد التصعيد كمان', p.actions.length === 0 && p.reason === 'conv_cap');
   return fails;
 }
 
 let bad = 0;
 const fails = run(await load());
-if (fails.length) { bad++; console.log('✗ وقع: ' + fails.join(' | ')); } else console.log('✓ 13 فحص عدّوا');
+if (fails.length) { bad++; console.log('✗ وقع: ' + fails.join(' | ')); } else console.log('✓ 14 فحص عدّوا');
 
 const CALS = [
   ['(ل) رصيد Gemini خلص = رسالة اعتذار لكل عميل', (s) => s.replace('if (!d && modelDown(i.error))', 'if (false)'), '10ب'],
-  ['(أ) التصعيد بيبعت رد الموديل', (s) => s.replace('return { actions: hold(), escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };',
-    'return { actions: [{ kind: "text", body: d.reply, tag: "reply" }], escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };'), '2أ'],
+  ['(أ) التصعيد بيبعت رد الموديل', (s) => s.replace('    return { actions: hold(), escalate, reason: "escalate" };',
+    '    return { actions: [{ kind: "text", body: d.reply, tag: "reply" }], escalate, reason: "escalate" };'), '2أ'],
+  ['(ف) escTalk مابيتشافش (الاعتذار بدل رد الموديل)', (s) => s.replace('const talk = i.escTalk ? escReply(d.reply) : "";', 'const talk = "";'), '14أ'],
+  ['(ص) رد الموديل بيتبعت من غير escTalk', (s) => s.replace('const talk = i.escTalk ? escReply(d.reply) : "";', 'const talk = escReply(d.reply);'), '14هـ'],
+  ['(ق) «حالاً» مابتتشالش', (s) => s.replace('const talk = i.escTalk ? escReply(d.reply) : "";', 'const talk = i.escTalk ? String(d.reply || "").trim() : "";'), '14و'],
+  ['(ر) رد التصعيد مرة واحدة بس (بعد الاعتذار سكوت)', (s) => s.replace('if (talk) return {', 'if (talk && !i.holdSent) return {'), '14ب'],
   ['(ب) الاعتذار بيتكرر', (s) => s.replace('(i.holdSent ? [] : [{ kind: "text", body: holdText, tag: "hold" }])', '([{ kind: "text", body: holdText, tag: "hold" }])'), '2د'],
   ['(ج) سقف المحادثة مش بيتشاف', (s) => s.replace('if (i.turnsInConv >= AUTO_MAX_TURNS_PER_CONV)', 'if (false)'), '9أ'],
   ['(د) caption على كل صورة', (s) => s.replace('caption: inCaption && i === imgs.length - 1 ? body : null', 'caption: inCaption ? body : null'), '4ب'],
@@ -188,7 +213,7 @@ const CALS = [
   ['(س) مايتفعّلش تلقائي من غير تصعيد', (s) => s.replace('escalate: cut("🔁 تفعيل أوردر ملغي — " + (String(x.note || "").trim() || "راجع الأوردر وفعّله"), 400), reason: d.behavior };', 'escalate: null, reason: d.behavior };'), '7ط'],
   ['(ع) التفعيل قبل التصعيد', (s) => {
     const a = '  // تفعيل أوردر ملغي: النص الثابت بس', b = '  // الأوردر: بيانات كملت';
-    const i0 = s.indexOf(a), i1 = s.indexOf(b), e = '  if (d.behavior === "escalate")';
+    const i0 = s.indexOf(a), i1 = s.indexOf(b), e = '  if (d.behavior === "escalate") {';
     if (i0 < 0 || i1 < 0 || !s.includes(e)) return s;
     const block = s.slice(i0, i1);
     return s.replace(block, '').replace(e, block + e);
@@ -207,9 +232,9 @@ const CALS = [
   ['(ز) webp بيعدّي', (s) => s.replace('(card.images || []).filter(isSendableImage)', '(card.images || [])'), '5أ'],
   ['(ح) السقف بعد التصعيد (الاعتذار بيتبعت)', (s) => {
     const cap = '  if (i.turnsInConv >= AUTO_MAX_TURNS_PER_CONV)\n    return { actions: [], escalate: "البوت رد " + i.turnsInConv + " مرات في المحادثة دي ووقف — كمّل إنت مع العميل", reason: "conv_cap" };\n';
-    const esc = '  if (d.behavior === "escalate")\n    return { actions: hold(), escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };\n';
+    const esc = '    return { actions: hold(), escalate, reason: "escalate" };\n  }\n';
     if (!s.includes(cap) || !s.includes(esc)) return s;
-    return s.replace(cap, '').replace(esc, esc + cap.replace('i.turnsInConv >= AUTO', 'i.turnsInConv >= AUTO'));
+    return s.replace(cap, '').replace(esc, esc + cap);
   }, '9ب'],
 ];
 for (const [name, mut, expect] of CALS) {

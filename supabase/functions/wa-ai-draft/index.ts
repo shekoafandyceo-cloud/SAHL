@@ -29,6 +29,8 @@
 //   2) { action: "eval", from, to, model?, gen?, rules_extra?, layout?, card_notes? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
 //      rules_extra = قواعد تجريبية بتتضاف لتعليمات الموديل في التقييم بس (عمرها ما بتوصل المسار العادي).
 //      layout = شكل الدخل (v1 الحالي · v2 الثابت الأول · v3 كروت المحادثة بس + فهرس) — من غيره = شكل الحي.
+// 🔴 أسلوب التصعيد على الحي = ai_settings.facts.esc_style (الغايب = v1: اعتذار ثابت · v2: الموديل بيسأل الأول ورده بيتبعت — 18 نوفمبر).
+//    esc_style من الـbody للتقييم والـdry_run بس.
 // 🔴 شكل الدخل على الحي = ai_settings.facts.prompt_layout (الغايب = v1) — مش من الـbody. التحويل والرجوع بسطر إعداد بقرار المالك.
 // 🔴 معلومات للـAgent (v6 — 16 نوفمبر): wa_quick_replies.ai_notes بتتحط تحت نص الكارت في الـprompt (cardBlock) — مابتتبعتش للعميل مع الكارت.
 //    card_notes من الـbody للتقييم والـdry_run بس — المسار العادي بيقرا العمود وبس.
@@ -38,8 +40,8 @@
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildSystemPrompt, buildUserPrompt, effectivePrice, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
-  type CardLite, type Draft, type DraftCtx, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
+  buildSystemPrompt, buildUserPrompt, effectivePrice, escStyleOf, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom, workHoursOf,
+  type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
 import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
@@ -141,7 +143,7 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
 
 // ── السياق الثابت للمتجر (قراية بس) ──────────────────────────────────
 interface Static {
-  mode: string; model: string; layout: Layout; facts: Record<string, unknown>;
+  mode: string; model: string; layout: Layout; esc: EscStyle; facts: Record<string, unknown>;
   products: ProductLite[]; cards: CardLite[]; allCards: CardLite[]; siteRows: SiteRow[]; stockNames: string[];
   cardMedia: Map<string, string[]>; // صور كل كارت (مسارات wa-media) — للإرسال التلقائي بس، مابتدخلش الـprompt
   orderProducts: OrderProduct[];    // المنتجات اللي البوت بيسجّل أوردرها (ai_products اللي مقاساتها مربوطة بصنف مخزون) بالسعر المعتمد
@@ -188,7 +190,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
     };
   }).filter((p) => p.variants.length);
   return {
-    mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), facts,
+    mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), esc: escStyleOf(facts.esc_style), facts,
     products, orderProducts,
     allCards, cards: allCards.filter((c) => !skip.includes(c.title)), cardMedia,
     siteRows,
@@ -224,7 +226,7 @@ async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: 
     cards: st.cards, siteRows: st.siteRows, stockNames: st.stockNames,
     orders: cv.orders, ordersKnown: cv.ordersKnown, customerName: cv.customerName, history: cv.history,
   };
-  const system = buildSystemPrompt() + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
+  const system = buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts) } : undefined) + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
   const g = await callGemini(model, system, buildUserPrompt(ctx, st.layout), gen);
   if (g.error) return { draft: null, model, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: g.ms, error: g.error };
   const draft = parseDraft(g.text, st.cards);
@@ -268,7 +270,7 @@ function planFor(st: Static, r: Result, state: AutoState, tenantId: string, orde
     draft: r.draft, fromModel: !!r.model, error: r.error, card, cardRepeat: state.cardRepeat, holdSent: state.holdSent,
     turnsInConv: state.turnsInConv, turnsToday: state.turnsToday,
     holdMessage: typeof st.facts.hold_message === "string" ? st.facts.hold_message as string : null,
-    order, react,
+    order, react, escTalk: st.esc === "v2",
   });
   return { plan, card };
 }
@@ -543,7 +545,7 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
 }
 
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
-async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null): Promise<Record<string, unknown>> {
+async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null): Promise<Record<string, unknown>> {
   const { data: msg } = await admin.from("wa_messages")
     .select("id, tenant_id, conversation_id, direction, type, body, created_at").eq("id", messageId).maybeSingle();
   if (!msg) return { skipped: "not_found" };
@@ -552,6 +554,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   if (!st) return { skipped: "no_settings" };
   if (dry && layoutOverride) st.layout = layoutOverride; // تجربة شكل دخل تاني — dry_run بس (المسار العادي = إعداد المتجر)
   if (dry) withCardNotes(st, notesOverride);
+  if (dry && escOverride) st.esc = escOverride; // تجربة أسلوب تصعيد تاني — dry_run بس (المسار العادي = إعداد المتجر)
   if (!dry && st.mode !== "shadow" && st.mode !== "auto") return { skipped: "mode_off" };
   if (!dry) await sleep(DEBOUNCE_MS);
 
@@ -621,7 +624,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || "")) : null;
     if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
     const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep) };
-    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview };
+    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview };
   }
 
   if (r.draft && r.draft.behavior === "skip" && !r.model) return { skipped: "pre_rule_skip" }; // ضغطة زرار/تفاعل — مش محتاجة صف
@@ -644,10 +647,11 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
 
 // ── التقييم: حالات eval-cases.ts بسياق وهمي — صفر كتابة ──────────────
 // deno-lint-ignore no-explicit-any
-async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null, cardNotes?: Record<string, unknown> | null): Promise<Record<string, unknown>> {
+async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null, cardNotes?: Record<string, unknown> | null, esc?: EscStyle | null): Promise<Record<string, unknown>> {
   const st = await loadStatic(EVAL_TENANT, EVAL_FACTS_EXTRA);
   if (!st) return { error: "no_settings" };
   if (layout) st.layout = layout;
+  if (esc) st.esc = esc;
   withCardNotes(st, cardNotes || null);
   const model = modelOverride || st.model;
   const cases = EVAL_CASES.filter((c) => c[0] >= from && c[0] <= to).slice(0, EVAL_MAX);
@@ -692,14 +696,15 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
         card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error,
         auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
         order: r.draft?.order || null, order_step: orderPreview(step), reactivate: r.draft?.reactivate || null, react_step: reactPreview(rstep),
-        auto_text: (step || rstep) && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
+        auto_text: (step || rstep || ap.reason === "escalate") && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
+        auto_tag: ap.reason === "escalate" && ap.actions[0]?.kind === "text" ? ap.actions[0].tag : undefined,
       });
     }
   }
   await Promise.all(Array.from({ length: Math.min(EVAL_POOL, cases.length) }, worker));
   results.sort((a, b) => Number(a.n) - Number(b.n));
   const sum = (k: string) => results.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  return { model, layout: st.layout, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
+  return { model, layout: st.layout, esc: st.esc, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
 }
 
 async function listModels(): Promise<Record<string, unknown>> {
@@ -730,20 +735,21 @@ Deno.serve(async (req: Request) => {
   const model = typeof body?.model === "string" && /^[\w.\-]{3,60}$/.test(body.model) ? body.model : null;
   const layout: Layout | null = body?.layout === "v1" || body?.layout === "v2" || body?.layout === "v3" ? body.layout : null;
   const cardNotes: Record<string, unknown> | null = body?.card_notes && typeof body.card_notes === "object" && !Array.isArray(body.card_notes) ? body.card_notes : null;
+  const esc: EscStyle | null = body?.esc_style === "v1" || body?.esc_style === "v2" ? body.esc_style : null;
   if (action === "models") return json(await listModels());
   if (action === "eval") {
     const from = Math.max(1, Number(body?.from) || 1), to = Math.max(from, Number(body?.to) || from);
     const gen = body?.gen && typeof body.gen === "object" ? body.gen : undefined;
     const evalRules = typeof body?.rules_extra === "string" ? body.rules_extra.slice(0, 4000) : undefined;
-    return json(await runEval(from, to, model, gen, evalRules, layout, cardNotes));
+    return json(await runEval(from, to, model, gen, evalRules, layout, cardNotes, esc));
   }
 
   const messageId = String(body?.message_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return json({ error: "bad_message_id" }, 400);
   const dry = body?.dry_run === true;
-  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes));
+  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes, esc));
   // المسار العادي: رد فوري والشغل في الخلفية (الانتظار 12ث + الموديل أطول من مهلة pg_net)
-  const job = handleMessage(messageId, false, null, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
+  const job = handleMessage(messageId, false, null, null, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
   // deno-lint-ignore no-explicit-any
   const rt = (globalThis as any).EdgeRuntime;
   if (rt && typeof rt.waitUntil === "function") { rt.waitUntil(job); return json({ queued: true }, 202); }

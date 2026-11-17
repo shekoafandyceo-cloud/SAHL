@@ -5,6 +5,9 @@
 //   • الدالة دي بتقرر بس — الإرسال نفسه في wa-ai-draft/index.ts، ومابيحصلش غير و ai_settings.mode = 'auto'.
 //   • التصعيد = رسالة اعتذار **واحدة** في المحادثة (لحد ما موظف يرد) + المحادثة تدخل «تصعيد». نص الرسالة ثابت من الإعدادات
 //     (hold_message) مش من الموديل: رد الموديل في escalate بيقول «زميل هيتابع حالاً» وده مش صح والموظفين مش موجودين.
+//   • 18 نوفمبر (طلب المالك «يجاريه في الكلام … مش كل حاجة يقول أنا آسف»): مع escTalk (ai_settings.facts.esc_style = v2) رد التصعيد
+//     بيكتبه الموديل (سؤال عن التفصيلة الناقصة، أو تأكيد الطلب + «زميلي المختص هيرد في مواعيد العمل») وبيتبعت **في كل** دور تصعيد —
+//     السقف لكل محادثة هو اللي بيحدّه. رد فاضي = الاعتذار الثابت مرة واحدة زي الأول. من غير escTalk = السلوك القديم بالحرف.
 //   • «طلب شراء» (collect) — 17 نوفمبر، طلب المالك «هو اللي يعمل الأوردر بنفسه … ميصعدش»: البوت بيجمّع البيانات من غير تصعيد، ولما تكمل
 //     القرار في ai-order.ts (order): اتسجّل = رسالة التأكيد الثابتة بس · ناقص/مش واضح = سؤال للعميل · مايتسجّلش تلقائي (منتج مش مدعوم ·
 //     عميل ليه أوردر مرتجع أو مفتوح · السيرفر رفض) = «بياناتك اتسجلت وزميل هيأكد» + «🛒 طلب شراء» في التصعيد بالسبب.
@@ -43,6 +46,7 @@ export interface AutoIn {
   holdMessage: string | null;  // من ai_settings.facts.hold_message
   order?: OrderOutcome | null; // collect والبيانات كملت — غير كده null
   react?: ReactOutcome | null; // العميل عايز أوردره الملغي (reactivate) — غير كده null
+  escTalk?: boolean;           // esc_style = v2: رد التصعيد من الموديل (بيتبعت) بدل الاعتذار الثابت
 }
 export type AutoAction =
   | { kind: "text"; body: string; tag: "reply" | "hold" | "card_text" | "order" }
@@ -71,6 +75,13 @@ export function cardActions(card: AutoCard): AutoAction[] {
   return out;
 }
 
+/** رد التصعيد اللي الموديل كتبه، جاهز للإرسال: «حالاً/دلوقتي» عن رد الزميل بتتشال (الموظفين مش موجودين بالليل — وعد كاذب). */
+export function escReply(reply: unknown): string {
+  return String(reply || "")
+    .replace(/(هي(?:تابع|رد|تواصل|كلم|أكد|راجع)[^.،\n]{0,40}?)\s+(?:حالاً|حالًا|حالا|دلوقتي|دلوقت|فوراً|فورًا|فورا)(?=[\s.،!]|$)/g, "$1")
+    .replace(/[ \t]{2,}/g, " ").trim();
+}
+
 export function autoPlan(i: AutoIn): AutoPlan {
   const holdText = String(i.holdMessage || "").trim() || HOLD_DEFAULT;
   const hold = (): AutoAction[] => (i.holdSent ? [] : [{ kind: "text", body: holdText, tag: "hold" }]);
@@ -87,8 +98,12 @@ export function autoPlan(i: AutoIn): AutoPlan {
   if (!d && modelDown(i.error))
     return { actions: [], escalate: "المساعد واقف — رصيد أو مفتاح Gemini (" + cut(String(i.error), 60) + ") — المحادثة دي محتاجة موظف", reason: "model_down" };
   if (!d) return { actions: hold(), escalate: "المساعد معرفش يكتب رد" + (i.error ? " (" + cut(String(i.error), 80) + ")" : ""), reason: "no_draft" };
-  if (d.behavior === "escalate")
-    return { actions: hold(), escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };
+  if (d.behavior === "escalate") {
+    const escalate = cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400);
+    const talk = i.escTalk ? escReply(d.reply) : "";
+    if (talk) return { actions: [{ kind: "text", body: talk, tag: "reply" }], escalate, reason: "escalate" };
+    return { actions: hold(), escalate, reason: "escalate" };
+  }
 
   // تفعيل أوردر ملغي: النص الثابت بس (من غير كارت ولا رد الموديل) — اتفعّل = من غير تصعيد · مايتفعّلش تلقائي = «🔁» في التصعيد بالسبب
   if (i.react && String(i.react.text || "").trim()) {
