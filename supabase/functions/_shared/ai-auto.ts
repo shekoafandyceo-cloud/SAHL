@@ -5,7 +5,9 @@
 //   • الدالة دي بتقرر بس — الإرسال نفسه في wa-ai-draft/index.ts، ومابيحصلش غير و ai_settings.mode = 'auto'.
 //   • التصعيد = رسالة اعتذار **واحدة** في المحادثة (لحد ما موظف يرد) + المحادثة تدخل «تصعيد». نص الرسالة ثابت من الإعدادات
 //     (hold_message) مش من الموديل: رد الموديل في escalate بيقول «زميل هيتابع حالاً» وده مش صح والموظفين مش موجودين.
-//   • «طلب شراء» (collect) بيتبعتله الرد عادي **وبيدخل «تصعيد»** كمان: الأوردر بيتسجّل بإيد موظف الصبح (المرحلة الأولى).
+//   • «طلب شراء» (collect) — 17 نوفمبر، طلب المالك «هو اللي يعمل الأوردر بنفسه … ميصعدش»: البوت بيجمّع البيانات من غير تصعيد، ولما تكمل
+//     القرار في ai-order.ts (order): اتسجّل = رسالة التأكيد الثابتة بس · ناقص/مش واضح = سؤال للعميل · مايتسجّلش تلقائي (منتج مش مدعوم ·
+//     عميل ليه أوردر مرتجع أو مفتوح · السيرفر رفض) = «بياناتك اتسجلت وزميل هيأكد» + «🛒 طلب شراء» في التصعيد بالسبب.
 //   • سقف لكل محادثة ولكل يوم: بعده البوت بيسكت خالص (حتى رسالة الاعتذار) ويصعّد — حماية من حلقة رد آلي قصاد رد آلي.
 //   • الكارت = صور الرد المحفوظ والكلام caption على آخر صورة (نفس اللي الموظف بيبعته — درس 46)، وبعده سطر الرد لو فيه.
 
@@ -19,6 +21,11 @@ export const CAPTION_MAX = 1024;                      // حد ميتا للـcap
 export const HOLD_DEFAULT = "معلش يا فندم، أنا المساعد الآلي للمتجر والنقطة دي محتاجة زميل يرد على حضرتك فيها. هيتواصلوا مع حضرتك في أقرب وقت 🙏";
 
 export interface AutoDraft { behavior: string; intent: string; reply: string; card: string; note: string }
+/** نتيجة خطوة الأوردر (ai-order.ts + create_bot_order) — النص ثابت من السيستم مش من الموديل. */
+export type OrderOutcome =
+  | { state: "created"; text: string }                  // الأوردر اتسجّل (أو «كان هيتسجّل» في المعاينة) — text = رسالة التأكيد
+  | { state: "ask"; text: string }                      // بيانات ناقصة/مش واضحة — سؤال للعميل
+  | { state: "handoff"; text: string; note: string };   // مايتسجّلش تلقائي — زميل يراجع
 export interface AutoCard { title: string; body: string; images: string[] }
 export interface AutoIn {
   draft: AutoDraft | null;
@@ -30,13 +37,19 @@ export interface AutoIn {
   turnsInConv: number;         // ردود البوت في المحادثة خلال النافذة
   turnsToday: number;          // ردود البوت للمتجر كله في 24 ساعة
   holdMessage: string | null;  // من ai_settings.facts.hold_message
+  order?: OrderOutcome | null; // collect والبيانات كملت — غير كده null
 }
 export type AutoAction =
-  | { kind: "text"; body: string; tag: "reply" | "hold" | "card_text" }
+  | { kind: "text"; body: string; tag: "reply" | "hold" | "card_text" | "order" }
   | { kind: "image"; path: string; caption: string | null };
 export interface AutoPlan { actions: AutoAction[]; escalate: string | null; reason: string }
 
 const cut = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+/** خطأ معناه إن الموديل مش هيرد على أي رسالة لحد ما المالك يتصرف (رصيد · مفتاح · صلاحية) — مش عطل مؤقت. */
+export function modelDown(error: string | null | undefined): boolean {
+  return /^(no_gemini_key|gemini_(401|402|403)\b)/.test(String(error || ""));
+}
 
 export function isSendableImage(path: unknown): boolean {
   return typeof path === "string" && /\.(jpe?g|png)$/i.test(path) && !path.includes("..");
@@ -65,9 +78,20 @@ export function autoPlan(i: AutoIn): AutoPlan {
   if (i.turnsInConv >= AUTO_MAX_TURNS_PER_CONV)
     return { actions: [], escalate: "البوت رد " + i.turnsInConv + " مرات في المحادثة دي ووقف — كمّل إنت مع العميل", reason: "conv_cap" };
 
+  // الموديل نفسه واقف (رصيد Gemini خلص · المفتاح اترفض): مفيش رسالة اعتذار لكل عميل — تصعيد ساكت، وwa-ai-draft بيرجّع الزرار OFF
+  if (!d && modelDown(i.error))
+    return { actions: [], escalate: "المساعد واقف — رصيد أو مفتاح Gemini (" + cut(String(i.error), 60) + ") — المحادثة دي محتاجة موظف", reason: "model_down" };
   if (!d) return { actions: hold(), escalate: "المساعد معرفش يكتب رد" + (i.error ? " (" + cut(String(i.error), 80) + ")" : ""), reason: "no_draft" };
   if (d.behavior === "escalate")
     return { actions: hold(), escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };
+
+  // الأوردر: بيانات كملت → النص الثابت بس (من غير كارت ولا رد الموديل)
+  if (d.behavior === "collect" && i.order && String(i.order.text || "").trim()) {
+    const o = i.order;
+    if (o.state === "handoff")
+      return { actions: [{ kind: "text", body: o.text, tag: "reply" }], escalate: cut("🛒 طلب شراء — " + (String(o.note || "").trim() || "راجع البيانات وسجّل الأوردر"), 400), reason: "collect" };
+    return { actions: [{ kind: "text", body: o.text, tag: o.state === "created" ? "order" : "reply" }], escalate: null, reason: "collect" };
+  }
 
   const actions: AutoAction[] = [];
   if (i.card && i.cardRepeat < AUTO_MAX_CARD_REPEAT) actions.push(...cardActions(i.card));
@@ -77,8 +101,8 @@ export function autoPlan(i: AutoIn): AutoPlan {
 
   let escalate: string | null = null;
   const note = String(d.note || "").trim();
-  if (d.behavior === "collect") escalate = cut("🛒 طلب شراء" + (note ? " — " + note : " — راجع البيانات وسجّل الأوردر"), 400);
-  else if (!i.fromModel && note) escalate = cut(note, 400); // صورة من غير نص: البوت مابيشوفش الصور
+  // collect والبيانات لسه ماكملتش = البوت بيكمّل يجمّع من غير تصعيد (قرار المالك 17 نوفمبر)
+  if (!i.fromModel && note) escalate = cut(note, 400); // صورة من غير نص: البوت مابيشوفش الصور
   return { actions, escalate, reason: d.behavior };
 }
 

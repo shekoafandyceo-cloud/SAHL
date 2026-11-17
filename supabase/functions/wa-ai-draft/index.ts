@@ -7,6 +7,11 @@
 //    العميل كتب تاني أو موظف رد = مفيش إرسال · نافذة الـ24 ساعة · سقف لكل محادثة ولكل يوم (_shared/ai-auto.ts) ·
 //    الرسالة بتتسجّل في wa_messages باسم BOT_NAME ومن غير sent_by (فمابتشيلش «تصعيد») · فشل الإرسال = تصعيد من غير إعادة ·
 //    3 أخطاء إرسال في ربع ساعة = الزرار بيرجع OFF لوحده. القرار نفسه (يبعت إيه) منطق نقي في _shared/ai-auto.ts.
+// 🔴 (17 نوفمبر — طلب المالك) الزرار ON بس:
+//    • موظف رد في المحادثة من أقل من 30 دقيقة = البوت بيسكت خالص (من غير موديل ولا رسالة) والمحادثة بتتعلّم «تصعيد» عشان ماتتنسيش.
+//    • «البوت يسجّل الأوردر بنفسه»: collect والبيانات كملت → القرار في _shared/ai-order.ts (منتج من ai_products · موبايل · محافظة · عنوان واضح ·
+//      مفيش أوردر سابق مرتجع/مفتوح) → RPC create_bot_order (service_role بس · بيعيد الحراسات · الزرار لازم ON) → رسالة تأكيد ثابتة برقم الطلب.
+//      مايتسجّلش = «بياناتك اتسجلت وزميل هيأكد» + «🛒 طلب شراء» في التصعيد بالسبب. dry_run والتقييم بيرجّعوا القرار بس (order_preview) من غير تسجيل.
 // 🔴 wa-send و wa-inbox-ingest و trg_wa_after_message_insert مايتلمسوش — الإرسال هنا نداء مباشر لميتا بنفس شكل wa-send.
 // 🔴 المفتاح: Secret `GEMINI_API_KEY` (Google AI Studio — Paid tier) — المالك ضافه بإيده، وعمره ما بيتطبع ولا بيرجع في رد.
 // 🔴 كل المعلومات اللي الموديل بيرد منها بتتجاب من الداتابيز هنا (قراية بس): ai_settings.facts · ai_products · كروت الردود المحفوظة ·
@@ -30,10 +35,13 @@
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildSystemPrompt, buildUserPrompt, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
+  buildSystemPrompt, buildUserPrompt, effectivePrice, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
   type CardLite, type Draft, type DraftCtx, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
-import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan } from "../_shared/ai-auto.ts";
+import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome } from "../_shared/ai-auto.ts";
+import {
+  ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder,
+} from "../_shared/ai-order.ts";
 import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
 import { CTX, EVAL_CASES, EVAL_FACTS_EXTRA, EVAL_TENANT, EXPECT } from "./eval-cases.ts";
 
@@ -48,6 +56,8 @@ const GRAPH = "https://graph.facebook.com/v18.0";
 // 🔴 نفس قايمة التريجر و preRule و AI_SKIP_TYPES (الواجهة): الأنواع دي مالهاش مسودة، فمابتتحسبش «رسالة أحدث من العميل»
 const SKIP_TYPES = ["button", "reaction", "sticker", "unsupported"];
 const AUTO_GAP_MS = 700, AUTO_SEND_TIMEOUT_MS = 20000, AUTO_FAIL_WINDOW_MS = 15 * 60000, AUTO_FAIL_TRIP = 3;
+const STAFF_ACTIVE_MS = 30 * 60000; // موظف رد في المحادثة من أقل من كده = البوت بيسكت (الزرار ON)
+const PREVIEW_ORDER_UID = "B-؟";    // رقم الطلب في المعاينة (dry_run/التقييم) — مفيش تسجيل هناك
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -58,6 +68,7 @@ function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const EVAL_WA_ID = "201000000001"; // رقم واتساب وهمي لحالات التقييم (مفيش عميل حقيقي)
 
 async function authorized(req: Request): Promise<boolean> {
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
@@ -128,6 +139,7 @@ interface Static {
   mode: string; model: string; layout: Layout; facts: Record<string, unknown>;
   products: ProductLite[]; cards: CardLite[]; allCards: CardLite[]; siteRows: SiteRow[]; stockNames: string[];
   cardMedia: Map<string, string[]>; // صور كل كارت (مسارات wa-media) — للإرسال التلقائي بس، مابتدخلش الـprompt
+  orderProducts: OrderProduct[];    // المنتجات اللي البوت بيسجّل أوردرها (ai_products اللي مقاساتها مربوطة بصنف مخزون) بالسعر المعتمد
   ads: Map<string, { name: string | null; productId: string | null }>;
 }
 async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>): Promise<Static | null> {
@@ -159,11 +171,22 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
   const allCards: CardLite[] = (qrRows || []).filter((c: any) => String(c.title || "").trim() && String(c.body || "").trim())
     // deno-lint-ignore no-explicit-any
     .map((c: any) => ({ id: c.id, title: String(c.title).trim(), body: String(c.body), notes: String(c.ai_notes || "").trim() || null }));
+  const products = (prods.data || []) as ProductLite[];
+  const siteRows = siteRowsFrom(site.data || []);
+  const orderProducts: OrderProduct[] = products.map((p) => {
+    // deno-lint-ignore no-explicit-any
+    const vs = (Array.isArray(p.facts?.variants) ? p.facts.variants : []) as any[];
+    return {
+      id: p.id, name: p.name, aliases: p.aliases || [], siteNames: p.site_names || [],
+      // deno-lint-ignore no-explicit-any
+      variants: vs.filter((v: any) => v && v.stock_product_id).map((v: any) => ({ label: String(v.label || ""), stockProductId: String(v.stock_product_id), price: effectivePrice(v, vs, siteRows).price })),
+    };
+  }).filter((p) => p.variants.length);
   return {
     mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), facts,
-    products: (prods.data || []) as ProductLite[],
+    products, orderProducts,
     allCards, cards: allCards.filter((c) => !skip.includes(c.title)), cardMedia,
-    siteRows: siteRowsFrom(site.data || []),
+    siteRows,
     // deno-lint-ignore no-explicit-any
     stockNames: (stock.data || []).map((s: any) => String(s.name || "").trim()).filter(Boolean),
     // deno-lint-ignore no-explicit-any
@@ -231,7 +254,7 @@ async function autoState(tenantId: string, convId: string, cardTitle: string | n
     cardRepeat: cardTitle ? rows.filter((r) => r.auto_result?.card === cardTitle).length : 0,
   };
 }
-function planFor(st: Static, r: Result, state: AutoState, tenantId: string): { plan: AutoPlan; card: AutoCard | null } {
+function planFor(st: Static, r: Result, state: AutoState, tenantId: string, order: OrderOutcome | null = null): { plan: AutoPlan; card: AutoCard | null } {
   const cardRow = r.draft?.card ? st.cards.find((c) => c.title === r.draft!.card) : null;
   // صور الكارت: مسارات `<tenant>/quick-replies/…` بس (نفس شرط wa-media) — صورة بمسار تاني بتتساب بدل ما توقّع الرد كله
   const card: AutoCard | null = cardRow
@@ -240,8 +263,63 @@ function planFor(st: Static, r: Result, state: AutoState, tenantId: string): { p
     draft: r.draft, fromModel: !!r.model, error: r.error, card, cardRepeat: state.cardRepeat, holdSent: state.holdSent,
     turnsInConv: state.turnsInConv, turnsToday: state.turnsToday,
     holdMessage: typeof st.facts.hold_message === "string" ? st.facts.hold_message as string : null,
+    order,
   });
   return { plan, card };
+}
+
+// ── الأوردر من البوت (17 نوفمبر) ─────────────────────────────────────
+/** خطوة الأوردر لمسودة collect بياناتها كملت. null = مفيش order في المسودة (البوت لسه بيجمّع). قرار بس — مفيش كتابة. */
+function orderStepFor(st: Static, r: Result, prev: PrevOrder[], waId: string | null): OrderStep | null {
+  const d = r.draft;
+  if (!d || d.behavior !== "collect") return null;
+  if (!d.order) return orphanPromise(d.reply); // الرد بيوعد بتأكيد ومفيش بيانات أوردر = موظف يسجّله
+  // «معلومات للـAgent» على كارت المنتج (بتتقري وقت القرار — card_notes بتاع التقييم بيتطبّق عليها): «خلص» = مفيش تسجيل تلقائي
+  const noteOf = (pid: string) => st.allCards.find((c) => c.id === st.products.find((x) => x.id === pid)?.quick_reply_id)?.notes || null;
+  return planOrder(d.order, st.orderProducts.map((p) => ({ ...p, note: noteOf(p.id) })), prev, waId);
+}
+const handoffOutcome = (r: Result, note: string): OrderOutcome =>
+  ({ state: "handoff", text: ORDER_HANDOFF_TEXT, note: note + (r.draft?.order ? " · " + orderSummary(r.draft.order) : "") });
+/** نتيجة الخطوة كنص للعميل. create محتاجة رقم الطلب (من التسجيل الحقيقي، أو PREVIEW_ORDER_UID في المعاينة). */
+function orderOutcome(st: Static, r: Result, step: OrderStep, uid: string): OrderOutcome {
+  if (step.kind === "ask") return { state: "ask", text: step.text };
+  if (step.kind === "handoff") return handoffOutcome(r, step.note);
+  return { state: "created", text: orderConfirmText(step.args, uid, typeof st.facts.delivery === "string" ? st.facts.delivery as string : null) };
+}
+function orderPreview(step: OrderStep | null): Record<string, unknown> | null {
+  if (!step) return null;
+  if (step.kind === "create") return { would: "create", product: step.args.product_label, qty: step.args.qty, total: step.args.total, city: step.args.city };
+  return { would: step.kind, why: step.why };
+}
+const ORDER_REFUSED: Record<string, string> = {
+  has_returned_order: "العميل ليه أوردر سابق رجع/مااستلموش — راجع قبل ما تسجّل الجديد",
+  has_open_order: "العميل عنده أوردر لسه مفتوح — ممكن يكون تكرار",
+  duplicate: "فيه أوردر اتسجّل بنفس الرقم من دقايق — راجع قبل ما تسجّل",
+  day_cap: "البوت وصل للحد اليومي لتسجيل الأوردرات — سجّل الأوردر إنت",
+  bot_off: "الزرار اتقفل قبل التسجيل — سجّل الأوردر إنت",
+};
+/** تسجيل الأوردر على السيرفر (create_bot_order — بيعيد الحراسات كلها). أي رفض أو خطأ = مفيش أوردر والسبب بيرجع. */
+async function createBotOrder(tenantId: string, a: CreateArgs): Promise<{ ok: true; uid: string; id: string } | { ok: false; error: string; ref: string | null }> {
+  const { data, error } = await admin.rpc("create_bot_order", {
+    p_tenant: tenantId, p_customer_name: a.customer_name, p_phone: a.phone, p_alt_phone: a.alt_phone, p_city: a.city, p_address: a.address,
+    p_stock_product_id: a.stock_product_id, p_qty: a.qty, p_unit_price: a.unit_price, p_var: a.variant,
+  });
+  // deno-lint-ignore no-explicit-any
+  const d: any = data;
+  if (error || !d) return { ok: false, error: "rpc_error", ref: null };
+  if (d.ok === true && d.order_uid && d.order_id) return { ok: true, uid: String(d.order_uid), id: String(d.order_id) };
+  return { ok: false, error: String(d.error || "refused").slice(0, 40), ref: d.order_uid ? String(d.order_uid) : null };
+}
+
+/** موظف رد في المحادثة من أقل من نص ساعة والزرار ON: البوت ساكت — بس المحادثة تتعلّم «تصعيد» عشان رسالة العميل ماتتنسيش لو الموظف مشي. */
+async function staffActiveFlag(tenantId: string, convId: string): Promise<void> {
+  const { data: cv } = await admin.from("wa_conversations").select("ai_escalated_at, ai_escalation_note").eq("id", convId).eq("tenant_id", tenantId).maybeSingle();
+  if (!cv) return;
+  const up = await admin.from("wa_conversations").update({
+    ai_escalated_at: cv.ai_escalated_at || new Date().toISOString(),
+    ai_escalation_note: mergeEscNote(cv.ai_escalation_note, "العميل كتب وموظف كان بيرد في المحادثة من أقل من نص ساعة — البوت سكت"),
+  }).eq("id", convId).eq("tenant_id", tenantId);
+  if (up.error) console.error("wa-ai-draft auto: staff-active flag failed", up.error.code || "");
 }
 function planPreview(plan: AutoPlan): Record<string, unknown> {
   return {
@@ -311,7 +389,10 @@ async function autoBreaker(tenantId: string): Promise<void> {
   const { count } = await admin.from("wa_ai_drafts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)
     .gte("auto_sent_at", since).not("auto_result->>error", "is", null);
   if ((Number(count) || 0) < AUTO_FAIL_TRIP) return;
-  const by = "إيقاف تلقائي — أخطاء إرسال";
+  await autoOff(tenantId, "إيقاف تلقائي — أخطاء إرسال");
+}
+/** الزرار بيرجع OFF لوحده (أخطاء إرسال · الموديل واقف: رصيد/مفتاح Gemini) — وبيتسجّل في ai_mode_log. */
+async function autoOff(tenantId: string, by: string): Promise<void> {
   // OFF = ai_settings.idle_mode: 'off' واقف خالص · غير كده (أو القراية وقعت) 'shadow' — الاتنين مابيبعتوش للعميل.
   const { data: cur } = await admin.from("ai_settings").select("idle_mode").eq("tenant_id", tenantId).maybeSingle();
   const back = cur?.idle_mode === "off" ? "off" : "shadow";
@@ -321,7 +402,7 @@ async function autoBreaker(tenantId: string): Promise<void> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function autoRun(msg: any, st: Static, r: Result, draftId: string): Promise<Record<string, unknown>> {
+async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: PrevOrder[]): Promise<Record<string, unknown>> {
   // 1) الزرار لسه ON؟ (المالك ممكن يكون طفّاه وإحنا مستنيين الموديل)
   const { data: now1 } = await admin.from("ai_settings").select("mode").eq("tenant_id", msg.tenant_id).maybeSingle();
   if (now1?.mode !== "auto") return { auto: "mode_changed" };
@@ -350,7 +431,24 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string): Promis
   if (!state.ok) return finish({ reason: "state_error", error: null }, 0, false);
   const lastIn = state.lastInboundAt ? Date.parse(state.lastInboundAt) : 0;
   if (!lastIn || Date.now() - lastIn >= 24 * 3600000) return finish({ reason: "window_closed", error: null }, 0, false);
-  const { plan, card } = planFor(st, r, state, msg.tenant_id);
+  let { plan, card } = planFor(st, r, state, msg.tenant_id);
+  // الموديل واقف (رصيد/مفتاح Gemini): تصعيد ساكت للمحادثة دي والزرار يرجع OFF — مفيش رسالة اعتذار لكل عميل طول الليل
+  if (plan.reason === "model_down") await autoOff(msg.tenant_id, "إيقاف تلقائي — رصيد/مفتاح Gemini");
+  // 4ب) الأوردر: collect والبيانات كملت (والسقوف عدّت — plan.reason = collect) → القرار، ولو «يتسجّل» التسجيل على السيرفر قبل رسالة التأكيد
+  let orderInfo: Record<string, unknown> | null = null;
+  const step = plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId) : null;
+  if (step) {
+    let outcome: OrderOutcome;
+    if (step.kind === "create") {
+      const made = await createBotOrder(msg.tenant_id, step.args);
+      if (made.ok) { outcome = orderOutcome(st, r, step, made.uid); orderInfo = { state: "created", uid: made.uid, id: made.id, total: step.args.total }; }
+      else {
+        outcome = handoffOutcome(r, (ORDER_REFUSED[made.error] || "السيستم ماسجّلش الأوردر (" + made.error + ") — سجّله إنت") + (made.ref ? " (#" + made.ref + ")" : ""));
+        orderInfo = { state: "refused", why: made.error };
+      }
+    } else { outcome = orderOutcome(st, r, step, PREVIEW_ORDER_UID); orderInfo = { state: step.kind, why: step.why }; }
+    ({ plan, card } = planFor(st, r, state, msg.tenant_id, outcome));
+  }
   // 5) الإرسال — بالترتيب، وأول فشل بيوقّف الباقي
   let sent = 0, sendErr: string | null = null, holdNow = false, cardSent = false;
   const kinds: string[] = [];
@@ -367,7 +465,8 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string): Promis
     }
   }
   // 6) «تصعيد» على المحادثة (بيتشال لما موظف يرد — trg_wa_ai_escalation_clear)
-  const escNote = sendErr ? mergeEscNote(plan.escalate, "البوت معرفش يبعت الرد (" + sendErr.slice(0, 120) + ")") : plan.escalate;
+  const madeNote = orderInfo && orderInfo.state === "created" ? "الأوردر " + String(orderInfo.uid) + " اتسجّل بس رسالة التأكيد ماوصلتش للعميل · " : "";
+  const escNote = sendErr ? mergeEscNote(plan.escalate, madeNote + "البوت معرفش يبعت الرد (" + sendErr.slice(0, 120) + ")") : plan.escalate;
   if (escNote || holdNow) {
     const patch: Record<string, unknown> = {};
     if (escNote) { patch.ai_escalated_at = state.escAt || new Date().toISOString(); patch.ai_escalation_note = mergeEscNote(state.escNote, escNote); }
@@ -377,7 +476,7 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string): Promis
   }
   // 7) الأثر على المسودة — «sent» للرد الحقيقي اللي اتبعت كله بس (التصعيد بيفضل pending عشان الموظف يشوف الملاحظة)
   const realReply = ["answer", "collect", "clarify", "order_lookup"].includes(plan.reason);
-  const out = await finish({ reason: plan.reason, kinds, card: cardSent && card ? card.title : null, escalated: !!escNote, error: sendErr }, sent, realReply && sent > 0 && !sendErr);
+  const out = await finish({ reason: plan.reason, kinds, card: cardSent && card ? card.title : null, escalated: !!escNote, error: sendErr, ...(orderInfo ? { order: orderInfo } : {}) }, sent, realReply && sent > 0 && !sendErr);
   if (sendErr) await autoBreaker(msg.tenant_id);
   return out;
 }
@@ -409,6 +508,12 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     //    من غير الشرط، عميل كتب رسالة تانية في الثانية اللي البوت بيبعت فيها رد الأولى كانت رسالته التانية بتتساب من غير رد.
     if (newer.some((r: any) => r.direction === "out" && r.sent_by)) return { skipped: "answered" };
   }
+  // 🔴 (17 نوفمبر — قرار المالك) موظف رد في المحادثة من أقل من 30 دقيقة = البوت مايدخلش وسط كلامه: مفيش موديل ولا مسودة ولا رسالة.
+  //    الزرار ON بس — في shadow المسودة اقتراح للموظف نفسه فبتتعمل عادي.
+  const staffCut = Date.now() - STAFF_ACTIVE_MS;
+  // deno-lint-ignore no-explicit-any
+  const staffActive = rows.some((r: any) => r.direction === "out" && r.sent_by && Date.parse(r.created_at) >= staffCut);
+  if (!dry && st.mode === "auto" && staffActive) { await staffActiveFlag(msg.tenant_id, msg.conversation_id); return { skipped: "staff_active" }; }
   // deno-lint-ignore no-explicit-any
   const history: HistMsg[] = rows.filter((r: any) => r.created_at <= msg.created_at).slice(0, HISTORY_N).reverse()
     // deno-lint-ignore no-explicit-any
@@ -421,14 +526,15 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   if (forms.length) {
     const list = forms.map((f) => `"${f}"`).join(",");
     const { data: os } = await admin.from("orders")
-      .select("order_uid, status, product_name, var, manufacturer_note, total_cost, jt_cod_amount, created_at, cancel_requested_at, shipping_carrier")
+      .select("order_uid, status, product_name, var, manufacturer_note, total_cost, jt_cod_amount, created_at, cancel_requested_at, shipping_carrier, carrier_status_at, status_changed_at")
       .eq("tenant_id", msg.tenant_id).or(`phone.in.(${list}),alt_phone.in.(${list})`)
-      .gte("created_at", new Date(Date.now() - 60 * 86400000).toISOString()).order("created_at", { ascending: false }).limit(4);
+      .gte("created_at", new Date(Date.now() - 60 * 86400000).toISOString()).order("created_at", { ascending: false }).limit(6);
     // deno-lint-ignore no-explicit-any
     orders = (os || []).map((o: any) => ({
       order_uid: String(o.order_uid || ""), status: String(o.status || ""), product_name: String(o.product_name || ""),
       props: o.manufacturer_note || o.var || null, total: o.jt_cod_amount != null ? Number(o.jt_cod_amount) : (o.total_cost != null ? Number(o.total_cost) : null),
       created_at: o.created_at, cancel_requested: !!o.cancel_requested_at, carrier: o.shipping_carrier || null,
+      status_at: o.carrier_status_at || o.status_changed_at || null,
     }));
   }
   const cv: ConvCtx = {
@@ -439,7 +545,10 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   if (dry) {
     // «لو الزرار ON كان هيبعت إيه» — قراية بس، من غير أي إرسال ولا كتابة
     const state = await autoState(msg.tenant_id, msg.conversation_id, r.draft?.card || null, null);
-    const auto_preview = { state_ok: state.ok, ...planPreview(planFor(st, r, state, msg.tenant_id).plan) };
+    let plan = planFor(st, r, state, msg.tenant_id).plan;
+    const step = plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || "")) : null;
+    if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
+    const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step) };
     return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview };
   }
 
@@ -457,7 +566,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   const { data: ins, error } = await admin.from("wa_ai_drafts").upsert(row, { onConflict: "trigger_message_id", ignoreDuplicates: true }).select("id");
   const draftId = !error && ins && ins.length ? String(ins[0].id) : null;
   // 🔴 الإرسال للعميل: الزرار ON بس (mode = 'auto') — وفي shadow مفيش أي نداء لميتا
-  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId) : null;
+  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders) : null;
   return { drafted: !error, behavior: row.behavior, error: error ? "insert_failed" : r.error, ...(auto || {}) };
 }
 
@@ -488,15 +597,19 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
         orders: (fx.orders || []).map((o) => ({
           order_uid: o.order_uid, status: o.status, product_name: o.product_name, props: o.props || null, total: o.total,
           created_at: new Date(now - o.days * 86400000 - 3600000).toISOString(),
+          status_at: o.status_days != null ? new Date(now - o.status_days * 86400000).toISOString() : null,
         })),
       };
       const r = await draftFor(st, cv, { type: type || "text", body: text }, model, gen, evalRules);
       const want = EXPECT[exp];
-      const ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
+      let ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
+      const step = ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
+      if (step) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
       results.push({
         n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",
         card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error,
         auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
+        order: r.draft?.order || null, order_step: orderPreview(step), auto_text: step && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
       });
     }
   }

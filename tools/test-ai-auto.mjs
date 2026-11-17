@@ -5,7 +5,8 @@
 //  4) كارت بصوره: الكلام caption على آخر صورة بس وبعدها سطر الرد · كلام أطول من 1024 = رسالة لوحدها بعد الصور
 //  5) صورة مش jpg/png بتتشال · كارت من غير صور = كلامه بس
 //  6) نفس الكارت اتبعت مرتين قبل كده = مايتبعتش تالت · ولو مفيش رد كمان = اعتذار وتصعيد
-//  7) collect = الرد بيتبعت + «🛒 طلب شراء» في التصعيد
+//  7) collect (17 نوفمبر — البوت بيسجّل الأوردر بنفسه): لسه بيجمّع = الرد من غير تصعيد · اتسجّل = رسالة التأكيد الثابتة بس ·
+//     سؤال ثابت = من غير تصعيد · مايتسجّلش تلقائي = النص الثابت + «🛒 طلب شراء» بالسبب · order مع behavior تاني = مالوش أثر · السقف قبله
 //  8) صورة من غير نص (قرار ثابت) = السؤال بيتبعت + تصعيد · ونفس الملاحظة من الموديل = من غير تصعيد
 //  9) السقوف: بعد 10 ردود في المحادثة أو 400 في اليوم = سكوت كامل (حتى الاعتذار) + تصعيد · skip بيفضل skip
 // 10) الموديل وقع (مفيش مسودة) = اعتذار + تصعيد بالسبب
@@ -13,7 +14,7 @@
 // 12) mergeEscNote: من غير تكرار · الأحدث في الآخر · بسقف
 // 13) الملف من غير import · اسم البوت ثابت
 // المعايرات: (أ) التصعيد بيبعت رد الموديل · (ب) الاعتذار بيتكرر · (ج) السقف مش بيتشاف · (د) caption على كل صورة ·
-//            (هـ) collect من غير تصعيد · (و) الكارت بيتكرر · (ز) webp بيعدّي · (ح) السقف بيسيب الاعتذار يتبعت
+//            (هـ) التحويل لموظف من غير تصعيد · (ط) رد الموديل بيتبعت مع تأكيد الأوردر · (ي) collect اللي لسه بيجمّع بيتصعّد (الشكل القديم) · (و) الكارت بيتكرر · (ز) webp بيعدّي · (ح) السقف بيسيب الاعتذار يتبعت
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -92,10 +93,20 @@ function run(m) {
 
   // 7
   p = m.autoPlan(IN({ draft: D('collect', 'ممكن الاسم والعنوان يا فندم؟', '', 'ناقص العنوان') }));
-  ok('7أ collect: الرد بيتبعت', p.actions.length === 1 && p.actions[0].tag === 'reply');
-  ok('7ب collect: تصعيد طلب شراء', typeof p.escalate === 'string' && p.escalate.startsWith('🛒 طلب شراء') && p.escalate.includes('ناقص العنوان'));
-  p = m.autoPlan(IN({ draft: D('collect', 'تمام يا فندم') }));
-  ok('7ج collect من غير note', typeof p.escalate === 'string' && p.escalate.startsWith('🛒 طلب شراء'));
+  ok('7أ collect لسه بيجمّع: الرد بيتبعت من غير تصعيد', p.actions.length === 1 && p.actions[0].tag === 'reply' && p.actions[0].body === 'ممكن الاسم والعنوان يا فندم؟' && p.escalate === null && p.reason === 'collect');
+  const CONF = 'تم تسجيل طلب حضرتك يا فندم\nرقم الطلب: B-7';
+  p = m.autoPlan(IN({ draft: D('collect', 'ثواني وهأكد لحضرتك', 'مطبخ', 'البيانات كاملة'), card: CARD3, order: { state: 'created', text: CONF } }));
+  ok('7ب اتسجّل: رسالة التأكيد الثابتة بس (من غير كارت ولا رد الموديل ولا تصعيد)', p.actions.length === 1 && p.actions[0].kind === 'text' && p.actions[0].tag === 'order' && p.actions[0].body === CONF && p.escalate === null && p.reason === 'collect');
+  p = m.autoPlan(IN({ draft: D('collect', 'ثواني'), order: { state: 'ask', text: 'ممكن العنوان بالتفصيل يا فندم؟' } }));
+  ok('7ج سؤال ثابت: من غير تصعيد', p.actions.length === 1 && p.actions[0].tag === 'reply' && p.actions[0].body === 'ممكن العنوان بالتفصيل يا فندم؟' && p.escalate === null);
+  p = m.autoPlan(IN({ draft: D('collect', 'ثواني'), order: { state: 'handoff', text: 'بياناتك اتسجلت وزميلي هيأكد', note: 'العميل ليه أوردر سابق #100 رجع' } }));
+  ok('7د مايتسجّلش تلقائي: النص الثابت + «🛒 طلب شراء» بالسبب', p.actions.length === 1 && p.actions[0].body === 'بياناتك اتسجلت وزميلي هيأكد' && typeof p.escalate === 'string' && p.escalate.startsWith('🛒 طلب شراء') && p.escalate.includes('#100'));
+  p = m.autoPlan(IN({ draft: D('answer', 'الشحن مجاني'), order: { state: 'created', text: CONF } }));
+  ok('7هـ order مع behavior تاني = مالوش أثر', p.actions.length === 1 && p.actions[0].body === 'الشحن مجاني');
+  p = m.autoPlan(IN({ draft: D('collect', 'ثواني'), order: { state: 'created', text: CONF }, turnsInConv: m.AUTO_MAX_TURNS_PER_CONV }));
+  ok('7و السقف قبل الأوردر', p.actions.length === 0 && p.reason === 'conv_cap');
+  p = m.autoPlan(IN({ draft: D('collect', 'ممكن الاسم؟'), order: { state: 'created', text: '  ' } }));
+  ok('7ز نص فاضي = رد الموديل', p.actions.length === 1 && p.actions[0].body === 'ممكن الاسم؟');
 
   // 8
   p = m.autoPlan(IN({ draft: D('clarify', 'ممكن حضرتك توضح المطلوب يا فندم؟', '', 'صورة من غير نص'), fromModel: false }));
@@ -123,6 +134,11 @@ function run(m) {
   p = m.autoPlan(IN({ draft: null, error: 'gemini_timeout' }));
   ok('10 مفيش مسودة = اعتذار + تصعيد بالسبب', p.actions.length === 1 && p.actions[0].tag === 'hold' && /gemini_timeout/.test(p.escalate || '') && p.reason === 'no_draft');
 
+  // 10ب — الموديل واقف (رصيد/مفتاح Gemini): تصعيد ساكت من غير رسالة اعتذار (wa-ai-draft بيرجّع الزرار OFF)
+  p = m.autoPlan(IN({ draft: null, error: 'gemini_402: Your prepayment credits are depleted.' }));
+  ok('10ب رصيد Gemini خلص = من غير رسالة', p.actions.length === 0 && p.reason === 'model_down' && /Gemini/.test(p.escalate || ''));
+  ok('10ج no_gemini_key/403 برضه · 429/500/timeout لأ', m.modelDown('no_gemini_key') && m.modelDown('gemini_403: x') && !m.modelDown('gemini_429: quota') && !m.modelDown('gemini_500: x') && !m.modelDown('gemini_timeout') && !m.modelDown(null));
+
   // 11
   p = m.autoPlan(IN({ draft: D('escalate', '', '', 'n'), holdMessage: '   ' }));
   ok('11 الافتراضي', p.actions[0].body === m.HOLD_DEFAULT && /المساعد الآلي/.test(m.HOLD_DEFAULT));
@@ -146,12 +162,23 @@ const fails = run(await load());
 if (fails.length) { bad++; console.log('✗ وقع: ' + fails.join(' | ')); } else console.log('✓ 13 فحص عدّوا');
 
 const CALS = [
+  ['(ل) رصيد Gemini خلص = رسالة اعتذار لكل عميل', (s) => s.replace('if (!d && modelDown(i.error))', 'if (false)'), '10ب'],
   ['(أ) التصعيد بيبعت رد الموديل', (s) => s.replace('return { actions: hold(), escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };',
     'return { actions: [{ kind: "text", body: d.reply, tag: "reply" }], escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };'), '2أ'],
   ['(ب) الاعتذار بيتكرر', (s) => s.replace('(i.holdSent ? [] : [{ kind: "text", body: holdText, tag: "hold" }])', '([{ kind: "text", body: holdText, tag: "hold" }])'), '2د'],
   ['(ج) سقف المحادثة مش بيتشاف', (s) => s.replace('if (i.turnsInConv >= AUTO_MAX_TURNS_PER_CONV)', 'if (false)'), '9أ'],
   ['(د) caption على كل صورة', (s) => s.replace('caption: inCaption && i === imgs.length - 1 ? body : null', 'caption: inCaption ? body : null'), '4ب'],
-  ['(هـ) collect من غير تصعيد', (s) => s.replace('if (d.behavior === "collect") escalate =', 'if (false) escalate ='), '7ب'],
+  ['(هـ) التحويل لموظف من غير تصعيد', (s) => s.replace('escalate: cut("🛒 طلب شراء — " + (String(o.note || "").trim() || "راجع البيانات وسجّل الأوردر"), 400), reason: "collect" };', 'escalate: null, reason: "collect" };'), '7د'],
+  ['(ط) رد الموديل بيتبعت مع تأكيد الأوردر', (s) => s.replace('if (d.behavior === "collect" && i.order && String(i.order.text || "").trim()) {', 'if (false) {'), '7ب'],
+  ['(ي) collect اللي لسه بيجمّع بيتصعّد (الشكل القديم)', (s) => s.replace('  if (!i.fromModel && note) escalate = cut(note, 400);', '  if (d.behavior === "collect") escalate = "🛒 طلب شراء"; else if (!i.fromModel && note) escalate = cut(note, 400);'), '7أ'],
+  ['(ك) الأوردر قبل السقف', (s) => {
+    const a = '  // الأوردر: بيانات كملت → النص الثابت بس (من غير كارت ولا رد الموديل)\n';
+    const i0 = s.indexOf(a), i1 = s.indexOf('  const actions: AutoAction[] = [];');
+    const cap = '  // السقوف قبل أي حاجة تانية: بعدها البوت بيسكت خالص\n';
+    if (i0 < 0 || i1 < 0 || !s.includes(cap)) return s;
+    const block = s.slice(i0, i1);
+    return s.replace(block, '').replace(cap, block.replace('if (d.behavior === "collect"', 'if (d && d.behavior === "collect"') + cap);
+  }, '7و'],
   ['(و) الكارت بيتكرر', (s) => s.replace('if (i.card && i.cardRepeat < AUTO_MAX_CARD_REPEAT)', 'if (i.card)'), '6أ'],
   ['(ز) webp بيعدّي', (s) => s.replace('(card.images || []).filter(isSendableImage)', '(card.images || [])'), '5أ'],
   ['(ح) السقف بعد التصعيد (الاعتذار بيتبعت)', (s) => {
