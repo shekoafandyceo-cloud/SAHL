@@ -13,9 +13,13 @@
 // 11) parseOrder (ai-draft): في collect بس · لازم منتج واسم وعنوان · السطور بتتلم
 // 12) statusText: «خرج النهارده» بتوقيت القاهرة (مش 24 ساعة) · إمبارح · حالة تانية = من غير إضافة
 // 13) «معلومات للـAgent» بتقول خلص = handoff · 14) وعد بتأكيد من غير order = handoff · 15) propertyOrdering في شكل الإخراج
+// 16) cancelInfo: مين لغى وإمتى من سجل الحالة بأشكاله التلاتة (string كله · مخلوط · array) · 17) cancelTag: self/staff/قديم/بوليصة
+// 18) planReactivate: العميل لغاه من أقل من يومين = يتفعّل · لغاه موظف/قديم/بوليصة/أوردر تاني مفتوح = زميل يراجع · رقم مش ملغي = null
+// 19) statusText للملغي + reactivate في parseDraft (مش في escalate) + رسالة التأكيد
 // المعايرات: (أ) السعر من الموديل · (ب) أوردر مرتجع بيتسجّل · (ج) أوردر مفتوح بيتسجّل · (د) مقاس واحد بياخد أي رقم ·
 //            (هـ) شمال سيناء بتتسجّل · (و) عنوان من كلمتين بيعدّي · (ز) العدد من غير سقف · (ح) parseOrder في أي behavior ·
-//            (ط) «خرج النهارده» بالـ24 ساعة · (ي) منتج مش معروف = أول منتج
+//            (ط) «خرج النهارده» بالـ24 ساعة · (ي) منتج مش معروف = أول منتج · (ن) لغاه موظف بيتفعّل · (س) القديم بيتفعّل ·
+//            (ع) أوردر تاني مفتوح مابيمنعش · (ف) أي «by» = العميل · (ص) reactivate في escalate · (ق) البوليصة مابتمنعش
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -180,14 +184,65 @@ function run(m, d) {
 
   // 15 — شكل الإخراج: propertyOrdering (من غيره الموديل بيسرح لحد سقف التوكنز لما يملا order — اتقاس على الحي)
   const RS = d.RESPONSE_SCHEMA;
-  ok('15أ ترتيب الجذر و order آخره', JSON.stringify(RS.propertyOrdering) === JSON.stringify(['behavior', 'intent', 'reply', 'card', 'note', 'order']));
+  ok('15أ ترتيب الجذر و order آخره', JSON.stringify(RS.propertyOrdering) === JSON.stringify(['behavior', 'intent', 'reply', 'card', 'note', 'reactivate', 'order']));
   ok('15ب ترتيب order وحقوله إجبارية', RS.properties.order.propertyOrdering.length === 7 && RS.properties.order.required.length === 7 && RS.properties.order.nullable === true && !RS.required.includes('order'));
+
+  // 16 — مين لغى وإمتى: أشكال سجل الحالة الحية بالحرف (19824 string كله · 19819 مخلوط · array عادي)
+  const LOG_WA = JSON.stringify([{ from: 'pending', to: 'cancelled', at: '2026-11-16T21:54:15.655+01:00', by: 'واتساب', reason: 'إلغاء من العميل عبر واتساب' }]);
+  const LOG_MIX = [JSON.stringify([{ from: 'pending', to: 'confirmed', at: '2026-11-16T19:47:24.337+01:00', by: 'واتساب', reason: null }]),
+    { at: '2026-11-17T09:34:01.841Z', by: 'ebrahim', to: 'cancelled', from: 'confirmed', reason: 'تكرار' }];
+  let ci = m.cancelInfo(LOG_WA, '2026-11-16T20:54:15.654+00');
+  ok('16أ السجل string كله: العميل + وقت المدخل', ci.by === 'customer' && Date.parse(ci.at) === Date.parse('2026-11-16T20:54:15.655Z'));
+  ci = m.cancelInfo(LOG_MIX, null);
+  ok('16ب المخلوط: موظف', ci.by === 'staff' && ci.at === '2026-11-17T09:34:01.841Z');
+  ok('16ج آخر مدخل string جوّه array', m.cancelInfo([LOG_WA], null).by === 'customer');
+  ci = m.cancelInfo([{ to: 'confirmed', by: 'واتساب', at: '2026-11-16T10:00:00Z' }], '2026-11-16T12:00:00Z');
+  ok('16د آخر مدخل مش إلغاء = مش معروف (by null) والوقت من status_changed_at', ci.by === null && ci.at === '2026-11-16T12:00:00Z');
+  ok('16هـ سجل بايظ/فاضي = by null', m.cancelInfo('مش json', null).by === null && m.cancelInfo(null, null).by === null && m.cancelInfo([], null).at === null);
+  ok('16و وقت بايظ في المدخل = status_changed_at', m.cancelInfo([{ to: 'cancelled', by: 'واتساب', at: 'xx' }], '2026-11-16T12:00:00Z').at === '2026-11-16T12:00:00Z');
+
+  // 17 — ملاحظة الـprompt
+  const RNOW = '2026-11-17T12:00:00Z';
+  const RO = (o) => ({ id: 'id1', order_uid: '19824', status: 'cancelled', product_name: 'منظم المطبخ المتكامل (عدد 1)', total: 1499,
+    cancelled_at: '2026-11-16T20:54:15Z', cancelled_by: 'customer', has_tracking: false, ...(o || {}) });
+  ok('17أ العميل لغاه من أقل من يومين = self', m.cancelTag(RO(), RNOW) === 'self');
+  ok('17ب لغاه موظف/مش معروف = staff', m.cancelTag(RO({ cancelled_by: 'staff' }), RNOW) === 'staff' && m.cancelTag(RO({ cancelled_by: null }), RNOW) === 'staff');
+  ok('17ج 48 ساعة بالظبط/أقدم/من غير وقت = من غير ملاحظة', m.cancelTag(RO({ cancelled_at: '2026-11-15T12:00:00Z' }), RNOW) === '' && m.cancelTag(RO({ cancelled_at: '2026-11-10T12:00:00Z' }), RNOW) === ''
+    && m.cancelTag(RO({ cancelled_at: null }), RNOW) === '' && m.cancelTag(RO({ cancelled_at: '2026-11-15T12:00:01Z' }), RNOW) === 'self');
+  ok('17د بوليصة أو مش ملغي = من غير ملاحظة', m.cancelTag(RO({ has_tracking: true }), RNOW) === '' && m.cancelTag(RO({ status: 'confirmed' }), RNOW) === '');
+
+  // 18 — القرار
+  s = m.planReactivate('19824', [RO()], RNOW);
+  ok('18أ العميل لغاه من أقل من يومين = يتفعّل', s?.kind === 'reactivate' && s.order.id === 'id1');
+  s = m.planReactivate('19824', [RO({ cancelled_by: 'staff' })], RNOW);
+  ok('18ب لغاه موظف = زميل يراجع', s?.kind === 'handoff' && s.why === 'staff_cancel' && s.note.includes('#19824') && m.planReactivate('19824', [RO({ cancelled_by: null })], RNOW)?.why === 'staff_cancel');
+  s = m.planReactivate('19824', [RO({ cancelled_at: '2026-11-14T12:00:00Z' })], RNOW);
+  ok('18ج أقدم من يومين/من غير وقت = زميل يراجع', s?.kind === 'handoff' && s.why === 'old' && m.planReactivate('19824', [RO({ cancelled_at: null })], RNOW)?.why === 'old');
+  ok('18د ليه بوليصة = زميل يراجع', m.planReactivate('19824', [RO({ has_tracking: true })], RNOW)?.why === 'tracking');
+  s = m.planReactivate('19824', [RO(), RO({ id: 'id2', order_uid: '19900', status: 'confirmed' })], RNOW);
+  ok('18هـ أوردر تاني مفتوح = زميل يراجع بالرقم', s?.kind === 'handoff' && s.why === 'prev_order' && s.note.includes('19900'));
+  ok('18و أوردر تاني مرتجع = زميل يراجع', m.planReactivate('19824', [RO(), RO({ id: 'id2', order_uid: '19700', status: 'Returned to business' })], RNOW)?.why === 'prev_order');
+  ok('18ز أوردر تاني ملغي/متسلّم = يتفعّل', m.planReactivate('19824', [RO(), RO({ id: 'id2', order_uid: '19823' }), RO({ id: 'id3', order_uid: '19000', status: 'Delivered' })], RNOW)?.kind === 'reactivate');
+  ok('18ح رقم مش أوردر ملغي للعميل = null', m.planReactivate('19999', [RO()], RNOW) === null && m.planReactivate('19824', [RO({ status: 'confirmed' })], RNOW) === null
+    && m.planReactivate('', [RO()], RNOW) === null && m.planReactivate(null, [RO()], RNOW) === null && m.planReactivate('19824', [RO({ id: '' })], RNOW) === null);
+  ok('18ط أرقام هندي و# ومسافات', m.planReactivate(' #١٩٨٢٤ ', [RO()], RNOW)?.kind === 'reactivate' && m.planReactivate('b-7', [RO({ order_uid: 'B-7' })], RNOW)?.kind === 'reactivate');
+
+  // 19 — النص للموديل وللعميل
+  const LS = (tag) => d.statusText({ order_uid: '1', status: 'cancelled', product_name: '', total: 1, created_at: RNOW, cancel_tag: tag }, RNOW);
+  ok('19أ ملاحظة الملغي في الـprompt', LS('self').includes('ينفع يتفعّل تاني') && LS('staff').includes('تفعيله بإيد موظف') && LS('') === 'ملغي' && LS(undefined) === 'ملغي');
+  const PD = (behavior, reactivate) => d.parseDraft(JSON.stringify({ behavior, intent: 'i', reply: 'تمام يا فندم', card: '', note: '', reactivate }), []);
+  ok('19ب reactivate في رد حقيقي بس', PD('order_lookup', '19824')?.reactivate === '19824' && PD('answer', '#19824 ')?.reactivate === '19824'
+    && PD('escalate', '19824')?.reactivate === null && PD('skip', '19824')?.reactivate === null);
+  ok('19ج فاضي/رموز = null', PD('order_lookup', '')?.reactivate === null && PD('order_lookup', undefined)?.reactivate === null && PD('order_lookup', '19824; drop')?.reactivate === null);
+  const ct = m.reactivateConfirmText(RO(), 'من 24 إلى 48 ساعة إن شاء الله');
+  ok('19د رسالة التأكيد: الرقم والمنتج والإجمالي ومدة التوصيل', ct.includes('رقم 19824 اتفعّل تاني') && ct.includes('منظم المطبخ المتكامل (عدد 1)') && ct.includes('1,499 جنيه') && ct.includes('من 24 إلى 48 ساعة'));
+  ok('19هـ من غير إجمالي = من غير سطره', !m.reactivateConfirmText(RO({ total: null }), null).includes('الإجمالي') && m.reactivateConfirmText(RO({ total: null }), null).includes('هنتواصل مع حضرتك'));
   return fails;
 }
 
 let bad = 0;
 const base = run(await load(TS, SRC), await load(TSD, SRCD));
-if (base.length) { bad++; console.log('✗ وقع: ' + base.join(' | ')); } else console.log('✓ 15 فحص عدّوا');
+if (base.length) { bad++; console.log('✗ وقع: ' + base.join(' | ')); } else console.log('✓ 19 فحص عدّوا');
 
 const D0 = await load(TSD, SRCD), M0 = await load(TS, SRC);
 const CALS = [
@@ -202,7 +257,13 @@ const CALS = [
   ['(ط) «خرج النهارده» بالـ24 ساعة', 'd', (s) => s.replace('const d = Math.round((Date.parse(cairoDay(nowIso)) - Date.parse(cairoDay(o.status_at))) / 86400000);', 'const d = Math.floor((Date.parse(nowIso) - Date.parse(o.status_at)) / 86400000);'), '12ب'],
   ['(ك) ملاحظة «خلص» مابتمنعش', 'o', (s) => s.replace('if (stockOutNote(p.note)) return', 'if (false) return'), '13أ'],
   ['(ل) الوعد من غير بيانات بيعدّي', 'o', (s) => s.replace('return /ثواني|ه[اأ]كد/.test(String(reply || ""))', 'return false'), '14أ'],
-  ['(م) الإخراج من غير propertyOrdering', 'd', (s) => s.replace('  propertyOrdering: ["behavior", "intent", "reply", "card", "note", "order"],', ''), '15أ'],
+  ['(م) الإخراج من غير propertyOrdering', 'd', (s) => s.replace('  propertyOrdering: ["behavior", "intent", "reply", "card", "note", "reactivate", "order"],', ''), '15أ'],
+  ['(ن) لغاه موظف بيتفعّل', 'o', (s) => s.replace('if (o.cancelled_by !== "customer") return { kind: "handoff", why: "staff_cancel"', 'if (false) return { kind: "handoff", why: "staff_cancel"'), '18ب'],
+  ['(س) القديم بيتفعّل', 'o', (s) => s.replace('age >= REACTIVATE_WINDOW_MS) return { kind: "handoff", why: "old"', 'age >= Infinity) return { kind: "handoff", why: "old"'), '18ج'],
+  ['(ع) أوردر تاني مفتوح مابيمنعش', 'o', (s) => s.replace('const pp = prevProblem((orders || []).filter((x) => x !== o));', 'const pp = null as string | null;'), '18هـ'],
+  ['(ف) أي «by» = العميل', 'o', (s) => s.replace('/واتساب|whatsapp/i.test(by) ? "customer" : by ? "staff" : null', 'by ? "customer" : null'), '16ب'],
+  ['(ص) reactivate في escalate', 'd', (s) => s.replace(' && behavior !== "escalate" && behavior !== "skip" ? ra : null;', ' ? ra : null;'), '19ب'],
+  ['(ق) البوليصة مابتمنعش', 'o', (s) => s.replace('if (o.has_tracking) return { kind: "handoff", why: "tracking"', 'if (false) return { kind: "handoff", why: "tracking"'), '18د'],
   ['(ي) منتج مش معروف = أول منتج', 'o', (s) => s.replace('  return tie ? null : best;', '  return tie ? null : (best || products[0]);'), '4أ'],
 ];
 for (const [name, which, mut, expect] of CALS) {

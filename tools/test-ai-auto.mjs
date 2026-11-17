@@ -108,6 +108,21 @@ function run(m) {
   p = m.autoPlan(IN({ draft: D('collect', 'ممكن الاسم؟'), order: { state: 'created', text: '  ' } }));
   ok('7ز نص فاضي = رد الموديل', p.actions.length === 1 && p.actions[0].body === 'ممكن الاسم؟');
 
+  // 7ح–7م — تفعيل أوردر ملغي (17 نوفمبر): النص الثابت بس · اتفعّل = من غير تصعيد · مايتفعّلش تلقائي = «🔁» بالسبب · مش في التصعيد ولا بعد السقف
+  const RCONF = 'تمام يا فندم، طلب حضرتك رقم 19824 اتفعّل تاني واتأكد.';
+  p = m.autoPlan(IN({ draft: D('order_lookup', 'تمام يا فندم', 'مطبخ'), card: CARD3, react: { state: 'done', text: RCONF } }));
+  ok('7ح اتفعّل: رسالة التأكيد الثابتة بس (من غير كارت ولا رد الموديل ولا تصعيد)', p.actions.length === 1 && p.actions[0].kind === 'text' && p.actions[0].tag === 'order' && p.actions[0].body === RCONF && p.escalate === null && p.reason === 'order_lookup');
+  p = m.autoPlan(IN({ draft: D('order_lookup', 'تمام يا فندم'), react: { state: 'handoff', text: 'زميلي هيراجع الأوردر', note: 'العميل عايز يفعّل أوردر #19819 الملغي — اللي لغاه موظف' } }));
+  ok('7ط مايتفعّلش تلقائي: النص الثابت + «🔁» بالسبب', p.actions.length === 1 && p.actions[0].body === 'زميلي هيراجع الأوردر' && p.actions[0].tag === 'reply' && typeof p.escalate === 'string' && p.escalate.startsWith('🔁 تفعيل أوردر ملغي') && p.escalate.includes('#19819'));
+  p = m.autoPlan(IN({ draft: D('escalate', 'زميل هيتابع', '', 'شكوى'), react: { state: 'done', text: RCONF } }));
+  ok('7ي التصعيد قبل التفعيل (الاعتذار الثابت مش رسالة التفعيل)', p.reason === 'escalate' && p.actions.length === 1 && p.actions[0].tag === 'hold');
+  p = m.autoPlan(IN({ draft: D('order_lookup', 'تمام'), react: { state: 'done', text: RCONF }, turnsInConv: m.AUTO_MAX_TURNS_PER_CONV }));
+  ok('7ك السقف قبل التفعيل', p.actions.length === 0 && p.reason === 'conv_cap');
+  p = m.autoPlan(IN({ draft: D('order_lookup', 'الأوردر متسجل ملغي'), react: { state: 'done', text: ' ' } }));
+  ok('7ل نص فاضي = رد الموديل', p.actions.length === 1 && p.actions[0].body === 'الأوردر متسجل ملغي');
+  p = m.autoPlan(IN({ draft: D('collect', 'ثواني'), order: { state: 'created', text: CONF }, react: { state: 'done', text: RCONF } }));
+  ok('7م التفعيل قبل تسجيل أوردر جديد', p.actions.length === 1 && p.actions[0].body === RCONF);
+
   // 8
   p = m.autoPlan(IN({ draft: D('clarify', 'ممكن حضرتك توضح المطلوب يا فندم؟', '', 'صورة من غير نص'), fromModel: false }));
   ok('8أ صورة من غير نص: السؤال + تصعيد', p.actions.length === 1 && p.actions[0].tag === 'reply' && p.escalate === 'صورة من غير نص');
@@ -169,6 +184,15 @@ const CALS = [
   ['(ج) سقف المحادثة مش بيتشاف', (s) => s.replace('if (i.turnsInConv >= AUTO_MAX_TURNS_PER_CONV)', 'if (false)'), '9أ'],
   ['(د) caption على كل صورة', (s) => s.replace('caption: inCaption && i === imgs.length - 1 ? body : null', 'caption: inCaption ? body : null'), '4ب'],
   ['(هـ) التحويل لموظف من غير تصعيد', (s) => s.replace('escalate: cut("🛒 طلب شراء — " + (String(o.note || "").trim() || "راجع البيانات وسجّل الأوردر"), 400), reason: "collect" };', 'escalate: null, reason: "collect" };'), '7د'],
+  ['(ن) رد الموديل بيتبعت بدل تأكيد التفعيل', (s) => s.replace('if (i.react && String(i.react.text || "").trim()) {', 'if (false) {'), '7ح'],
+  ['(س) مايتفعّلش تلقائي من غير تصعيد', (s) => s.replace('escalate: cut("🔁 تفعيل أوردر ملغي — " + (String(x.note || "").trim() || "راجع الأوردر وفعّله"), 400), reason: d.behavior };', 'escalate: null, reason: d.behavior };'), '7ط'],
+  ['(ع) التفعيل قبل التصعيد', (s) => {
+    const a = '  // تفعيل أوردر ملغي: النص الثابت بس', b = '  // الأوردر: بيانات كملت';
+    const i0 = s.indexOf(a), i1 = s.indexOf(b), e = '  if (d.behavior === "escalate")';
+    if (i0 < 0 || i1 < 0 || !s.includes(e)) return s;
+    const block = s.slice(i0, i1);
+    return s.replace(block, '').replace(e, block + e);
+  }, '7ي'],
   ['(ط) رد الموديل بيتبعت مع تأكيد الأوردر', (s) => s.replace('if (d.behavior === "collect" && i.order && String(i.order.text || "").trim()) {', 'if (false) {'), '7ب'],
   ['(ي) collect اللي لسه بيجمّع بيتصعّد (الشكل القديم)', (s) => s.replace('  if (!i.fromModel && note) escalate = cut(note, 400);', '  if (d.behavior === "collect") escalate = "🛒 طلب شراء"; else if (!i.fromModel && note) escalate = cut(note, 400);'), '7أ'],
   ['(ك) الأوردر قبل السقف', (s) => {

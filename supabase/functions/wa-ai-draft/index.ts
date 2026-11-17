@@ -12,6 +12,9 @@
 //    • «البوت يسجّل الأوردر بنفسه»: collect والبيانات كملت → القرار في _shared/ai-order.ts (منتج من ai_products · موبايل · محافظة · عنوان واضح ·
 //      مفيش أوردر سابق مرتجع/مفتوح) → RPC create_bot_order (service_role بس · بيعيد الحراسات · الزرار لازم ON) → رسالة تأكيد ثابتة برقم الطلب.
 //      مايتسجّلش = «بياناتك اتسجلت وزميل هيأكد» + «🛒 طلب شراء» في التصعيد بالسبب. dry_run والتقييم بيرجّعوا القرار بس (order_preview) من غير تسجيل.
+//    • «الأوردر الملغي من أقل من يومين يتفعّل تاني»: الموديل بيكتب رقم الأوردر في reactivate لما العميل يقول إنه عايزه → planReactivate
+//      (العميل هو اللي لغاه من الواتساب · أقل من 48 ساعة · من غير بوليصة · مالوش أوردر تاني مفتوح/مرتجع) → RPC reactivate_bot_order
+//      (service_role بس · بيعيد الحراسات · الزرار لازم ON) → «مؤكد» + رسالة تأكيد ثابتة. لغاه موظف/قديم/السيرفر رفض = زميل يراجع («🔁» في التصعيد).
 // 🔴 wa-send و wa-inbox-ingest و trg_wa_after_message_insert مايتلمسوش — الإرسال هنا نداء مباشر لميتا بنفس شكل wa-send.
 // 🔴 المفتاح: Secret `GEMINI_API_KEY` (Google AI Studio — Paid tier) — المالك ضافه بإيده، وعمره ما بيتطبع ولا بيرجع في رد.
 // 🔴 كل المعلومات اللي الموديل بيرد منها بتتجاب من الداتابيز هنا (قراية بس): ai_settings.facts · ai_products · كروت الردود المحفوظة ·
@@ -38,9 +41,10 @@ import {
   buildSystemPrompt, buildUserPrompt, effectivePrice, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom,
   type CardLite, type Draft, type DraftCtx, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
-import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome } from "../_shared/ai-auto.ts";
+import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
-  ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder,
+  cancelInfo, cancelTag, ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, planReactivate, REACT_HANDOFF_TEXT, reactivateConfirmText,
+  type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder, type ReactOrder, type ReactStep,
 } from "../_shared/ai-order.ts";
 import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
 import { CTX, EVAL_CASES, EVAL_FACTS_EXTRA, EVAL_TENANT, EXPECT } from "./eval-cases.ts";
@@ -58,6 +62,7 @@ const SKIP_TYPES = ["button", "reaction", "sticker", "unsupported"];
 const AUTO_GAP_MS = 700, AUTO_SEND_TIMEOUT_MS = 20000, AUTO_FAIL_WINDOW_MS = 15 * 60000, AUTO_FAIL_TRIP = 3;
 const STAFF_ACTIVE_MS = 30 * 60000; // موظف رد في المحادثة من أقل من كده = البوت بيسكت (الزرار ON)
 const PREVIEW_ORDER_UID = "B-؟";    // رقم الطلب في المعاينة (dry_run/التقييم) — مفيش تسجيل هناك
+const REACT_OK = ["answer", "collect", "clarify", "order_lookup"]; // تفعيل الأوردر الملغي في رد حقيقي بس (مش تصعيد ولا سقف ولا skip)
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -254,7 +259,7 @@ async function autoState(tenantId: string, convId: string, cardTitle: string | n
     cardRepeat: cardTitle ? rows.filter((r) => r.auto_result?.card === cardTitle).length : 0,
   };
 }
-function planFor(st: Static, r: Result, state: AutoState, tenantId: string, order: OrderOutcome | null = null): { plan: AutoPlan; card: AutoCard | null } {
+function planFor(st: Static, r: Result, state: AutoState, tenantId: string, order: OrderOutcome | null = null, react: ReactOutcome | null = null): { plan: AutoPlan; card: AutoCard | null } {
   const cardRow = r.draft?.card ? st.cards.find((c) => c.title === r.draft!.card) : null;
   // صور الكارت: مسارات `<tenant>/quick-replies/…` بس (نفس شرط wa-media) — صورة بمسار تاني بتتساب بدل ما توقّع الرد كله
   const card: AutoCard | null = cardRow
@@ -263,7 +268,7 @@ function planFor(st: Static, r: Result, state: AutoState, tenantId: string, orde
     draft: r.draft, fromModel: !!r.model, error: r.error, card, cardRepeat: state.cardRepeat, holdSent: state.holdSent,
     turnsInConv: state.turnsInConv, turnsToday: state.turnsToday,
     holdMessage: typeof st.facts.hold_message === "string" ? st.facts.hold_message as string : null,
-    order,
+    order, react,
   });
   return { plan, card };
 }
@@ -309,6 +314,47 @@ async function createBotOrder(tenantId: string, a: CreateArgs): Promise<{ ok: tr
   if (error || !d) return { ok: false, error: "rpc_error", ref: null };
   if (d.ok === true && d.order_uid && d.order_id) return { ok: true, uid: String(d.order_uid), id: String(d.order_id) };
   return { ok: false, error: String(d.error || "refused").slice(0, 40), ref: d.order_uid ? String(d.order_uid) : null };
+}
+
+// ── تفعيل أوردر ملغي (17 نوفمبر) ─────────────────────────────────────
+const deliveryFact = (st: Static): string | null => (typeof st.facts.delivery === "string" ? st.facts.delivery as string : null);
+const toReact = (o: OrderLite): ReactOrder => ({
+  id: String(o.id || ""), order_uid: o.order_uid, status: o.status, product_name: o.product_name, total: o.total,
+  cancelled_at: o.cancelled_at || null, cancelled_by: o.cancelled_by || null, has_tracking: !!o.has_tracking,
+});
+/** خطوة التفعيل لمسودة فيها reactivate. null = مفيش (أو الرقم مش أوردر ملغي للعميل ده) — رد الموديل يتبعت زي ما هو. قرار بس — مفيش كتابة. */
+function reactStepFor(r: Result, orders: OrderLite[]): ReactStep | null {
+  const d = r.draft;
+  if (!d || !d.reactivate) return null;
+  return planReactivate(d.reactivate, orders.map(toReact), new Date().toISOString());
+}
+const reactHandoff = (note: string): ReactOutcome => ({ state: "handoff", text: REACT_HANDOFF_TEXT, note });
+/** نتيجة الخطوة كنص للعميل — للمعاينة (dry_run/التقييم): «كان هيتفعّل» من غير أي كتابة. */
+function reactOutcomePreview(st: Static, step: ReactStep): ReactOutcome {
+  return step.kind === "reactivate" ? { state: "done", text: reactivateConfirmText(step.order, deliveryFact(st)) } : reactHandoff(step.note);
+}
+function reactPreview(step: ReactStep | null): Record<string, unknown> | null {
+  if (!step) return null;
+  return step.kind === "reactivate" ? { would: "reactivate", uid: step.order.order_uid } : { would: "handoff", why: step.why };
+}
+const REACT_REFUSED: Record<string, string> = {
+  has_returned_order: "العميل ليه أوردر تاني رجع/مااستلموش — راجع قبل ما تفعّله",
+  has_open_order: "العميل عنده أوردر تاني لسه مفتوح — ممكن يكون تكرار",
+  not_customer_cancel: "اللي لغاه موظف مش العميل — راجع سبب الإلغاء",
+  too_old: "اتلغى من أكتر من يومين — راجعه وفعّله إنت",
+  has_tracking: "الأوردر ليه بوليصة شحن — راجعه",
+  already_reactivated: "البوت فعّله مرة قبل كده والعميل لغاه تاني — راجعه",
+  not_cancelled: "حالة الأوردر اتغيّرت — راجعه",
+  bot_off: "الزرار اتقفل قبل التفعيل — فعّله إنت",
+};
+/** التفعيل على السيرفر (reactivate_bot_order — بيعيد الحراسات كلها). أي رفض أو خطأ = الأوردر زي ما هو والسبب بيرجع. */
+async function reactivateBotOrder(tenantId: string, orderId: string, waId: string | null): Promise<{ ok: true; uid: string } | { ok: false; error: string }> {
+  const { data, error } = await admin.rpc("reactivate_bot_order", { p_tenant: tenantId, p_order_id: orderId, p_wa_id: waId || "" });
+  // deno-lint-ignore no-explicit-any
+  const d: any = data;
+  if (error || !d) return { ok: false, error: "rpc_error" };
+  if (d.ok === true && d.order_uid) return { ok: true, uid: String(d.order_uid) };
+  return { ok: false, error: String(d.error || "refused").slice(0, 40) };
 }
 
 /** موظف رد في المحادثة من أقل من نص ساعة والزرار ON: البوت ساكت — بس المحادثة تتعلّم «تصعيد» عشان رسالة العميل ماتتنسيش لو الموظف مشي. */
@@ -402,7 +448,7 @@ async function autoOff(tenantId: string, by: string): Promise<void> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: PrevOrder[]): Promise<Record<string, unknown>> {
+async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: OrderLite[]): Promise<Record<string, unknown>> {
   // 1) الزرار لسه ON؟ (المالك ممكن يكون طفّاه وإحنا مستنيين الموديل)
   const { data: now1 } = await admin.from("ai_settings").select("mode").eq("tenant_id", msg.tenant_id).maybeSingle();
   if (now1?.mode !== "auto") return { auto: "mode_changed" };
@@ -436,7 +482,21 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
   if (plan.reason === "model_down") await autoOff(msg.tenant_id, "إيقاف تلقائي — رصيد/مفتاح Gemini");
   // 4ب) الأوردر: collect والبيانات كملت (والسقوف عدّت — plan.reason = collect) → القرار، ولو «يتسجّل» التسجيل على السيرفر قبل رسالة التأكيد
   let orderInfo: Record<string, unknown> | null = null;
-  const step = plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId) : null;
+  // 4أ) العميل عايز أوردره الملغي (reactivate) — قبل أي تسجيل جديد: تفعيل نفس الأوردر أحسن من أوردر مكرر. رد حقيقي بس (السقوف عدّت).
+  const rstep = REACT_OK.includes(plan.reason) ? reactStepFor(r, prevOrders) : null;
+  if (rstep) {
+    let ro: ReactOutcome;
+    if (rstep.kind === "reactivate") {
+      const done = await reactivateBotOrder(msg.tenant_id, rstep.order.id, state.waId);
+      if (done.ok) { ro = { state: "done", text: reactivateConfirmText(rstep.order, deliveryFact(st)) }; orderInfo = { state: "reactivated", uid: done.uid, id: rstep.order.id }; }
+      else {
+        ro = reactHandoff("العميل عايز يفعّل أوردر #" + rstep.order.order_uid + " الملغي — " + (REACT_REFUSED[done.error] || "السيستم مافعّلوش (" + done.error + ") — فعّله إنت"));
+        orderInfo = { state: "react_refused", why: done.error };
+      }
+    } else { ro = reactHandoff(rstep.note); orderInfo = { state: "react_handoff", why: rstep.why }; }
+    ({ plan, card } = planFor(st, r, state, msg.tenant_id, null, ro));
+  }
+  const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId) : null;
   if (step) {
     let outcome: OrderOutcome;
     if (step.kind === "create") {
@@ -465,7 +525,8 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
     }
   }
   // 6) «تصعيد» على المحادثة (بيتشال لما موظف يرد — trg_wa_ai_escalation_clear)
-  const madeNote = orderInfo && orderInfo.state === "created" ? "الأوردر " + String(orderInfo.uid) + " اتسجّل بس رسالة التأكيد ماوصلتش للعميل · " : "";
+  const madeNote = orderInfo && orderInfo.state === "created" ? "الأوردر " + String(orderInfo.uid) + " اتسجّل بس رسالة التأكيد ماوصلتش للعميل · "
+    : orderInfo && orderInfo.state === "reactivated" ? "الأوردر " + String(orderInfo.uid) + " اتفعّل تاني بس رسالة التأكيد ماوصلتش للعميل · " : "";
   const escNote = sendErr ? mergeEscNote(plan.escalate, madeNote + "البوت معرفش يبعت الرد (" + sendErr.slice(0, 120) + ")") : plan.escalate;
   if (escNote || holdNow) {
     const patch: Record<string, unknown> = {};
@@ -526,16 +587,25 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   if (forms.length) {
     const list = forms.map((f) => `"${f}"`).join(",");
     const { data: os } = await admin.from("orders")
-      .select("order_uid, status, product_name, var, manufacturer_note, total_cost, jt_cod_amount, created_at, cancel_requested_at, shipping_carrier, carrier_status_at, status_changed_at")
+      .select("id, order_uid, status, product_name, var, manufacturer_note, total_cost, jt_cod_amount, created_at, cancel_requested_at, shipping_carrier, carrier_status_at, status_changed_at, tracking_no, status_log")
       .eq("tenant_id", msg.tenant_id).or(`phone.in.(${list}),alt_phone.in.(${list})`)
       .gte("created_at", new Date(Date.now() - 60 * 86400000).toISOString()).order("created_at", { ascending: false }).limit(6);
     // deno-lint-ignore no-explicit-any
-    orders = (os || []).map((o: any) => ({
-      order_uid: String(o.order_uid || ""), status: String(o.status || ""), product_name: String(o.product_name || ""),
-      props: o.manufacturer_note || o.var || null, total: o.jt_cod_amount != null ? Number(o.jt_cod_amount) : (o.total_cost != null ? Number(o.total_cost) : null),
-      created_at: o.created_at, cancel_requested: !!o.cancel_requested_at, carrier: o.shipping_carrier || null,
-      status_at: o.carrier_status_at || o.status_changed_at || null,
-    }));
+    const nowIso = new Date().toISOString();
+    // deno-lint-ignore no-explicit-any
+    orders = (os || []).map((o: any) => {
+      const status = String(o.status || "");
+      // مين لغى وإمتى — من سجل الحالة (للأوردر الملغي بس)
+      const ci = status.toLowerCase() === "cancelled" ? cancelInfo(o.status_log, o.status_changed_at) : { at: null, by: null };
+      const base = { status, cancelled_at: ci.at, cancelled_by: ci.by, has_tracking: !!String(o.tracking_no || "").trim() };
+      return {
+        id: String(o.id || ""), order_uid: String(o.order_uid || ""), product_name: String(o.product_name || ""),
+        props: o.manufacturer_note || o.var || null, total: o.jt_cod_amount != null ? Number(o.jt_cod_amount) : (o.total_cost != null ? Number(o.total_cost) : null),
+        created_at: o.created_at, cancel_requested: !!o.cancel_requested_at, carrier: o.shipping_carrier || null,
+        status_at: o.carrier_status_at || o.status_changed_at || null,
+        ...base, cancel_tag: cancelTag(base, nowIso),
+      };
+    });
   }
   const cv: ConvCtx = {
     adId: conv?.ctwa_ad_id || null, adBody: conv?.ctwa_ad_body || null, customerName: conv?.customer_name || null,
@@ -546,9 +616,11 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     // «لو الزرار ON كان هيبعت إيه» — قراية بس، من غير أي إرسال ولا كتابة
     const state = await autoState(msg.tenant_id, msg.conversation_id, r.draft?.card || null, null);
     let plan = planFor(st, r, state, msg.tenant_id).plan;
-    const step = plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || "")) : null;
+    const rstep = REACT_OK.includes(plan.reason) ? reactStepFor(r, orders) : null;
+    if (rstep) plan = planFor(st, r, state, msg.tenant_id, null, reactOutcomePreview(st, rstep)).plan;
+    const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || "")) : null;
     if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
-    const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step) };
+    const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep) };
     return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview };
   }
 
@@ -594,22 +666,33 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       hist.push({ dir: "in", type: type || "text", body: text });
       const cv: ConvCtx = {
         adId: fx.ad || null, adBody: fx.adBody || null, customerName: null, ordersKnown: true, history: hist,
-        orders: (fx.orders || []).map((o) => ({
-          order_uid: o.order_uid, status: o.status, product_name: o.product_name, props: o.props || null, total: o.total,
-          created_at: new Date(now - o.days * 86400000 - 3600000).toISOString(),
-          status_at: o.status_days != null ? new Date(now - o.status_days * 86400000).toISOString() : null,
-        })),
+        orders: (fx.orders || []).map((o) => {
+          // أوردر ملغي وهمي: cancel = مين لغاه · cancel_days = من كام يوم (كسور مسموحة)
+          const base = {
+            status: o.status, cancelled_at: o.cancel_days != null ? new Date(now - o.cancel_days * 86400000).toISOString() : null,
+            cancelled_by: o.cancel || null, has_tracking: false,
+          };
+          return {
+            id: "eval-" + o.order_uid, order_uid: o.order_uid, product_name: o.product_name, props: o.props || null, total: o.total,
+            created_at: new Date(now - o.days * 86400000 - 3600000).toISOString(),
+            status_at: o.status_days != null ? new Date(now - o.status_days * 86400000).toISOString() : null,
+            ...base, cancel_tag: cancelTag(base, new Date(now).toISOString()),
+          };
+        }),
       };
       const r = await draftFor(st, cv, { type: type || "text", body: text }, model, gen, evalRules);
       const want = EXPECT[exp];
       let ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
-      const step = ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
+      const rstep = REACT_OK.includes(ap.reason) ? reactStepFor(r, cv.orders) : null; // قرار التفعيل بس — مفيش كتابة في التقييم
+      if (rstep) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, null, reactOutcomePreview(st, rstep)).plan;
+      const step = !rstep && ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
       if (step) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
       results.push({
         n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",
         card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error,
         auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
-        order: r.draft?.order || null, order_step: orderPreview(step), auto_text: step && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
+        order: r.draft?.order || null, order_step: orderPreview(step), reactivate: r.draft?.reactivate || null, react_step: reactPreview(rstep),
+        auto_text: (step || rstep) && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
       });
     }
   }

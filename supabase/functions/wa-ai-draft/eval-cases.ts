@@ -17,7 +17,10 @@ const HELLO = "Hello! Can I get more info on this?";
 const AD_BODY_R = "فاكرين أيام الراديو القديم وصوت الموسيقى اللي كان له طعم تاني؟ رجّع الإحساس ده لبيتك مع راديو الجرامافون الكلاسيكي";
 
 export interface EvalHist { dir: "in" | "out"; body?: string; card?: string; type?: string }
-export interface EvalOrder { order_uid: string; status: string; product_name: string; props?: string; total: number; days: number; status_days?: number }
+export interface EvalOrder {
+  order_uid: string; status: string; product_name: string; props?: string; total: number; days: number; status_days?: number;
+  cancel?: "customer" | "staff"; cancel_days?: number; // أوردر ملغي: مين لغاه ومن كام يوم (17 نوفمبر — تفعيل الملغي من أقل من يومين)
+}
 interface Ctx { ad?: string; adBody?: string; h?: EvalHist[]; orders?: EvalOrder[] }
 
 const i = (body: string): EvalHist => ({ dir: "in", body });
@@ -45,6 +48,10 @@ export const CTX: Record<string, Ctx> = {
   OFD: { orders: [{ ...K85, status: "Out for delivery", days: 1, status_days: 0 }], h: [{ dir: "out", type: "template", body: "أهلاً منى،\nطلبك رقم 18801 خرج النهارده مع مندوب الشحن وفي الطريق ليك\n\nالمنتج: منظم المطبخ المتكامل\nالمطلوب عند الاستلام (شامل الشحن): 1,499 جنيه\n\nاسم المندوب: Ahmed Ali\nرقم المندوب: 01000000000" }] },
   OFD1: { orders: [{ ...K85, status: "Out for delivery", days: 2, status_days: 1 }] },
   OCAN: { orders: [{ ...K85, status: "cancelled", days: 4 }], h: [i("الاردر مجاش ليه لحد دلوقتي"), o("هيوصل لحضرتك في خلال 48 ساعه"), i("تمام")] },
+  // 17 نوفمبر (طلب المالك): أوردر ملغي من أقل من يومين — العميل لغاه من الواتساب (يتفعّل تاني) · لغاه موظف (زميل يراجع) · اتسأل ووافق
+  OCS: { orders: [{ ...K85, status: "cancelled", days: 1, cancel: "customer", cancel_days: 0.5 }] },
+  OCS2: { orders: [{ ...K85, status: "cancelled", days: 1, cancel: "customer", cancel_days: 0.5 }], h: [i("الاوردر بتاعي فين"), o("الأوردر متسجل عندنا ملغي يا فندم، تحب حضرتك نفعّله تاني؟")] },
+  OCST: { orders: [{ ...K85, status: "cancelled", days: 1, cancel: "staff", cancel_days: 0.5 }] },
   ADDR2: { ad: AD_K2, h: [i(HELLO), card("مطبببببببببببببخ 2"), i("عايز واحد"), o("تحت أمر حضرتك يا فندم، ممكن الاسم والمحافظة والعنوان بالتفصيل ورقم الموبايل؟")] },
   ADDRO: { ad: AD_K, orders: [{ ...K85, status: "Returned to business", days: 12 }], h: [i(HELLO), card("مطبخ"), i("عايزه واحده مقاس 85"), o("تحت أمر حضرتك يا فندم، ممكن الاسم والمحافظة والعنوان بالتفصيل ورقم الموبايل؟")] },
 };
@@ -219,6 +226,11 @@ export const EVAL_CASES: Case[] = [
   [162, "ADDRO", "C", "الاسم منى أحمد محمود ورقمي 01012345678 والعنوان القاهرة مدينة نصر شارع عباس العقاد عمارة 15 بجوار سيتي ستارز"],
   [163, "OFD", "E", "المندوب مبيردش عليا خالص"],
   [164, "N", "A", "السلام عليكم"],
+  // تفعيل الأوردر الملغي (17 نوفمبر): 165 يسأل «نفعّله تاني؟» من غير reactivate · 166/167 reactivate = رقم الأوردر (يتفعّل) · 168 reactivate والقرار «زميل يراجع»
+  [165, "OCS", "O", "الاوردر بتاعي هيوصل امتى"],
+  [166, "OCS", "O", "انا دوست الغاء بالغلط وعايزة الاوردر"],
+  [167, "OCS2", "O", "ايوه يا ريت"],
+  [168, "OCST", "O", "انا عايز الاوردر ده ابعتوهولي"],
 ];
 
 export const EXPECT: Record<string, string> = { A: "answer", C: "collect", O: "order_lookup", Q: "clarify", E: "escalate", S: "skip" };

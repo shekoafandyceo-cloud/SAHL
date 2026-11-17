@@ -8,6 +8,8 @@
 //   • عميل ليه أوردر سابق مرتجع/استثناء، أو أوردر لسه مفتوح = مفيش تسجيل تلقائي: البيانات بتتاخد والمحادثة بتتصعّد بالسبب (قرار المالك).
 //   • التسجيل نفسه RPC على السيرفر (create_bot_order — service_role بس والزرار ON) وبيعيد نفس الحراسات. الملف ده مابيكتبش حاجة.
 //   • نص التأكيد للعميل ثابت من هنا (رقم الطلب والمنتج والإجمالي من السيستم) — مش من الموديل.
+//   • (17 نوفمبر — طلب المالك) أوردر ملغي من أقل من يومين **والعميل هو اللي لغاه من زرار الواتساب** والعميل عايزه = البوت بيفعّله تاني «مؤكد»
+//     (planReactivate → RPC reactivate_bot_order). لغاه موظف · أقدم من يومين · ليه بوليصة · العميل ليه أوردر تاني مفتوح/مرتجع = زميل يراجع.
 
 export interface OrderDraft { product: string; variant: string; qty: number; name: string; phone: string; governorate: string; address: string }
 export interface OrderVariant { label: string; stockProductId: string; price: number | null }
@@ -198,4 +200,75 @@ export function orderSummary(d: OrderDraft): string {
   const parts = [d.product, d.variant, Number(d.qty) > 1 ? "عدد " + d.qty : "", d.name, d.phone, d.governorate, d.address]
     .map((x) => String(x || "").replace(/\s+/g, " ").trim()).filter(Boolean);
   return parts.join(" · ").slice(0, 260);
+}
+
+// ── تفعيل أوردر ملغي (17 نوفمبر — «الاوردر الملغي من اقل من يومين هو يفعله تاني يخليه مؤكد … وارد يكون العميل داس الغاء بالغلط») ──
+export const REACTIVATE_WINDOW_MS = 48 * 3600 * 1000;
+export const REACT_HANDOFF_TEXT = "تمام يا فندم، طلب حضرتك وصل، وزميلي هيراجع الأوردر ويأكد مع حضرتك.";
+export interface CancelInfo { at: string | null; by: "customer" | "staff" | null }
+export interface ReactOrder {
+  id: string; order_uid: string; status: string; product_name: string; total: number | null;
+  cancelled_at: string | null; cancelled_by: "customer" | "staff" | null; has_tracking: boolean;
+}
+export type ReactStep =
+  | { kind: "reactivate"; order: ReactOrder }
+  | { kind: "handoff"; note: string; why: string };
+
+function logArray(v: unknown): unknown[] | null {
+  let x = v;
+  // n8n بيكتب السجل string (JSON.stringify على عمود jsonb) — لحد مرتين
+  for (let k = 0; k < 2 && typeof x === "string"; k++) { try { x = JSON.parse(x); } catch { return null; } }
+  return Array.isArray(x) ? x : null;
+}
+/** آخر مدخل في سجل الحالة — بيفهم الأشكال التلاتة: array · string كله · مخلوط (أول عنصر string والباقي objects). */
+export function lastStatusEntry(log: unknown): Record<string, unknown> | null {
+  const a = logArray(log);
+  if (!a || !a.length) return null;
+  const last = a[a.length - 1];
+  if (last && typeof last === "object" && !Array.isArray(last)) return last as Record<string, unknown>;
+  return typeof last === "string" ? lastStatusEntry(last) : null;
+}
+/** مين لغى الأوردر وإمتى — من آخر مدخل «to: cancelled» في السجل. مش واضح = by:null (بيتعامل زي «لغاه موظف» — الاتجاه الآمن). */
+export function cancelInfo(statusLog: unknown, statusChangedAt: string | null | undefined): CancelInfo {
+  const e = lastStatusEntry(statusLog);
+  const fallback = statusChangedAt && isFinite(Date.parse(statusChangedAt)) ? String(statusChangedAt) : null;
+  if (!e || String(e.to || "").toLowerCase() !== "cancelled") return { at: fallback, by: null };
+  const by = String(e.by || "").trim();
+  const at = typeof e.at === "string" && isFinite(Date.parse(e.at)) ? e.at : fallback;
+  return { at, by: /واتساب|whatsapp/i.test(by) ? "customer" : by ? "staff" : null };
+}
+/** ملاحظة الأوردر الملغي في الـprompt: self = العميل لغاه من أقل من يومين (ينفع يتفعّل) · staff = اتلغى من أقل من يومين بإيد موظف · "" = غير كده. */
+export function cancelTag(o: Pick<ReactOrder, "status" | "cancelled_at" | "cancelled_by" | "has_tracking">, nowIso: string): "" | "self" | "staff" {
+  if (String(o.status || "").toLowerCase() !== "cancelled" || o.has_tracking || !o.cancelled_at) return "";
+  const age = Date.parse(nowIso) - Date.parse(o.cancelled_at);
+  if (!isFinite(age) || age < 0 || age >= REACTIVATE_WINDOW_MS) return "";
+  return o.cancelled_by === "customer" ? "self" : "staff";
+}
+/**
+ * العميل عايز الأوردر الملغي (الموديل كتب رقمه في reactivate). null = الرقم مش أوردر ملغي للعميل ده (رد الموديل يتبعت زي ما هو).
+ * يتفعّل لوحده بس لو: العميل هو اللي لغاه · من أقل من يومين · مالوش بوليصة · والعميل مالوش أوردر تاني مفتوح/مرتجع.
+ */
+export function planReactivate(uidRaw: string | null | undefined, orders: ReactOrder[], nowIso: string): ReactStep | null {
+  const key = latin(String(uidRaw || "")).replace(/[#\s]/g, "").toLowerCase();
+  if (!key) return null;
+  const o = (orders || []).find((x) => String(x.order_uid || "").toLowerCase() === key);
+  if (!o || !o.id || String(o.status || "").toLowerCase() !== "cancelled") return null;
+  const head = "العميل عايز يفعّل أوردر #" + o.order_uid + " الملغي — ";
+  const pp = prevProblem((orders || []).filter((x) => x !== o));
+  if (pp) return { kind: "handoff", why: "prev_order", note: head + pp };
+  if (o.has_tracking) return { kind: "handoff", why: "tracking", note: head + "الأوردر ليه بوليصة شحن، راجعه وفعّله إنت" };
+  if (o.cancelled_by !== "customer") return { kind: "handoff", why: "staff_cancel", note: head + "اللي لغاه موظف مش العميل، راجع سبب الإلغاء وفعّله إنت لو تمام" };
+  const age = o.cancelled_at ? Date.parse(nowIso) - Date.parse(o.cancelled_at) : NaN;
+  if (!isFinite(age) || age < 0 || age >= REACTIVATE_WINDOW_MS) return { kind: "handoff", why: "old", note: head + "اتلغى من أكتر من يومين، راجعه وفعّله إنت" };
+  return { kind: "reactivate", order: o };
+}
+/** رسالة التأكيد للعميل بعد التفعيل — رقم الطلب والمنتج والإجمالي من السيستم. */
+export function reactivateConfirmText(o: ReactOrder, delivery: string | null): string {
+  const lines = ["تمام يا فندم، طلب حضرتك رقم " + o.order_uid + " اتفعّل تاني واتأكد."];
+  const prod = String(o.product_name || "").replace(/\s+/g, " ").trim();
+  if (prod) lines.push("المنتج: " + prod.slice(0, 160));
+  if (typeof o.total === "number" && isFinite(o.total) && o.total > 0) lines.push("الإجمالي عند الاستلام: " + money(o.total) + " جنيه شامل الشحن");
+  const del = String(delivery || "").trim();
+  lines.push((del ? "التوصيل " + del : "هنتواصل مع حضرتك بميعاد التوصيل") + "، والمعاينة متاحة قبل الاستلام.");
+  return lines.join("\n");
 }

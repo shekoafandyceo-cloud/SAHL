@@ -26,6 +26,10 @@ export type OrderOutcome =
   | { state: "created"; text: string }                  // الأوردر اتسجّل (أو «كان هيتسجّل» في المعاينة) — text = رسالة التأكيد
   | { state: "ask"; text: string }                      // بيانات ناقصة/مش واضحة — سؤال للعميل
   | { state: "handoff"; text: string; note: string };   // مايتسجّلش تلقائي — زميل يراجع
+/** نتيجة تفعيل أوردر ملغي (ai-order.ts planReactivate + reactivate_bot_order) — النص ثابت من السيستم. */
+export type ReactOutcome =
+  | { state: "done"; text: string }                     // الأوردر اتفعّل (أو «كان هيتفعّل» في المعاينة) — text = رسالة التأكيد
+  | { state: "handoff"; text: string; note: string };   // مايتفعّلش تلقائي (لغاه موظف · قديم · السيرفر رفض) — زميل يراجع
 export interface AutoCard { title: string; body: string; images: string[] }
 export interface AutoIn {
   draft: AutoDraft | null;
@@ -38,6 +42,7 @@ export interface AutoIn {
   turnsToday: number;          // ردود البوت للمتجر كله في 24 ساعة
   holdMessage: string | null;  // من ai_settings.facts.hold_message
   order?: OrderOutcome | null; // collect والبيانات كملت — غير كده null
+  react?: ReactOutcome | null; // العميل عايز أوردره الملغي (reactivate) — غير كده null
 }
 export type AutoAction =
   | { kind: "text"; body: string; tag: "reply" | "hold" | "card_text" | "order" }
@@ -84,6 +89,14 @@ export function autoPlan(i: AutoIn): AutoPlan {
   if (!d) return { actions: hold(), escalate: "المساعد معرفش يكتب رد" + (i.error ? " (" + cut(String(i.error), 80) + ")" : ""), reason: "no_draft" };
   if (d.behavior === "escalate")
     return { actions: hold(), escalate: cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400), reason: "escalate" };
+
+  // تفعيل أوردر ملغي: النص الثابت بس (من غير كارت ولا رد الموديل) — اتفعّل = من غير تصعيد · مايتفعّلش تلقائي = «🔁» في التصعيد بالسبب
+  if (i.react && String(i.react.text || "").trim()) {
+    const x = i.react;
+    if (x.state === "handoff")
+      return { actions: [{ kind: "text", body: x.text, tag: "reply" }], escalate: cut("🔁 تفعيل أوردر ملغي — " + (String(x.note || "").trim() || "راجع الأوردر وفعّله"), 400), reason: d.behavior };
+    return { actions: [{ kind: "text", body: x.text, tag: "order" }], escalate: null, reason: d.behavior };
+  }
 
   // الأوردر: بيانات كملت → النص الثابت بس (من غير كارت ولا رد الموديل)
   if (d.behavior === "collect" && i.order && String(i.order.text || "").trim()) {
