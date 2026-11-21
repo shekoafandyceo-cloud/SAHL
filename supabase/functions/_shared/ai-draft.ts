@@ -10,7 +10,8 @@ export const BEHAVIORS = ["answer", "collect", "order_lookup", "clarify", "escal
 export type Behavior = typeof BEHAVIORS[number];
 
 export interface SiteRow { name: string; variant: string; price: number; n: number }
-export interface HistMsg { dir: "in" | "out"; type?: string; body?: string | null }
+// media = اللي السيستم فهمه من رسالة صوتية/صورة واردة (wa_messages.ai_media_text — ai-media.ts · 21 نوفمبر). من غيره = نفس الشكل القديم بالحرف.
+export interface HistMsg { dir: "in" | "out"; type?: string; body?: string | null; media?: string | null }
 export interface OrderLite {
   order_uid: string; status: string; product_name: string; props?: string | null;
   total: number | null; created_at: string; cancel_requested?: boolean; carrier?: string | null;
@@ -157,13 +158,15 @@ export function statusText(o: OrderLite, nowIso: string): string {
 }
 
 // ── الرسايل اللي مش نص: قرار ثابت من غير موديل ──────────────────────
-/** null = كمّل للموديل. غير كده مسودة جاهزة (أو skip). */
-export function preRule(type: string, body: string | null | undefined): Draft | null {
+/** null = كمّل للموديل. غير كده مسودة جاهزة (أو skip).
+ *  media = اللي السيستم فهمه من الفويس/الصورة (ai-media.ts) — موجود = الموديل يرد عليها زي الكلام · مش موجود (فشل/قديم) = القرار الثابت القديم بالحرف. */
+export function preRule(type: string, body: string | null | undefined, media?: string | null): Draft | null {
   const t = String(type || "text");
   const hasText = !!String(body || "").trim();
   if (t === "text" || t === "interactive") return hasText ? null : { behavior: "skip", intent: "رسالة فاضية", reply: "", card: "", note: "" };
   if (t === "button" || t === "reaction" || t === "sticker" || t === "unsupported")
     return { behavior: "skip", intent: "ضغطة زرار/تفاعل", reply: "", card: "", note: "" };
+  if ((t === "audio" || t === "voice" || t === "image") && String(media || "").trim()) return null;
   if (t === "audio" || t === "voice")
     return { behavior: "escalate", intent: "رسالة صوتية", reply: "", card: "", note: "رسالة صوتية — محتاجة زميل يسمعها ويرد." };
   if (t === "image" && hasText) return null; // الكابشن يتعامل كنص
@@ -235,10 +238,32 @@ export function historyBlock(ctx: DraftCtx): string {
       const card = ctx.cards.find((c) => c.body && body.slice(0, 60) === c.body.trim().slice(0, 60));
       if (card) return who + ": [اتبعت كارت «" + card.title + "» بالصور]";
     }
+    const media = m.dir === "in" ? String(m.media || "").trim() : "";
+    if (media) return who + ": " + mediaLine(String(m.type || ""), media) + (body ? " " + cut(body, 500) : "");
     const t = m.type && m.type !== "text" ? "[" + (TYPE_AR[m.type] || m.type) + "] " : "";
     return who + ": " + t + cut(body, 500);
   }).join("\n");
 }
+
+// ── الرسايل الصوتية والصور (21 نوفمبر — ai-media.ts) ────────────────
+/** 🔴 لازم يفضل نفس القيمة اللي في ai-media.ts (الهارنس بيقارنهم). */
+export const MEDIA_UNCLEAR = "(مش مفهومة)";
+/** سطر الرسالة في الـprompt: كلام الفويس بين «» · وصف الصورة · المش مفهومة بتتقال صراحةً. */
+export function mediaLine(type: string, media: string): string {
+  const img = type === "image";
+  if (media === MEDIA_UNCLEAR) return img ? "[صورة — مش واضحة ومحدش فهم فيها حاجة]" : "[رسالة صوتية — مش مفهومة ومفيهاش كلام واضح]";
+  const flat = media.replace(/\s*\n+\s*/g, " / ");
+  return img ? "[صورة — وصفها: " + cut(flat, 700) + "]" : "[رسالة صوتية — اللي اتقال فيها: «" + cut(flat, 900) + "»]";
+}
+/** بتتضاف لتعليمات الموديل **بس** لما المحادثة فيها فويس أو صورة اتفهمت — غير كده التعليمات نفس البايتات القديمة. */
+export const MEDIA_RULES = [
+  "# الرسايل الصوتية والصور",
+  "- السيستم حوّل رسايل العميل الصوتية لكلام مكتوب، ووصف الصور اللي بعتها — بتلاقيهم في الرسايل بين [ ]. اتعامل مع كلام الرسالة الصوتية كأن العميل كتبه بالظبط، ورد عليه بنفس القواعد اللي فوق.",
+  "- ماتقولش للعميل إن فيه سيستم حوّل رسالته، وماتقولش عن الصورة أو الرسالة الصوتية أي حاجة غير اللي مكتوب في الوصف.",
+  "- رسالة صوتية أو صورة مكتوب إنها مش مفهومة أو مش واضحة: اطلب منه بلطف يكتب طلبه في رسالة (clarify).",
+  "- صورة تحويل فلوس أو إيصال دفع = escalate (القاعدة 6). صورة منتج وصله مكسور أو ناقص أو مختلف = escalate (القاعدة 8).",
+  "- صورة منتج من غير كلام: لو الوصف بيقول إنه منتج من منتجاتنا اتعامل كأنه بيسأل عنه (السعر والتفاصيل، أو كارته لو لسه مااتبعتش)، ولو مش واضح أنهي منتج اسأله (clarify). صورة فيها عنوان أو اسم أو رقم = اعتبرها بيانات العميل.",
+].join("\n");
 const TYPE_AR: Record<string, string> = {
   image: "صورة", video: "فيديو", audio: "رسالة صوتية", voice: "رسالة صوتية", document: "ملف", template: "رسالة قالب",
   button: "ضغطة زرار", sticker: "ملصق", location: "موقع",
@@ -425,6 +450,8 @@ export function pickCards(ctx: DraftCtx): CardLite[] | null {
   const texts: string[] = [];
   for (const m of ctx.history) {
     const body = String(m.body || "").trim();
+    const media = m.dir === "in" ? String(m.media || "").trim() : ""; // كلام الفويس / وصف الصورة بيدوّر على الكروت زي كلام العميل
+    if (media && media !== MEDIA_UNCLEAR) texts.push(media);
     if (!body) continue;
     const sent = m.dir === "out" ? ctx.cards.find((c) => c.body && body.slice(0, 60) === c.body.trim().slice(0, 60)) : undefined;
     if (sent) hit.add(sent.id); else texts.push(body);

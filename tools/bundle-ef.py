@@ -7,7 +7,11 @@
 
 الاستخدام:
     npm i esbuild            # مرة، في أي فولدر مؤقت (cwd)
-    python3 tools/bundle-ef.py wa-ai-draft /tmp/out/index.ts
+    python3 tools/bundle-ef.py wa-ai-draft /tmp/out/index.ts [--compact]
+
+`--compact` (21 نوفمبر — v13 بقى ~124 ألف حرف وده قريب من الحد اللي وقع): esbuild بـ`--minify-whitespace
+--line-limit=900` = نفس البرنامج بالظبط (أسماء المتغيرات والنصوص زي ما هي) من غير مسافات البداية والسطور الفاضية
+(~104 ألف حرف · ~136 سطر). المقارنة بالنسخة المقروءة: `esbuild --minify-whitespace` على الاتنين = نفس الناتج بالحرف.
 
 بعد esbuild بيحوّل لـ\\uXXXX: حروف التحكم/المخفية · الأرقام الفارسي (U+06F0–06F9) · U+0671 ·
 وأي حرف غير ASCII جوّه أول regex class في normKey — عشان النسخ بالإيد مايغيّرش حرف شبيه.
@@ -19,9 +23,11 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main():
-    if len(sys.argv) != 3:
+    args = [a for a in sys.argv[1:] if a != "--compact"]
+    compact = len(args) != len(sys.argv) - 1
+    if len(args) != 2:
         sys.exit(__doc__)
-    fn, out = sys.argv[1], Path(sys.argv[2])
+    fn, out = args[0], Path(args[1])
     src = ROOT / "supabase" / "functions" / fn / "index.ts"
     if not src.exists():
         sys.exit(f"مش لاقي {src}")
@@ -29,6 +35,7 @@ def main():
     subprocess.run(
         ["npx", "esbuild", str(src), "--bundle", "--format=esm", "--platform=neutral", "--charset=utf8",
          "--legal-comments=none", "--external:https://*", "--external:npm:*", "--external:jsr:*",
+         *(["--minify-whitespace", "--line-limit=900"] if compact else []),
          f"--outfile={out}", "--log-level=warning"],
         check=True,
     )

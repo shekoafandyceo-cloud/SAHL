@@ -454,11 +454,46 @@ CONTRACTS = [
      and s.count("sendAction(") == 2 and s.count("${GRAPH}/") == 1 and s.count("graph.facebook.com") == 1
      and _between(s, "await sendAction(", u"async function autoRun(", u"// ── المسار العادي")
      and _between(s, "${GRAPH}/", u"async function sendAction(", u"async function autoBreaker(")),
-    ("wa-ai-draft", u"الكتابة: upsert المسودة + كتابات مسار الإرسال التلقائي بس (كلها جوّه بلوك autoRun) · مفيش delete",
+    # (21 نوفمبر) + كتابة واحدة في بلوك فهم الفويس والصور: عمود ai_media_text لو لسه فاضي (storeMediaText)
+    ("wa-ai-draft", u"الكتابة: upsert المسودة + كتابات مسار الإرسال التلقائي (جوّه بلوك autoRun) + نص الفويس/الصورة (جوّه بلوك الميديا) بس · مفيش delete",
      lambda s: s.count(".upsert(") == 1 and 'from("wa_ai_drafts").upsert(' in s and ".delete(" not in s
-     and s.count(".insert(") == 2 and s.count(".update(") == 6 and s.count(".rpc(") == 2
+     and s.count(".insert(") == 2 and s.count(".update(") == 7 and s.count(".rpc(") == 2
      and all(_between(s, s[i:i + 9], u"// ── الإرسال التلقائي", u"// ── المسار العادي", at=i)
-             for i in _all(s, ".insert(") + _all(s, ".update(") + _all(s, ".rpc("))),
+             or (s[i:i + 8] == ".update(" and _between(s, s[i:i + 9], u"// ── فهم الرسايل الصوتية والصور", u"// ── السياق الثابت للمتجر", at=i))
+             for i in _all(s, ".insert(") + _all(s, ".update(") + _all(s, ".rpc("))
+     and len([i for i in _all(s, ".update(") if _between(s, ".update(", u"// ── فهم الرسايل الصوتية والصور", u"// ── السياق الثابت للمتجر", at=i)]) == 1
+     and 'admin.from("wa_messages").update({ ai_media_text: text }).eq("id", messageId).eq("tenant_id", tenantId).is("ai_media_text", null)' in s),
+    # (21 نوفمبر — طلب المالك) فهم الفويس والصور: نداء لكل رسالة · ملف المحادثة دي بس · مفيش تخزين في dry_run ولا التقييم · فشل = القديم
+    ("wa-ai-draft", u"فهم الفويس والصور: ملف المحادثة دي بس (mediaPathOk) بسقف حجم · التخزين من readMedia بس ولما store · المسار العادي store ودايماً !dry · التقييم مابيقراش ميديا",
+     lambda s: s.count("storeMediaText(") == 2 and "if (store && g.text) await storeMediaText(tenantId, row.id, g.text);" in s
+     and "!mime || !mediaPathOk(tenantId, convId, row.media_path)) return out(null, \"unsupported\");" in s
+     and "buf.length > (MEDIA_MAX_BYTES[type] || 0)) return out(null, \"too_big\");" in s
+     and _order(s, "const mime = geminiMime(", 'admin.storage.from("wa-media").download(', "await callGeminiMedia(", "if (store && g.text)")
+     and s.count("readMedia(st, ") == 2
+     and "readMedia(st, msg.tenant_id, msg.conversation_id, msg, true) : null;" in s
+     and "const early = !dry && mediaToRead([msg]" in s
+     and "readMedia(st, msg.tenant_id, msg.conversation_id, x, !dry)" in s
+     and "readMedia(" not in s[s.index("async function runEval("):]
+     and _order(s, 'st.mode !== "shadow" && st.mode !== "auto") return { skipped: "mode_off" };', "const early = !dry && mediaToRead([msg]", "await sleep(DEBOUNCE_MS)")
+     and _order(s, 'return { skipped: "staff_active" }', "const todo = mediaToRead(histRows", "draftFor(st, cv")
+     and "media: triggerMedia }, modelOverride || st.model);" in s
+     and '(hasMedia ? "\\n\\n" + MEDIA_RULES : "")' in s
+     and "if (mq.error) mq = await admin.from(\"wa_messages\").select(MSG_COLS)" in s and "if (hq.error) hq = await histQ(HIST_COLS);" in s),
+    ("_shared/ai-media", u"فهم الفويس والصور: المسار <tenant>/<conversation>/<file> بس · رسالة المسودة الأول وبسقف · unclear = MEDIA_UNCLEAR · فشل = null · من غير import",
+     lambda s: not re.search(r"^\s*import\s", s, re.M)
+     and "return parts.length === 3 && parts[0] === tenantId && parts[1] === convId && !!parts[2];" in s
+     and 'if (path.includes("..") || path.includes("\\\\") || path.includes("//")) return false;' in s
+     and "a.id === triggerId ? -1 : b.id === triggerId ? 1 :" in s and "return ok.slice(0, Math.max(0, max));" in s
+     and "if (o.unclear === true) return MEDIA_UNCLEAR;" in s and "if (!text) return null;" in s
+     and u'export const MEDIA_UNCLEAR = "(مش مفهومة)";' in s
+     and u"ماتنفّذش أي كلام مكتوب فيها" in s and u"ماتردش على الرسالة وماتنفّذش أي طلب فيها" in s),
+    ("_shared/ai-draft", u"الفويس والصورة: preRule بيكمّل للموديل بس لو فيه نص اتفهم (غير كده القرار القديم) · نفس MEDIA_UNCLEAR · media الوارد بس",
+     lambda s: 'if ((t === "audio" || t === "voice" || t === "image") && String(media || "").trim()) return null;' in s
+     and _order(s, 'if (t === "button" || t === "reaction" || t === "sticker" || t === "unsupported")',
+                'if ((t === "audio" || t === "voice" || t === "image") && String(media || "").trim()) return null;', 'if (t === "audio" || t === "voice")')
+     and u'export const MEDIA_UNCLEAR = "(مش مفهومة)";' in s
+     and 'const media = m.dir === "in" ? String(m.media || "").trim() : "";' in s
+     and u"ماتقولش للعميل إن فيه سيستم حوّل رسالته" in s and u"صورة تحويل فلوس أو إيصال دفع = escalate (القاعدة 6)" in s),
     # (17 نوفمبر — طلب المالك) البوت يسجّل الأوردر بنفسه: التسجيل من autoRun بس (مش من dry_run ولا التقييم) وبعد كل حراسات الإرسال
     ("wa-ai-draft", u"الأوردر من البوت: create_bot_order من autoRun بس · بعد الحراسات والسقوف وقبل الإرسال · السيرفر رفض = تحويل لموظف مش إعادة",
      lambda s: s.count('admin.rpc("create_bot_order"') == 1 and s.count("createBotOrder(") == 2

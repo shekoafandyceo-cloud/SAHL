@@ -40,8 +40,8 @@
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildSystemPrompt, buildUserPrompt, effectivePrice, escStyleOf, layoutOf, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA, siteRowsFrom, workHoursOf,
-  type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
+  buildSystemPrompt, buildUserPrompt, cardProductLine, effectivePrice, escStyleOf, layoutOf, MEDIA_RULES, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA,
+  siteRowsFrom, workHoursOf, type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
 import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
@@ -49,6 +49,9 @@ import {
   type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder, type ReactOrder, type ReactStep,
 } from "../_shared/ai-order.ts";
 import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
+import {
+  geminiMime, MEDIA_MAX_BYTES, MEDIA_SCHEMA, mediaPathOk, mediaPrompt, mediaToRead, MEDIA_TYPES, parseMediaText, toBase64, type MediaRow,
+} from "../_shared/ai-media.ts";
 import { CTX, EVAL_CASES, EVAL_FACTS_EXTRA, EVAL_TENANT, EXPECT } from "./eval-cases.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
@@ -57,7 +60,11 @@ const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { autoRefresh
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
-const DEBOUNCE_MS = 12000, HISTORY_N = 20, GEMINI_TIMEOUT_MS = 40000, EVAL_MAX = 60, EVAL_POOL = 6;
+const DEBOUNCE_MS = 12000, HISTORY_N = 20, GEMINI_TIMEOUT_MS = 40000, EVAL_MAX = 60, EVAL_POOL = 6, MEDIA_TIMEOUT_MS = 20000;
+// أعمدة الرسالة — ومعاها أعمدة الفويس/الصورة (لو الاستعلام بيها وقع = نفس الأعمدة القديمة ومفيش فهم ميديا: السلوك القديم بالحرف)
+const MSG_COLS = "id, tenant_id, conversation_id, direction, type, body, created_at";
+const HIST_COLS = "id, direction, type, body, created_at, sent_by";
+const MEDIA_COLS = ", media_path, media_mime, ai_media_text";
 const GRAPH = "https://graph.facebook.com/v18.0";
 // 🔴 نفس قايمة التريجر و preRule و AI_SKIP_TYPES (الواجهة): الأنواع دي مالهاش مسودة، فمابتتحسبش «رسالة أحدث من العميل»
 const SKIP_TYPES = ["button", "reaction", "sticker", "unsupported"];
@@ -141,6 +148,71 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
   return { text: "", tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: Date.now() - t0, error: last };
 }
 
+// ── فهم الرسايل الصوتية والصور (21 نوفمبر — طلب المالك) ─────────────
+// نداء صغير لكل رسالة (الملف inline + تعليمات ai-media.ts) → نص بيتخزن في wa_messages.ai_media_text مرة واحدة.
+// 🔴 الكتابة الوحيدة هنا: عمود ai_media_text لو لسه فاضي — ومش في dry_run ولا التقييم (store = false). أي فشل = مفيش نص = السلوك القديم.
+interface MediaRead { id: string; type: string; text: string | null; error: string | null; ti: number; to: number; ms: number }
+async function callGeminiMedia(model: string, prompt: string, mime: string, b64: string): Promise<{ text: string | null; ti: number; to: number; error: string | null }> {
+  const key = (Deno.env.get("GEMINI_API_KEY") || "").trim();
+  if (!key) return { text: null, ti: 0, to: 0, error: "no_gemini_key" };
+  const payload = {
+    contents: [{ role: "user", parts: [{ inline_data: { mime_type: mime, data: b64 } }, { text: prompt }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 2048, responseMimeType: "application/json", responseSchema: MEDIA_SCHEMA, ...thinkingFor(model) },
+  };
+  let last = "gemini_unknown";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), MEDIA_TIMEOUT_MS);
+    try {
+      const res = await fetch(`${GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST", signal: ctl.signal, headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(payload),
+      });
+      // deno-lint-ignore no-explicit-any
+      const data: any = await res.json().catch(() => null);
+      if (!res.ok) {
+        last = "gemini_" + res.status + ": " + String(data?.error?.message || "").slice(0, 160);
+        if ((res.status === 429 || res.status >= 500) && attempt === 0) { await sleep(1200); continue; }
+        break;
+      }
+      // deno-lint-ignore no-explicit-any
+      const parts: any[] = data?.candidates?.[0]?.content?.parts || [];
+      // deno-lint-ignore no-explicit-any
+      const raw = parts.filter((p: any) => typeof p?.text === "string" && !p.thought).map((p: any) => p.text).join("");
+      const um = data?.usageMetadata || {};
+      const text = parseMediaText(raw);
+      return { text, ti: Number(um.promptTokenCount) || 0, to: (Number(um.candidatesTokenCount) || 0) + (Number(um.thoughtsTokenCount) || 0), error: text ? null : "bad_output" };
+    } catch (e) {
+      last = (e as Error)?.name === "AbortError" ? "gemini_timeout" : "gemini_fetch_error";
+      if (last === "gemini_fetch_error" && attempt === 0) { await sleep(800); continue; }
+      break;
+    } finally { clearTimeout(timer); }
+  }
+  return { text: null, ti: 0, to: 0, error: last };
+}
+/** أسماء منتجات المتجر لنداء الفهم: المنتجات المعتمدة + سطر المنتج في كل كارت. */
+function mediaNames(st: Static): string[] {
+  return [...st.products.map((p) => p.name), ...st.cards.map((c) => cardProductLine(c))].filter(Boolean);
+}
+async function storeMediaText(tenantId: string, messageId: string, text: string): Promise<void> {
+  const up = await admin.from("wa_messages").update({ ai_media_text: text }).eq("id", messageId).eq("tenant_id", tenantId).is("ai_media_text", null);
+  if (up.error) console.error("wa-ai-draft media: store failed", up.error.code || "");
+}
+/** يقرا رسالة صوت/صورة واحدة: الملف من wa-media (مسار المحادثة دي بس) → Gemini → النص (ويخزّنه لو store). */
+async function readMedia(st: Static, tenantId: string, convId: string, row: MediaRow, store: boolean): Promise<MediaRead> {
+  const t0 = Date.now();
+  const type = String(row.type || "");
+  const out = (text: string | null, error: string | null, ti = 0, to = 0): MediaRead => ({ id: row.id, type, text, error, ti, to, ms: Date.now() - t0 });
+  const mime = geminiMime(type, row.media_mime, row.media_path);
+  if (!MEDIA_TYPES.includes(type) || !mime || !mediaPathOk(tenantId, convId, row.media_path)) return out(null, "unsupported");
+  const dl = await admin.storage.from("wa-media").download(String(row.media_path));
+  if (dl.error || !dl.data) return out(null, "download_failed");
+  const buf = new Uint8Array(await dl.data.arrayBuffer());
+  if (!buf.length || buf.length > (MEDIA_MAX_BYTES[type] || 0)) return out(null, "too_big");
+  const g = await callGeminiMedia(st.model, mediaPrompt(type, mediaNames(st)), mime, toBase64(buf));
+  if (store && g.text) await storeMediaText(tenantId, row.id, g.text);
+  return out(g.text, g.error, g.ti, g.to);
+}
+
 // ── السياق الثابت للمتجر (قراية بس) ──────────────────────────────────
 interface Static {
   mode: string; model: string; layout: Layout; esc: EscStyle; facts: Record<string, unknown>;
@@ -215,8 +287,8 @@ interface ConvCtx {
 interface Result { draft: Draft | null; model: string | null; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null }
 
 // deno-lint-ignore no-explicit-any
-async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: string | null }, model: string, gen?: Record<string, any>, evalRules?: string): Promise<Result> {
-  const pre = preRule(trigger.type, trigger.body);
+async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: string | null; media?: string | null }, model: string, gen?: Record<string, any>, evalRules?: string): Promise<Result> {
+  const pre = preRule(trigger.type, trigger.body, trigger.media);
   if (pre) return { draft: pre, model: null, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: null };
   const ad = cv.adId ? st.ads.get(cv.adId) : null;
   const ctx: DraftCtx = {
@@ -226,7 +298,10 @@ async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: 
     cards: st.cards, siteRows: st.siteRows, stockNames: st.stockNames,
     orders: cv.orders, ordersKnown: cv.ordersKnown, customerName: cv.customerName, history: cv.history,
   };
-  const system = buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts) } : undefined) + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
+  // تعليمات الفويس والصور بتتضاف بس لو المحادثة فيها حاجة اتفهمت (21 نوفمبر) — غير كده التعليمات نفس البايتات القديمة
+  const hasMedia = cv.history.some((m) => m.dir === "in" && !!String(m.media || "").trim());
+  const system = buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts) } : undefined) + (hasMedia ? "\n\n" + MEDIA_RULES : "")
+    + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
   const g = await callGemini(model, system, buildUserPrompt(ctx, st.layout), gen);
   if (g.error) return { draft: null, model, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: g.ms, error: g.error };
   const draft = parseDraft(g.text, st.cards);
@@ -546,8 +621,10 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
 
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
 async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null): Promise<Record<string, unknown>> {
-  const { data: msg } = await admin.from("wa_messages")
-    .select("id, tenant_id, conversation_id, direction, type, body, created_at").eq("id", messageId).maybeSingle();
+  // deno-lint-ignore no-explicit-any
+  let mq: any = await admin.from("wa_messages").select(MSG_COLS + MEDIA_COLS).eq("id", messageId).maybeSingle();
+  if (mq.error) mq = await admin.from("wa_messages").select(MSG_COLS).eq("id", messageId).maybeSingle();
+  const msg = mq.data;
   if (!msg) return { skipped: "not_found" };
   if (msg.direction !== "in") return { skipped: "not_inbound" };
   const st = await loadStatic(msg.tenant_id);
@@ -556,12 +633,19 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   if (dry) withCardNotes(st, notesOverride);
   if (dry && escOverride) st.esc = escOverride; // تجربة أسلوب تصعيد تاني — dry_run بس (المسار العادي = إعداد المتجر)
   if (!dry && st.mode !== "shadow" && st.mode !== "auto") return { skipped: "mode_off" };
+  // 🔴 فهم الفويس/الصورة بتاعة الرسالة دي بيبدأ مع الانتظار (12ث) مش بعده — وبيتخزن حتى لو رسالة أحدث جت (مسودتها بتقراه من غير نداء تاني)
+  const early = !dry && mediaToRead([msg], msg.tenant_id, msg.conversation_id, msg.id, 1).length
+    ? readMedia(st, msg.tenant_id, msg.conversation_id, msg, true) : null;
   if (!dry) await sleep(DEBOUNCE_MS);
+  const earlyRead = early ? await early : null;
 
-  const { data: recent } = await admin.from("wa_messages")
-    .select("id, direction, type, body, created_at, sent_by").eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id)
+  const histQ = (cols: string) => admin.from("wa_messages").select(cols).eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id)
     .order("created_at", { ascending: false }).limit(HISTORY_N + 20);
-  const rows = recent || [];
+  // deno-lint-ignore no-explicit-any
+  let hq: any = await histQ(HIST_COLS + MEDIA_COLS);
+  if (hq.error) hq = await histQ(HIST_COLS);
+  // deno-lint-ignore no-explicit-any
+  const rows: any[] = hq.data || [];
   // deno-lint-ignore no-explicit-any
   const newer = rows.filter((r: any) => r.created_at > msg.created_at && r.id !== msg.id);
   if (!dry) {
@@ -579,9 +663,18 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   const staffActive = rows.some((r: any) => r.direction === "out" && r.sent_by && Date.parse(r.created_at) >= staffCut);
   if (!dry && st.mode === "auto" && staffActive) { await staffActiveFlag(msg.tenant_id, msg.conversation_id); return { skipped: "staff_active" }; }
   // deno-lint-ignore no-explicit-any
-  const history: HistMsg[] = rows.filter((r: any) => r.created_at <= msg.created_at).slice(0, HISTORY_N).reverse()
-    // deno-lint-ignore no-explicit-any
-    .map((r: any) => ({ dir: r.direction === "in" ? "in" : "out", type: r.type || "text", body: r.body }));
+  const histRows: any[] = rows.filter((r: any) => r.created_at <= msg.created_at).slice(0, HISTORY_N);
+  // الفويس/الصور اللي لسه مااتفهمتش في الرسايل دي (رسالة المسودة الأول · بسقف) — واللي اتقرت مع الانتظار مابتتقريش تاني
+  if (earlyRead?.text) for (const x of histRows) if (x.id === msg.id && !x.ai_media_text) x.ai_media_text = earlyRead.text;
+  const todo = mediaToRead(histRows, msg.tenant_id, msg.conversation_id, msg.id).filter((x) => !(earlyRead && x.id === msg.id));
+  const reads: MediaRead[] = earlyRead ? [earlyRead] : [];
+  if (todo.length) {
+    const got = await Promise.all(todo.map((x) => readMedia(st, msg.tenant_id, msg.conversation_id, x, !dry)));
+    for (const g of got) { reads.push(g); if (g.text) for (const x of histRows) if (x.id === g.id) x.ai_media_text = g.text; }
+  }
+  const history: HistMsg[] = [...histRows].reverse()
+    .map((x) => ({ dir: x.direction === "in" ? "in" : "out", type: x.type || "text", body: x.body, media: x.direction === "in" ? x.ai_media_text || null : null }));
+  const triggerMedia: string | null = histRows.find((x) => x.id === msg.id)?.ai_media_text || null;
 
   const { data: conv } = await admin.from("wa_conversations")
     .select("id, wa_id, customer_phone, customer_name, ctwa_ad_id, ctwa_ad_body").eq("id", msg.conversation_id).eq("tenant_id", msg.tenant_id).maybeSingle();
@@ -614,7 +707,8 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     adId: conv?.ctwa_ad_id || null, adBody: conv?.ctwa_ad_body || null, customerName: conv?.customer_name || null,
     orders, ordersKnown: forms.length > 0, history,
   };
-  const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body }, modelOverride || st.model);
+  const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body, media: triggerMedia }, modelOverride || st.model);
+  const mediaUse = reads.length ? reads.map((x) => ({ type: x.type, ok: !!x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms })) : null;
   if (dry) {
     // «لو الزرار ON كان هيبعت إيه» — قراية بس، من غير أي إرسال ولا كتابة
     const state = await autoState(msg.tenant_id, msg.conversation_id, r.draft?.card || null, null);
@@ -624,7 +718,8 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || "")) : null;
     if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
     const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep) };
-    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview };
+    const media_read = reads.map((x) => ({ id: x.id, type: x.type, text: x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms }));
+    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview, media_read };
   }
 
   if (r.draft && r.draft.behavior === "skip" && !r.model) return { skipped: "pre_rule_skip" }; // ضغطة زرار/تفاعل — مش محتاجة صف
@@ -633,7 +728,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     tenant_id: msg.tenant_id, conversation_id: msg.conversation_id, trigger_message_id: msg.id,
     intent: r.draft?.intent || null, behavior: r.draft?.behavior || "escalate",
     body: r.draft ? (r.draft.reply || null) : null,
-    media: r.draft ? { card: cardRow ? { quick_reply_id: cardRow.id, title: cardRow.title } : null, note: r.draft.note || null } : null,
+    media: r.draft ? { card: cardRow ? { quick_reply_id: cardRow.id, title: cardRow.title } : null, note: r.draft.note || null, ...(mediaUse ? { read: mediaUse } : {}) } : null,
     model: r.model, tokens_in: r.tokensIn || null, tokens_out: r.tokensOut || null, tokens_cached: r.model ? r.tokensCached : null, latency_ms: r.ms || null,
     error: r.error ? String(r.error).slice(0, 300) : null,
   };
@@ -661,13 +756,13 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
   async function worker() {
     while (next < cases.length) {
       const c = cases[next++];
-      const [n, ctxKey, exp, text, extra, type] = c;
+      const [n, ctxKey, exp, text, extra, type, media] = c; // media = اللي السيستم فهمه من الفويس/الصورة (حالات 177+)
       const fx = CTX[ctxKey] || {};
       const hist: HistMsg[] = [...(fx.h || []), ...(extra || [])].map((h) => {
         if (h.card) { const k = st.allCards.find((x) => x.title === h.card); return { dir: "out", type: "image", body: k ? k.body : "[كارت " + h.card + "]" } as HistMsg; }
         return { dir: h.dir, type: h.type || "text", body: h.body || "" } as HistMsg;
       });
-      hist.push({ dir: "in", type: type || "text", body: text });
+      hist.push({ dir: "in", type: type || "text", body: text, media: media || null });
       const cv: ConvCtx = {
         adId: fx.ad || null, adBody: fx.adBody || null, customerName: null, ordersKnown: true, history: hist,
         orders: (fx.orders || []).map((o) => {
@@ -684,7 +779,7 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
           };
         }),
       };
-      const r = await draftFor(st, cv, { type: type || "text", body: text }, model, gen, evalRules);
+      const r = await draftFor(st, cv, { type: type || "text", body: text, media: media || null }, model, gen, evalRules);
       const want = EXPECT[exp];
       let ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
       const rstep = REACT_OK.includes(ap.reason) ? reactStepFor(r, cv.orders) : null; // قرار التفعيل بس — مفيش كتابة في التقييم
