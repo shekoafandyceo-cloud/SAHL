@@ -312,6 +312,10 @@
       if(window.__AI_NO_COLS && table === 'ai_settings' && String(st.cols||'').indexOf('auto_changed_at') >= 0){
         return Promise.resolve({data:null, error:{code:'42703', message:'column ai_settings.auto_changed_at does not exist'}}).then(res);
       }
+      // (21 نوفمبر) `__AI_NO_NEW_COLS`: السيرفر لسه مافيهوش أعمدة الجدول/ON DEVELOP (الواجهة اترفعت قبل الـmigration)
+      if(window.__AI_NO_NEW_COLS && table === 'ai_settings' && String(st.cols||'').indexOf('schedule_on') >= 0){
+        return Promise.resolve({data:null, error:{code:'42703', message:'column ai_settings.schedule_on does not exist'}}).then(res);
+      }
       // `__QR_NO_NOTES`: السيرفر لسه مافيهوش عمود ai_notes (v85 اترفعت قبل الـmigration) — نفس خطأ PostgREST للعمود المجهول
       if(window.__QR_NO_NOTES && table === 'wa_quick_replies' && String(st.cols||'').indexOf('ai_notes') >= 0){
         return Promise.resolve({data:null, error:{code:'42703', message:'column wa_quick_replies.ai_notes does not exist'}}).then(res);

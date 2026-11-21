@@ -672,24 +672,47 @@ function waEscDismiss(){
 // ── زرار البوت: OFF = بيقترح والموظف بيبعت (shadow) · ON = بيرد على العملاء بنفسه (auto) ──
 // 🔴 الحالة من السيرفر (`ai_settings.mode`) والتغيير بـRPC `ai_agent_set_auto` (أدمن المتجر بس — السيرفر هو اللي بيتحقق).
 // 🔴 الشريط مابيظهرش لو الـAgent مش متفعّل للمتجر، أو السيرفر لسه مافيهوش أعمدة الزرار (42703) — زرار مالوش RPC = وعد كاذب (درس 16).
-export var waAi={ known:false, mode:null, idle:'shadow', at:null, by:null };
-var waAiBusy=false, waAiCols=true, waAiGen=0;
+// (21 نوفمبر — طلب المالك) سطر تاني تحت الزرار: ⏰ الجدول (البوت بيشتغل ويقفل لوحده — `ai_agent_set_schedule`) و🧪 ON DEVELOP
+//   (البوت بيرد على رقم المالك بس — `ai_agent_set_dev`). الاتنين أدمن بس · الموظف شايف الحالة. السيرفر من غير الأعمدة الجديدة (42703)
+//   = السطر التاني مش بيظهر والشريط زي ما كان.
+export var waAi={ known:false, mode:null, idle:'shadow', at:null, by:null, sched:null, dev:false, devIds:[] };
+var waAiBusy=false, waAiColsLv=2, waAiGen=0;
+var WA_AI_COLS=['mode','mode,idle_mode,auto_changed_at,auto_changed_by_name',
+  'mode,idle_mode,auto_changed_at,auto_changed_by_name,schedule_on,schedule_start,schedule_end,schedule_full_dows,dev_mode,dev_wa_ids'];
 export function waLoadAiState(){
   if(!sb||!currentTenantId) return;
   var myGen=++waAiGen;
-  sb.from('ai_settings').select(waAiCols?'mode,idle_mode,auto_changed_at,auto_changed_by_name':'mode').eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
+  sb.from('ai_settings').select(WA_AI_COLS[waAiColsLv]).eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
     if(myGen!==waAiGen) return;   // رد قديم مايكتبش فوق حالة أحدث (ضغطة الزرار بتعيد القراية)
     if(r.error){
-      if(r.error.code==='42703' && waAiCols){ waAiCols=false; waLoadAiState(); }
+      if(r.error.code==='42703' && waAiColsLv>0){ waAiColsLv--; waLoadAiState(); }
       return;   // غير كده: الشريط بيفضل على آخر حالة معروفة
     }
     var d=r.data;
     // 'off' بيبان بس لو ده وضع القفل العادي (idle_mode='off') — 'off' والـidle 'shadow' = إيقاف يدوي من برّه الزرار = مفيش شريط
     var idle=(d && d.idle_mode==='off')?'off':'shadow';
-    waAi={ known: !!(waAiCols && d && (d.mode==='shadow' || d.mode==='auto' || (d.mode==='off' && idle==='off'))), mode: d?d.mode:null, idle: idle,
-           at: d?(d.auto_changed_at||null):null, by: d?(d.auto_changed_by_name||null):null };
+    var full=(waAiColsLv>=2 && d);
+    waAi={ known: !!(waAiColsLv>=1 && d && (d.mode==='shadow' || d.mode==='auto' || (d.mode==='off' && idle==='off'))), mode: d?d.mode:null, idle: idle,
+           at: d?(d.auto_changed_at||null):null, by: d?(d.auto_changed_by_name||null):null,
+           sched: full?{ on: !!d.schedule_on, start: d.schedule_start||null, end: d.schedule_end||null, full: Array.isArray(d.schedule_full_dows)?d.schedule_full_dows:[] }:null,
+           dev: !!(full && d.dev_mode), devIds: (full && Array.isArray(d.dev_wa_ids))?d.dev_wa_ids:[] };
     waRenderAiBar();
   });
+}
+var WA_DOW_AR={1:'الاتنين',2:'التلات',3:'الأربع',4:'الخميس',5:'الجمعة',6:'السبت',7:'الحد'};
+// '19:00:00' → '7م' · '11:00:00' → '11ص' · '19:30:00' → '7:30م'
+function waAiClock(t){
+  var m=/^(\d{1,2}):(\d{2})/.exec(String(t||'')); if(!m) return '';
+  var h=parseInt(m[1],10), mi=parseInt(m[2],10);
+  return ((h%12)||12)+(mi?(':'+(mi<10?'0':'')+mi):'')+(h<12?'ص':'م');
+}
+// '201050005219' → '01050005219' (الرقم زي ما المالك بيكتبه)
+function waAiLocalNum(w){ var x=String(w||''); return /^20\d{10}$/.test(x)?('0'+x.slice(2)):x; }
+function waAiSchedTxt(sc){
+  if(!sc) return '';
+  if(!sc.on) return '⏰ الجدول <b>مقفول</b> — التشغيل والقفل بالإيد';
+  var days=(sc.full||[]).map(function(n){ return WA_DOW_AR[n]||''; }).filter(Boolean).join(' و');
+  return '⏰ <b>الجدول شغّال</b>: بيشتغل '+esc(waAiClock(sc.start))+' وبيقفل '+esc(waAiClock(sc.end))+(days?(' · '+esc(days)+' طول اليوم'):'');
 }
 function waRenderAiBar(){
   var bar=$id('wa-ai-bar');
@@ -697,29 +720,57 @@ function waRenderAiBar(){
   if(!waAi.known || !head){ if(bar) bar.remove(); return; }
   if(!bar){ bar=document.createElement('div'); bar.id='wa-ai-bar'; head.insertAdjacentElement('afterend', bar); }
   var on=(waAi.mode==='auto');
+  var dev=!!waAi.dev;
   var admin=!!(currentUser && currentUser.role==='admin');
-  bar.className='wa-ai-bar '+(on?'on':'off');
+  bar.className='wa-ai-bar '+(dev?'dev':(on?'on':'off'));
   var when=(waAi.at?(' · من '+waTimeShort(waAi.at)):'')+(waAi.by?(' ('+waAi.by+')'):'');
-  bar.innerHTML='<span class="wa-ai-bar-txt">'
-    +(on?('🤖 <b>البوت شغّال</b> وبيرد على العملاء لوحده'+esc(when)):(waAi.mode==='off'?'🤖 البوت <b>مقفول</b> — واقف خالص ومابيقترحش':'🤖 البوت <b>مقفول</b> — بيقترح بس والموظف بيرد'))+'</span>'
-    +'<button type="button" class="wa-ai-sw'+(on?' on':'')+(admin?'':' ro')+'" id="wa-ai-sw" role="switch" aria-checked="'+(on?'true':'false')+'"'
-    +' title="'+(admin?(on?'اقفل البوت — الموظفين هم اللي هيردوا':'شغّل البوت — هيرد على العملاء لوحده'):'الأدمن بس اللي بيشغّل ويقفل البوت')+'">'
+  var nums=waAi.devIds.map(waAiLocalNum).join(' · ');
+  var txt;
+  if(dev) txt=on?('🧪 <b>ON DEVELOP</b> — البوت بيرد على رقم '+esc(nums)+' بس · العملاء مش بياخدوا منه أي رد')
+                :('🧪 <b>ON DEVELOP</b> — بس البوت <b>واقف تلقائي</b>'+esc(when)+' · العملاء مش بياخدوا منه أي رد');
+  else txt=on?('🤖 <b>البوت شغّال</b> وبيرد على العملاء لوحده'+esc(when)):(waAi.mode==='off'?'🤖 البوت <b>مقفول</b> — واقف خالص ومابيقترحش':'🤖 البوت <b>مقفول</b> — بيقترح بس والموظف بيرد');
+  var swTitle=dev?'وقت ON DEVELOP الزرار ده مقفول — اقفل التجربة الأول'
+    :(admin?(on?'اقفل البوت — الموظفين هم اللي هيردوا':'شغّل البوت — هيرد على العملاء لوحده'):'الأدمن بس اللي بيشغّل ويقفل البوت');
+  var html='<span class="wa-ai-bar-txt">'+txt+'</span>'
+    +'<button type="button" class="wa-ai-sw'+(on?' on':'')+((admin&&!dev)?'':' ro')+'" id="wa-ai-sw" role="switch" aria-checked="'+(on?'true':'false')+'"'
+    +' title="'+swTitle+'">'
     +'<span class="wa-ai-sw-knob"></span><span class="wa-ai-sw-lbl">'+(on?'ON':'OFF')+'</span></button>';
+  if(waAi.sched){
+    html+='<div class="wa-ai-sub"><span class="wa-ai-sub-txt">'+waAiSchedTxt(waAi.sched)+'</span>';
+    if(admin){
+      html+='<button type="button" class="wa-ai-chip'+(waAi.sched.on?' on':'')+'" id="wa-ai-sched" title="'+(waAi.sched.on?'اقفل الجدول — التشغيل والقفل بالإيد':'شغّل الجدول — البوت يشتغل ويقفل لوحده')+'">⏰ الجدول '+(waAi.sched.on?'ON':'OFF')+'</button>'
+        +'<button type="button" class="wa-ai-chip dev'+(dev?' on':'')+'" id="wa-ai-dev" title="'+(dev?'اقفل التجربة — البوت يرجع لحالته العادية':'البوت يرد على رقمك بس عشان تجرّب')+'">🧪 ON DEVELOP'+(dev?' ✓':'')+'</button>';
+    }
+    html+='</div>';
+  }
+  bar.innerHTML=html;
   var sw=$id('wa-ai-sw'); if(sw) sw.addEventListener('click', waAiToggleAsk);
+  var sc=$id('wa-ai-sched'); if(sc) sc.addEventListener('click', waAiSchedAsk);
+  var dv=$id('wa-ai-dev'); if(dv) dv.addEventListener('click', waAiDevAsk);
 }
 function waAiToggleAsk(){
   if(waAiBusy) return;
   if(!(currentUser && currentUser.role==='admin')){ toast('الأدمن بس اللي بيشغّل ويقفل البوت','er'); return; }
+  if(waAi.dev){ toast('وقت ON DEVELOP الزرار ده مقفول — اقفل التجربة الأول','er'); return; }
   var on=(waAi.mode==='auto');
   if(on){
     showModal({ icon:'🤖', title:'تقفل البوت؟',
-      sub:(waAi.idle==='off'?'البوت هيبطّل يبعت للعملاء وهيقف خالص — من غير اقتراحات — لحد ما تشغّله تاني.':'البوت هيبطّل يبعت للعملاء، ويرجع يقترح بس والموظفين هم اللي يردوا.')+'\nراجع «🚩 تصعيد» — فيها المحادثات اللي وقف عندها.',
+      sub:(waAi.idle==='off'?'البوت هيبطّل يبعت للعملاء وهيقف خالص — من غير اقتراحات — لحد ما تشغّله تاني.':'البوت هيبطّل يبعت للعملاء، ويرجع يقترح بس والموظفين هم اللي يردوا.')+'\nراجع «🚩 تصعيد» — فيها المحادثات اللي وقف عندها.'
+        +((waAi.sched&&waAi.sched.on)?'\n⏰ الجدول شغّال: هيشتغل تاني لوحده في ميعاده الجاي.':''),
       okLabel:'اقفله', onOk:function(){ waAiSet(false); } });
   } else {
     showModal({ icon:'🤖', title:'تشغّل البوت؟',
-      sub:'من دلوقتي البوت هيرد على رسايل العملاء بنفسه، من غير ما حد يراجع الرد.\nاللي مايعرفش يرد عليه هيعتذر للعميل ويحط المحادثة في «🚩 تصعيد».\nشغّله والموظفين مش موجودين، واقفله أول ما يرجعوا.',
+      sub:'من دلوقتي البوت هيرد على رسايل العملاء بنفسه، من غير ما حد يراجع الرد.\nاللي مايعرفش يرد عليه هيعتذر للعميل ويحط المحادثة في «🚩 تصعيد».\nشغّله والموظفين مش موجودين، واقفله أول ما يرجعوا.'
+        +((waAi.sched&&waAi.sched.on)?'\n⏰ الجدول شغّال: هيقفل لوحده في ميعاده الجاي.':''),
       okLabel:'شغّله', onOk:function(){ waAiSet(true); } });
   }
+}
+function waAiErr(why){
+  return why==='admin_only'?'الأدمن بس اللي بيغيّر حالة البوت'
+    :why==='agent_off'?'الـAI Agent متوقف للمتجر ده'
+    :why==='dev_mode'?'وقت ON DEVELOP الزرار ده مقفول — اقفل التجربة الأول'
+    :why==='no_dev_numbers'?'مفيش رقم متسجّل للتجربة'
+    :'حصلت مشكلة — حالة البوت ماتغيّرتش';
 }
 function waAiSet(on){
   if(!sb||waAiBusy) return;
@@ -728,14 +779,65 @@ function waAiSet(on){
     waAiBusy=false;
     var d=r&&r.data;
     if(!r || r.error || !d || !d.ok){
-      var why=(d&&d.error)||'';
-      toast(why==='admin_only'?'الأدمن بس اللي بيشغّل ويقفل البوت':(why==='agent_off'?'الـAI Agent متوقف للمتجر ده':'حصلت مشكلة — حالة البوت ماتغيّرتش'),'er');
+      toast(waAiErr((d&&d.error)||''),'er');
       waLoadAiState();
       return;
     }
     toast(d.mode==='auto'?'🤖 البوت اشتغل — هيرد على العملاء لوحده':(d.mode==='off'?'🤖 البوت اتقفل — واقف خالص لحد ما تشغّله':'🤖 البوت اتقفل — الموظفين هم اللي بيردوا'));
     waLoadAiState();
     if(d.mode!=='auto') waFetchEscConvos();
+  });
+}
+function waAiSchedAsk(){
+  if(waAiBusy || !waAi.sched) return;
+  if(!(currentUser && currentUser.role==='admin')){ toast('الأدمن بس اللي بيغيّر الجدول','er'); return; }
+  var sc=waAi.sched, span=waAiClock(sc.start)+' لحد '+waAiClock(sc.end);
+  var days=(sc.full||[]).map(function(n){ return WA_DOW_AR[n]||''; }).filter(Boolean).join(' و');
+  if(sc.on){
+    showModal({ icon:'⏰', title:'تقفل الجدول؟',
+      sub:'البوت مش هيشتغل ولا يقفل لوحده تاني — هيفضل على حالته دلوقتي، والتشغيل والقفل بالزرار.',
+      okLabel:'اقفل الجدول', onOk:function(){ waAiSetSched(false); } });
+  } else {
+    showModal({ icon:'⏰', title:'تشغّل الجدول؟',
+      sub:'البوت هيشتغل لوحده كل يوم من '+span+(days?(' ويوم '+days+' طول اليوم'):'')+'.\nلو إحنا دلوقتي جوّه المواعيد دي هيشتغل على طول.\nالزرار بيفضل شغّال: لو قفلته بإيدك بيفضل مقفول لحد ميعاد الجدول الجاي.',
+      okLabel:'شغّل الجدول', onOk:function(){ waAiSetSched(true); } });
+  }
+}
+function waAiSetSched(on){
+  if(!sb||waAiBusy) return;
+  waAiBusy=true;
+  sb.rpc('ai_agent_set_schedule',{p_on:on}).then(function(r){
+    waAiBusy=false;
+    var d=r&&r.data;
+    if(!r || r.error || !d || !d.ok){ toast(waAiErr((d&&d.error)||''),'er'); waLoadAiState(); return; }
+    toast(on?('⏰ الجدول اشتغل'+(d.mode==='auto'?' — والبوت شغّال دلوقتي':' — البوت هيشتغل لوحده في ميعاده')):'⏰ الجدول اتقفل — التشغيل والقفل بالإيد');
+    waLoadAiState();
+  });
+}
+function waAiDevAsk(){
+  if(waAiBusy) return;
+  if(!(currentUser && currentUser.role==='admin')){ toast('الأدمن بس اللي بيشغّل ON DEVELOP','er'); return; }
+  var nums=waAi.devIds.map(waAiLocalNum).join(' · ');
+  if(waAi.dev){
+    showModal({ icon:'🧪', title:'تقفل ON DEVELOP؟',
+      sub:'البوت هيرجع لحالته العادية'+((waAi.sched&&waAi.sched.on)?' حسب الجدول':'')+'، ويرد على العملاء تاني لو ميعاده.',
+      okLabel:'اقفل التجربة', onOk:function(){ waAiSetDev(false); } });
+  } else {
+    showModal({ icon:'🧪', title:'تشغّل ON DEVELOP؟',
+      sub:'البوت هيرد على رقم '+(nums||'التجربة')+' بس عشان تجرّب ردوده — في أي وقت.\n🔴 العملاء مش هياخدوا أي رد من البوت طول ما التجربة شغّالة، حتى بالليل.\n⚠️ أي أوردر البوت يسجّله وقت التجربة أوردر حقيقي في السيستم — الغيه بعدها.',
+      okLabel:'شغّل التجربة', onOk:function(){ waAiSetDev(true); } });
+  }
+}
+function waAiSetDev(on){
+  if(!sb||waAiBusy) return;
+  waAiBusy=true;
+  sb.rpc('ai_agent_set_dev',{p_on:on}).then(function(r){
+    waAiBusy=false;
+    var d=r&&r.data;
+    if(!r || r.error || !d || !d.ok){ toast(waAiErr((d&&d.error)||''),'er'); waLoadAiState(); return; }
+    toast(on?'🧪 ON DEVELOP اشتغل — البوت بيرد على رقمك بس':(d.mode==='auto'?'🧪 التجربة اتقفلت — البوت رجع يرد على العملاء':'🧪 التجربة اتقفلت — البوت رجع مقفول'));
+    waLoadAiState();
+    if(!on && d.mode!=='auto') waFetchEscConvos();
   });
 }
 
