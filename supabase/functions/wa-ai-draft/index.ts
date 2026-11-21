@@ -43,10 +43,10 @@ import {
   buildSystemPrompt, buildUserPrompt, cardProductLine, effectivePrice, escStyleOf, layoutOf, MEDIA_RULES, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA,
   siteRowsFrom, workHoursOf, type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
 } from "../_shared/ai-draft.ts";
-import { autoPlan, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
+import { autoPlan, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
   cancelInfo, cancelTag, ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, planReactivate, REACT_HANDOFF_TEXT, reactivateConfirmText,
-  type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder, type ReactOrder, type ReactStep,
+  sessionText, type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder, type ReactOrder, type ReactStep,
 } from "../_shared/ai-order.ts";
 import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
 import {
@@ -312,19 +312,23 @@ async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: 
 interface AutoState {
   ok: boolean; waId: string | null; lastInboundAt: string | null; escAt: string | null; escNote: string | null;
   holdSent: boolean; turnsInConv: number; turnsToday: number; cardRepeat: number;
+  lastBotText: string | null; // آخر رسالة نص من البوت في المحادثة من أقل من 5 دقايق (حارس التكرار)
 }
-const NO_STATE: AutoState = { ok: false, waId: null, lastInboundAt: null, escAt: null, escNote: null, holdSent: false, turnsInConv: 0, turnsToday: 0, cardRepeat: 0 };
+const NO_STATE: AutoState = { ok: false, waId: null, lastInboundAt: null, escAt: null, escNote: null, holdSent: false, turnsInConv: 0, turnsToday: 0, cardRepeat: 0, lastBotText: null };
 /** حالة المحادثة والسقوف. أي استعلام وقع (أعمدة لسه مااتضافتش مثلاً) = ok:false = مفيش إرسال. */
 async function autoState(tenantId: string, convId: string, cardTitle: string | null, exceptDraftId: string | null): Promise<AutoState> {
   const sinceConv = new Date(Date.now() - AUTO_TURNS_WINDOW_MS).toISOString();
   const sinceDay = new Date(Date.now() - 24 * 3600000).toISOString();
-  const [cv, inConv, today] = await Promise.all([
+  const sinceRep = new Date(Date.now() - AUTO_REPEAT_WINDOW_MS).toISOString();
+  const [cv, inConv, today, lastBot] = await Promise.all([
     admin.from("wa_conversations").select("wa_id, last_inbound_at, ai_escalated_at, ai_escalation_note, ai_hold_at")
       .eq("id", convId).eq("tenant_id", tenantId).maybeSingle(),
     admin.from("wa_ai_drafts").select("id, auto_result").eq("tenant_id", tenantId).eq("conversation_id", convId)
       .gt("auto_sent_n", 0).gte("auto_sent_at", sinceConv).limit(80),
     admin.from("wa_ai_drafts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId)
       .gt("auto_sent_n", 0).gte("auto_sent_at", sinceDay),
+    admin.from("wa_messages").select("body").eq("tenant_id", tenantId).eq("conversation_id", convId).eq("direction", "out")
+      .eq("type", "text").eq("sent_by_name", BOT_NAME).gte("created_at", sinceRep).order("created_at", { ascending: false }).limit(1),
   ]);
   if (cv.error || !cv.data || inConv.error || today.error) return NO_STATE;
   // deno-lint-ignore no-explicit-any
@@ -334,6 +338,7 @@ async function autoState(tenantId: string, convId: string, cardTitle: string | n
     escAt: cv.data.ai_escalated_at || null, escNote: cv.data.ai_escalation_note || null, holdSent: !!cv.data.ai_hold_at,
     turnsInConv: rows.length, turnsToday: Number(today.count) || 0,
     cardRepeat: cardTitle ? rows.filter((r) => r.auto_result?.card === cardTitle).length : 0,
+    lastBotText: !lastBot.error && lastBot.data && lastBot.data[0] ? String(lastBot.data[0].body || "") || null : null, // القراية وقعت = من غير الحارس ده
   };
 }
 function planFor(st: Static, r: Result, state: AutoState, tenantId: string, order: OrderOutcome | null = null, react: ReactOutcome | null = null): { plan: AutoPlan; card: AutoCard | null } {
@@ -345,20 +350,22 @@ function planFor(st: Static, r: Result, state: AutoState, tenantId: string, orde
     draft: r.draft, fromModel: !!r.model, error: r.error, card, cardRepeat: state.cardRepeat, holdSent: state.holdSent,
     turnsInConv: state.turnsInConv, turnsToday: state.turnsToday,
     holdMessage: typeof st.facts.hold_message === "string" ? st.facts.hold_message as string : null,
-    order, react, escTalk: st.esc === "v2",
+    order, react, escTalk: st.esc === "v2", lastBotText: state.lastBotText,
   });
   return { plan, card };
 }
 
 // ── الأوردر من البوت (17 نوفمبر) ─────────────────────────────────────
 /** خطوة الأوردر لمسودة collect بياناتها كملت. null = مفيش order في المسودة (البوت لسه بيجمّع). قرار بس — مفيش كتابة. */
-function orderStepFor(st: Static, r: Result, prev: PrevOrder[], waId: string | null): OrderStep | null {
+function orderStepFor(st: Static, r: Result, prev: PrevOrder[], waId: string | null, sess: { all: string; inbound: string } | null): OrderStep | null {
   const d = r.draft;
   if (!d || d.behavior !== "collect") return null;
   if (!d.order) return orphanPromise(d.reply); // الرد بيوعد بتأكيد ومفيش بيانات أوردر = موظف يسجّله
   // «معلومات للـAgent» على كارت المنتج (بتتقري وقت القرار — card_notes بتاع التقييم بيتطبّق عليها): «خلص» = مفيش تسجيل تلقائي
   const noteOf = (pid: string) => st.allCards.find((c) => c.id === st.products.find((x) => x.id === pid)?.quick_reply_id)?.notes || null;
-  return planOrder(d.order, st.orderProducts.map((p) => ({ ...p, note: noteOf(p.id) })), prev, waId);
+  // 21 نوفمبر: البيانات لازم تبان في «المحادثة الحالية» (sess.all) · وطلب ميعاد استلام معين في كلام العميل (sess.inbound) = موظف يسجّل
+  return planOrder(d.order, st.orderProducts.map((p) => ({ ...p, note: noteOf(p.id) })), prev, waId, undefined,
+    sess ? { recent: sess.all, recentIn: sess.inbound, nowIso: new Date().toISOString() } : {});
 }
 const handoffOutcome = (r: Result, note: string): OrderOutcome =>
   ({ state: "handoff", text: ORDER_HANDOFF_TEXT, note: note + (r.draft?.order ? " · " + orderSummary(r.draft.order) : "") });
@@ -525,7 +532,7 @@ async function autoOff(tenantId: string, by: string): Promise<void> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: OrderLite[]): Promise<Record<string, unknown>> {
+async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: OrderLite[], sess: { all: string; inbound: string }): Promise<Record<string, unknown>> {
   // 1) الزرار لسه ON؟ (المالك ممكن يكون طفّاه وإحنا مستنيين الموديل)
   const { data: now1 } = await admin.from("ai_settings").select("mode").eq("tenant_id", msg.tenant_id).maybeSingle();
   if (now1?.mode !== "auto") return { auto: "mode_changed" };
@@ -573,7 +580,7 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
     } else { ro = reactHandoff(rstep.note); orderInfo = { state: "react_handoff", why: rstep.why }; }
     ({ plan, card } = planFor(st, r, state, msg.tenant_id, null, ro));
   }
-  const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId) : null;
+  const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId, sess) : null;
   if (step) {
     let outcome: OrderOutcome;
     if (step.kind === "create") {
@@ -673,7 +680,8 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     for (const g of got) { reads.push(g); if (g.text) for (const x of histRows) if (x.id === g.id) x.ai_media_text = g.text; }
   }
   const history: HistMsg[] = [...histRows].reverse()
-    .map((x) => ({ dir: x.direction === "in" ? "in" : "out", type: x.type || "text", body: x.body, media: x.direction === "in" ? x.ai_media_text || null : null }));
+    .map((x) => ({ dir: x.direction === "in" ? "in" : "out", type: x.type || "text", body: x.body, media: x.direction === "in" ? x.ai_media_text || null : null, at: x.created_at || null }));
+  const sess = sessionText(history); // «المحادثة الحالية» لحارس الأوردر (من آخر رسالة لحد أول سكوت 6 ساعات)
   const triggerMedia: string | null = histRows.find((x) => x.id === msg.id)?.ai_media_text || null;
 
   const { data: conv } = await admin.from("wa_conversations")
@@ -715,7 +723,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     let plan = planFor(st, r, state, msg.tenant_id).plan;
     const rstep = REACT_OK.includes(plan.reason) ? reactStepFor(r, orders) : null;
     if (rstep) plan = planFor(st, r, state, msg.tenant_id, null, reactOutcomePreview(st, rstep)).plan;
-    const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || "")) : null;
+    const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || ""), sess) : null;
     if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
     const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep) };
     const media_read = reads.map((x) => ({ id: x.id, type: x.type, text: x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms }));
@@ -736,7 +744,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   const { data: ins, error } = await admin.from("wa_ai_drafts").upsert(row, { onConflict: "trigger_message_id", ignoreDuplicates: true }).select("id");
   const draftId = !error && ins && ins.length ? String(ins[0].id) : null;
   // 🔴 الإرسال للعميل: الزرار ON بس (mode = 'auto') — وفي shadow مفيش أي نداء لميتا
-  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders) : null;
+  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders, sess) : null;
   return { drafted: !error, behavior: row.behavior, error: error ? "insert_failed" : r.error, ...(auto || {}) };
 }
 
@@ -759,10 +767,12 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       const [n, ctxKey, exp, text, extra, type, media] = c; // media = اللي السيستم فهمه من الفويس/الصورة (حالات 177+)
       const fx = CTX[ctxKey] || {};
       const hist: HistMsg[] = [...(fx.h || []), ...(extra || [])].map((h) => {
-        if (h.card) { const k = st.allCards.find((x) => x.title === h.card); return { dir: "out", type: "image", body: k ? k.body : "[كارت " + h.card + "]" } as HistMsg; }
-        return { dir: h.dir, type: h.type || "text", body: h.body || "" } as HistMsg;
+        const at = h.ago != null ? { at: new Date(now - h.ago * 3600000).toISOString() } : {}; // حالات 185+: الرسالة من كام ساعة (فواصل الوقت)
+        if (h.card) { const k = st.allCards.find((x) => x.title === h.card); return { dir: "out", type: "image", body: k ? k.body : "[كارت " + h.card + "]", ...at } as HistMsg; }
+        return { dir: h.dir, type: h.type || "text", body: h.body || "", ...at } as HistMsg;
       });
-      hist.push({ dir: "in", type: type || "text", body: text, media: media || null });
+      const timed = hist.some((h) => !!h.at); // حالة فيها أوقات (ago) = الرسالة نفسها دلوقتي — غير كده نفس الشكل القديم من غير أوقات
+      hist.push({ dir: "in", type: type || "text", body: text, media: media || null, ...(timed ? { at: new Date(now).toISOString() } : {}) });
       const cv: ConvCtx = {
         adId: fx.ad || null, adBody: fx.adBody || null, customerName: null, ordersKnown: true, history: hist,
         orders: (fx.orders || []).map((o) => {
@@ -784,7 +794,7 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       let ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
       const rstep = REACT_OK.includes(ap.reason) ? reactStepFor(r, cv.orders) : null; // قرار التفعيل بس — مفيش كتابة في التقييم
       if (rstep) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, null, reactOutcomePreview(st, rstep)).plan;
-      const step = !rstep && ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
+      const step = !rstep && ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID, sessionText(hist)) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
       if (step) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
       results.push({
         n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",

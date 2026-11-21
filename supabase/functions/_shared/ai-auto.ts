@@ -13,6 +13,8 @@
 //     عميل ليه أوردر مرتجع أو مفتوح · السيرفر رفض) = «بياناتك اتسجلت وزميل هيأكد» + «🛒 طلب شراء» في التصعيد بالسبب.
 //   • سقف لكل محادثة ولكل يوم: بعده البوت بيسكت خالص (حتى رسالة الاعتذار) ويصعّد — حماية من حلقة رد آلي قصاد رد آلي.
 //   • الكارت = صور الرد المحفوظ والكلام caption على آخر صورة (نفس اللي الموظف بيبعته — درس 46)، وبعده سطر الرد لو فيه.
+//   • 21 نوفمبر (البند 3 — من ليالي 18–21): رد البوت بالحرف زي آخر رسالة بعتها من أقل من 5 دقايق = مايتبعتش (lastBotText) ·
+//     «في/زي الكارت» = «في/زي الرسالة» (tidyReply) · رد التصعيد اللي بيبدأ بـ«ثواني/لحظة» = «تمام يا فندم،» و«في أقرب وقت/على طول» بتتشال (escReply).
 
 export const BOT_NAME = "🤖 AI Agent";
 export const AUTO_MAX_TURNS_PER_CONV = 10;            // ردود البوت في المحادثة الواحدة خلال النافذة
@@ -21,6 +23,7 @@ export const AUTO_MAX_TURNS_PER_DAY = 400;            // لكل المتجر ف�
 export const AUTO_MAX_CARD_REPEAT = 2;                // نفس الكارت لنفس المحادثة خلال النافذة
 export const AUTO_MAX_IMAGES = 5;
 export const CAPTION_MAX = 1024;                      // حد ميتا للـcaption
+export const AUTO_REPEAT_WINDOW_MS = 5 * 60 * 1000;   // نفس رد البوت بالحرف جوّه 5 دقايق = مايتبعتش (رشقة رسايل · صورتين ورا بعض)
 export const HOLD_DEFAULT = "معلش يا فندم، أنا المساعد الآلي للمتجر والنقطة دي محتاجة زميل يرد على حضرتك فيها. هيتواصلوا مع حضرتك في أقرب وقت 🙏";
 
 export interface AutoDraft { behavior: string; intent: string; reply: string; card: string; note: string }
@@ -47,6 +50,7 @@ export interface AutoIn {
   order?: OrderOutcome | null; // collect والبيانات كملت — غير كده null
   react?: ReactOutcome | null; // العميل عايز أوردره الملغي (reactivate) — غير كده null
   escTalk?: boolean;           // esc_style = v2: رد التصعيد من الموديل (بيتبعت) بدل الاعتذار الثابت
+  lastBotText?: string | null; // آخر رسالة نص البوت بعتها في المحادثة دي من أقل من AUTO_REPEAT_WINDOW_MS — نفس الرد بالظبط مايتبعتش تاني
 }
 export type AutoAction =
   | { kind: "text"; body: string; tag: "reply" | "hold" | "card_text" | "order" }
@@ -75,16 +79,30 @@ export function cardActions(card: AutoCard): AutoAction[] {
   return out;
 }
 
-/** رد التصعيد اللي الموديل كتبه، جاهز للإرسال: «حالاً/دلوقتي» عن رد الزميل بتتشال (الموظفين مش موجودين بالليل — وعد كاذب). */
+/** كلام داخلي مايوصلش للعميل (21 نوفمبر): «الكارت» اسمه عندنا بس — العميل شاف صور ورسالة. «في/زي الكارت» = «في/زي الرسالة».
+ *  🔴 «بالكارت» (الدفع بالفيزا) مابتتلمسش — الاستبدال بعد «في/زي» بس. */
+export function tidyReply(reply: unknown): string {
+  return String(reply || "").replace(/(^|[\s،(])(في|فى|زي|زى)\s+الكارت(?=$|[\s.،!؟?)])/g, "$1$2 الرسالة");
+}
+/** رد التصعيد اللي الموديل كتبه، جاهز للإرسال: «حالاً/دلوقتي/فوراً/في أقرب وقت/على طول» عن رد الزميل بتتشال (الموظفين مش موجودين بالليل — وعد كاذب)
+ *  · وأول الرد «ثواني/لحظة» = «تمام يا فندم،» (21 نوفمبر — «ثواني يا فندم هراجع مع زميلي…» والزميل مش هيرد غير في مواعيد العمل). */
 export function escReply(reply: unknown): string {
-  return String(reply || "")
-    .replace(/(هي(?:تابع|رد|تواصل|كلم|أكد|راجع)[^.،\n]{0,40}?)\s+(?:حالاً|حالًا|حالا|دلوقتي|دلوقت|فوراً|فورًا|فورا)(?=[\s.،!]|$)/g, "$1")
+  return tidyReply(String(reply || "")
+    .replace(/^\s*(?:ثواني|ثوانى|ثانية|ثانيه|لحظة|لحظه|لحظات)(?:\s+(?:واحدة|واحده))?(?:\s+(?:يا\s*فندم|معايا|مع\s+حضرتك))?\s*[،,.!…]*\s*(?:و(?=ه))?/, "تمام يا فندم، ")
+    .replace(/(هي(?:تابع|رد|تواصل|كلم|أكد|راجع)[^.،\n]{0,40}?)\s+(?:حالاً|حالًا|حالا|دلوقتي|دلوقت|فوراً|فورًا|فورا|في أقرب وقت|فى أقرب وقت|في اقرب وقت|على طول|ع طول)(?=[\s.،!]|$)/g, "$1"))
     .replace(/[ \t]{2,}/g, " ").trim();
+}
+/** للمقارنة بس: نفس الرد بالحروف والأرقام (من غير رموز ولا مسافات زيادة). */
+function repKey(s: unknown): string {
+  return String(s || "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 export function autoPlan(i: AutoIn): AutoPlan {
   const holdText = String(i.holdMessage || "").trim() || HOLD_DEFAULT;
   const hold = (): AutoAction[] => (i.holdSent ? [] : [{ kind: "text", body: holdText, tag: "hold" }]);
+  // 21 نوفمبر: البوت بعت نفس الرد بالحرف من شوية (رشقة رسايل من العميل · صورتين ورا بعض) = مايتبعتش تاني — سكوت مش تكرار
+  const last = repKey(i.lastBotText);
+  const repeat = (t: string) => !!last && repKey(t) === last;
   const d = i.draft;
 
   if (d && d.behavior === "skip") return { actions: [], escalate: null, reason: "skip" };
@@ -101,6 +119,7 @@ export function autoPlan(i: AutoIn): AutoPlan {
   if (d.behavior === "escalate") {
     const escalate = cut(String(d.note || d.intent || "محتاجة موظف").trim(), 400);
     const talk = i.escTalk ? escReply(d.reply) : "";
+    if (talk && repeat(talk)) return { actions: [], escalate, reason: "escalate" };
     if (talk) return { actions: [{ kind: "text", body: talk, tag: "reply" }], escalate, reason: "escalate" };
     return { actions: hold(), escalate, reason: "escalate" };
   }
@@ -123,8 +142,10 @@ export function autoPlan(i: AutoIn): AutoPlan {
 
   const actions: AutoAction[] = [];
   if (i.card && i.cardRepeat < AUTO_MAX_CARD_REPEAT) actions.push(...cardActions(i.card));
-  const reply = String(d.reply || "").trim();
-  if (reply) actions.push({ kind: "text", body: reply, tag: "reply" });
+  const reply = tidyReply(d.reply).trim();
+  const dup = !!reply && repeat(reply);
+  if (reply && !dup) actions.push({ kind: "text", body: reply, tag: "reply" });
+  if (!actions.length && dup) return { actions: [], escalate: null, reason: d.behavior };
   if (!actions.length) return { actions: hold(), escalate: "المساعد طلّع رد فاضي — محتاجة موظف", reason: "empty" };
 
   let escalate: string | null = null;

@@ -10,11 +10,13 @@
 //   • نص التأكيد للعميل ثابت من هنا (رقم الطلب والمنتج والإجمالي من السيستم) — مش من الموديل.
 //   • (17 نوفمبر — طلب المالك) أوردر ملغي من أقل من يومين **والعميل هو اللي لغاه من زرار الواتساب** والعميل عايزه = البوت بيفعّله تاني «مؤكد»
 //     (planReactivate → RPC reactivate_bot_order). لغاه موظف · أقدم من يومين · ليه بوليصة · العميل ليه أوردر تاني مفتوح/مرتجع = زميل يراجع.
+//   • (21 نوفمبر — البند 3) الاسم والعنوان لازم يبانوا في «المحادثة الحالية» (بعد آخر سكوت 6 ساعات) وإلا البوت يطلبهم تاني (B-6 اتسجّل ببيانات
+//     من 5 أيام) · العميل طالب يستلم في يوم معين أو بعد مدة = موظف يسجّل بالميعاد (B-5) · أوردر سابق لغاه موظف من أقل من 30 يوم = موظف يراجع.
 
 export interface OrderDraft { product: string; variant: string; qty: number; name: string; phone: string; governorate: string; address: string }
 export interface OrderVariant { label: string; stockProductId: string; price: number | null }
 export interface OrderProduct { id: string; name: string; aliases: string[]; siteNames: string[]; variants: OrderVariant[]; note?: string | null } // note = «معلومات للـAgent» على كارت المنتج
-export interface PrevOrder { order_uid: string; status: string }
+export interface PrevOrder { order_uid: string; status: string; cancelled_by?: "customer" | "staff" | null; cancelled_at?: string | null }
 export interface CreateArgs {
   customer_name: string; phone: string; alt_phone: string | null; city: string; address: string;
   stock_product_id: string; qty: number; unit_price: number; variant: string; total: number; product_label: string;
@@ -25,8 +27,14 @@ export type OrderStep =
   | { kind: "handoff"; note: string; why: string };   // مايتسجّلش تلقائي — البيانات اتاخدت وزميل يراجع (تصعيد بالسبب)
 
 export const ORDER_MAX_QTY = 3;
-export const ORDER_HANDOFF_TEXT = "تمام يا فندم، بيانات حضرتك اتسجلت، وزميلي هيراجعها ويأكد الطلب مع حضرتك.";
+export const ORDER_HANDOFF_TEXT = "تمام يا فندم، بيانات حضرتك اتسجلت، وزميلي هيراجعها ويأكد الطلب مع حضرتك في مواعيد العمل.";
 export const BLOCKED_GOVS = ["شمال سيناء"];
+/** بيانات الأوردر مش في كلام المحادثة الحالية (من طلب قديم) — البوت بيطلب يتأكد منها قبل ما يسجّل. */
+export const STALE_ASK_TEXT = "تمام يا فندم، عشان أسجّل الطلب ممكن حضرتك تكتبلي الاسم والعنوان بالتفصيل ورقم الموبايل اللي هنسجّل بيهم؟";
+export const STAFF_CANCEL_WINDOW_MS = 30 * 86400 * 1000;
+export const SESSION_GAP_MS = 6 * 3600 * 1000;   // سكوت 6 ساعات في المحادثة = اللي قبله كلام قديم (طلب تاني)
+export const SESSION_MAX_MS = 48 * 3600 * 1000;  // و«المحادثة الحالية» بالكتير آخر 48 ساعة
+export interface PlanOpts { recent?: string | null; recentIn?: string | null; nowIso?: string }
 
 /** «معلومات للـAgent» على كارت المنتج بتقول إنه خلص/مش متوفر (المالك بيكتبها بإيده) = البوت مايسجّلش أوردره. كلمة زيادة = موظف يراجع (الاتجاه الآمن). */
 export function stockOutNote(note: string | null | undefined): boolean {
@@ -104,6 +112,65 @@ function prevProblem(prev: PrevOrder[]): string | null {
   return null;
 }
 
+/** أوردر سابق اتلغى بإيد موظف (أو مش معروف مين لغاه) من أقل من 30 يوم = موظف يراجع قبل ما البوت يسجّل الجديد (21 نوفمبر —
+ *  B-5 اتلغى «عايز يستلم آخر العمر»، وعميل «مبيستلمش» البوت كان هيسجّله تاني). الملغي من زرار الواتساب (العميل) مش مشكلة. */
+export function staffCancelProblem(prev: PrevOrder[], nowIso: string): string | null {
+  const now = Date.parse(nowIso);
+  if (!isFinite(now)) return null;
+  const o = (prev || []).find((x) => /^cancelled$/i.test(String(x.status || "")) && x.cancelled_by !== "customer"
+    && !!x.cancelled_at && isFinite(Date.parse(x.cancelled_at)) && now - Date.parse(x.cancelled_at) < STAFF_CANCEL_WINDOW_MS);
+  return o ? "العميل ليه أوردر سابق #" + o.order_uid + " اتلغى بإيد موظف — راجع سبب الإلغاء قبل ما تسجّل الجديد" : null;
+}
+
+// ── «المحادثة الحالية» (21 نوفمبر — B-6: البوت سجّل أوردر ببيانات العميل بعتها من 5 أيام، والعميل كان لسه بيقول «عايز اعمل طلب») ──
+export interface SessMsg { dir: "in" | "out"; body?: string | null; media?: string | null; at?: string | null }
+/** كلام المحادثة الحالية: من آخر رسالة لورا لحد أول سكوت 6 ساعات (وبالكتير 48 ساعة). رسالة من غير وقت (التقييم) بتتحسب. */
+export function sessionText(msgs: SessMsg[]): { all: string; inbound: string } {
+  const keep: SessMsg[] = [];
+  let prev = NaN, newest = NaN;
+  for (let k = (msgs || []).length - 1; k >= 0; k--) {
+    const m = msgs[k];
+    const t = m && m.at ? Date.parse(m.at) : NaN;
+    if (isFinite(t)) {
+      if (!isFinite(newest)) newest = t;
+      if (isFinite(prev) && prev - t >= SESSION_GAP_MS) break;
+      if (newest - t > SESSION_MAX_MS) break;
+      prev = t;
+    }
+    keep.push(m);
+  }
+  const txt = (m: SessMsg) => [m.body, m.media].map((x) => String(x || "").trim()).filter(Boolean).join(" ");
+  keep.reverse();
+  return { all: keep.map(txt).filter(Boolean).join("\n"), inbound: keep.filter((m) => m.dir === "in").map(txt).filter(Boolean).join("\n") };
+}
+/** الكلمة وأشكالها من غير حروف الجر/العطف اللازقة (و · ب · ل · ف · ال · وال · بال · لل) — للمطابقة بس. */
+function wordForms(w: string): string[] {
+  const out = new Set([w]);
+  for (const p of ["وال", "بال", "لل", "ال", "و", "ب", "ل", "ف"]) if (w.length - p.length >= 2 && w.startsWith(p)) out.add(w.slice(p.length));
+  return [...out];
+}
+/** الاسم والعنوان اللي الموديل كتبهم باينين في كلام المحادثة الحالية؟ (كلمة من الاسم على الأقل · ونص كلمات العنوان على الأقل). */
+export function freshData(d: Pick<OrderDraft, "name" | "address">, recent: string): boolean {
+  const have = new Set(normKey(recent).split(" ").filter(Boolean).flatMap(wordForms));
+  const toks = (s: string) => normKey(s).split(" ").filter((w) => w.length >= 2);
+  const seen = (w: string) => wordForms(w).some((f) => have.has(f));
+  const nameT = toks(d.name);
+  if (nameT.length && !nameT.some(seen)) return false;
+  const addrT = toks(d.address);
+  if (addrT.length && addrT.filter(seen).length * 2 < addrT.length) return false;
+  return true;
+}
+// العميل طالب ميعاد استلام معين (مش التوصيل العادي) — بعد التطبيع (normKey: أ=ا · ة=ه · ى=ي)
+const DAYS = "(السبت|الحد|الاحد|الاتنين|الاثنين|التلات|الثلاث|الثلاثاء|التلاتاء|الاربع|الاربعاء|الخميس|الجمعه)";
+const DATE_WISH = new RegExp(
+  "بعد (اسبوع|اسبوعين|يومين|كام يوم|\\d+ (يوم|ايام)|العيد|الشهر|اول الشهر)|اول (الشهر|شهر)|(الشهر|الاسبوع) (الجاي|اللي جاي|القادم)" +
+  "|يوم " + DAYS + "|" + DAYS + " (الجاي|اللي جاي)|مسافر|مسافره|مش (هكون|هبقي|هبقا) موجود");
+/** الجملة اللي فيها طلب الميعاد (بعد التطبيع) — null لو مفيش. */
+export function deliveryWish(text: string): string | null {
+  const m = normKey(text).match(DATE_WISH);
+  return m ? m[0] : null;
+}
+
 function pickProduct(text: string, products: OrderProduct[]): OrderProduct | null {
   const k = normKey(text);
   if (!k) return null;
@@ -138,7 +205,7 @@ const money = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))
  * القرار: يتسجّل · يتسأل العميل · يتحوّل لموظف.
  * waId = رقم واتساب العميل (2010…) — بيتاخد رقم الموبايل لو العميل قال «نفس الرقم»، وبيتسجّل رقم إضافي لو كتب رقم تاني.
  */
-export function planOrder(d: OrderDraft, products: OrderProduct[], prev: PrevOrder[], waId: string | null, blockedGovs: string[] = BLOCKED_GOVS): OrderStep {
+export function planOrder(d: OrderDraft, products: OrderProduct[], prev: PrevOrder[], waId: string | null, blockedGovs: string[] = BLOCKED_GOVS, opts: PlanOpts = {}): OrderStep {
   const p = pickProduct(d.product, products);
   if (!p) return { kind: "handoff", why: "product", note: "المنتج «" + String(d.product || "").slice(0, 60) + "» مش من المنتجات اللي البوت بيسجّلها — سجّل الأوردر إنت" };
   if (stockOutNote(p.note)) return { kind: "handoff", why: "stock_note", note: "«معلومات للـAgent» على كارت المنتج بتقول إنه خلص/مش متوفر — راجع قبل ما تسجّل" };
@@ -166,8 +233,13 @@ export function planOrder(d: OrderDraft, products: OrderProduct[], prev: PrevOrd
   if (blockedGovs.some((b) => govOf(b) === gov)) return { kind: "ask", why: "blocked_gov", text: "معلش يا فندم، الشحن مش متاح لمحافظة " + gov + " حالياً." };
   const address = String(d.address || "").replace(/\s+/g, " ").trim();
   if (!addressClear(address, gov)) return { kind: "ask", why: "address", text: "ممكن العنوان بالتفصيل يا فندم: المنطقة واسم الشارع ورقم العمارة وعلامة مميزة؟" };
+  // 21 نوفمبر: الاسم والعنوان لازم يبانوا في كلام المحادثة الحالية (opts.recent — null/غايب = من غير الحارس ده)
+  if (typeof opts.recent === "string" && !freshData({ name, address }, opts.recent)) return { kind: "ask", why: "stale", text: STALE_ASK_TEXT };
+  // والعميل طالب يستلم في يوم معين أو بعد مدة = موظف يسجّل بالميعاد (B-5 اتسجّل والبوت قاله «نقدر نوصله في الميعاد ده» وموظف لغاه)
+  const wish = opts.recentIn ? deliveryWish(opts.recentIn) : null;
+  if (wish) return { kind: "handoff", why: "date", note: "العميل طالب ميعاد استلام معين («" + wish.slice(0, 40) + "») — سجّل الأوردر بالميعاد ده إنت" };
 
-  const pp = prevProblem(prev || []);
+  const pp = prevProblem(prev || []) || staffCancelProblem(prev || [], opts.nowIso || new Date().toISOString());
   if (pp) return { kind: "handoff", why: "prev_order", note: pp };
 
   return {
@@ -204,7 +276,7 @@ export function orderSummary(d: OrderDraft): string {
 
 // ── تفعيل أوردر ملغي (17 نوفمبر — «الاوردر الملغي من اقل من يومين هو يفعله تاني يخليه مؤكد … وارد يكون العميل داس الغاء بالغلط») ──
 export const REACTIVATE_WINDOW_MS = 48 * 3600 * 1000;
-export const REACT_HANDOFF_TEXT = "تمام يا فندم، طلب حضرتك وصل، وزميلي هيراجع الأوردر ويأكد مع حضرتك.";
+export const REACT_HANDOFF_TEXT = "تمام يا فندم، طلب حضرتك وصل، وزميلي هيراجع الأوردر ويأكد مع حضرتك في مواعيد العمل.";
 export interface CancelInfo { at: string | null; by: "customer" | "staff" | null }
 export interface ReactOrder {
   id: string; order_uid: string; status: string; product_name: string; total: number | null;

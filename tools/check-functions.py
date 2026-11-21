@@ -450,7 +450,7 @@ CONTRACTS = [
     # (16 نوفمبر — الزرار ON/OFF) الإرسال للعميل بقى موجود — بس في مسار واحد: autoRun، وبيتنادى من مكان واحد بشرط mode = 'auto'
     ("wa-ai-draft", u"الإرسال للعميل في autoRun بس · بينادى من مكان واحد بشرط mode = 'auto' · مفيش نداء لـwa-send ولا لأي EF",
      lambda s: "functions.invoke" not in s and "/functions/v1/" not in s
-     and s.count("autoRun(") == 2 and 'st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders) : null' in s
+     and s.count("autoRun(") == 2 and 'st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders, sess) : null' in s
      and s.count("sendAction(") == 2 and s.count("${GRAPH}/") == 1 and s.count("graph.facebook.com") == 1
      and _between(s, "await sendAction(", u"async function autoRun(", u"// ── المسار العادي")
      and _between(s, "${GRAPH}/", u"async function sendAction(", u"async function autoBreaker(")),
@@ -497,7 +497,7 @@ CONTRACTS = [
     # (17 نوفمبر — طلب المالك) البوت يسجّل الأوردر بنفسه: التسجيل من autoRun بس (مش من dry_run ولا التقييم) وبعد كل حراسات الإرسال
     ("wa-ai-draft", u"الأوردر من البوت: create_bot_order من autoRun بس · بعد الحراسات والسقوف وقبل الإرسال · السيرفر رفض = تحويل لموظف مش إعادة",
      lambda s: s.count('admin.rpc("create_bot_order"') == 1 and s.count("createBotOrder(") == 2
-     and _order(s, 'return finish({ reason: "window_closed"', 'const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId) : null;',
+     and _order(s, 'return finish({ reason: "window_closed"', 'const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, prevOrders, state.waId, sess) : null;',
                 "const made = await createBotOrder(msg.tenant_id, step.args);", "await sendAction(")
      and _between(s, "await createBotOrder(", u"async function autoRun(", u"// ── المسار العادي")
      and "createBotOrder(" not in s[s.index("async function runEval("):]
@@ -506,7 +506,7 @@ CONTRACTS = [
      and "p_unit_price: a.unit_price" in s and "price: effectivePrice(v, vs, siteRows).price" in s
      and "orderOutcome(st, r, step, PREVIEW_ORDER_UID)" in s
      and "if (!d.order) return orphanPromise(d.reply);" in s
-     and "planOrder(d.order, st.orderProducts.map((p) => ({ ...p, note: noteOf(p.id) })), prev, waId)" in s),
+     and "planOrder(d.order, st.orderProducts.map((p) => ({ ...p, note: noteOf(p.id) })), prev, waId, undefined," in s),
     # (17 نوفمبر — طلب المالك) أوردر ملغي من أقل من يومين والعميل عايزه = البوت بيفعّله: من autoRun بس، بعد الحراسات وقبل أي تسجيل جديد وقبل الإرسال
     ("wa-ai-draft", u"تفعيل الأوردر الملغي: reactivate_bot_order من autoRun بس · رد حقيقي بس (REACT_OK) · قبل تسجيل أوردر جديد · السيرفر رفض = زميل يراجع",
      lambda s: s.count('admin.rpc("reactivate_bot_order"') == 1 and s.count("reactivateBotOrder(") == 2
@@ -609,10 +609,33 @@ CONTRACTS = [
      and "const RETURNED = /returned|exception|failed/i;" in s and "const CLOSED_OK = /^(delivered|cancelled)$/i;" in s
      and u'export const BLOCKED_GOVS = ["شمال سيناء"];' in s and "if (blockedGovs.some((b) => govOf(b) === gov))" in s
      and "if (!addressClear(address, gov))" in s and "if (qty > ORDER_MAX_QTY) return" in s
-     and _order(s, "if (!addressClear(address, gov))", "const pp = prevProblem(prev || []);", 'kind: "create",')
+     and _order(s, "if (!addressClear(address, gov))", "const pp = prevProblem(prev || []) || staffCancelProblem(prev || [], opts.nowIso || new Date().toISOString());", 'kind: "create",')
      # «معلومات للـAgent» بتقول خلص = مفيش تسجيل · وعد بتأكيد من غير بيانات = موظف
      and _order(s, "const p = pickProduct(d.product, products);", "if (stockOutNote(p.note)) return { kind: \"handoff\"", 'kind: "create",')
      and u'return /ثواني|ه[اأ]كد/.test(String(reply || ""))' in s and 'why: "no_order_data"' in s),
+    # (21 نوفمبر — البند 3) B-6 اتسجّل ببيانات من 5 أيام · B-5 اتسجّل وهو طالب ميعاد بعد أسبوع · عميل لغاه موظف كان بيتسجّل تاني
+    ("_shared/ai-order", u"حراس الأوردر: الاسم/العنوان من «المحادثة الحالية» (سكوت 6 ساعات) · طلب ميعاد = موظف · لغاه موظف من أقل من 30 يوم = موظف — كلهم قبل create",
+     lambda s: _order(s, "if (!addressClear(address, gov))",
+                      'if (typeof opts.recent === "string" && !freshData({ name, address }, opts.recent)) return { kind: "ask", why: "stale", text: STALE_ASK_TEXT };',
+                      "const wish = opts.recentIn ? deliveryWish(opts.recentIn) : null;",
+                      'if (wish) return { kind: "handoff", why: "date"',
+                      "staffCancelProblem(prev || [], opts.nowIso || new Date().toISOString())", 'kind: "create",')
+     and "export const SESSION_GAP_MS = 6 * 3600 * 1000;" in s and "if (isFinite(prev) && prev - t >= SESSION_GAP_MS) break;" in s
+     and "export const STAFF_CANCEL_WINDOW_MS = 30 * 86400 * 1000;" in s and 'x.cancelled_by !== "customer"' in s
+     and u"في مواعيد العمل." in s[s.index("export const ORDER_HANDOFF_TEXT"):s.index("export const BLOCKED_GOVS")]),
+    ("wa-ai-draft", u"حراس الأوردر شغّالين في المسارات التلاتة (الإرسال · dry_run · التقييم) بنفس «المحادثة الحالية» — والرسايل بوقتها",
+     lambda s: s.count("orderStepFor(") == 4 and "const sess = sessionText(history);" in s
+     and "orderStepFor(st, r, prevOrders, state.waId, sess)" in s and 'orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || ""), sess)' in s
+     and "orderStepFor(st, r, cv.orders, EVAL_WA_ID, sessionText(hist))" in s
+     and "sess ? { recent: sess.all, recentIn: sess.inbound, nowIso: new Date().toISOString() } : {}" in s
+     and "at: x.created_at || null" in s and "lastBotText: state.lastBotText" in s
+     and '.eq("sent_by_name", BOT_NAME).gte("created_at", sinceRep)' in s),
+    ("_shared/ai-auto", u"الرد للعميل: «في/زي الكارت» = «الرسالة» · «ثواني/لحظة» أول رد التصعيد = «تمام» · نفس رد البوت بالحرف جوّه 5 دقايق = مايتبعتش (من غير ما يلمس النص الثابت بتاع الأوردر)",
+     lambda s: "const reply = tidyReply(d.reply).trim();" in s and "return tidyReply(String(reply || \"\")" in s
+     and "if (talk && repeat(talk)) return { actions: [], escalate, reason: \"escalate\" };" in s
+     and "if (!actions.length && dup) return { actions: [], escalate: null, reason: d.behavior };" in s
+     and "export const AUTO_REPEAT_WINDOW_MS = 5 * 60 * 1000;" in s
+     and _order(s, 'if (d.behavior === "collect" && i.order && String(i.order.text || "").trim()) {', "const dup = !!reply && repeat(reply);")),
     ("_shared/ai-order", u"تفعيل الأوردر الملغي: العميل هو اللي لغاه · أقل من 48 ساعة · من غير بوليصة · مالوش أوردر تاني مفتوح/مرتجع — غير كده زميل يراجع",
      lambda s: "export const REACTIVATE_WINDOW_MS = 48 * 3600 * 1000;" in s
      and _order(s, "export function planReactivate(", 'if (!o || !o.id || String(o.status || "").toLowerCase() !== "cancelled") return null;',

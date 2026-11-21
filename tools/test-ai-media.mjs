@@ -198,7 +198,7 @@ const CALS = [
   ['(ك) «(مش مفهومة)» مختلفة في الملفين', 'd', (s) => s.replace('export const MEDIA_UNCLEAR = "(مش مفهومة)";', 'export const MEDIA_UNCLEAR = "(مش واضحة)";'), '10أ'],
   ['(ل) حروف الاتجاه مابتتشالش', 'm', (s) => s.replace(/\.replace\(\/\[[^\]]*\]\/g, ""\)/, ''), '5هـ'],
   ['(م) السطر الجديد مابيتلمّش', 'd', (s) => s.replace('const flat = media.replace(/\\s*\\n+\\s*/g, " / ");', 'const flat = media;'), '8أ'],
-  ['(ن) ميديا الرسالة الصادرة بتتعرض', 'd', (s) => s.replace('const media = m.dir === "in" ? String(m.media || "").trim() : "";' + NL + '    if (media) return who', 'const media = String(m.media || "").trim();' + NL + '    if (media) return who'), '8هـ'],
+  ['(ن) ميديا الرسالة الصادرة بتتعرض', 'd', (s) => s.replace('const media = m.dir === "in" ? String(m.media || "").trim() : "";' + NL + '  if (media) return who', 'const media = String(m.media || "").trim();' + NL + '  if (media) return who'), '8هـ'],
 ];
 for (const [name, which, mut, expect] of CALS) {
   let f;

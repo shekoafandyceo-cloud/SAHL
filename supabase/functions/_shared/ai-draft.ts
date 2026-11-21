@@ -11,7 +11,8 @@ export type Behavior = typeof BEHAVIORS[number];
 
 export interface SiteRow { name: string; variant: string; price: number; n: number }
 // media = اللي السيستم فهمه من رسالة صوتية/صورة واردة (wa_messages.ai_media_text — ai-media.ts · 21 نوفمبر). من غيره = نفس الشكل القديم بالحرف.
-export interface HistMsg { dir: "in" | "out"; type?: string; body?: string | null; media?: string | null }
+// at = وقت الرسالة (21 نوفمبر): بين رسالتين بينهم سكوت ≥ 6 ساعات بيتحط سطر فاصل في الـprompt. من غيره (التقييم القديم) = نفس الشكل بالحرف.
+export interface HistMsg { dir: "in" | "out"; type?: string; body?: string | null; media?: string | null; at?: string | null }
 export interface OrderLite {
   order_uid: string; status: string; product_name: string; props?: string | null;
   total: number | null; created_at: string; cancel_requested?: boolean; carrier?: string | null;
@@ -229,20 +230,37 @@ export function productBlock(p: ProductLite, ctx: DraftCtx): string {
   return lines.join("\n");
 }
 
+/** 🔴 لازم يفضل نفس SESSION_GAP_MS في ai-order.ts (الهارنس بيقارنهم): الفاصل اللي الموديل بيشوفه = حدود «المحادثة الحالية» في حارس الأوردر. */
+export const HIST_GAP_MS = 6 * 3600 * 1000;
+/** سطر الفاصل بين رسالتين بينهم سكوت طويل — «— (فاصل: اللي تحت ده بعد 5 أيام من اللي فوقه) —». */
+export function gapLine(ms: number): string {
+  const d = Math.round(ms / 86400000), h = Math.round(ms / 3600000);
+  const span = ms >= 86400000 ? (d <= 1 ? "يوم" : d === 2 ? "يومين" : d <= 10 ? d + " أيام" : d + " يوم") : h + " ساعات";
+  return "— (فاصل: اللي تحت ده بعد " + span + " من اللي فوقه) —";
+}
 export function historyBlock(ctx: DraftCtx): string {
   if (!ctx.history.length) return "(مفيش رسايل قبل كده)";
-  return ctx.history.map((m) => {
-    const who = m.dir === "in" ? "العميل" : "إحنا";
-    const body = String(m.body || "").trim();
-    if (m.dir === "out" && body) {
-      const card = ctx.cards.find((c) => c.body && body.slice(0, 60) === c.body.trim().slice(0, 60));
-      if (card) return who + ": [اتبعت كارت «" + card.title + "» بالصور]";
-    }
-    const media = m.dir === "in" ? String(m.media || "").trim() : "";
-    if (media) return who + ": " + mediaLine(String(m.type || ""), media) + (body ? " " + cut(body, 500) : "");
-    const t = m.type && m.type !== "text" ? "[" + (TYPE_AR[m.type] || m.type) + "] " : "";
-    return who + ": " + t + cut(body, 500);
-  }).join("\n");
+  const lines: string[] = [];
+  let prevAt = NaN;
+  for (const m of ctx.history) {
+    const at = m.at ? Date.parse(m.at) : NaN;
+    if (isFinite(at) && isFinite(prevAt) && at - prevAt >= HIST_GAP_MS) lines.push(gapLine(at - prevAt));
+    if (isFinite(at)) prevAt = at;
+    lines.push(historyLine(ctx, m));
+  }
+  return lines.join("\n");
+}
+function historyLine(ctx: DraftCtx, m: HistMsg): string {
+  const who = m.dir === "in" ? "العميل" : "إحنا";
+  const body = String(m.body || "").trim();
+  if (m.dir === "out" && body) {
+    const card = ctx.cards.find((c) => c.body && body.slice(0, 60) === c.body.trim().slice(0, 60));
+    if (card) return who + ": [اتبعت كارت «" + card.title + "» بالصور]";
+  }
+  const media = m.dir === "in" ? String(m.media || "").trim() : "";
+  if (media) return who + ": " + mediaLine(String(m.type || ""), media) + (body ? " " + cut(body, 500) : "");
+  const t = m.type && m.type !== "text" ? "[" + (TYPE_AR[m.type] || m.type) + "] " : "";
+  return who + ": " + t + cut(body, 500);
 }
 
 // ── الرسايل الصوتية والصور (21 نوفمبر — ai-media.ts) ────────────────
@@ -343,6 +361,17 @@ export function buildSystemPrompt(o?: { esc?: EscStyle; hours?: string }): strin
       "(هـ) لو باين في المحادثة إنك قلت للعميل قبل كده إن زميلك هيتابع معاه: ماتكررش جملة المواعيد تاني. لو كتب معلومة زيادة عن نفس الموضوع: escalate برد قصير زي «تمام يا فندم، سجّلت ده مع طلب حضرتك» والـnote فيها المعلومة. لو سأل سؤال إجابته عندك: جاوبه عادي. لو شكر أو قال تمام: answer برد قصير.",
       "(و) كلمة «إلغاء» أو «نلغي» ماتتكتبش في ردك أبداً إلا لو العميل نفسه هو اللي طلب الإلغاء صراحةً. عميل عنده ظرف، أو «مش عايز الأوردر دلوقتي»، أو طلب لون أو مقاس مش متاح: ماتخيّرهوش بين التأجيل والإلغاء — اسأله يناسبه يستلم إمتى، أو قوله المتاح واسأله يحب نكمّل بيه. ولو العميل هو اللي طلب الإلغاء: الـreply يسأله عن السبب بسؤال واحد قصير لو ماقالوش، ولو قاله: أكّد إنك سجّلت طلب الإلغاء وإن زميلك هيأكده في مواعيد العمل.",
       "(ز) أول مرة تقول للعميل إن زميلك هيتابع أو هيأكد، لازم الجملة يبقى فيها «في مواعيد العمل» بالنص ده.",
+      "(ح) ماتبدأش الرد بـ«ثواني» أو «لحظة»، وماتقولش «هراجع وأرجعلك» — إنت مش هترجع للعميل بعد شوية، زميلك هو اللي هيرد في مواعيد العمل. وأي وعد عن زميلك ممنوع فيه «حالاً» و«فوراً» و«دلوقتي» و«في أقرب وقت» و«على طول».",
+      "(ط) أي طلب محتاج حاجة تتعمل بعدين من المتجر — يبلّغه لما منتج خلصان يتوفر، يوصّله في يوم معين أو بعد مدة، حد يكلمه — escalate: الـreply يأكد إنك سجّلت طلبه بالتفصيل اللي قاله وإن زميلك هيتابع معاه في مواعيد العمل، والـnote فيها الطلب. ممنوع توعد بالحاجة دي في answer أو collect (زي «أول ما يتوفر هنبلّغ حضرتك» أو «نقدر نوصله في الميعاد ده»).",
+      "(ي) العميل بيطلب أوردر جديد وعايز يستلمه في يوم معين أو بعد مدة (مش مدة التوصيل العادية): اجمع البيانات عادي، ولما تكمل سيب order فاضي واعمل escalate — الـreply يأكد إنك سجّلت طلبه بالميعاد اللي قاله وإن زميلك هيأكد معاه في مواعيد العمل، والـnote فيها الميعاد والمنتج والمقاس وكل البيانات.",
+      "(ك) العميل طلب يلغي عشان مش هيقدر يستلم الأيام دي (مسافر، مش فاضي، عنده ظرف): اسأله الأول بلطف يحب نأجّل الاستلام لميعاد يناسبه بدل الإلغاء (escalate) — ولو رفض أو أصر على الإلغاء: أكّد إنك سجّلت طلب الإلغاء وإن زميلك هيأكده في مواعيد العمل.",
+      "23. كلامك مع العميل:",
+      "(أ) «الكارت» كلمة داخلية عندنا والعميل مايعرفهاش — ماتكتبهاش في reply. لو عايز تشاور على الكارت اللي اتبعت قول «الصور والتفاصيل اللي بعتهالك» أو «الرسالة اللي فوق».",
+      "(ب) سؤال «فيه كذا؟» أو «بييجي معاه كذا؟» أو «الخامة إيه بالظبط؟»: «أيوه» بس على حاجة مكتوبة بالنص في كارت المنتج أو في المعلومات اللي تحت. اللي مش مكتوب ماتأكدهوش وماتقولش «كل الحاجات دي معاه» — قول المكتوب فعلاً، والجزء المش مكتوب escalate عشان زميلك يأكده. وماتقولش إن الصور «على الطبيعة» أو «حقيقية» إلا لو ده مكتوب.",
+      "(ج) ماتكررش جملة لسه قايلها في ردك اللي قبله (زي «ترجع بالسلامة» أو نفس الترحيب) — ادخل في الجديد على طول.",
+      "(د) مدح أو دعاء أو إعجاب بس («ماشاء الله»، «جميلة»، «حلو أوي»، «ربنا يكرمك»، «تسلم إيدك») = answer برد قصير لطيف، مش escalate.",
+      "(هـ) لو زميل في المحادثة طلب من العميل حاجة (تحويل حجز أو ديبوزيت، صورة، بيانات، تأكيد) والعميل بيتكلم فيها: ماتناقضش زميلك ولا تقول إنها مش مطلوبة — escalate والـreply يقوله إن زميلك هيتابع معاه فيها في مواعيد العمل.",
+      "(و) لو في الرسايل سطر فاصل زي «— (فاصل: اللي تحت ده بعد 5 أيام من اللي فوقه) —» يبقى اللي فوق آخر فاصل كلام قديم. بيانات order (المنتج والمقاس والاسم والعنوان والموبايل) لازم العميل يكون قالها بعد آخر فاصل. لو بياناته موجودة قبل الفاصل بس: سيب order فاضي واسأله يأكدها («تحب نسجّل الطلب بنفس الاسم والعنوان اللي حضرتك بعتهم قبل كده: …؟») — ولما يقول أيوه املا order بيها. ولو المنتج أو المقاس ماتقالوش بعد الفاصل اسأله عنهم الأول.",
     ] : []),
     "",
     "# شكل الإخراج",
