@@ -337,6 +337,24 @@
 .wa-esc-hint{display:block;font-size:.68rem;font-weight:600;opacity:.8;}
 .wa-esc-done{flex:0 0 auto;padding:4px 10px;border:1px solid #f87171;border-radius:999px;background:#fff;color:#991b1b;cursor:pointer;font-size:.72rem;font-weight:800;font-family:inherit;white-space:nowrap;}
 .wa-esc-done:hover{background:#991b1b;color:#fff;border-color:#991b1b;}
+/* ── v89: طابور التصعيد — مستنية من قد إيه / متأخرة (ساعة شغل من غير رد) · «🔁» رجعت تاني · زرارين بسبب ── */
+.wa-conv-escw{display:flex;align-items:center;gap:6px;margin-top:2px;min-width:0;font-size:.64rem;font-weight:700;color:#b45309;white-space:nowrap;overflow:hidden;}
+/* النص بيتقص بـ«…» و«🔁 المرة التانية» بيفضل كامل — نص مباشر جوّه flex مابيتقصّش (عنصر مجهول) فالشارة كانت بتتقص هي */
+.wa-conv-escwt{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.wa-conv-escw.late{color:#c2410c;font-weight:800;}
+.wa-conv-escr{flex:0 0 auto;padding:0 6px;border-radius:999px;background:#fef3c7;color:#92400e;font-weight:800;}
+.wa-esc-banner.late{border-color:#ea580c;box-shadow:inset 3px 0 0 #ea580c;}
+.wa-esc-wait{display:block;font-size:.72rem;font-weight:800;color:#b45309;}
+.wa-esc-wait.late{color:#c2410c;}
+.wa-esc-rep{display:block;font-size:.72rem;font-weight:700;color:#92400e;}
+.wa-esc-acts{flex:0 0 auto;display:flex;flex-direction:column;gap:5px;}
+.wa-esc-done.wa-esc-noact{border-color:#cbd5e1;color:#475569;}
+.wa-esc-done.wa-esc-noact:hover{background:#475569;color:#fff;border-color:#475569;}
+.wa-filter.has-alert.has-late{border-color:#ea580c;color:#c2410c;background:#fff7ed;}
+.wa-filter.has-alert.has-late.active{background:var(--acc);border-color:var(--acc);color:#fff;}
+.wa-nav-badge.wa-nav-esc{background:#ea580c;margin-inline-start:3px;}
+.sidenav.collapsed .wa-nav-badge.wa-nav-esc{top:auto;bottom:3px;}
+@media (max-width:768px){ .wa-esc-acts{flex-direction:row;flex-wrap:wrap;} .wa-esc-banner{flex-wrap:wrap;} }
 .wa-ai-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 12px;border-bottom:1px solid var(--brd);font-size:.74rem;font-weight:600;line-height:1.45;color:var(--muted);background:#f8fafc;}
 .wa-ai-bar.on{background:#ecfdf5;color:#065f46;border-bottom-color:#6ee7b7;}
 .wa-ai-bar-txt{flex:1 1 0;min-width:0;}

@@ -309,6 +309,10 @@
       if(window.__ESC_NO_COL && table === 'wa_conversations' && st.not && st.not.col === 'ai_escalated_at'){
         return Promise.resolve({data:null, error:{code:'42703', message:'column wa_conversations.ai_escalated_at does not exist'}}).then(res);
       }
+      // v89 — السيرفر قبل عمود ai_esc_info (طابور التصعيد): أي استعلام بيطلبه = 42703
+      if(window.__ESC_NO_INFO && table === 'wa_conversations' && String(st.cols||'').indexOf('ai_esc_info') >= 0){
+        return Promise.resolve({data:null, error:{code:'42703', message:'column wa_conversations.ai_esc_info does not exist'}}).then(res);
+      }
       if(window.__AI_NO_COLS && table === 'ai_settings' && String(st.cols||'').indexOf('auto_changed_at') >= 0){
         return Promise.resolve({data:null, error:{code:'42703', message:'column ai_settings.auto_changed_at does not exist'}}).then(res);
       }

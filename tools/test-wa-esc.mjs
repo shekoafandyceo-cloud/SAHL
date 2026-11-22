@@ -3,7 +3,7 @@
 //   2) الفلتر: المتصعّد بس · الأقدم تصعيداً فوق · سطر السبب تحت كل صف · المحادثة اللي بره الـ200 موجودة
 //   3) بانر السبب فوق الشات المفتوح · السبب متهرّب (XSS)
 //   4) موظف رد = المحادثة بتتشال من «تصعيد» (حتى اللي بره الـ200) والعدّاد بينقص والبانر بيختفي
-//   5) «✓ اتعاملت» = RPC برقم المحادثة · بتتشال من غير رسالة
+//   5) «✅ اتحلت» (v89 — كانت «✓ اتعاملت») = wa_ai_escalation_close(id, 'resolved') · بتتشال من غير رسالة
 //   6) زرار البوت للأدمن: مقفول → مودال → «شغّله» = ai_agent_set_auto(true) والشريط بقى ON · إلغاء المودال = صفر RPC · والقفل بنفس الشكل
 //   7) الموظف: شايف الحالة · الضغطة مابتفتحش مودال ومابتناديش RPC
 //   8) السيرفر من غير الأعمدة (42703): مفيش شريحة ومفيش شريط · والقايمة شغّالة
@@ -68,7 +68,7 @@ async function open(opts) {
         s.mode = args.p_on ? 'auto' : (s.idle_mode === 'off' ? 'off' : 'shadow'); s.auto_changed_at = new Date().toISOString(); s.auto_changed_by_name = 'أدمن الاختبار';
         return { data:{ ok:true, mode:s.mode, by:'أدمن الاختبار' }, error:null };
       }
-      if(name === 'wa_ai_escalation_dismiss'){
+      if(name === 'wa_ai_escalation_dismiss' || name === 'wa_ai_escalation_close'){
         (window.__WA_CONVOS || []).forEach(function(c){ if(c.id === args.p_conversation_id){ c.ai_escalated_at = null; c.ai_escalation_note = null; c.updated_at = new Date(Date.now() + 1000).toISOString(); } });
         return { data:{ ok:true, cleared:1 }, error:null };
       }
@@ -90,7 +90,8 @@ async function open(opts) {
   p.__anchorMissing = () => anchorMissing;
   return p;
 }
-const chipText = (p) => p.evaluate(() => { const e = document.getElementById('wa-filter-esc'); return e ? e.textContent : null; });
+// (v89) الشريحة بقت فيها « · ⚠️N» للمتأخر بوقت الشغل — بيتغيّر بالساعة اللي الهارنس شغّال فيها، فالمقارنة على الأساس (العدّ نفسه)
+const chipText = (p) => p.evaluate(() => { const e = document.getElementById('wa-filter-esc'); return e ? e.textContent.replace(/ · ⚠️\d+\)$/, ')') : null; });
 const listIds = (p) => p.evaluate(() => Array.from(document.querySelectorAll('#wa-list-body .wa-conv')).map(r => r.getAttribute('data-id')).join(','));
 const hit = (p, sel) => p.evaluate((s) => { const el = document.querySelector(s); if (!el) return false; el.scrollIntoView({ block: 'center', behavior: 'instant' });
   const r = el.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!t && (t === el || el.contains(t)); }, sel);
@@ -126,9 +127,9 @@ async function filterScenario(patch) {
   // «اتعاملت» على c5
   if (await has('c5')) { await p.click('.wa-conv[data-id="c5"]'); await p.waitForTimeout(400); }
   R.botName = await p.evaluate(() => document.getElementById('wa-msgs').textContent.indexOf('🤖 AI Agent') >= 0);
-  R.doneHit = await hit(p, '#wa-esc-done');
-  if (R.doneHit) { await p.click('#wa-esc-done'); await p.waitForTimeout(500); }
-  R.dismiss = await rpcs(p, 'wa_ai_escalation_dismiss');
+  R.doneHit = await hit(p, '#wa-esc-solved');
+  if (R.doneHit) { await p.click('#wa-esc-solved'); await p.waitForTimeout(500); }
+  R.dismiss = await rpcs(p, 'wa_ai_escalation_close');
   R.afterDoneChip = await chipText(p);
   R.afterDoneIds = await listIds(p);
   R.sentCount = await p.evaluate(() => window.__SENT.filter(x => x.slug === 'wa-send').length);
@@ -179,8 +180,8 @@ async function botScenario(opts) {
   ok(R.bannerXss && R.bannerXss.indexOf('<img') >= 0 && !R.xss, '3) بانر السبب نص متهرّب — مفيش HTML بيتنفّذ');
   ok(R.bannerOld && R.bannerOld.indexOf('عايز يسترجع الأوردر') >= 0 && R.head === 'عميل 250', `3ب) محادثة بره الـ200 اتفتحت باسمها وبانرها (${R.head})`);
   ok(R.afterReplyChip === '🚩 تصعيد (2)' && R.afterReplyIds === 'c9,c5' && !R.afterReplyBanner, `4) موظف رد = اتشالت من «تصعيد» والعدّاد نقص والبانر اختفى (${R.afterReplyChip} · ${R.afterReplyIds})`);
-  ok(R.doneHit && R.dismiss.length === 1 && R.dismiss[0].p_conversation_id === 'c5' && R.afterDoneChip === '🚩 تصعيد (1)' && R.afterDoneIds === 'c9' && R.sentCount === 1,
-     `5) «✓ اتعاملت» = RPC برقم المحادثة ومن غير رسالة (${R.afterDoneChip} · ${R.afterDoneIds})`);
+  ok(R.doneHit && R.dismiss.length === 1 && R.dismiss[0].p_conversation_id === 'c5' && R.dismiss[0].p_kind === 'resolved' && R.afterDoneChip === '🚩 تصعيد (1)' && R.afterDoneIds === 'c9' && R.sentCount === 1,
+     `5) «✅ اتحلت» = wa_ai_escalation_close برقم المحادثة و«resolved» ومن غير رسالة (${R.afterDoneChip} · ${R.afterDoneIds})`);
   ok(R.q0 === 1 && R.q1 === 2, `10) استعلام المتصعّد: ${R.q0} عند الفتح · ${R.q1} بعد ضغطة الفلتر وردّين وتحديثات القايمة (مش مع كل تحديث)`);
   ok(R.botName, '11) رسالة البوت في الشات باسم «🤖 AI Agent»');
 

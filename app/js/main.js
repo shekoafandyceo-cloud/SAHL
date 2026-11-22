@@ -67,6 +67,7 @@ import './analytics/product-match.js';
 
 import './inbox/message-view.js';
 import './inbox/ai-draft.js';
+import './inbox/esc-queue.js';
 
 import './ui/clipboard.js';
 

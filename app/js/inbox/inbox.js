@@ -5,7 +5,7 @@ import { emptyState } from '../core/empty.js';
 import { veilDone } from '../core/veil.js';
 import { statusClass, statusLabel } from '../core/constants.js';
 import { $id, esc } from '../core/dom.js';
-import { fmtStoredDateTime, normalizePhone } from '../core/format.js';
+import { cairoYMD, fmtStoredDateTime, normalizePhone } from '../core/format.js';
 import { swallow } from '../core/log.js';
 import { sb } from '../core/supabase.js';
 import { toast } from '../core/toast.js';
@@ -13,6 +13,7 @@ import { showModal } from '../core/modal.js';
 import { waMetaRow, waMsgInner, waQuoteBlock, waSenderTag, waTimeShort } from './message-view.js';
 // كارت «رد مقترح» من الـAI Agent (v84) — الموديول ده مابيستوردش مننا حاجة (مفيش دورة)
 import { aiDraftNoteSent, aiDraftReset, aiDraftSync, initAiDraft } from './ai-draft.js';
+import { ESC_LATE_MIN, escAgoAr, escLate, escNightCount, escRepeatShort, escRepeatText, escWaitText, escWaitTitle } from './esc-queue.js';
 // جسر مؤقت — الرموز دي لسه في main.js. دورة مقصودة:
 // قانونية في ES modules لأن مفيش كود بيتنفّذ وقت التقييم.
 import { showPage } from '../main.js';
@@ -608,13 +609,17 @@ export function waFetchAdConvos(){
 // (درس 6). والنتيجة في مصفوفة منفصلة — `waConvos` بتفضل نسخة السيرفر.
 // 🔴 متوافق الاتجاهين: السيرفر من غير العمود (42703 — الواجهة اترفعت قبل الـmigration) = الشريحة مابتظهرش خالص.
 export var waEscExtra=[], waEscCapped=false, waEscOk=true;
-var WA_ESC_LIMIT=200, waEscAt=0, waEscGen=0;
+var WA_ESC_LIMIT=200, waEscAt=0, waEscGen=0, waEscLoaded=false, waEscLateN=0;
 export function waIsEscalated(c){ return !!(c && c.ai_escalated_at); }
 function waEscNote(c){ return String((c&&c.ai_escalation_note)||'').trim(); }
 function waEscTitle(c){
-  var n=waEscNote(c);
-  return 'البوت صعّدها'+(c&&c.ai_escalated_at?(' · '+fmtStoredDateTime(c.ai_escalated_at)):'')+(n?('\n'+n):'')+'\nبتتشال من «تصعيد» أول ما موظف يرد على العميل';
+  var n=waEscNote(c), st=waEscSt(c), rep=escRepeatText(c&&c.ai_esc_info);
+  return 'البوت صعّدها'+(c&&c.ai_escalated_at?(' · '+fmtStoredDateTime(c.ai_escalated_at)):'')+(n?('\n'+n):'')
+    +(st?('\n'+escWaitTitle(st)):'')+(rep?('\n'+rep):'')
+    +'\nبتتشال لوحدها أول ما موظف يرد على العميل — ولو العميل رجع كتب بعد ساعة من الرد بترجع «🔁»';
 }
+// (v89 — طابور التصعيد) التأخير بوقت الشغل بس: اللي برّه جدول البوت (`waAi.sched` — مش معروف = 11ص → 7م والجمعة إجازة)
+function waEscSt(c, nowMs){ return escLate(c, nowMs, waAi.sched); }
 export function waFetchEscConvos(){
   if(!sb||!currentTenantId||!waEscOk) return;
   if(walletStateCache && walletStateCache.is_depleted) return;
@@ -632,41 +637,173 @@ export function waFetchEscConvos(){
       }
       waEscExtra=(r.data||[]).filter(waIsEscalated);
       waEscCapped=((r.data||[]).length===WA_ESC_LIMIT);
+      waEscLoaded=true;   // من هنا التنبيهات بتشوف المتصعّد كله (مش أحدث 200 بس)
       if(waConvos.length) renderConvos();
     });
 }
-// بانر فوق الشات المفتوح: ليه اتصعّدت + «✓ اتعاملت» (شيل من غير ما تبعت رسالة — مكالمة تليفون مثلاً).
-// بيتنادى من فتح المحادثة ومن renderConvos — الرد بتاع الموظف بيشيله مع أول تحديث للقايمة.
+// بانر فوق الشات المفتوح: ليه اتصعّدت · مستنية من قد إيه (ومتأخرة؟) · «🔁» لو رجعت تاني ·
+// «✅ اتحلت» / «🚫 مالهاش لازمة» (v89): الشيل من غير رسالة **بسبب وباسم اللي داس** — مكالمة تليفون مثلاً، أو رسالة مش محتاجة رد.
+// بيتنادى من فتح المحادثة ومن renderConvos — رد الموظف بيشيله مع أول تحديث للقايمة.
 export function waUpdateEsc(c){
   var old=$id('wa-esc-banner');
   var box=$id('wa-cmeta');
   if(!waIsEscalated(c) || !box){ if(old) old.remove(); return; }
-  var note=waEscNote(c), key=c.id+'|'+note;
+  var note=waEscNote(c), st=waEscSt(c), wait=escWaitText(st), rep=escRepeatText(c.ai_esc_info), late=!!(st && st.level!=='ok');
+  var key=c.id+'|'+note+'|'+wait+'|'+rep;
   if(old && old.getAttribute('data-k')===key) return;   // نفس المحتوى — مانعيدش الرسم (الزرار ممكن يكون تحت الماوس)
-  if(!old){ old=document.createElement('div'); old.id='wa-esc-banner'; old.className='wa-esc-banner'; box.appendChild(old); }
+  if(!old){ old=document.createElement('div'); old.id='wa-esc-banner'; box.appendChild(old); }
+  old.className='wa-esc-banner'+(late?' late':'');
   old.setAttribute('data-k', key);
   old.innerHTML='<div class="wa-esc-txt">🚩 البوت صعّد المحادثة دي'+(note?(': <b>'+esc(note)+'</b>'):'')
-    +'<span class="wa-esc-hint">بتتشال من «تصعيد» أول ما ترد على العميل</span></div>'
-    +'<button type="button" class="wa-esc-done" id="wa-esc-done" title="شيلها من «تصعيد» من غير ما تبعت رسالة (اتكلمت مع العميل تليفون مثلاً)">✓ اتعاملت</button>';
-  var b=$id('wa-esc-done'); if(b) b.addEventListener('click', waEscDismiss);
+    +(wait?('<span class="wa-esc-wait'+(late?' late':'')+'" title="'+esc(escWaitTitle(st))+'">'+esc(wait)+'</span>'):'')
+    +(rep?('<span class="wa-esc-rep">'+esc(rep)+'</span>'):'')
+    +'<span class="wa-esc-hint">بتتشال لوحدها لما ترد على العميل · ولو رجع كتب بعد ساعة من الرد بترجع «🔁»</span></div>'
+    +'<div class="wa-esc-acts">'
+    +'<button type="button" class="wa-esc-done" id="wa-esc-solved" title="المشكلة اتحلت (اتكلمت مع العميل تليفون مثلاً) — بتتشال من «تصعيد» وبيتسجّل باسمك">✅ اتحلت</button>'
+    +'<button type="button" class="wa-esc-done wa-esc-noact" id="wa-esc-noact" title="مالهاش لازمة (رسالة مش محتاجة رد) — بتتشال من «تصعيد» وبيتسجّل باسمك">🚫 مالهاش لازمة</button>'
+    +'</div>';
+  var b1=$id('wa-esc-solved'); if(b1) b1.addEventListener('click', function(){ waEscClose('resolved'); });
+  var b2=$id('wa-esc-noact'); if(b2) b2.addEventListener('click', function(){ waEscClose('no_action'); });
 }
 var waEscBusy=false;
-function waEscDismiss(){
+function waEscClose(kind){
   var id=waActiveId;
   if(!id||!sb||waEscBusy) return;
   waEscBusy=true;
-  sb.rpc('wa_ai_escalation_dismiss',{p_conversation_id:id}).then(function(r){
+  var fail=function(){ waEscBusy=false; toast('معرفناش نشيل التصعيد — جرّب تاني','er'); };
+  var legacy=false;
+  sb.rpc('wa_ai_escalation_close',{p_conversation_id:id, p_kind:kind}).then(function(r){
+    // السيرفر قبل v89 (مفيش الدالة): الزرار القديم — بيشيل من غير السبب
+    if(r && r.error && (r.error.code==='PGRST202' || r.error.code==='42883')){ legacy=true; return sb.rpc('wa_ai_escalation_dismiss',{p_conversation_id:id}); }
+    return r;
+  }).then(function(r){
     waEscBusy=false;
-    if(r.error || !r.data || !r.data.ok){ toast('معرفناش نشيل التصعيد — جرّب تاني','er'); return; }
+    if(!r || r.error || !r.data || !r.data.ok){ toast('معرفناش نشيل التصعيد — جرّب تاني','er'); return; }
     // السيرفر شالها — النسخ المحلية كمان (الصف الجديد هييجي مع أول تحديث للقايمة)
     var lists=[waConvos, waAdExtra, waLabelExtra, waSearchExtra, waEscExtra];
     for(var i=0;i<lists.length;i++){
       for(var j=0;j<lists[i].length;j++){
-        if(lists[i][j].id===id){ lists[i][j].ai_escalated_at=null; lists[i][j].ai_escalation_note=null; lists[i][j].ai_hold_at=null; }
+        if(lists[i][j].id===id){ lists[i][j].ai_escalated_at=null; lists[i][j].ai_escalation_note=null; lists[i][j].ai_hold_at=null; lists[i][j].ai_esc_info=null; }
       }
     }
+    // التأكيد على ضغطة الموظف يكسب: التنبيه اللي ممكن يطلع من الرسم ده يستنى الدورة الجاية (مايتعلّمش «اتشاف»)
+    waEscHold(3200);
+    toast(legacy ? 'اتشالت من «تصعيد»' : (kind==='no_action' ? 'اتشالت من «تصعيد» — «مالهاش لازمة» باسمك' : 'اتشالت من «تصعيد» — «اتحلت» باسمك ✅'),'ok');
     renderConvos();
-  });
+  }, fail);
+}
+
+// ── التنبيه (v89 — «اللوحة بس» بقرار المالك 23 نوفمبر) ──
+// ⚠ شارة على زرار «المحادثات» في كل الصفحات = عدد المتصعّد المتأخر (ساعة شغل من غير رد) ·
+// toast مرة لكل تصعيد لما يتأخر ومرة تانية بعد 3 ساعات شغل · ملخص الصبح مرة في اليوم أول ما وقت الشغل يبدأ.
+// «اتشاف» على الجهاز (localStorage لكل مستخدم) — تابين مفتوحين = toast واحد.
+var WA_ESC_SEEN='sahl_esc_seen_', WA_ESC_MORNING='sahl_esc_morning_';
+var WA_ESC_BG_MS=5*60000, WA_ESC_TICK_MS=60000;
+var WA_ESC_BG_COLS=['id,customer_name,customer_phone,wa_id,ai_escalated_at,ai_escalation_note',
+  'id,customer_name,customer_phone,wa_id,ai_escalated_at,ai_escalation_note,ai_esc_info'];
+var waEscBgRows=null, waEscBgAt=0, waEscBgGen=0, waEscTimer=null, waEscAiAsked=false, waEscBgCols=1;
+// toast واحد في المرة: تنبيه طلع (أو تأكيد على ضغطة موظف) = اللي بعده يستنى الدورة الجاية ومايتعلّمش «اتشاف»
+// (setTimeout مش Date.now — الوقت بيتعدّ حتى لو ساعة الجهاز اتغيّرت)
+var waEscHoldOn=false, waEscHoldT=null;
+function waEscHold(ms){ waEscHoldOn=true; clearTimeout(waEscHoldT); waEscHoldT=setTimeout(function(){ waEscHoldOn=false; }, ms); }
+function waEscUid(){ return (currentUser && currentUser.id) || 'x'; }
+function waInboxShown(){ var pg=$id('page-inbox'); return !!(pg && pg.style.display!=='none'); }
+function waEscName(c){ return (c && (c.customer_name||c.customer_phone||c.wa_id)) || 'عميل'; }
+// المتصعّد من القوايم (الصندوق مفتوح): `waConvos` بتكسب لو الصف في الاتنين (هي الأحدث)
+function waEscAllRows(){
+  var out=[], seen={};
+  for(var i=0;i<waConvos.length;i++){ seen[waConvos[i].id]=1; if(waIsEscalated(waConvos[i])) out.push(waConvos[i]); }
+  for(var j=0;j<waEscExtra.length;j++){ if(!seen[waEscExtra[j].id] && waIsEscalated(waEscExtra[j])) out.push(waEscExtra[j]); }
+  return out;
+}
+function waSetEscNavBadge(n){
+  var nav=$id('nav-inbox'); if(!nav) return;
+  var b=$id('wa-nav-esc');
+  if(!b){ if(!(n>0)) return; b=document.createElement('span'); b.id='wa-nav-esc'; b.className='wa-nav-badge wa-nav-esc'; nav.appendChild(b); }
+  if(n>0){ b.textContent='⚠'+(n>99?'99+':String(n)); b.title=n+' محادثة متصعّدة متأخرة — عدّى عليها ساعة شغل من غير رد'; b.style.display='inline-flex'; }
+  else b.style.display='none';
+}
+function waEscSeenLoad(){ try{ var v=JSON.parse(localStorage.getItem(WA_ESC_SEEN+waEscUid())||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+function waEscSeenSave(list){ try{ localStorage.setItem(WA_ESC_SEEN+waEscUid(), JSON.stringify(list.slice(-300))); }catch(e){ swallow('waEscSeenSave', e); } }
+// rows = كل المتصعّد المعروف · quiet = العدّاد والشارة بس (القايمة لسه ناقصة — من غيرها toast للأحدث 200 وبعدين toast تاني للباقي)
+export function waEscEval(rows, nowMs, quiet){
+  if(!rows) return 0;
+  var now=(nowMs==null)?Date.now():nowMs, late=0, fresh=[];
+  var seenL=waEscSeenLoad(), seen={};
+  for(var s=0;s<seenL.length;s++) seen[seenL[s]]=1;
+  for(var i=0;i<rows.length;i++){
+    var c=rows[i], st=waEscSt(c, now);
+    if(!st || st.level==='ok') continue;
+    late++;
+    var key=c.id+'|'+c.ai_escalated_at+'|'+st.level;
+    if(!seen[key]) fresh.push({c:c, st:st, key:key});
+  }
+  waSetEscNavBadge(late);
+  // التاب في الخلفية مابتستهلكش التنبيه (كان هيتعلّم «اتشاف» من غير ما حد يشوفه)
+  if(quiet || waEscHoldOn || document.hidden || tourActive || (walletStateCache && walletStateCache.is_depleted)) return late;
+  if(fresh.length){
+    for(var f=0;f<fresh.length;f++) seenL.push(fresh[f].key);
+    waEscSeenSave(seenL);
+    fresh.sort(function(a,b){ return b.st.wall-a.st.wall; });
+    var top=fresh[0], two=fresh.some(function(x){ return x.st.level==='late2'; });
+    toast(fresh.length===1
+      ? ((top.st.level==='late2'?'⏰ تذكير: ':'⚠️ ')+waEscName(top.c)+' مستني رد من '+escAgoAr(top.st.wall)+' — محادثة متصعّدة متأخرة («🚩 تصعيد»)')
+      : ((two?'⏰ ':'⚠️ ')+fresh.length+' محادثات متصعّدة متأخرة — أقدمها '+waEscName(top.c)+' من '+escAgoAr(top.st.wall)+' («🚩 تصعيد»)'), 'er', 9000);
+    waEscHold(9500);
+    return late;   // ملخص الصبح (لو جه ميعاده) في الدورة الجاية — toast واحد في المرة
+  }
+  // ملخص الصبح: مرة في اليوم في **أول ساعة** من وقت الشغل — البوت صعّد إيه والموظفين مش موجودين ولسه مستني.
+  // بعد أول ساعة كل اللي اتصعّد بالليل بقى «متأخر» وتنبيهه طلع — الملخص كان هيكرر نفس الكلام
+  var nc=escNightCount(rows, now, waAi.sched);
+  if(nc.inWindow && nc.since!=null && nc.since<ESC_LATE_MIN){
+    var ymd=cairoYMD(now), mk=WA_ESC_MORNING+waEscUid(), lastDay=null;
+    try{ lastDay=localStorage.getItem(mk); }catch(e){ lastDay=null; }
+    if(lastDay!==ymd){
+      try{ localStorage.setItem(mk, ymd); }catch(e){ swallow('waEscMorning', e); }
+      if(nc.n>0){ toast('🌅 البوت صعّد '+nc.n+(nc.n===1?' محادثة':' محادثات')+' وانتو مش موجودين ولسه مستنية — افتح «🚩 تصعيد» وابدأ بالأقدم','ok',9000); waEscHold(9500); }
+    }
+  }
+  return late;
+}
+// الصفحات التانية: المتصعّد بس (صفوف قليلة) — مع loadAll (والـ↻) وكل 5 دقايق · التأخير بيتحسب كل دقيقة من غير طلب.
+// soft (رسالة واردة والصندوق مقفول) = من غير طلب لو آخر جلب أحدث من 5 دقايق: التصعيد بييجي بعد الرسالة بـ15–25 ثانية
+// (البوت بيستنى 12ث) فجلب لحظة الرسالة مابيشوفهوش أصلاً، و«متأخرة» بعد ساعة — كل رسالة = طلب كان هيبقى Egress على الفاضي
+export function waRefreshEscBadge(soft){
+  if(!sb || !currentTenantId || tourActive) return;
+  if(walletStateCache && walletStateCache.is_depleted) return;
+  if(!waEscTimer) waEscTimer=setInterval(waEscTick, WA_ESC_TICK_MS);
+  if(waInboxShown() || !waEscOk) return;   // الصندوق مفتوح = القوايم هي المصدر (renderConvos)
+  if(soft && waEscBgRows && Date.now()-waEscBgAt<WA_ESC_BG_MS){ waEscEval(waEscBgRows); return; }
+  // الجدول = وقت الشغل — أول مرة بنستنى قرايته قبل الحساب (من غيره أول حساب بالمواعيد الافتراضية)
+  var aiP=null;
+  if(!waAi.sched && !waEscAiAsked){ waEscAiAsked=true; aiP=waLoadAiState(); }
+  var g=++waEscBgGen;
+  var q=sb.from('wa_conversations').select(WA_ESC_BG_COLS[waEscBgCols]).eq('tenant_id',currentTenantId)
+    .not('ai_escalated_at','is',null).order('ai_escalated_at',{ascending:true}).limit(WA_ESC_LIMIT);
+  Promise.all([q, aiP ? aiP.then(null, function(){ return null; }) : null])
+    .then(function(rs){
+      var r=rs[0];
+      if(g!==waEscBgGen) return;
+      if(r.error){
+        // السيرفر من غير `ai_esc_info` (قبل v89) = من غيره · من غير `ai_escalated_at` = الميزة مش متفعّلة
+        if(r.error.code==='42703'){ if(waEscBgCols>0){ waEscBgCols--; waRefreshEscBadge(); } else { waEscOk=false; waSetEscNavBadge(0); } }
+        return;
+      }
+      waEscBgRows=r.data||[]; waEscBgAt=Date.now();
+      waEscEval(waEscBgRows);
+    });
+}
+function waEscTick(){
+  if(document.hidden || tourActive) return;
+  if(waInboxShown()){
+    // الصندوق مفتوح: الشارة والتنبيه من القوايم — والقايمة بتترسم تاني بس لو عدد المتأخر اتغيّر
+    if(!waEscLoaded) return;
+    var before=waEscLateN; waEscLateN=waEscEval(waEscAllRows());
+    if(waEscLateN!==before) renderConvos();
+    return;
+  }
+  if(!waEscBgRows || Date.now()-waEscBgAt>=WA_ESC_BG_MS) waRefreshEscBadge();
+  else waEscEval(waEscBgRows);
 }
 
 // ── زرار البوت: OFF = بيقترح والموظف بيبعت (shadow) · ON = بيرد على العملاء بنفسه (auto) ──
@@ -682,7 +819,7 @@ var WA_AI_COLS=['mode','mode,idle_mode,auto_changed_at,auto_changed_by_name',
 export function waLoadAiState(){
   if(!sb||!currentTenantId) return;
   var myGen=++waAiGen;
-  sb.from('ai_settings').select(WA_AI_COLS[waAiColsLv]).eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
+  return sb.from('ai_settings').select(WA_AI_COLS[waAiColsLv]).eq('tenant_id',currentTenantId).maybeSingle().then(function(r){
     if(myGen!==waAiGen) return;   // رد قديم مايكتبش فوق حالة أحدث (ضغطة الزرار بتعيد القراية)
     if(r.error){
       if(r.error.code==='42703' && waAiColsLv>0){ waAiColsLv--; waLoadAiState(); }
@@ -869,6 +1006,9 @@ export function renderConvos(){
   }
   var adCount=0;
   for(var ak in adIds){ if(Object.prototype.hasOwnProperty.call(adIds,ak)) adCount++; }
+  // (v89) المتصعّد المتأخر (ساعة شغل من غير رد) — العدّاد على الشريحة والشارة على زرار التبويب والتنبيه
+  // (التنبيه بيستنى استعلام المتصعّد: من غيره toast لأحدث 200 وبعدين toast تاني للباقي)
+  var lateCount=waEscEval(waEscAllRows(), null, !waEscLoaded); waEscLateN=lateCount;
   $id('wa-list-title').textContent= totalUnread>0 ? ('المحادثات • '+totalUnread+' غير مقروء') : 'المحادثات';
   waSetNavBadge(totalUnread);
   var uf=$id('wa-filter-unread'); if(uf) uf.textContent= unreadConvs>0 ? ('غير مقروءة ('+unreadConvs+')') : 'غير مقروءة';
@@ -876,9 +1016,12 @@ export function renderConvos(){
   if(af) af.textContent= adCount>0 ? ('📣 جه من إعلان ('+adCount+(waAdCapped?'+':'')+')') : '📣 جه من إعلان';
   var ef=$id('wa-filter-esc');
   if(ef){
-    ef.textContent= escCount>0 ? ('🚩 تصعيد ('+escCount+(waEscCapped?'+':'')+')') : '🚩 تصعيد';
+    ef.textContent= escCount>0 ? ('🚩 تصعيد ('+escCount+(waEscCapped?'+':'')+(lateCount>0?(' · ⚠️'+lateCount):'')+')') : '🚩 تصعيد';
     // لازم يبان من غير ما حد يفتح الفلتر — ده أول حاجة الموظف يبص عليها لما ييجي الصبح
     ef.classList.toggle('has-alert', escCount>0);
+    ef.classList.toggle('has-late', lateCount>0);
+    ef.title='المحادثات اللي البوت وقف عندها ومحتاجة موظف — بتتشال أول ما موظف يرد على العميل'
+      +(lateCount>0?('\n⚠️ '+lateCount+' متأخرة: عدّى عليها ساعة شغل من غير رد'):'');
   }
   var lchips=document.querySelectorAll('#wa-filters .wa-flabel');
   for(var ci=0;ci<lchips.length;ci++){
@@ -959,7 +1102,7 @@ export function renderConvos(){
     // ويكتب تاني فاكر إنه غلط في الرقم
     if(waSearchQuery && waSearchPending) emptyMsg='بيدوّر في كل المحادثات…';
     if(waFilter==='unread') emptyMsg='مفيش رسائل غير مقروءة 🎉';
-    else if(waFilter==='esc') emptyMsg='مفيش محادثات متصعّدة 🎉<br><span style="font-size:.76rem">المحادثة بتدخل هنا لما البوت يقف عندها وهو شغّال لوحده، وبتتشال أول ما موظف يرد على العميل.</span>';
+    else if(waFilter==='esc') emptyMsg='مفيش محادثات متصعّدة 🎉<br><span style="font-size:.76rem">المحادثة بتدخل هنا لما البوت يقف عندها وهو شغّال لوحده، وبتتشال أول ما موظف يرد على العميل — ولو العميل رجع كتب بعد ساعة من الرد بترجع «🔁».</span>';
     // 🔴 السياق ضروري هنا: المحادثات اللي قبل تفعيل تتبع الإعلانات مالهاش
     // بيانات إعلان **حتى لو جت من إعلان فعلاً** — من غير السطر ده التاجر
     // بيقرا «صفر» على إنها عطل في الميزة.
@@ -982,7 +1125,8 @@ export function renderConvos(){
         +'<div class="wa-conv-bot"><span class="wa-conv-prev'+(c.last_direction?'':' wa-conv-none')+'">'+esc(c.last_message_text || (c.last_direction ? '' : 'أوردر جديد — العميل لسه مبعتش'))+'</span>'+(unread>0?'<span class="wa-unread">'+unread+'</span>':'')+'</div>'
         +((c.labels&&c.labels.length)?('<div class="wa-conv-labels">'+c.labels.map(function(l){return '<span class="wa-conv-label" style="background:'+waLabelColor(l)+'">'+esc(l)+'</span>';}).join('')+'</div>'):'')
         +(waComplaintState(c)?('<div class="wa-conv-cmp lvl-'+waComplaintState(c).level+'" title="'+esc(waComplaintTitle(waComplaintState(c)))+'">'+esc(waComplaintText(waComplaintState(c)))+'</div>'):'')
-        +(waIsEscalated(c)?('<div class="wa-conv-esc" title="'+esc(waEscTitle(c))+'">🚩 <span>'+esc(waEscNote(c)||'محتاجة موظف')+'</span></div>'):'')
+        +(waIsEscalated(c)?('<div class="wa-conv-esc" title="'+esc(waEscTitle(c))+'">🚩 <span>'+esc(waEscNote(c)||'محتاجة موظف')+'</span></div>'
+          +waEscRowLine(c)):'')
         +(waCtwaText(c)?('<div class="wa-conv-ctwa" title="'+esc(waCtwaTitle(c))+'">📣 <span>'+esc(waCtwaText(c))+'</span>'
         +(waCtwaUrl(c)?('<a class="wa-conv-ad-link" href="'+esc(waCtwaUrl(c))+'" target="_blank" rel="noopener noreferrer" title="افتح الإعلان على فيسبوك">↗</a>'):'')
         +'</div>'):'')
@@ -1029,6 +1173,14 @@ export function renderConvos(){
     waUpdateWindow(ac); waUpdateCtwa(ac); waRenderConvLabels(ac); waUpdateEsc(ac);
     var lp=$id('wa-label-picker'); if(lp && lp.style.display!=='none') waRenderLabelPicker(ac);
   } }
+}
+
+// (v89) سطر تحت سبب التصعيد: مستنية من قد إيه (أو «متأخرة») + «🔁 المرة التانية» لو رجعت تاني
+function waEscRowLine(c){
+  var st=waEscSt(c); if(!st) return '';
+  var rs=escRepeatShort(c.ai_esc_info), rt=escRepeatText(c.ai_esc_info);
+  return '<div class="wa-conv-escw'+(st.level!=='ok'?' late':'')+'" title="'+esc(escWaitTitle(st)+(rt?('\n'+rt):''))+'">'
+    +'<span class="wa-conv-escwt">'+esc(escWaitText(st))+'</span>'+(rs?('<span class="wa-conv-escr">'+esc(rs)+'</span>'):'')+'</div>';
 }
 
 // الهيدر من صف المحادثة — مفيش صف (لسه بيتجاب) = «…» مش اسم العميل اللي قبله
@@ -1775,7 +1927,7 @@ export function handleWaRealtime(payload){
       if(!isUpdate) waScheduleConvRefresh();
     }
   } else if(!isUpdate && m.direction==='in'){
-    waRefreshNavBadge();
+    waRefreshNavBadge(true);
   }
   if(!isUpdate && m.direction==='in'){
     // 🔴 رسالة من محادثة مش في القايمة (عميل جديد) والصندوق مفتوح: صف المحادثة دي بس (~1 KB) والإشعار بعده عشان يقول اسمها.
@@ -2516,8 +2668,9 @@ export function waSetNavBadge(n){
   else { b.style.display='none'; }
 }
 
-export function waRefreshNavBadge(){
+export function waRefreshNavBadge(soft){
   if(!sb||!currentTenantId) return;
+  waRefreshEscBadge(soft);   // (v89) ⚠ المتصعّد المتأخر — الدخول و↻ = جلب · رسالة واردة والصندوق مقفول = soft
   sb.from('wa_conversations').select('unread_count').eq('tenant_id',currentTenantId).gt('unread_count',0).then(function(r){
     if(r.error) return;
     var total=0; (r.data||[]).forEach(function(c){ total+=(c.unread_count||0); });

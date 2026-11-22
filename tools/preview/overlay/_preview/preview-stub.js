@@ -238,6 +238,17 @@
       last_message_text:'معلش يا فندم، أنا المساعد الآلي لعتبة والنقطة دي محتاجة زميل مختص…', last_message_type:'text', last_direction:'out',
       unread_count:1, status:'open', labels:[], note:null, created_at:iso(3,15,0),
       ai_escalated_at:iso(0,1,41), ai_escalation_note:'العميل عايز يسترجع الأوردر — المنتج مش مناسب للمكان', ai_hold_at:iso(0,1,41),
+      // طابور التصعيد (v89): المرة التانية — موظف رد امبارح والعميل رجع
+      ai_esc_info:{ repeat:2, kind:'bot', prev:{ at:iso(1,15,20), kind:'staff_reply', by:'ebrahim', msg:'تمام يا فندم هنكلم حضرتك بخصوص الاسترجاع' } },
+      ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
+      ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null },
+    // «🔁 رجعت تاني» (v89): موظف رد امبارح والعميلة كتبت بعدها بساعات — السيرفر رجّعها «تصعيد» لوحده (حتى بالنهار)
+    { id:'wc9', tenant_id:TENANT, wa_id:'201001234509', customer_name:'منة الله رضا',
+      customer_phone:'01001234509', last_message_at:iso(1,17,40), last_inbound_at:iso(1,17,40),
+      last_message_text:'المندوب ماجاش لحد دلوقتي', last_message_type:'text', last_direction:'in',
+      unread_count:1, status:'open', labels:[], note:null, created_at:iso(4,12,0),
+      ai_escalated_at:iso(1,17,40), ai_escalation_note:'🔁 العميل كتب تاني بعد رد shekoz: «هنبعتلك المندوب بكرة إن شاء الله»', ai_hold_at:null,
+      ai_esc_info:{ repeat:2, kind:'reopen', prev:{ at:iso(1,13,5), kind:'staff_reply', by:'shekoz', msg:'هنبعتلك المندوب بكرة إن شاء الله' } },
       ctwa_clid:null, ctwa_ad_id:null, ctwa_headline:null, ctwa_ad_body:null,
       ctwa_source_url:null, ctwa_source_type:null, ctwa_first_at:null, ctwa_last_at:null }
   ];
@@ -680,7 +691,9 @@
         media:{ card:null, note:'العميلة ماقالتش المنتج — اسألها الأول' }, status:'pending', error:null, created_at:iso(1,19,21) }
     ];
     // زرار البوت (v86): مقفول (بيقترح بس) — المالك يجرّب يشغّله ويقفله من الشريط فوق قايمة المحادثات
-    TABLES.ai_settings = [{ tenant_id:TENANT, mode:'shadow', idle_mode:'shadow', auto_changed_at:null, auto_changed_by_name:null }];
+    // + الجدول (v88): بيشتغل 7م وبيقفل 11ص والجمعة طول اليوم — وقت الشغل اللي «متأخرة» بتتحسب بيه (v89) = 11ص → 7م
+    TABLES.ai_settings = [{ tenant_id:TENANT, mode:'shadow', idle_mode:'shadow', auto_changed_at:null, auto_changed_by_name:null,
+      schedule_on:true, schedule_start:'19:00:00', schedule_end:'11:00:00', schedule_full_dows:[5], dev_mode:false, dev_wa_ids:['201050005219'] }];
     TABLES.wa_messages = TABLES.wa_messages.concat(OFD_MSGS);
   })();
 
@@ -1131,9 +1144,17 @@
         as0.mode = (args && args.p_on) ? 'auto' : (as0.idle_mode === 'off' ? 'off' : 'shadow'); as0.auto_changed_at = new Date().toISOString(); as0.auto_changed_by_name = 'أدمن المعاينة';
         return Promise.resolve({ data:{ ok:true, mode:as0.mode, by:'أدمن المعاينة' }, error:null });
       }
-      if(name === 'wa_ai_escalation_dismiss'){
-        WA_CONVOS.forEach(function(c){ if(c.id === (args && args.p_conversation_id)){ c.ai_escalated_at = null; c.ai_escalation_note = null; c.ai_hold_at = null; } });
+      if(name === 'wa_ai_escalation_dismiss' || name === 'wa_ai_escalation_close'){
+        WA_CONVOS.forEach(function(c){ if(c.id === (args && args.p_conversation_id)){ c.ai_escalated_at = null; c.ai_escalation_note = null; c.ai_hold_at = null; c.ai_esc_info = null; } });
         return Promise.resolve({ data:{ ok:true, cleared:1 }, error:null });
+      }
+      // الجدول وON DEVELOP (v88) — المعاينة بتقلب الحالة في الذاكرة بس
+      if(name === 'ai_agent_set_schedule' || name === 'ai_agent_set_dev'){
+        var as1 = (TABLES.ai_settings || [])[0];
+        if(!as1) return Promise.resolve({ data:{ ok:false, error:'agent_off' }, error:null });
+        if(name === 'ai_agent_set_schedule') as1.schedule_on = !!(args && args.p_on);
+        else { as1.dev_mode = !!(args && args.p_on); if(as1.dev_mode) as1.mode = 'auto'; else as1.mode = 'shadow'; }
+        return Promise.resolve({ data:{ ok:true, mode:as1.mode }, error:null });
       }
       if(name === 'wa_ai_draft_review'){
         (TABLES.wa_ai_drafts || []).forEach(function(d){ if(d.id === (args && args.p_id) && d.status === 'pending'){ d.status = args.p_status; d.final_body = args.p_final_body || null; } });

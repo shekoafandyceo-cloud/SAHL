@@ -293,6 +293,17 @@ html.dark .wa-conv-esc{color:#fca5a5;}
 html.dark .wa-esc-banner{background:#3b0f0f;color:#fca5a5;border-color:#b91c1c;}
 html.dark .wa-esc-done{background:transparent;color:#fca5a5;border-color:#b91c1c;}
 html.dark .wa-esc-done:hover{background:#b91c1c;color:#fff;}
+html.dark .wa-conv-escw{color:#fdba74;}
+html.dark .wa-conv-escw.late{color:#fb923c;}
+html.dark .wa-conv-escr{background:#422006;color:#fcd34d;}
+html.dark .wa-esc-wait{color:#fdba74;}
+html.dark .wa-esc-wait.late{color:#fb923c;}
+html.dark .wa-esc-rep{color:#fcd34d;}
+html.dark .wa-esc-banner.late{border-color:#ea580c;}
+html.dark .wa-esc-done.wa-esc-noact{border-color:#475569;color:#cbd5e1;}
+html.dark .wa-esc-done.wa-esc-noact:hover{background:#475569;color:#fff;}
+html.dark .wa-filter.has-alert.has-late{background:#431407;color:#fdba74;border-color:#ea580c;}
+html.dark .wa-filter.has-alert.has-late.active{background:var(--acc);border-color:var(--acc);color:#fff;}
 html.dark .wa-ai-bar{background:#111827;color:#9ca3af;}
 html.dark .wa-ai-bar.on{background:#052e25;color:#6ee7b7;border-bottom-color:#047857;}
 html.dark .wa-ai-bar.on .wa-ai-bar-txt b{color:#6ee7b7;}
