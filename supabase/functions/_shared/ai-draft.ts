@@ -432,9 +432,11 @@ function buildUserPromptV1(ctx: DraftCtx): string {
 // ── شكل الدخل (16 نوفمبر — تجربة تقليل تكلفة الدخل) ─────────────────
 // v1: الحالي. v2: نفس المحتوى بس الجزء الثابت الأول (Gemini بيكيّش بداية الطلب — لازم تبقى نفس البايتات لكل المحادثات).
 // v3: زي v2 بس نص كروت المحادثة دي بس + فهرس بباقي الكروت (ومفيش كارت اتعرف = كل الكروت زي v2).
+// v4 (23 نوفمبر — كاش Gemini الصريح، _shared/ai-cache.ts): نفس نص v2 بالحرف بس متقسّم turnين: الثابت (buildStaticUser — بيتخزن عند Gemini)
+//     والمتغيّر (buildVariableUser — بيتبعت مع كل مسودة). v2 = الثابت + "\n\n" + المتغيّر (الهارنس بيقارنهم).
 // 🔴 الحي بيفضل v1 إلا لو ai_settings.facts.prompt_layout اتغيّر بقرار المالك. التقييم والـdry_run بيختاروا من الـbody.
-export type Layout = "v1" | "v2" | "v3";
-export function layoutOf(x: unknown): Layout { return x === "v2" || x === "v3" ? x : "v1"; }
+export type Layout = "v1" | "v2" | "v3" | "v4";
+export function layoutOf(x: unknown): Layout { return x === "v2" || x === "v3" || x === "v4" ? x : "v1"; }
 
 /** تطبيع للمطابقة بس (مش للعرض): أرقام لاتيني · من غير تشكيل ولا تطويل · أ/إ/آ = ا · ة = ه · ى = ي · الحرف المكرر مرة · أي رمز = مسافة. */
 export function normAr(s: string): string {
@@ -524,9 +526,9 @@ function convoBlocks(ctx: DraftCtx, out: string[]): void {
 
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-function buildUserPromptStaticFirst(ctx: DraftCtx, layout: Layout): string {
+/** الجزء الثابت لحد المخزون (v2 · v3 · v4): نفس البايتات لكل المحادثات — من غير علامة الإعلان · مترتّب بالاسم. */
+function staticHead(ctx: DraftCtx): string[] {
   const out: string[] = [];
-  // ── الجزء الثابت: نفس البايتات لكل المحادثات (من غير علامة الإعلان · مترتّب بالاسم) ──
   out.push("# معلومات المتجر");
   for (const [k, v] of Object.entries(ctx.facts || {})) if (!FACT_SKIP.has(k)) out.push(factLine(k, v));
   const disc = Array.isArray(ctx.facts?.discontinued) ? ctx.facts.discontinued as string[] : [];
@@ -539,35 +541,61 @@ function buildUserPromptStaticFirst(ctx: DraftCtx, layout: Layout): string {
 
   out.push("", "# المخزون (كل اسم هنا = متوفر)");
   out.push(ctx.stockNames.length ? [...ctx.stockNames].sort(byText).join(" · ") : "(مش متاح)");
+  return out;
+}
+/** كل الكروت مترتّبة بالاسم (v2 · v4 · و v3 لما مفيش كارت اتعرف). */
+function allCardsBlock(ctx: DraftCtx, out: string[]): void {
+  const cards = [...ctx.cards].sort((a, b) => byText(a.title, b.title));
+  out.push("", "# كروت المنتجات (النص اللي بيتبعت للعميل مع الصور)");
+  out.push(cards.length ? cards.map(cardBlock).join("\n\n") : "(مفيش)");
+}
+/** أسعار الموقع — متغيّرة (العدد بيتغيّر مع كل أوردر) فبتيجي بعد الجزء الثابت. */
+function siteBlock(ctx: DraftCtx, out: string[]): void {
+  out.push("# أسعار الموقع (الأكتر تكراراً في أوردرات آخر 24 ساعة — منتج واحد × قطعة واحدة)");
+  const groups = new Map<string, SiteRow[]>();
+  for (const r of ctx.siteRows) { const k = r.name + (r.variant ? " — " + r.variant : ""); groups.set(k, [...(groups.get(k) || []), r]); }
+  const siteLines = [...groups.entries()].map(([k, rows]) => { const m = modePrice(rows); return m ? "- " + k + ": " + m.price + " جنيه (" + m.n + " من " + m.total + " أوردر)" : ""; }).filter(Boolean);
+  out.push(siteLines.length ? siteLines.join("\n") : "(مفيش أوردرات في آخر 24 ساعة)");
+}
 
+function buildUserPromptStaticFirst(ctx: DraftCtx, layout: Layout): string {
+  // ── الجزء الثابت: نفس البايتات لكل المحادثات (من غير علامة الإعلان · مترتّب بالاسم) ──
+  const out = staticHead(ctx);
   const cards = [...ctx.cards].sort((a, b) => byText(a.title, b.title));
   const picked = layout === "v3" ? pickCards(ctx) : null;
-  const cardText = cardBlock;
-  if (!picked) {
-    out.push("", "# كروت المنتجات (النص اللي بيتبعت للعميل مع الصور)");
-    out.push(cards.length ? cards.map(cardText).join("\n\n") : "(مفيش)");
-  } else {
+  if (!picked) allCardsBlock(ctx, out);
+  else {
     out.push("", "# فهرس كروت المنتجات (كل منتج ليه كارت بيتبعت للعميل بالصور والسعر)");
     out.push(cards.map((c) => "- كارت «" + c.title + "»: " + cut(cardProductLine(c), 70)).join("\n"));
     // ── من هنا الجزء المتغيّر ──
     const ids = new Set(picked.map((c) => c.id));
     out.push("", "# نص كروت المحادثة دي (النص اللي بيتبعت للعميل مع الصور)");
-    out.push(cards.filter((c) => ids.has(c.id)).map(cardText).join("\n\n"));
+    out.push(cards.filter((c) => ids.has(c.id)).map(cardBlock).join("\n\n"));
     out.push("", "لو العميل سأل عن منتج من الفهرس ونص كارته مش معروض هنا: ابعت كارته (card) برد قصير، ومن غير أي سعر أو تفاصيل مش مكتوبة قدامك.");
   }
+  out.push("");
+  siteBlock(ctx, out);
+  convoBlocks(ctx, out);
+  return out.join("\n");
+}
 
-  out.push("", "# أسعار الموقع (الأكتر تكراراً في أوردرات آخر 24 ساعة — منتج واحد × قطعة واحدة)");
-  const groups = new Map<string, SiteRow[]>();
-  for (const r of ctx.siteRows) { const k = r.name + (r.variant ? " — " + r.variant : ""); groups.set(k, [...(groups.get(k) || []), r]); }
-  const siteLines = [...groups.entries()].map(([k, rows]) => { const m = modePrice(rows); return m ? "- " + k + ": " + m.price + " جنيه (" + m.n + " من " + m.total + " أوردر)" : ""; }).filter(Boolean);
-  out.push(siteLines.length ? siteLines.join("\n") : "(مفيش أوردرات في آخر 24 ساعة)");
-
+/** v4 — الـturn الأول (بيتخزن عند Gemini): المعلومات · المنتجات · المخزون · كل الكروت. 🔴 مفيهوش أي حاجة من المحادثة ولا الوقت ولا أسعار الموقع. */
+export function buildStaticUser(ctx: DraftCtx): string {
+  const out = staticHead(ctx);
+  allCardsBlock(ctx, out);
+  return out.join("\n");
+}
+/** v4 — الـturn التاني (مع كل مسودة): أسعار الموقع · المحادثة دي · الأوردرات · الرسايل. */
+export function buildVariableUser(ctx: DraftCtx): string {
+  const out: string[] = [];
+  siteBlock(ctx, out);
   convoBlocks(ctx, out);
   return out.join("\n");
 }
 
 export function buildUserPrompt(ctx: DraftCtx, layout: Layout = "v1"): string {
   if (layout === "v1") return buildUserPromptV1(ctx);
+  if (layout === "v4") return buildStaticUser(ctx) + "\n\n" + buildVariableUser(ctx); // نفس نص v2 بالحرف في turn واحد (للمعاينة بس)
   return buildUserPromptStaticFirst(ctx, layout);
 }
 

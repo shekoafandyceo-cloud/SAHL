@@ -35,14 +35,21 @@
 // 🔴 معلومات للـAgent (v6 — 16 نوفمبر): wa_quick_replies.ai_notes بتتحط تحت نص الكارت في الـprompt (cardBlock) — مابتتبعتش للعميل مع الكارت.
 //    card_notes من الـbody للتقييم والـdry_run بس — المسار العادي بيقرا العمود وبس.
 // 🔴 tokens_cached (16 نوفمبر): cachedContentTokenCount من Gemini بيتسجّل مع كل مسودة — عشان نعرف الـimplicit caching بيتطبّق فعلاً ولا لأ.
+// 🔴 كاش Gemini الصريح (23 نوفمبر — البند 5، _shared/ai-cache.ts): شكل الدخل v4 = التعليمات + بيانات المتجر الثابتة بيتخزنوا عند Gemini
+//    (cachedContents) وسجلّهم في ai_prompt_cache (حجز ذري: مسودة واحدة بس بتعمل الكاش) · كل مسودة بتبعت الجزء المتغيّر بس ·
+//    مفيش كاش جاهز (حد تاني بيعمله · الإنشاء وقع · الموديل مابيدعموش) = المسودة بتمشي بشكل v3 القديم بالحرف من غير كاش ·
+//    الطلب بالكاش رجع 4xx = الكاش بيتعلّم «وقع» (10 دقايق) والمسودة بتتعاد بـv3 (403 بتاع كاش مات مايتحسبش «المفتاح اترفض»).
+//    التقييم والـdry_run بـlayout v4 = v4 دايماً (من غير كاش لو مش جاهز — نفس الدخل بالظبط) عشان النتيجة تبقى على شكل واحد.
 //   3) { action: "models" } — أسماء موديلات Gemini المتاحة للمفتاح (بيأكد إن المفتاح شغّال).
 // 🔴 dry_run والتقييم بيرجّعوا كمان «لو الزرار ON كان هيبعت إيه» (auto_preview / auto) — قرار بس، من غير أي إرسال.
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  buildSystemPrompt, buildUserPrompt, cardProductLine, effectivePrice, escStyleOf, layoutOf, MEDIA_RULES, parseDraft, phoneForms, preRule, RESPONSE_SCHEMA,
-  siteRowsFrom, workHoursOf, type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite, type SiteRow,
+  buildStaticUser, buildSystemPrompt, buildUserPrompt, buildVariableUser, cardProductLine, effectivePrice, escStyleOf, layoutOf, MEDIA_RULES, parseDraft, phoneForms, preRule,
+  RESPONSE_SCHEMA, siteRowsFrom, workHoursOf, type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite,
+  type SiteRow,
 } from "../_shared/ai-draft.ts";
+import { CACHE_TTL_S, cacheCreateBody, cacheKey, cachePlan, cacheRetryable, generateBody, parseCacheMeta } from "../_shared/ai-cache.ts";
 import { autoPlan, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
   cancelInfo, cancelTag, ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, planReactivate, REACT_HANDOFF_TEXT, reactivateConfirmText,
@@ -101,17 +108,16 @@ async function authorized(req: Request): Promise<boolean> {
 function thinkingFor(model: string): Record<string, unknown> {
   return /^gemini-3/.test(model) ? { thinkingConfig: { thinkingLevel: "low" } } : {};
 }
-interface GemOut { text: string; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null }
+interface GemOut { text: string; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null; cacheErr?: boolean }
+/** users = الأجزاء اللي بتتبعت كـturns من العميل بالترتيب (v1/v2/v3 = جزء واحد زي الأول بالظبط · v4 = الثابت ثم المتغيّر).
+ *  cacheName = كاش Gemini فيه التعليمات والجزء الثابت → users يبقى المتغيّر بس. طلب بالكاش رجع 4xx (مش 429) = cacheErr (والمستدعي بيعيد من غير كاش). */
 // deno-lint-ignore no-explicit-any
-async function callGemini(model: string, system: string, user: string, gen?: Record<string, any>): Promise<GemOut> {
+async function callGemini(model: string, system: string, users: string[], gen?: Record<string, any>, cacheName?: string | null): Promise<GemOut> {
   const key = (Deno.env.get("GEMINI_API_KEY") || "").trim();
   const t0 = Date.now();
   if (!key) return { text: "", tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: "no_gemini_key" };
-  const payload = {
-    system_instruction: { parts: [{ text: system }] },
-    contents: [{ role: "user", parts: [{ text: user }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA, ...thinkingFor(model), ...(gen || {}) },
-  };
+  const generationConfig = { temperature: 0, maxOutputTokens: 4096, responseMimeType: "application/json", responseSchema: RESPONSE_SCHEMA, ...thinkingFor(model), ...(gen || {}) };
+  const payload = generateBody(system, users, generationConfig, cacheName);
   let last = "gemini_unknown";
   for (let attempt = 0; attempt < 2; attempt++) {
     const ctl = new AbortController();
@@ -126,6 +132,7 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
       const data: any = await res.json().catch(() => null);
       if (!res.ok) {
         last = "gemini_" + res.status + ": " + String(data?.error?.message || "").slice(0, 240);
+        if (cacheName && cacheRetryable(res.status)) return { text: "", tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: Date.now() - t0, error: last, cacheErr: true };
         if ((res.status === 429 || res.status >= 500) && attempt === 0) { await sleep(1500); continue; }
         break;
       }
@@ -146,6 +153,63 @@ async function callGemini(model: string, system: string, user: string, gen?: Rec
     } finally { clearTimeout(timer); }
   }
   return { text: "", tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: Date.now() - t0, error: last };
+}
+
+// ── كاش Gemini الصريح (23 نوفمبر — البند 5، _shared/ai-cache.ts) ──────
+const CACHE_REQ_TIMEOUT_MS = 15000;
+/** نداء لـcachedContents (إنشاء أو مد) — مهلة 15ث · أي فشل = { ok:false } من غير ما يرمي. */
+async function geminiCacheReq(method: "POST" | "PATCH", path: string, body: Record<string, unknown>, key: string): Promise<{ ok: boolean; status: number; data: unknown; msg: string }> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), CACHE_REQ_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${GEMINI_BASE}/${path}`, { method, signal: ctl.signal, headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(body) });
+    // deno-lint-ignore no-explicit-any
+    const data: any = await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, data, msg: res.ok ? "" : String(data?.error?.message || "").slice(0, 200) };
+  } catch (e) {
+    return { ok: false, status: 0, data: null, msg: (e as Error)?.name === "AbortError" ? "timeout" : "fetch_error" };
+  } finally { clearTimeout(timer); }
+}
+/** حالة صف الكاش بعد الإنشاء/الاستخدام: meta = جاهز (الاسم وإمتى بيخلص) · من غيره = وقع (حجز جديد بعد 10 دقايق — ai_prompt_cache_claim). */
+async function cacheMark(tenantId: string, key: string, meta: { name: string; expireAt: string; tokens: number | null } | null, error: string | null): Promise<void> {
+  const patch = meta
+    ? { status: "ready", name: meta.name, expire_at: meta.expireAt, tokens: meta.tokens, error: null, updated_at: new Date().toISOString() }
+    : { status: "failed", error: String(error || "failed").slice(0, 300), updated_at: new Date().toISOString() };
+  const up = await admin.from("ai_prompt_cache").update(patch).eq("tenant_id", tenantId).eq("cache_key", key);
+  if (up.error) console.error("wa-ai-draft cache: mark failed", up.error.code || "");
+}
+interface CacheUse { name: string | null; key: string | null; state: string }
+/**
+ * الكاش بتاع التعليمات + الجزء الثابت: موجود = اسمه (ولو فاضل فيه أقل من 15 دقيقة بيتمد الأول) · مش موجود والحجز بتاعنا = بنعمله ·
+ * غير كده (حد تاني بيعمله · وقع من شوية · الداتابيز) = null والمسودة بتمشي من غير كاش.
+ */
+async function promptCache(tenantId: string, model: string, system: string, staticUser: string): Promise<CacheUse> {
+  let key: string;
+  try { key = await cacheKey(model, system, staticUser); } catch { return { name: null, key: null, state: "hash_failed" }; }
+  const { data, error } = await admin.rpc("ai_prompt_cache_claim", { p_tenant: tenantId, p_key: key, p_model: model });
+  if (error) return { name: null, key, state: "db_error" };
+  const plan = cachePlan(data, Date.now());
+  if (plan.action === "skip") return { name: null, key, state: plan.why };
+  const gkey = (Deno.env.get("GEMINI_API_KEY") || "").trim();
+  if (!gkey) { if (plan.action === "create") await cacheMark(tenantId, key, null, "no_gemini_key"); return { name: null, key, state: "no_key" }; }
+  if (plan.action === "use") return { name: plan.name, key, state: "hit" };
+  if (plan.action === "extend") {
+    // المد وقع = نستخدمه برضه (الحجز ضمن إنه فاضل فيه أكتر من دقيقتين) · لو كان مات الطلب نفسه هيرجع 4xx والمسودة هتتعاد من غير كاش
+    const r = await geminiCacheReq("PATCH", plan.name, { ttl: CACHE_TTL_S + "s" }, gkey);
+    const meta = r.ok ? parseCacheMeta(r.data) : null;
+    if (meta && meta.name === plan.name) {
+      const up = await admin.from("ai_prompt_cache").update({ expire_at: meta.expireAt, updated_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("cache_key", key);
+      if (up.error) console.error("wa-ai-draft cache: extend mark failed", up.error.code || "");
+      return { name: plan.name, key, state: "extended" };
+    }
+    console.error("wa-ai-draft cache: extend failed", r.status, r.msg.slice(0, 120));
+    return { name: plan.name, key, state: "hit" };
+  }
+  const r = await geminiCacheReq("POST", "cachedContents", cacheCreateBody(model, system, staticUser, "sahl-" + tenantId.slice(0, 8) + "-" + key.slice(0, 12)), gkey);
+  const meta = r.ok ? parseCacheMeta(r.data) : null;
+  if (!meta) { await cacheMark(tenantId, key, null, "create_" + r.status + ": " + r.msg); return { name: null, key, state: "create_failed" }; }
+  await cacheMark(tenantId, key, meta, null);
+  return { name: meta.name, key, state: "created" };
 }
 
 // ── فهم الرسايل الصوتية والصور (21 نوفمبر — طلب المالك) ─────────────
@@ -215,6 +279,7 @@ async function readMedia(st: Static, tenantId: string, convId: string, row: Medi
 
 // ── السياق الثابت للمتجر (قراية بس) ──────────────────────────────────
 interface Static {
+  tenantId: string; // سجل كاش Gemini لكل متجر (ai_prompt_cache)
   mode: string; model: string; layout: Layout; esc: EscStyle; facts: Record<string, unknown>;
   products: ProductLite[]; cards: CardLite[]; allCards: CardLite[]; siteRows: SiteRow[]; stockNames: string[];
   cardMedia: Map<string, string[]>; // صور كل كارت (مسارات wa-media) — للإرسال التلقائي بس، مابتدخلش الـprompt
@@ -262,6 +327,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
     };
   }).filter((p) => p.variants.length);
   return {
+    tenantId,
     mode: String(set.data.mode || "off"), model: String(set.data.model || "").trim() || DEFAULT_MODEL, layout: layoutOf(facts.prompt_layout), esc: escStyleOf(facts.esc_style), facts,
     products, orderProducts,
     allCards, cards: allCards.filter((c) => !skip.includes(c.title)), cardMedia,
@@ -284,28 +350,54 @@ interface ConvCtx {
   adId: string | null; adBody: string | null; customerName: string | null;
   orders: OrderLite[]; ordersKnown: boolean; history: HistMsg[];
 }
-interface Result { draft: Draft | null; model: string | null; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null }
+interface Result {
+  draft: Draft | null; model: string | null; tokensIn: number; tokensOut: number; tokensCached: number; ms: number; error: string | null;
+  layout?: Layout; cache?: string | null; // الشكل اللي اتبعت فعلاً وحالة الكاش (للتشخيص في dry_run والتقييم)
+}
 
-// deno-lint-ignore no-explicit-any
-async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: string | null; media?: string | null }, model: string, gen?: Record<string, any>, evalRules?: string): Promise<Result> {
-  const pre = preRule(trigger.type, trigger.body, trigger.media);
-  if (pre) return { draft: pre, model: null, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: null };
+/** تعليمات الموديل: أسلوب التصعيد من الإعداد · تعليمات الفويس والصور لو المحادثة فيها حاجة اتفهمت · قواعد التقييم التجريبية (تقييم بس). */
+function systemFor(st: Static, hasMedia: boolean, evalRules?: string): string {
+  // تعليمات الفويس والصور بتتضاف بس لو المحادثة فيها حاجة اتفهمت (21 نوفمبر) — غير كده التعليمات نفس البايتات القديمة
+  return buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts) } : undefined) + (hasMedia ? "\n\n" + MEDIA_RULES : "")
+    + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
+}
+function ctxFor(st: Static, cv: ConvCtx): DraftCtx {
   const ad = cv.adId ? st.ads.get(cv.adId) : null;
-  const ctx: DraftCtx = {
+  return {
     nowIso: new Date().toISOString(), facts: st.facts, products: st.products,
     linkedProductId: ad?.productId || null,
     ad: cv.adId ? { name: ad?.name || null, body: cv.adBody } : null,
     cards: st.cards, siteRows: st.siteRows, stockNames: st.stockNames,
     orders: cv.orders, ordersKnown: cv.ordersKnown, customerName: cv.customerName, history: cv.history,
   };
-  // تعليمات الفويس والصور بتتضاف بس لو المحادثة فيها حاجة اتفهمت (21 نوفمبر) — غير كده التعليمات نفس البايتات القديمة
+}
+
+// strictV4 = التقييم والـdry_run بـlayout v4: من غير كاش جاهز = v4 برضه (نفس الدخل بالظبط) — الحي من غير كاش = v3 (الشكل القديم بالحرف · أرخص من غير كاش)
+// deno-lint-ignore no-explicit-any
+async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: string | null; media?: string | null }, model: string, gen?: Record<string, any>, evalRules?: string, strictV4 = false): Promise<Result> {
+  const pre = preRule(trigger.type, trigger.body, trigger.media);
+  if (pre) return { draft: pre, model: null, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: null };
+  const ctx = ctxFor(st, cv);
   const hasMedia = cv.history.some((m) => m.dir === "in" && !!String(m.media || "").trim());
-  const system = buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts) } : undefined) + (hasMedia ? "\n\n" + MEDIA_RULES : "")
-    + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
-  const g = await callGemini(model, system, buildUserPrompt(ctx, st.layout), gen);
-  if (g.error) return { draft: null, model, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: g.ms, error: g.error };
+  const system = systemFor(st, hasMedia, evalRules);
+  let g: GemOut;
+  let used: Layout = st.layout, cache: string | null = null;
+  if (st.layout === "v4") {
+    const staticUser = buildStaticUser(ctx), variableUser = buildVariableUser(ctx);
+    const pc = await promptCache(st.tenantId, model, system, staticUser);
+    cache = pc.state;
+    let cached: GemOut | null = pc.name ? await callGemini(model, system, [variableUser], gen, pc.name) : null;
+    if (cached?.cacheErr) { // الكاش مات أو اترفض: يتعلّم «وقع» (10 دقايق) والمسودة تتعاد من غير كاش
+      if (pc.key) await cacheMark(st.tenantId, pc.key, null, "use_" + String(cached.error || "").slice(0, 200));
+      cache = "use_failed"; cached = null;
+    }
+    if (cached) g = cached;
+    else if (strictV4) g = await callGemini(model, system, [staticUser, variableUser], gen);
+    else { used = "v3"; g = await callGemini(model, system, [buildUserPrompt(ctx, "v3")], gen); }
+  } else g = await callGemini(model, system, [buildUserPrompt(ctx, st.layout)], gen);
+  if (g.error) return { draft: null, model, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: g.ms, error: g.error, layout: used, cache };
   const draft = parseDraft(g.text, st.cards);
-  return { draft, model, tokensIn: g.tokensIn, tokensOut: g.tokensOut, tokensCached: g.tokensCached, ms: g.ms, error: draft ? null : "bad_output" };
+  return { draft, model, tokensIn: g.tokensIn, tokensOut: g.tokensOut, tokensCached: g.tokensCached, ms: g.ms, error: draft ? null : "bad_output", layout: used, cache };
 }
 
 // ── الإرسال التلقائي (الزرار ON) ─────────────────────────────────────
@@ -715,7 +807,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     adId: conv?.ctwa_ad_id || null, adBody: conv?.ctwa_ad_body || null, customerName: conv?.customer_name || null,
     orders, ordersKnown: forms.length > 0, history,
   };
-  const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body, media: triggerMedia }, modelOverride || st.model);
+  const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body, media: triggerMedia }, modelOverride || st.model, undefined, undefined, dry && layoutOverride === "v4");
   const mediaUse = reads.length ? reads.map((x) => ({ type: x.type, ok: !!x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms })) : null;
   if (dry) {
     // «لو الزرار ON كان هيبعت إيه» — قراية بس، من غير أي إرسال ولا كتابة
@@ -727,7 +819,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
     const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep) };
     const media_read = reads.map((x) => ({ id: x.id, type: x.type, text: x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms }));
-    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview, media_read };
+    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, layout_used: r.layout || null, cache: r.cache || null, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview, media_read };
   }
 
   if (r.draft && r.draft.behavior === "skip" && !r.model) return { skipped: "pre_rule_skip" }; // ضغطة زرار/تفاعل — مش محتاجة صف
@@ -759,6 +851,10 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
   const model = modelOverride || st.model;
   const cases = EVAL_CASES.filter((c) => c[0] >= from && c[0] <= to).slice(0, EVAL_MAX);
   const now = Date.now();
+  // v4: الكاش بيتعمل مرة قبل الحالات (التعليمات من غير فويس/صور + الجزء الثابت — نفس الشكل لكل الحالات) عشان ماتتسابقش عليه ست حالات مع بعض
+  let warm: string | null = null;
+  if (st.layout === "v4" && cases.length)
+    warm = (await promptCache(st.tenantId, model, systemFor(st, false, evalRules), buildStaticUser(ctxFor(st, { adId: null, adBody: null, customerName: null, orders: [], ordersKnown: true, history: [] })))).state;
   const results: Record<string, unknown>[] = [];
   let next = 0;
   async function worker() {
@@ -789,7 +885,7 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
           };
         }),
       };
-      const r = await draftFor(st, cv, { type: type || "text", body: text, media: media || null }, model, gen, evalRules);
+      const r = await draftFor(st, cv, { type: type || "text", body: text, media: media || null }, model, gen, evalRules, true);
       const want = EXPECT[exp];
       let ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
       const rstep = REACT_OK.includes(ap.reason) ? reactStepFor(r, cv.orders) : null; // قرار التفعيل بس — مفيش كتابة في التقييم
@@ -798,7 +894,7 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       if (step) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
       results.push({
         n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",
-        card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error,
+        card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error, cache: r.cache || undefined,
         auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
         order: r.draft?.order || null, order_step: orderPreview(step), reactivate: r.draft?.reactivate || null, react_step: reactPreview(rstep),
         auto_text: (step || rstep || ap.reason === "escalate") && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
@@ -809,7 +905,7 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
   await Promise.all(Array.from({ length: Math.min(EVAL_POOL, cases.length) }, worker));
   results.sort((a, b) => Number(a.n) - Number(b.n));
   const sum = (k: string) => results.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  return { model, layout: st.layout, esc: st.esc, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
+  return { model, layout: st.layout, esc: st.esc, warm, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
 }
 
 async function listModels(): Promise<Record<string, unknown>> {
@@ -838,7 +934,7 @@ Deno.serve(async (req: Request) => {
 
   const action = String(body?.action || "");
   const model = typeof body?.model === "string" && /^[\w.\-]{3,60}$/.test(body.model) ? body.model : null;
-  const layout: Layout | null = body?.layout === "v1" || body?.layout === "v2" || body?.layout === "v3" ? body.layout : null;
+  const layout: Layout | null = body?.layout === "v1" || body?.layout === "v2" || body?.layout === "v3" || body?.layout === "v4" ? body.layout : null;
   const cardNotes: Record<string, unknown> | null = body?.card_notes && typeof body.card_notes === "object" && !Array.isArray(body.card_notes) ? body.card_notes : null;
   const esc: EscStyle | null = body?.esc_style === "v1" || body?.esc_style === "v2" ? body.esc_style : null;
   if (action === "models") return json(await listModels());

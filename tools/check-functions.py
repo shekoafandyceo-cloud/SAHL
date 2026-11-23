@@ -455,13 +455,17 @@ CONTRACTS = [
      and _between(s, "await sendAction(", u"async function autoRun(", u"// ── المسار العادي")
      and _between(s, "${GRAPH}/", u"async function sendAction(", u"async function autoBreaker(")),
     # (21 نوفمبر) + كتابة واحدة في بلوك فهم الفويس والصور: عمود ai_media_text لو لسه فاضي (storeMediaText)
-    ("wa-ai-draft", u"الكتابة: upsert المسودة + كتابات مسار الإرسال التلقائي (جوّه بلوك autoRun) + نص الفويس/الصورة (جوّه بلوك الميديا) بس · مفيش delete",
+    ("wa-ai-draft", u"الكتابة: upsert المسودة + كتابات مسار الإرسال التلقائي (جوّه بلوك autoRun) + نص الفويس/الصورة (جوّه بلوك الميديا) + سجل الكاش (جوّه بلوك الكاش) بس · مفيش delete",
      lambda s: s.count(".upsert(") == 1 and 'from("wa_ai_drafts").upsert(' in s and ".delete(" not in s
-     and s.count(".insert(") == 2 and s.count(".update(") == 7 and s.count(".rpc(") == 2
+     and s.count(".insert(") == 2 and s.count(".update(") == 9 and s.count(".rpc(") == 3
      and all(_between(s, s[i:i + 9], u"// ── الإرسال التلقائي", u"// ── المسار العادي", at=i)
              or (s[i:i + 8] == ".update(" and _between(s, s[i:i + 9], u"// ── فهم الرسايل الصوتية والصور", u"// ── السياق الثابت للمتجر", at=i))
+             # (23 نوفمبر — البند 5) بلوك كاش Gemini: سجل الكاش بتاعه بس (ai_prompt_cache) والحجز من ai_prompt_cache_claim
+             or (_between(s, s[i:i + 9], u"// ── كاش Gemini الصريح", u"// ── فهم الرسايل الصوتية والصور", at=i)
+                 and (s[:i].endswith('admin.from("ai_prompt_cache")') or (s[:i].endswith("admin") and s[i:].startswith('.rpc("ai_prompt_cache_claim"'))))
              for i in _all(s, ".insert(") + _all(s, ".update(") + _all(s, ".rpc("))
      and len([i for i in _all(s, ".update(") if _between(s, ".update(", u"// ── فهم الرسايل الصوتية والصور", u"// ── السياق الثابت للمتجر", at=i)]) == 1
+     and len([i for i in _all(s, ".update(") + _all(s, ".rpc(") if _between(s, ".", u"// ── كاش Gemini الصريح", u"// ── فهم الرسايل الصوتية والصور", at=i)]) == 3
      and 'admin.from("wa_messages").update({ ai_media_text: text }).eq("id", messageId).eq("tenant_id", tenantId).is("ai_media_text", null)' in s),
     # (21 نوفمبر — طلب المالك) فهم الفويس والصور: نداء لكل رسالة · ملف المحادثة دي بس · مفيش تخزين في dry_run ولا التقييم · فشل = القديم
     ("wa-ai-draft", u"فهم الفويس والصور: ملف المحادثة دي بس (mediaPathOk) بسقف حجم · التخزين من readMedia بس ولما store · المسار العادي store ودايماً !dry · التقييم مابيقراش ميديا",
@@ -476,7 +480,7 @@ CONTRACTS = [
      and "readMedia(" not in s[s.index("async function runEval("):]
      and _order(s, 'st.mode !== "shadow" && st.mode !== "auto") return { skipped: "mode_off" };', "const early = !dry && mediaToRead([msg]", "await sleep(DEBOUNCE_MS)")
      and _order(s, 'return { skipped: "staff_active" }', "const todo = mediaToRead(histRows", "draftFor(st, cv")
-     and "media: triggerMedia }, modelOverride || st.model);" in s
+     and 'media: triggerMedia }, modelOverride || st.model, undefined, undefined, dry && layoutOverride === "v4");' in s
      and '(hasMedia ? "\\n\\n" + MEDIA_RULES : "")' in s
      and "if (mq.error) mq = await admin.from(\"wa_messages\").select(MSG_COLS)" in s and "if (hq.error) hq = await histQ(HIST_COLS);" in s),
     ("_shared/ai-media", u"فهم الفويس والصور: المسار <tenant>/<conversation>/<file> بس · رسالة المسودة الأول وبسقف · unclear = MEDIA_UNCLEAR · فشل = null · من غير import",
@@ -555,8 +559,11 @@ CONTRACTS = [
      lambda s: "return { dry_run: true" in s
      and s.index("return { dry_run: true") < s.index('from("wa_ai_drafts").upsert(')
      and s.index("return { dry_run: true") < s.index("await autoRun(")),
-    ("wa-ai-draft", u"rules_extra للتقييم بس — المسار العادي بينادي draftFor من غير قواعد من الـbody",
-     lambda s: 'modelOverride || st.model);' in s and s.count("evalRules);") == 1 and s.count("body?.rules_extra") + s.count("body.rules_extra") == 2),
+    ("wa-ai-draft", u"rules_extra للتقييم بس — المسار العادي بينادي draftFor من غير قواعد من الـbody · v4 من غير كاش (strictV4) للتقييم والـdry_run بس",
+     lambda s: s.count("draftFor(st, cv") == 2
+     and 'modelOverride || st.model, undefined, undefined, dry && layoutOverride === "v4");' in s
+     and "}, model, gen, evalRules, true);" in s
+     and s.count("body?.rules_extra") + s.count("body.rules_extra") == 2),
     ("wa-ai-draft", u"الحمولة message_id بس — مفيش نص رسالة ولا متجر من الـbody",
      lambda s: "body?.text" not in s and "body?.tenant_id" not in s and "body?.conversation_id" not in s),
     ("wa-ai-draft", u"سقف التفكير: thinkingLevel low لموديلات gemini-3 في كل نداء — والـgen بتاع التقييم بييجي بعده",
@@ -573,13 +580,42 @@ CONTRACTS = [
      and s.count("withCardNotes(st, ") == 2 and "withCardNotes(st, cardNotes || null);" in s),
     ("wa-ai-draft", u"tokens_cached بيتسجّل من cachedContentTokenCount (قياس الـcaching)",
      lambda s: "tokensCached: Number(um.cachedContentTokenCount) || 0" in s and "tokens_cached: r.model ? r.tokensCached : null" in s),
+    # (23 نوفمبر — البند 5: «تصليح الكاش») كاش Gemini الصريح — الحي من غير كاش جاهز = نفس الطلب القديم (v3) بالحرف · الكاش مات = يتعاد من غير كاش
+    ("wa-ai-draft", u"كاش Gemini: من غير كاش جاهز = v3 القديم بالحرف (الحي) أو v4 كامل (التقييم/dry_run بس) · الطلب بالكاش رجع 4xx = يتعلّم «وقع» ويتعاد من غير كاش",
+     lambda s: 'if (st.layout === "v4") {' in s
+     and "let cached: GemOut | null = pc.name ? await callGemini(model, system, [variableUser], gen, pc.name) : null;" in s
+     and _order(s, "if (cached?.cacheErr) {", 'await cacheMark(st.tenantId, pc.key, null, "use_"', "cached = null;", "if (cached) g = cached;",
+                "else if (strictV4) g = await callGemini(model, system, [staticUser, variableUser], gen);",
+                'else { used = "v3"; g = await callGemini(model, system, [buildUserPrompt(ctx, "v3")], gen); }',
+                "} else g = await callGemini(model, system, [buildUserPrompt(ctx, st.layout)], gen);")
+     and _order(s, "if (cacheName && cacheRetryable(res.status)) return {", "if ((res.status === 429 || res.status >= 500) && attempt === 0)")
+     and "const payload = generateBody(system, users, generationConfig, cacheName);" in s
+     and s.count("callGemini(model, system, ") == 4),
+    ("wa-ai-draft", u"كاش Gemini: الحجز من ai_prompt_cache_claim بس · الإنشاء بنفس التعليمات والجزء الثابت · الاسم من رد Gemini بعد parseCacheMeta · المفتاح من Deno.env",
+     lambda s: s.count("promptCache(") == 3
+     and "const pc = await promptCache(st.tenantId, model, system, staticUser);" in s
+     and 'admin.rpc("ai_prompt_cache_claim", { p_tenant: tenantId, p_key: key, p_model: model })' in s
+     and _order(s, "const plan = cachePlan(data, Date.now());", 'if (plan.action === "skip") return { name: null, key, state: plan.why };',
+                'const gkey = (Deno.env.get("GEMINI_API_KEY") || "").trim();', 'if (plan.action === "use")', 'if (plan.action === "extend")',
+                'geminiCacheReq("POST", "cachedContents", cacheCreateBody(model, system, staticUser, ')
+     and s.count("const meta = r.ok ? parseCacheMeta(r.data) : null;") == 2
+     and "if (meta && meta.name === plan.name) {" in s),
+    ("_shared/ai-cache", u"كاش Gemini: من غير import · بالكاش مفيش system_instruction (Gemini بيرفضهم مع بعض) · 4xx بس (مش 429) يتعاد من غير كاش · اسم cachedContents/… بس · أقل من دقيقتين = مايتستخدمش (نفس الداتابيز)",
+     lambda s: not re.search(r"^\s*import\s", s, re.M)
+     and "? { cachedContent: cacheName, contents, generationConfig }" in s
+     and ": { system_instruction: { parts: [{ text: system }] }, contents, generationConfig };" in s
+     and "return status >= 400 && status < 500 && status !== 429;" in s
+     and r"const NAME_RE = /^cachedContents\/[A-Za-z0-9_-]{1,200}$/;" in s
+     and "export const CACHE_MIN_LEFT_MS = 2 * 60000;" in s
+     and 'if (!NAME_RE.test(name) || !isFinite(exp) || exp - nowMs < CACHE_MIN_LEFT_MS) return { action: "skip", why: "bad_ready" };' in s
+     and 'encode(String(model) + "\\u0000" + String(system) + "\\u0000" + String(staticUser))' in s),
     ("_shared/ai-draft", u"v1 هو الافتراضي ومابيتغيّرش · prompt_layout إعداد مش معلومة (مابيدخلش الـprompt) · قيمة غريبة = v1",
      lambda s: 'layout: Layout = "v1"' in s and 'if (layout === "v1") return buildUserPromptV1(ctx);' in s
-     and '"skip_cards", "discontinued", "prompt_layout", "hold_message"' in s and 'x === "v2" || x === "v3" ? x : "v1"' in s
+     and '"skip_cards", "discontinued", "prompt_layout", "hold_message"' in s and 'x === "v2" || x === "v3" || x === "v4" ? x : "v1"' in s
      and s.count("if (!FACT_SKIP.has(k)) out.push(factLine(k, v));") == 2),
     ("_shared/ai-draft", u"معلومات الـAgent تحت نص الكارت في كل الأشكال · كارت من غير معلومات = النص القديم بالحرف · متعلّمة إنها مش بتتبعت للعميل",
      lambda s: 'cut(c.body, 1200) + (notes ? "\\n" + NOTES_LABEL + "\\n" + cut(notes, 1500) : "")' in s
-     and "ctx.cards.map(cardBlock)" in s and "const cardText = cardBlock;" in s
+     and "ctx.cards.map(cardBlock)" in s and s.count(".map(cardBlock)") == 3
      and u"مش جزء من نص الكارت ومابتتبعتش للعميل زي ما هي" in s),
     ("_shared/ai-auto", u"قرار الإرسال: السقوف قبل أي حاجة · التصعيد = الاعتذار الثابت مرة واحدة (مش رد الموديل) · الأوردر = النص الثابت بس · من غير import",
      lambda s: not re.search(r"^\s*import\s", s, re.M) and 'export const BOT_NAME = "🤖 AI Agent";' in s
