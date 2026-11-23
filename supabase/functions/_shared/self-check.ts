@@ -63,6 +63,17 @@ async function sha(s: string): Promise<string> {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
 }
+/** sha256 لنص الملف اللي بيتنفّذ نفسه (url = import.meta.url) — في الباندل المنشور ده بصمة بالبايت للنسخ كله (tools/self-check.mjs --bundle).
+ *  الـruntime مابيسمحش بقراية المصدر = بيرجع السبب نص (مش خطأ) والأجزاء فوق بتفضل هي الدليل. */
+export async function selfSource(url: string): Promise<string> {
+  try {
+    // deno-lint-ignore no-explicit-any
+    const D = (globalThis as any).Deno;
+    return await sha(await D.readTextFile(new URL(url)));
+  } catch (e) {
+    return "error: " + String((e as Error)?.message || e).slice(0, 160);
+  }
+}
 /** { جزء: أول 16 حرف من sha256(JSON) } + all = بصمة الكل. */
 export async function selfCheck(evalData: unknown): Promise<Record<string, string>> {
   const parts = selfCheckParts(evalData);

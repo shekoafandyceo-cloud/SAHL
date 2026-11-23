@@ -777,9 +777,9 @@ CONTRACTS = [
      and u'!l.startsWith("- الوقت دلوقتي")' in s
      and not any(x in s for x in ("fetch(", ".from(", "Deno.env", "createClient", ".rpc("))),
     ("wa-ai-draft", u"self_check بعد التصريح وبحالات التقييم نفسها — وأي نداء لـselfCheck( بعد التصريح",
-     lambda s: 'if (action === "self_check") return json(await selfCheck([EVAL_CASES, CTX, EXPECT]));' in s
+     lambda s: 'if (action === "self_check") return json({ ...(await selfCheck([EVAL_CASES, CTX, EXPECT])), source: await selfSource(import.meta.url) });' in s
      and "if (!(await authorized(req)))" in s
-     and all(m.start() > s.index("if (!(await authorized(req)))") for m in re.finditer(r"selfCheck\(", s))),
+     and all(m.start() > s.index("if (!(await authorized(req)))") for m in re.finditer(r"self(?:Check|Source)\(", s))),
 ]
 
 
