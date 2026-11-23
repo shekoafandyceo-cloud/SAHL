@@ -771,6 +771,15 @@ CONTRACTS = [
                 "if (feeBlock) r = feeBlockDraft(r, st.fee!, feeBlock);", "const want = EXPECT[exp];")
      and "return !error && !!data && data.length > 0;" in s
      and 'draft: { ...r.draft, behavior: "escalate", reply: "", card: "", note: feeBlockNote(cfg, why), order: null, reactivate: null, fee: null }' in s),
+    # ── بصمة النسخة المنشورة (23 نوفمبر — الباندل بيتكتب بإيد الوكيل · tools/self-check.mjs بيحسبها من المصدر) ──
+    ("_shared/self-check", u"البصمة: دوال نقية على مدخلات ثابتة بس — مفيش شبكة ولا داتابيز ولا أسرار · سطر الوقت بيتشال (Intl بيختلف بين Deno وNode)",
+     lambda s: "export async function selfCheck(evalData: unknown)" in s and 'crypto.subtle.digest("SHA-256"' in s
+     and u'!l.startsWith("- الوقت دلوقتي")' in s
+     and not any(x in s for x in ("fetch(", ".from(", "Deno.env", "createClient", ".rpc("))),
+    ("wa-ai-draft", u"self_check بعد التصريح وبحالات التقييم نفسها — وأي نداء لـselfCheck( بعد التصريح",
+     lambda s: 'if (action === "self_check") return json(await selfCheck([EVAL_CASES, CTX, EXPECT]));' in s
+     and "if (!(await authorized(req)))" in s
+     and all(m.start() > s.index("if (!(await authorized(req)))") for m in re.finditer(r"selfCheck\(", s))),
 ]
 
 

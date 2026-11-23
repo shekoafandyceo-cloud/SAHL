@@ -72,6 +72,7 @@ import {
   geminiMime, MEDIA_MAX_BYTES, MEDIA_SCHEMA, mediaPathOk, mediaPrompt, mediaToRead, MEDIA_TYPES, parseMediaText, toBase64, type MediaRow,
 } from "../_shared/ai-media.ts";
 import { CTX, EVAL_CASES, EVAL_FACTS_EXTRA, EVAL_TENANT, EXPECT } from "./eval-cases.ts";
+import { selfCheck } from "../_shared/self-check.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -1109,6 +1110,8 @@ Deno.serve(async (req: Request) => {
   const factsExtra: Record<string, unknown> | null = body?.facts_extra && typeof body.facts_extra === "object" && !Array.isArray(body.facts_extra) ? body.facts_extra : null;
   if (action === "models") return json(await listModels());
   if (action === "fee_followup") return json(await feeFollowup());
+  // بصمة النسخة المنشورة (الباندل بيتكتب بإيد الوكيل) — لازم تطابق tools/self-check.mjs من المصدر. قراية بس من غير شبكة ولا داتابيز.
+  if (action === "self_check") return json(await selfCheck([EVAL_CASES, CTX, EXPECT]));
   if (action === "eval") {
     const from = Math.max(1, Number(body?.from) || 1), to = Math.max(from, Number(body?.to) || from);
     const gen = body?.gen && typeof body.gen === "object" ? body.gen : undefined;
