@@ -13,6 +13,9 @@
 --line-limit=900` = نفس البرنامج بالظبط (أسماء المتغيرات والنصوص زي ما هي) من غير مسافات البداية والسطور الفاضية
 (~104 ألف حرف · ~136 سطر). المقارنة بالنسخة المقروءة: `esbuild --minify-whitespace` على الاتنين = نفس الناتج بالحرف.
 
+`--min` (23 نوفمبر — v16 بقى ~135 ألف حرف بـ--compact): esbuild `--minify` كامل (أسماء المتغيرات المحلية بتتقصّر + تبسيط
+الصيغة) — نفس السلوك بضمان esbuild، والنصوص (الـprompt والردود) زي ما هي بالحرف. المصدر في المرآة هو المقروء.
+
 بعد esbuild بيحوّل لـ\\uXXXX: حروف التحكم/المخفية · الأرقام الفارسي (U+06F0–06F9) · U+0671 ·
 وأي حرف غير ASCII جوّه أول regex class في normKey — عشان النسخ بالإيد مايغيّرش حرف شبيه.
 """
@@ -23,8 +26,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--compact"]
-    compact = len(args) != len(sys.argv) - 1
+    flags = [a for a in sys.argv[1:] if a in ("--compact", "--min")]
+    args = [a for a in sys.argv[1:] if a not in ("--compact", "--min")]
+    compact, full = "--compact" in flags, "--min" in flags
     if len(args) != 2:
         sys.exit(__doc__)
     fn, out = args[0], Path(args[1])
@@ -35,7 +39,7 @@ def main():
     subprocess.run(
         ["npx", "esbuild", str(src), "--bundle", "--format=esm", "--platform=neutral", "--charset=utf8",
          "--legal-comments=none", "--external:https://*", "--external:npm:*", "--external:jsr:*",
-         *(["--minify-whitespace", "--line-limit=900"] if compact else []),
+         *(["--minify", "--line-limit=900"] if full else ["--minify-whitespace", "--line-limit=900"] if compact else []),
          f"--outfile={out}", "--log-level=warning"],
         check=True,
     )

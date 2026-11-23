@@ -42,13 +42,25 @@
 //    التقييم والـdry_run بـlayout v4 = v4 دايماً (من غير كاش لو مش جاهز — نفس الدخل بالظبط) عشان النتيجة تبقى على شكل واحد.
 //   3) { action: "models" } — أسماء موديلات Gemini المتاحة للمفتاح (بيأكد إن المفتاح شغّال).
 // 🔴 dry_run والتقييم بيرجّعوا كمان «لو الزرار ON كان هيبعت إيه» (auto_preview / auto) — قرار بس، من غير أي إرسال.
+// 🔴 رسوم الإلغاء بعد الشحن (23 نوفمبر — طلب المالك، _shared/ai-fee.ts): شغّالة بس لما ai_settings.facts.cancel_fee سليم (غير كده التعليمات والـschema
+//    نفس البايتات القديمة). أوردر J&T استلمته من عندنا والعميل مصمم يلغي = البوت بيطلب الرسوم (المبلغ والرقم من الإعداد) وسكرين التحويل ويصعّد.
+//    الطلب بيتسجّل في wa_ai_fee_requests بس لما الرد اللي فيه الرقم اتبعت فعلاً (autoRun → feeAfterSend) · صورة بعده = «اتبعت سكرين» ·
+//    التذكير: { action: "fee_followup" } من pg_cron (app.ai_fee_tick) — نص ثابت من غير موديل، بالحدود اللي في ai-fee.ts (feeReminderDue)،
+//    وبس لو العميل ماردش من آخر مرة البوت سأله (asked_at) — رد ماحدش اتعامل معاه = التذكير بيقف والموظف يكمّل.
+//    البوت مابيلغيش الأوردر — الموظف بيتأكد من التحويل ويلغي. facts_extra من الـbody للتقييم والـdry_run بس (تجربة الإعداد قبل تسجيله).
+//    🔴 الحارس (ai-fee.ts feeReplyBlocked — حالة التقييم 87 «ابعت رقم التحويل»): رد فيه رقم التحويل ومفيش طلب مفتوح ولا العميل طلب يلغي أوردر مع
+//    شركة الشحن = الرد مابيتبعتش (feeBlockDraft: تصعيد بسطر للموظف) — قبل المسودة والإرسال والمعاينة، وفي التقييم كمان (fee_blocked).
 // التصريح: service_role أو x-diag-token (= platform_settings.jt_diag_token) — مفيش مسار للموظف (نفس wa-ofd-notify).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
   buildStaticUser, buildSystemPrompt, buildUserPrompt, buildVariableUser, cardProductLine, effectivePrice, escStyleOf, layoutOf, MEDIA_RULES, parseDraft, phoneForms, preRule,
-  RESPONSE_SCHEMA, siteRowsFrom, workHoursOf, type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite,
+  RESPONSE_SCHEMA, RESPONSE_SCHEMA_FEE, siteRowsFrom, workHoursOf, type CardLite, type Draft, type DraftCtx, type EscStyle, type HistMsg, type Layout, type OrderLite, type ProductLite,
   type SiteRow,
 } from "../_shared/ai-draft.ts";
+import {
+  cairoHourOf, FEE_FIRST_GAP_MS, FEE_OPEN_DAYS, feeAskText, feeBlockNote, feeConfigOf, feeEventOf, feeFactLine, feeNote, feeReminderDue, feeReminderText,
+  feeReplyBlocked, feeTagOf, replyAsksFee, type FeeBlock, type FeeCfg, type FeeEvent,
+} from "../_shared/ai-fee.ts";
 import { CACHE_TTL_S, cacheCreateBody, cacheKey, cachePlan, cacheRetryable, generateBody, parseCacheMeta } from "../_shared/ai-cache.ts";
 import { autoPlan, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
@@ -285,6 +297,7 @@ interface Static {
   cardMedia: Map<string, string[]>; // صور كل كارت (مسارات wa-media) — للإرسال التلقائي بس، مابتدخلش الـprompt
   orderProducts: OrderProduct[];    // المنتجات اللي البوت بيسجّل أوردرها (ai_products اللي مقاساتها مربوطة بصنف مخزون) بالسعر المعتمد
   ads: Map<string, { name: string | null; productId: string | null }>;
+  fee: FeeCfg | null; // رسوم الإلغاء بعد الشحن (facts.cancel_fee سليم) — null = الميزة مقفولة والتعليمات زي ما هي بالحرف
 }
 async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>): Promise<Static | null> {
   const since = new Date(Date.now() - 24 * 3600000).toISOString();
@@ -336,6 +349,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
     stockNames: (stock.data || []).map((s: any) => String(s.name || "").trim()).filter(Boolean),
     // deno-lint-ignore no-explicit-any
     ads: new Map((ads.data || []).map((a: any) => [String(a.ad_id), { name: a.ad_name || null, productId: a.ai_product_id || null }])),
+    fee: feeConfigOf(facts),
   };
 }
 
@@ -358,7 +372,8 @@ interface Result {
 /** تعليمات الموديل: أسلوب التصعيد من الإعداد · تعليمات الفويس والصور لو المحادثة فيها حاجة اتفهمت · قواعد التقييم التجريبية (تقييم بس). */
 function systemFor(st: Static, hasMedia: boolean, evalRules?: string): string {
   // تعليمات الفويس والصور بتتضاف بس لو المحادثة فيها حاجة اتفهمت (21 نوفمبر) — غير كده التعليمات نفس البايتات القديمة
-  return buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts) } : undefined) + (hasMedia ? "\n\n" + MEDIA_RULES : "")
+  // رسوم الإلغاء (23 نوفمبر): fee بس لما الإعداد سليم — غير كده نفس التعليمات بالحرف
+  return buildSystemPrompt(st.esc === "v2" ? { esc: "v2", hours: workHoursOf(st.facts), ...(st.fee ? { fee: true } : {}) } : undefined) + (hasMedia ? "\n\n" + MEDIA_RULES : "")
     + (evalRules ? "\n\n# قواعد تجريبية (تقييم بس)\n" + evalRules : "");
 }
 function ctxFor(st: Static, cv: ConvCtx): DraftCtx {
@@ -369,6 +384,7 @@ function ctxFor(st: Static, cv: ConvCtx): DraftCtx {
     ad: cv.adId ? { name: ad?.name || null, body: cv.adBody } : null,
     cards: st.cards, siteRows: st.siteRows, stockNames: st.stockNames,
     orders: cv.orders, ordersKnown: cv.ordersKnown, customerName: cv.customerName, history: cv.history,
+    ...(st.fee ? { feeLine: feeFactLine(st.fee) } : {}),
   };
 }
 
@@ -377,6 +393,8 @@ function ctxFor(st: Static, cv: ConvCtx): DraftCtx {
 async function draftFor(st: Static, cv: ConvCtx, trigger: { type: string; body: string | null; media?: string | null }, model: string, gen?: Record<string, any>, evalRules?: string, strictV4 = false): Promise<Result> {
   const pre = preRule(trigger.type, trigger.body, trigger.media);
   if (pre) return { draft: pre, model: null, tokensIn: 0, tokensOut: 0, tokensCached: 0, ms: 0, error: null };
+  // رسوم الإلغاء شغّالة = نفس الـschema + fee (الـgen بتاع التقييم لو فيه responseSchema بيكسب). الكاش مالوش دعوة (الـschema في الطلب نفسه)
+  if (st.fee) gen = { responseSchema: RESPONSE_SCHEMA_FEE, ...(gen || {}) };
   const ctx = ctxFor(st, cv);
   const hasMedia = cv.history.some((m) => m.dir === "in" && !!String(m.media || "").trim());
   const system = systemFor(st, hasMedia, evalRules);
@@ -700,10 +718,13 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
       else { kinds.push(a.tag); if (a.tag === "hold") holdNow = true; if (a.tag === "card_text") cardSent = true; }
     }
   }
+  // 5ب) رسوم الإلغاء بعد الشحن: الرد اللي اتبعت فيه رقم التحويل = طلب · صورة بعده = «اتبعت سكرين» · رفض/هيستلم من الموديل (feeAfterSend)
+  const feeInfo = st.fee ? await feeAfterSend(msg, st, r, prevOrders, sent > 0 && !sendErr) : null;
   // 6) «تصعيد» على المحادثة (بيتشال لما موظف يرد — trg_wa_ai_escalation_clear)
   const madeNote = orderInfo && orderInfo.state === "created" ? "الأوردر " + String(orderInfo.uid) + " اتسجّل بس رسالة التأكيد ماوصلتش للعميل · "
     : orderInfo && orderInfo.state === "reactivated" ? "الأوردر " + String(orderInfo.uid) + " اتفعّل تاني بس رسالة التأكيد ماوصلتش للعميل · " : "";
-  const escNote = sendErr ? mergeEscNote(plan.escalate, madeNote + "البوت معرفش يبعت الرد (" + sendErr.slice(0, 120) + ")") : plan.escalate;
+  const escNote0 = sendErr ? mergeEscNote(plan.escalate, madeNote + "البوت معرفش يبعت الرد (" + sendErr.slice(0, 120) + ")") : plan.escalate;
+  const escNote = feeInfo && feeInfo.note ? mergeEscNote(escNote0, feeInfo.note) : escNote0;
   if (escNote || holdNow) {
     const patch: Record<string, unknown> = {};
     if (escNote) { patch.ai_escalated_at = state.escAt || new Date().toISOString(); patch.ai_escalation_note = mergeEscNote(state.escNote, escNote); }
@@ -713,20 +734,153 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
   }
   // 7) الأثر على المسودة — «sent» للرد الحقيقي اللي اتبعت كله بس (التصعيد بيفضل pending عشان الموظف يشوف الملاحظة)
   const realReply = ["answer", "collect", "clarify", "order_lookup"].includes(plan.reason);
-  const out = await finish({ reason: plan.reason, kinds, card: cardSent && card ? card.title : null, escalated: !!escNote, error: sendErr, ...(orderInfo ? { order: orderInfo } : {}) }, sent, realReply && sent > 0 && !sendErr);
+  const out = await finish({ reason: plan.reason, kinds, card: cardSent && card ? card.title : null, escalated: !!escNote, error: sendErr, ...(orderInfo ? { order: orderInfo } : {}), ...(feeInfo ? { fee: feeInfo.event } : {}) }, sent, realReply && sent > 0 && !sendErr);
   if (sendErr) await autoBreaker(msg.tenant_id);
   return out;
 }
 
+// ── رسوم الإلغاء بعد الشحن (23 نوفمبر — _shared/ai-fee.ts) ───────────
+const FEE_OPEN_STATES = ["waiting", "quiet"]; // waiting = التذكير شغّال · quiet = التذكير وقف (الحد · النافذة · العميل رد) بس لسه مستنيين السكرين
+const feeIsImage = (t: unknown) => t === "image" || t === "document";
+/** بعد الإرسال: الحدث (feeEventOf) وأثره على wa_ai_fee_requests + سطر للموظف في «تصعيد». أي استعلام وقع (الجدول لسه مااتعملش مثلاً) = مفيش أثر. */
+// deno-lint-ignore no-explicit-any
+async function feeAfterSend(msg: any, st: Static, r: Result, orders: OrderLite[], sentOk: boolean): Promise<{ event: FeeEvent; note: string | null } | null> {
+  const cfg = st.fee;
+  if (!cfg || !r.draft) return null;
+  const tagged = orders.find((o) => o.fee_tag) || null;
+  const since = new Date(Date.now() - FEE_OPEN_DAYS * 86400000).toISOString();
+  const { data: rows, error } = await admin.from("wa_ai_fee_requests").select("id, order_uid")
+    .eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id).in("state", FEE_OPEN_STATES).gte("requested_at", since)
+    .order("requested_at", { ascending: false }).limit(1);
+  if (error) return null;
+  const open = rows && rows[0] ? rows[0] : null;
+  const image = feeIsImage(msg.type);
+  const ev = feeEventOf({ cfg, open: !!open, tagged: !!tagged, image, sent: sentOk, fee: r.draft.fee, reply: r.draft.reply });
+  if (!ev) return null;
+  const nowIso = new Date().toISOString();
+  if (ev === "request") {
+    // الفهرس الفريد (طلب مفتوح واحد للمحادثة) بيمنع طلبين لو نداءين جم مع بعض — التاني بيقع ومفيش أثر
+    const ins = await admin.from("wa_ai_fee_requests").insert({
+      tenant_id: msg.tenant_id, conversation_id: msg.conversation_id, order_id: tagged?.id || null, order_uid: tagged?.order_uid || null,
+      amount: cfg.amount, trigger_message_id: msg.id,
+    }).select("id");
+    if (ins.error || !ins.data || !ins.data.length) return null;
+    return { event: ev, note: feeNote(ev, cfg, tagged?.order_uid || null) };
+  }
+  // again = البوت سأل تاني: التذكير بيتعد من دلوقتي (ولو كان وقف عشان العميل رد — بيرجع يشتغل) · غير كده الحالة النهائية من كلام العميل
+  const patch = ev === "again" ? { state: "waiting", asked_at: nowIso, state_at: nowIso } : { state: ev, state_at: nowIso, close_reason: image ? "image" : "customer" };
+  const up = await admin.from("wa_ai_fee_requests").update(patch).eq("id", open!.id).in("state", FEE_OPEN_STATES).select("id");
+  if (up.error || !up.data || !up.data.length) return null;
+  return { event: ev, note: feeNote(ev, cfg, open!.order_uid || null, image) };
+}
+/** في المحادثة دي طلب رسوم مفتوح (آخر 7 أيام)؟ قراية بس — الاستعلام وقع = لأ (الحارس بيمنع الرد والموظف يتعامل). */
+// deno-lint-ignore no-explicit-any
+async function feeIsOpen(msg: any): Promise<boolean> {
+  const since = new Date(Date.now() - FEE_OPEN_DAYS * 86400000).toISOString();
+  const { data, error } = await admin.from("wa_ai_fee_requests").select("id")
+    .eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id).in("state", FEE_OPEN_STATES).gte("requested_at", since).limit(1);
+  return !error && !!data && data.length > 0;
+}
+/** 🔴 الحارس منع الرد (feeReplyBlocked): تصعيد من غير رد الموديل ولا كارت ولا أوردر — العميل بياخد رسالة «زميلي هيرد في مواعيد العمل» زي أي تصعيد
+ *  من غير رد (أو مفيش لو اتبعتت قبل كده) والموظف بيشوف سطر feeBlockNote في «🚩 تصعيد». */
+function feeBlockDraft(r: Result, cfg: FeeCfg, why: FeeBlock): Result {
+  if (!r.draft) return r;
+  return { ...r, draft: { ...r.draft, behavior: "escalate", reply: "", card: "", note: feeBlockNote(cfg, why), order: null, reactivate: null, fee: null } };
+}
+/** dry_run: «لو الزرار ON كان هيحصل إيه في الرسوم» — قراية بس (sent = لو الرد اتبعت). */
+// deno-lint-ignore no-explicit-any
+async function feePreview(msg: any, st: Static, r: Result, orders: OrderLite[]): Promise<Record<string, unknown> | null> {
+  const cfg = st.fee;
+  if (!cfg || !r.draft) return null;
+  const tagged = orders.find((o) => o.fee_tag) || null;
+  const since = new Date(Date.now() - FEE_OPEN_DAYS * 86400000).toISOString();
+  const { data: rows } = await admin.from("wa_ai_fee_requests").select("id, order_uid")
+    .eq("tenant_id", msg.tenant_id).eq("conversation_id", msg.conversation_id).in("state", FEE_OPEN_STATES).gte("requested_at", since).limit(1);
+  const open = rows && rows[0] ? rows[0] : null;
+  const image = feeIsImage(msg.type);
+  const ev = feeEventOf({ cfg, open: !!open, tagged: !!tagged, image, sent: true, fee: r.draft.fee, reply: r.draft.reply });
+  return { tagged: tagged ? tagged.order_uid : null, open: !!open, model_fee: r.draft.fee || null, event: ev, note: ev ? feeNote(ev, cfg, open?.order_uid || tagged?.order_uid || null, image) : null };
+}
+
+/** تذكير رسوم الإلغاء — { action: "fee_followup" } من pg_cron (app.ai_fee_tick). نص ثابت من غير موديل — ai-fee.ts feeReminderDue بيقرر الوقت.
+ *  🔴 مابيمشيش على الزرار ON/OFF (التذكير مابيكلّفش توكنز) — بس قبل أي إرسال: موظف كتب في الشات بعد الطلب · التصعيد اتقفل · الأوردر اتسلّم أو اتلغى أو رجع =
+ *  الطلب بيتقفل · صورة من العميل بعد الطلب = «اتبعت سكرين» + سطر للموظف · العميل رد بعد آخر سؤال ومحدش اتعامل = التذكير بيقف ·
+ *  ON DEVELOP = أرقام التجربة بس · cancel_fee مش موجود أو followups = false = مفيش تذكير. الطلبات اللي لسه ماعدّاش عليها 3 ساعات مابتتقريش أصلاً. */
+async function feeFollowup(): Promise<Record<string, unknown>> {
+  const { data: reqs, error } = await admin.from("wa_ai_fee_requests")
+    .select("id, tenant_id, conversation_id, order_id, order_uid, requested_at, asked_at, reminders")
+    .eq("state", "waiting").lte("asked_at", new Date(Date.now() - FEE_FIRST_GAP_MS).toISOString())
+    .order("asked_at", { ascending: true }).limit(30);
+  if (error) return { error: "read_failed" };
+  const results: Record<string, unknown>[] = [];
+  // deno-lint-ignore no-explicit-any
+  for (const q of (reqs || []) as any[]) results.push({ id: q.id, ...(await feeFollowOne(q)) });
+  return { ok: true, n: results.length, results };
+}
+// deno-lint-ignore no-explicit-any
+async function feeFollowOne(q: any): Promise<Record<string, unknown>> {
+  const nowMs = Date.now();
+  const setState = async (state: string, why: string): Promise<Record<string, unknown>> => {
+    await admin.from("wa_ai_fee_requests").update({ state, state_at: new Date().toISOString(), close_reason: why.slice(0, 200) }).eq("id", q.id).eq("state", "waiting");
+    return { state, why };
+  };
+  const [set, cv, msgs, ord] = await Promise.all([
+    admin.from("ai_settings").select("facts, dev_mode, dev_wa_ids").eq("tenant_id", q.tenant_id).maybeSingle(),
+    admin.from("wa_conversations").select("wa_id, last_inbound_at, ai_escalated_at, ai_escalation_note").eq("id", q.conversation_id).eq("tenant_id", q.tenant_id).maybeSingle(),
+    admin.from("wa_messages").select("direction, type, sent_by").eq("tenant_id", q.tenant_id).eq("conversation_id", q.conversation_id)
+      .gt("created_at", q.requested_at).order("created_at", { ascending: false }).limit(80),
+    q.order_id ? admin.from("orders").select("status").eq("id", q.order_id).eq("tenant_id", q.tenant_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (set.error || !set.data || cv.error || !cv.data || msgs.error || ord.error) return { skipped: "read_failed" };
+  const cfg = feeConfigOf(set.data.facts as Record<string, unknown>);
+  if (!cfg || !cfg.followups) return await setState("quiet", "followups_off");
+  // deno-lint-ignore no-explicit-any
+  const rows = (msgs.data || []) as any[];
+  if (rows.some((m) => m.direction === "out" && m.sent_by)) return await setState("closed", "staff"); // موظف كتب في الشات = هو اللي ماسكها
+  if (rows.some((m) => m.direction === "in" && feeIsImage(m.type))) {
+    // البوت مقفول (بالنهار) فمحدش رد على الصورة — الطلب «اتبعت سكرين» وسطر للموظف في «تصعيد»
+    const up = await admin.from("wa_ai_fee_requests").update({ state: "paid", state_at: new Date().toISOString(), close_reason: "image" }).eq("id", q.id).eq("state", "waiting").select("id");
+    if (up.data && up.data.length) {
+      const e2 = await admin.from("wa_conversations").update({
+        ai_escalated_at: cv.data.ai_escalated_at || new Date().toISOString(),
+        ai_escalation_note: mergeEscNote(cv.data.ai_escalation_note, feeNote("paid", cfg, q.order_uid || null, true)),
+      }).eq("id", q.conversation_id).eq("tenant_id", q.tenant_id);
+      if (e2.error) console.error("wa-ai-draft fee: paid note failed", e2.error.code || "");
+    }
+    return { state: "paid", why: "image" };
+  }
+  if (!cv.data.ai_escalated_at) return await setState("closed", "esc_closed"); // الموظف قفل التصعيد («✅ اتحلت» / «🚫 مالهاش لازمة»)
+  const os = String(ord.data?.status || "");
+  if (os.toLowerCase() === "delivered") return await setState("closed", "delivered");
+  if (os === "cancelled") return await setState("closed", "cancelled");
+  if (os.startsWith("Returned")) return await setState("closed", "returned");
+  const n = Number(q.reminders) || 0;
+  const due = feeReminderDue({ nowMs, askedAt: q.asked_at, lastInboundAt: cv.data.last_inbound_at, reminders: n, cairoHour: cairoHourOf(nowMs) });
+  if (due.quiet) return await setState("quiet", due.why);
+  if (!due.due) return { skipped: due.why };
+  if (set.data.dev_mode && !((set.data.dev_wa_ids || []) as string[]).includes(String(cv.data.wa_id || ""))) return { skipped: "dev_mode" };
+  // حجز ذري قبل الإرسال: نداءين للتِك في نفس الوقت مايبعتوش التذكير مرتين
+  const sentIso = new Date(nowMs).toISOString();
+  const { data: claim } = await admin.from("wa_ai_fee_requests").update({ reminders: n + 1, last_reminder_at: sentIso, asked_at: sentIso })
+    .eq("id", q.id).eq("state", "waiting").eq("reminders", n).select("id");
+  if (!claim || !claim.length) return { skipped: "claimed" };
+  const { data: tenant } = await admin.from("tenants").select("whatsapp_token, whatsapp_phone_id").eq("id", q.tenant_id).maybeSingle();
+  if (!tenant?.whatsapp_token || !tenant?.whatsapp_phone_id || !cv.data.wa_id) return await setState("quiet", "no_wa_config");
+  const e = await sendAction({ kind: "text", body: feeReminderText(cfg, n), tag: "reply" }, q.tenant_id, q.conversation_id, String(cv.data.wa_id), String(tenant.whatsapp_phone_id), String(tenant.whatsapp_token));
+  if (e) return await setState("quiet", "send_failed: " + e); // مفيش إعادة — التكرار أسوأ من الغياب
+  return { sent: n + 1 };
+}
+
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
-async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null): Promise<Record<string, unknown>> {
+async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null, factsOverride?: Record<string, unknown> | null): Promise<Record<string, unknown>> {
   // deno-lint-ignore no-explicit-any
   let mq: any = await admin.from("wa_messages").select(MSG_COLS + MEDIA_COLS).eq("id", messageId).maybeSingle();
   if (mq.error) mq = await admin.from("wa_messages").select(MSG_COLS).eq("id", messageId).maybeSingle();
   const msg = mq.data;
   if (!msg) return { skipped: "not_found" };
   if (msg.direction !== "in") return { skipped: "not_inbound" };
-  const st = await loadStatic(msg.tenant_id);
+  // facts_extra (تجربة إعداد قبل تسجيله — رسوم الإلغاء مثلاً): dry_run بس
+  const st = await loadStatic(msg.tenant_id, dry && factsOverride ? factsOverride : undefined);
   if (!st) return { skipped: "no_settings" };
   if (dry && layoutOverride) st.layout = layoutOverride; // تجربة شكل دخل تاني — dry_run بس (المسار العادي = إعداد المتجر)
   if (dry) withCardNotes(st, notesOverride);
@@ -800,6 +954,8 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
         created_at: o.created_at, cancel_requested: !!o.cancel_requested_at, carrier: o.shipping_carrier || null,
         status_at: o.carrier_status_at || o.status_changed_at || null,
         ...base, cancel_tag: cancelTag(base, nowIso),
+        // رسوم الإلغاء: J&T استلمته من عندنا (حالة بعد الاستلام أو مسح منها) — بس لما الميزة شغّالة
+        ...(st.fee ? { fee_tag: feeTagOf({ status, carrier: o.shipping_carrier || null, carrierStatusAt: o.carrier_status_at || null }) } : {}),
       };
     });
   }
@@ -807,7 +963,13 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     adId: conv?.ctwa_ad_id || null, adBody: conv?.ctwa_ad_body || null, customerName: conv?.customer_name || null,
     orders, ordersKnown: forms.length > 0, history,
   };
-  const r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body, media: triggerMedia }, modelOverride || st.model, undefined, undefined, dry && layoutOverride === "v4");
+  let r = await draftFor(st, cv, { type: msg.type || "text", body: msg.body, media: triggerMedia }, modelOverride || st.model, undefined, undefined, dry && layoutOverride === "v4");
+  // 🔴 رسوم الإلغاء — الحارس: رد فيه رقم التحويل لعميل ماطلبش يلغي أوردر مع شركة الشحن (ومفيش طلب مفتوح) = مايتبعتش — قبل المسودة والإرسال والمعاينة
+  const feeBlock = st.fee && r.draft && replyAsksFee(r.draft.reply, st.fee)
+    ? feeReplyBlocked({ cfg: st.fee, reply: r.draft.reply, open: await feeIsOpen(msg), tagged: orders.some((o) => !!o.fee_tag), asked: feeAskText(history, Date.now()) })
+    : null;
+  const feeBlocked = feeBlock && r.draft ? { why: feeBlock, reply: r.draft.reply.slice(0, 600) } : null;
+  if (feeBlock) r = feeBlockDraft(r, st.fee!, feeBlock);
   const mediaUse = reads.length ? reads.map((x) => ({ type: x.type, ok: !!x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms })) : null;
   if (dry) {
     // «لو الزرار ON كان هيبعت إيه» — قراية بس، من غير أي إرسال ولا كتابة
@@ -817,9 +979,9 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     if (rstep) plan = planFor(st, r, state, msg.tenant_id, null, reactOutcomePreview(st, rstep)).plan;
     const step = !rstep && plan.reason === "collect" ? orderStepFor(st, r, orders, state.waId || String(conv?.wa_id || ""), sess) : null;
     if (step) plan = planFor(st, r, state, msg.tenant_id, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
-    const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep) };
+    const auto_preview = { state_ok: state.ok, staff_active: staffActive, ...planPreview(plan), order_preview: orderPreview(step), react_preview: reactPreview(rstep), fee_preview: await feePreview(msg, st, r, orders) };
     const media_read = reads.map((x) => ({ id: x.id, type: x.type, text: x.text, error: x.error, ti: x.ti, to: x.to, ms: x.ms }));
-    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, layout_used: r.layout || null, cache: r.cache || null, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview, media_read };
+    return { dry_run: true, draft: r.draft, model: r.model, layout: st.layout, layout_used: r.layout || null, cache: r.cache || null, esc: st.esc, tokens_in: r.tokensIn, tokens_out: r.tokensOut, tokens_cached: r.tokensCached, ms: r.ms, error: r.error, auto_preview, media_read, ...(feeBlocked ? { fee_blocked: feeBlocked } : {}) };
   }
 
   if (r.draft && r.draft.behavior === "skip" && !r.model) return { skipped: "pre_rule_skip" }; // ضغطة زرار/تفاعل — مش محتاجة صف
@@ -828,7 +990,7 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
     tenant_id: msg.tenant_id, conversation_id: msg.conversation_id, trigger_message_id: msg.id,
     intent: r.draft?.intent || null, behavior: r.draft?.behavior || "escalate",
     body: r.draft ? (r.draft.reply || null) : null,
-    media: r.draft ? { card: cardRow ? { quick_reply_id: cardRow.id, title: cardRow.title } : null, note: r.draft.note || null, ...(mediaUse ? { read: mediaUse } : {}) } : null,
+    media: r.draft ? { card: cardRow ? { quick_reply_id: cardRow.id, title: cardRow.title } : null, note: r.draft.note || null, ...(mediaUse ? { read: mediaUse } : {}), ...(feeBlocked ? { fee_blocked: feeBlocked } : {}) } : null,
     model: r.model, tokens_in: r.tokensIn || null, tokens_out: r.tokensOut || null, tokens_cached: r.model ? r.tokensCached : null, latency_ms: r.ms || null,
     error: r.error ? String(r.error).slice(0, 300) : null,
   };
@@ -842,8 +1004,8 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
 
 // ── التقييم: حالات eval-cases.ts بسياق وهمي — صفر كتابة ──────────────
 // deno-lint-ignore no-explicit-any
-async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null, cardNotes?: Record<string, unknown> | null, esc?: EscStyle | null): Promise<Record<string, unknown>> {
-  const st = await loadStatic(EVAL_TENANT, EVAL_FACTS_EXTRA);
+async function runEval(from: number, to: number, modelOverride: string | null, gen?: Record<string, any>, evalRules?: string, layout?: Layout | null, cardNotes?: Record<string, unknown> | null, esc?: EscStyle | null, factsExtra?: Record<string, unknown> | null): Promise<Record<string, unknown>> {
+  const st = await loadStatic(EVAL_TENANT, { ...EVAL_FACTS_EXTRA, ...(factsExtra || {}) });
   if (!st) return { error: "no_settings" };
   if (layout) st.layout = layout;
   if (esc) st.esc = esc;
@@ -882,10 +1044,17 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
             created_at: new Date(now - o.days * 86400000 - 3600000).toISOString(),
             status_at: o.status_days != null ? new Date(now - o.status_days * 86400000).toISOString() : null,
             ...base, cancel_tag: cancelTag(base, new Date(now).toISOString()),
+            ...(st.fee ? { fee_tag: feeTagOf({ status: o.status, carrier: "jt", carrierStatusAt: null }) } : {}),
           };
         }),
       };
-      const r = await draftFor(st, cv, { type: type || "text", body: text, media: media || null }, model, gen, evalRules, true);
+      let r = await draftFor(st, cv, { type: type || "text", body: text, media: media || null }, model, gen, evalRules, true);
+      const rawReply = r.draft?.reply || "";
+      // الحارس زي المسار العادي — «طلب مفتوح» هنا = رسالة من البوت في الحالة فيها رقم التحويل (مفيش جدول في التقييم)
+      const feeBlock = st.fee && r.draft && replyAsksFee(rawReply, st.fee)
+        ? feeReplyBlocked({ cfg: st.fee, reply: rawReply, open: hist.some((h) => h.dir === "out" && replyAsksFee(h.body, st.fee)), tagged: cv.orders.some((o) => !!o.fee_tag), asked: feeAskText(hist, now) })
+        : null;
+      if (feeBlock) r = feeBlockDraft(r, st.fee!, feeBlock);
       const want = EXPECT[exp];
       let ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT).plan; // «لو ON» بحالة محادثة نضيفة — قرار بس، مفيش إرسال في التقييم
       const rstep = REACT_OK.includes(ap.reason) ? reactStepFor(r, cv.orders) : null; // قرار التفعيل بس — مفيش كتابة في التقييم
@@ -893,10 +1062,10 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       const step = !rstep && ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID, sessionText(hist)) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
       if (step) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
       results.push({
-        n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: r.draft?.reply || "",
+        n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: rawReply, fee_blocked: feeBlock || undefined,
         card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error, cache: r.cache || undefined,
         auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
-        order: r.draft?.order || null, order_step: orderPreview(step), reactivate: r.draft?.reactivate || null, react_step: reactPreview(rstep),
+        order: r.draft?.order || null, order_step: orderPreview(step), reactivate: r.draft?.reactivate || null, react_step: reactPreview(rstep), fee: r.draft?.fee || undefined,
         auto_text: (step || rstep || ap.reason === "escalate") && ap.actions[0]?.kind === "text" ? ap.actions[0].body : undefined,
         auto_tag: ap.reason === "escalate" && ap.actions[0]?.kind === "text" ? ap.actions[0].tag : undefined,
       });
@@ -905,7 +1074,7 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
   await Promise.all(Array.from({ length: Math.min(EVAL_POOL, cases.length) }, worker));
   results.sort((a, b) => Number(a.n) - Number(b.n));
   const sum = (k: string) => results.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-  return { model, layout: st.layout, esc: st.esc, warm, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
+  return { model, layout: st.layout, esc: st.esc, fee: !!st.fee, warm, count: results.length, pass: results.filter((r) => r.ok).length, ti: sum("ti"), to: sum("to"), tc: sum("tc"), results };
 }
 
 async function listModels(): Promise<Record<string, unknown>> {
@@ -937,18 +1106,20 @@ Deno.serve(async (req: Request) => {
   const layout: Layout | null = body?.layout === "v1" || body?.layout === "v2" || body?.layout === "v3" || body?.layout === "v4" ? body.layout : null;
   const cardNotes: Record<string, unknown> | null = body?.card_notes && typeof body.card_notes === "object" && !Array.isArray(body.card_notes) ? body.card_notes : null;
   const esc: EscStyle | null = body?.esc_style === "v1" || body?.esc_style === "v2" ? body.esc_style : null;
+  const factsExtra: Record<string, unknown> | null = body?.facts_extra && typeof body.facts_extra === "object" && !Array.isArray(body.facts_extra) ? body.facts_extra : null;
   if (action === "models") return json(await listModels());
+  if (action === "fee_followup") return json(await feeFollowup());
   if (action === "eval") {
     const from = Math.max(1, Number(body?.from) || 1), to = Math.max(from, Number(body?.to) || from);
     const gen = body?.gen && typeof body.gen === "object" ? body.gen : undefined;
     const evalRules = typeof body?.rules_extra === "string" ? body.rules_extra.slice(0, 4000) : undefined;
-    return json(await runEval(from, to, model, gen, evalRules, layout, cardNotes, esc));
+    return json(await runEval(from, to, model, gen, evalRules, layout, cardNotes, esc, factsExtra));
   }
 
   const messageId = String(body?.message_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return json({ error: "bad_message_id" }, 400);
   const dry = body?.dry_run === true;
-  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes, esc));
+  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes, esc, factsExtra));
   // المسار العادي: رد فوري والشغل في الخلفية (الانتظار 12ث + الموديل أطول من مهلة pg_net)
   const job = handleMessage(messageId, false, null, null, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
   // deno-lint-ignore no-explicit-any
