@@ -14,6 +14,7 @@
 // 12) mergeEscNote: من غير تكرار · الأحدث في الآخر · بسقف
 // 13) الملف من غير import · اسم البوت ثابت
 // 14) escTalk (esc_style = v2 — 18 نوفمبر): رد التصعيد من الموديل بيتبعت في كل دور (حتى والاعتذار اتبعت قبل كده) · رد فاضي = الاعتذار
+// 15) convTurnsFor (24 نوفمبر): رقم التجربة وقت 🧪 ON DEVELOP مالوش سقف المحادثة · أي رقم تاني أو ON DEVELOP مقفول = العدد زي ما هو
 //     الثابت · من غير escTalk = القديم بالحرف · «حالاً/دلوقتي» عن رد الزميل بتتشال و«حالياً» بتفضل · السقف لسه بيسكّته
 // المعايرات: (أ) التصعيد بيبعت رد الموديل · (ب) الاعتذار بيتكرر · (ج) السقف مش بيتشاف · (د) caption على كل صورة ·
 //            (هـ) التحويل لموظف من غير تصعيد · (ط) رد الموديل بيتبعت مع تأكيد الأوردر · (ي) collect اللي لسه بيجمّع بيتصعّد (الشكل القديم) · (و) الكارت بيتكرر · (ز) webp بيعدّي · (ح) السقف بيسيب الاعتذار يتبعت
@@ -190,14 +191,21 @@ function run(m) {
     && m.escReply('يناسب حضرتك تستلم إمتى؟') === 'يناسب حضرتك تستلم إمتى؟' && m.escReply(null) === '');
   p = m.autoPlan(IN({ draft: D('escalate', TALK, '', 'n'), escTalk: true, turnsInConv: m.AUTO_MAX_TURNS_PER_CONV }));
   ok('14ح السقف بيسكّت رد التصعيد كمان', p.actions.length === 0 && p.reason === 'conv_cap');
+
+  // 15) 🧪 ON DEVELOP (24 نوفمبر): رقم التجربة مالوش سقف المحادثة · غيره = السقف زي ما هو · ON DEVELOP مقفول (null) = السقف لكل الناس
+  const DEV = ['201050005219'];
+  ok('15أ رقم التجربة = صفر', m.convTurnsFor(12, DEV, '201050005219') === 0);
+  ok('15ب رقم تاني = العدد زي ما هو', m.convTurnsFor(12, DEV, '201000000001') === 12 && m.convTurnsFor(3, DEV, null) === 3);
+  ok('15ج ON DEVELOP مقفول = العدد زي ما هو', m.convTurnsFor(12, null, '201050005219') === 12 && m.convTurnsFor(12, undefined, '201050005219') === 12 && m.convTurnsFor(12, [], '201050005219') === 12);
   return fails;
 }
 
 let bad = 0;
 const fails = run(await load());
-if (fails.length) { bad++; console.log('✗ وقع: ' + fails.join(' | ')); } else console.log('✓ 14 فحص عدّوا');
+if (fails.length) { bad++; console.log('✗ وقع: ' + fails.join(' | ')); } else console.log('✓ 15 فحص عدّوا');
 
 const CALS = [
+  ['(م) ON DEVELOP بيشيل السقف عن الكل', (s) => s.replace('return Array.isArray(devWaIds) && !!waId && devWaIds.includes(String(waId)) ? 0 : turns;', 'return Array.isArray(devWaIds) ? 0 : turns;'), '15ب'],
   ['(ل) رصيد Gemini خلص = رسالة اعتذار لكل عميل', (s) => s.replace('if (!d && modelDown(i.error))', 'if (false)'), '10ب'],
   ['(أ) التصعيد بيبعت رد الموديل', (s) => s.replace('    return { actions: hold(), escalate, reason: "escalate" };',
     '    return { actions: [{ kind: "text", body: d.reply, tag: "reply" }], escalate, reason: "escalate" };'), '2أ'],

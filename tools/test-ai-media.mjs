@@ -16,10 +16,14 @@
 // 10) MEDIA_UNCLEAR نفس القيمة في الملفين · MEDIA_SCHEMA (text الأول) · سقف الحجم لكل نوع · MEDIA_RULES فيها القواعد ·
 //     تعليمات الموديل الأساسية (v1 وv2) من غير قواعد الميديا (بتتضاف في wa-ai-draft بس لما المحادثة فيها ميديا اتفهمت)
 // 11) buildUserPrompt v1 وv3: سطر الفويس في الرسايل · v3 بيعرض نص كارت المنتج اللي اتقال في الفويس
+// 12) (24 نوفمبر — بلاغ المالك: كارت «الدور الواحد» اتقرا «الدورين» وقال للعميل خلصان) mediaPrompt بيطلب عدد الدواليب/الأرفف (الصورة بس) ·
+//     looks = «اسم: شكل» بسطور «•» من غير تكرار وبسقف 10 × 500 · من غير looks مفيش البلوك · MEDIA_RULES فيها قاعدة الشكل و«ماتقولش خلصان» ·
+//     productBlock بيعرض «الشكل في الصور» · قاعدة 23(ز) «دي نفس الصورة» في v2 بس
 // المعايرات: (أ) المسار من أي محادثة · (ب) اللي اتقرا بيتقري تاني · (ج) رسالة المسودة مش الأولى · (د) preRule بيتجاهل الميديا ·
 //            (هـ) historyBlock بيتجاهل الميديا · (و) unclear مابيتعرفش · (ز) pickCards مابيدورش في الفويس · (ح) toBase64 بيبوّظ عند حدود الدفعة ·
 //            (ط) نوع مش مدعوم بيتبعت · (ي) السقف بيتشال · (ك) «(مش مفهومة)» مختلفة في الملفين · (ل) حروف الاتجاه مابتتشالش ·
-//            (م) السطر الجديد مابيتلمّش · (ن) ميديا الرسالة الصادرة بتتعرض
+//            (م) السطر الجديد مابيتلمّش · (ن) ميديا الرسالة الصادرة بتتعرض · (س) الأشكال مابتوصلش التعليمات · (ع) «الشكل في الصور» من غير اسم ·
+//            (ف) قاعدة الشكل اتشالت من MEDIA_RULES · (ص) قاعدة 23(ز) اتشالت
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -176,12 +180,27 @@ function run(m, d) {
   const u1 = d.buildUserPrompt(ctxOf(hv), 'v1'), u3 = d.buildUserPrompt(ctxOf(hv), 'v3');
   ok('11أ v1 فيه سطر الفويس', u1.includes(line));
   ok('11ب v3 فيه سطر الفويس ونص كارت الراديو بس', u3.includes(line) && u3.includes('# نص كروت المحادثة دي') && u3.includes('### كارت «راديو»') && !u3.includes('### كارت «حمام»'));
+
+  // 12) تعرّف المنتج من الصورة بالشكل (24 نوفمبر)
+  const LK = ['منظم المطبخ (دور واحد): دولاب واحد بس', 'منظم المطبخ دورين: دولابين فوق بعض', ' منظم المطبخ دورين:   دولابين فوق بعض '];
+  const pl = m.mediaPrompt('image', names, LK), p0 = m.mediaPrompt('image', names), vl = m.mediaPrompt('voice', names, LK);
+  ok('12أ عدد الدواليب في تعليمات الصورة بس', pl.includes('قول عددهم بالظبط') && p0.includes('قول عددهم بالظبط') && !vl.includes('قول عددهم بالظبط') && !vl.includes('شبه بعض'));
+  const many2 = Array.from({ length: 14 }, (_, i) => 'منتج ' + (i + 1) + ': شكل');
+  const pm = m.mediaPrompt('image', names, many2), plong = m.mediaPrompt('image', names, ['ش'.repeat(499) + 'كل']);
+  ok('12ب الأشكال بسطور • من غير تكرار وبسقف', pl.includes('شبه بعض بتتفرق بالشكل') && pl.includes('  • منظم المطبخ (دور واحد): دولاب واحد بس') && pl.split('  • منظم المطبخ دورين: دولابين فوق بعض').length === 2
+    && pm.includes('منتج 10: شكل') && !pm.includes('منتج 11: شكل') && plong.includes('ش'.repeat(499) + 'ك') && !plong.includes('ش'.repeat(499) + 'كل')
+    && !p0.includes('شبه بعض') && !m.mediaPrompt('image', names, []).includes('شبه بعض') && !m.mediaPrompt('image', names, null).includes('شبه بعض'));
+  ok('12ج MEDIA_RULES فيها قاعدة الشكل و«ماتقولش خلصان»', d.MEDIA_RULES.includes('«الشكل في الصور»') && d.MEDIA_RULES.includes('ماتقولش إن المنتج اللي في الصورة خلصان') && d.MEDIA_RULES.includes('اعتبرها منتج الإعلان'));
+  const pb = d.productBlock({ id: 'p1', name: 'منظم', aliases: [], site_names: [], quick_reply_id: null, assembled: false, facts: { look: 'دولاب واحد بس' } }, ctxOf([]));
+  ok('12د productBlock بيعرض «الشكل في الصور»', pb.includes('- الشكل في الصور: دولاب واحد بس'));
+  const s2 = d.buildSystemPrompt({ esc: 'v2', hours: 'من 12 لـ 7' }), s1 = d.buildSystemPrompt();
+  ok('12هـ قاعدة 23(ز) «دي نفس الصورة» في v2 بس', s2.includes('(ز) لو العميل قال إن صور المنتج اللي بعتناها له هي اللي عايزها') && !s1.includes('(ز) لو العميل قال إن صور المنتج'));
   return fails;
 }
 
 let bad = 0;
 const base = run(await load(TSM, SRCM), await load(TSD, SRCD));
-if (base.length) { bad++; console.log('✗ وقع: ' + base.join(' | ')); } else console.log('✓ 11 فحص عدّوا');
+if (base.length) { bad++; console.log('✗ وقع: ' + base.join(' | ')); } else console.log('✓ 12 فحص عدّوا');
 
 const M0 = await load(TSM, SRCM), D0 = await load(TSD, SRCD);
 const CALS = [
@@ -199,6 +218,10 @@ const CALS = [
   ['(ل) حروف الاتجاه مابتتشالش', 'm', (s) => s.replace(/\.replace\(\/\[[^\]]*\]\/g, ""\)/, ''), '5هـ'],
   ['(م) السطر الجديد مابيتلمّش', 'd', (s) => s.replace('const flat = media.replace(/\\s*\\n+\\s*/g, " / ");', 'const flat = media;'), '8أ'],
   ['(ن) ميديا الرسالة الصادرة بتتعرض', 'd', (s) => s.replace('const media = m.dir === "in" ? String(m.media || "").trim() : "";' + NL + '  if (media) return who', 'const media = String(m.media || "").trim();' + NL + '  if (media) return who'), '8هـ'],
+  ['(س) الأشكال مابتوصلش التعليمات', 'm', (s) => s.replace('...(lk.length ? [', '...(false ? ['), '12ب'],
+  ['(ع) «الشكل في الصور» من غير اسم', 'd', (s) => s.replace('  look: "الشكل في الصور",', ''), '12د'],
+  ['(ف) قاعدة الشكل اتشالت من MEDIA_RULES', 'd', (s) => s.replace(/  "- صورة أو سكرين شوت لمنتج:[^\n]*\n/, ''), '12ج'],
+  ['(ص) قاعدة 23(ز) اتشالت', 'd', (s) => s.replace('"(ز) لو العميل قال إن صور المنتج اللي بعتناها له هي اللي عايزها', '"(ز-) لو العميل قال إن صور المنتج اللي بعتناها له هي اللي عايزها'), '12هـ'],
 ];
 for (const [name, which, mut, expect] of CALS) {
   let f;

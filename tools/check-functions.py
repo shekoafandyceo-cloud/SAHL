@@ -794,6 +794,19 @@ CONTRACTS = [
      lambda s: "export async function selfCheck(evalData: unknown)" in s and 'crypto.subtle.digest("SHA-256"' in s
      and u'!l.startsWith("- الوقت دلوقتي")' in s
      and not any(x in s for x in ("fetch(", ".from(", "Deno.env", "createClient", ".rpc("))),
+    # (24 نوفمبر — بلاغ المالك: صورة «الدور الواحد» اتقرت «الدورين الخلصان») قراية الصور من جديد بتعليمات النسخة دي: dry_run بس ومابتتخزنش ·
+    # الأشكال (ai_products.facts.look) بتوصل تعليمات فهم الصورة · رقم التجربة وقت ON DEVELOP من غير سقف المحادثة في الإرسال و«بيكتب...» مع بعض
+    ("wa-ai-draft", u"media_reread: dry_run بس (المسار العادي مابيبعتهوش) والقراية مابتتخزنش · الأشكال في تعليمات فهم الصورة · سقف المحادثة لرقم التجربة من convTurnsFor في الإرسال و«بيكتب...»",
+     lambda s: "if (dry && rereadMedia) for (const x of histRows)" in s
+     and "await handleMessage(messageId, true, model, layout, cardNotes, esc, factsExtra, body?.media_reread === true)" in s
+     and "const job = handleMessage(messageId, false, null, null, null, null)" in s and s.count("media_reread") <= 3
+     and _order(s, "if (dry && rereadMedia)", "const todo = mediaToRead(histRows")
+     and "mediaPrompt(type, mediaNames(st), mediaLooks(st))" in s
+     and "turnsInConv: convTurnsFor(state.turnsInConv, st.devWaIds, state.waId)" in s
+     and "convTurnsFor(state.turnsInConv, st.devWaIds, state.waId) >= AUTO_MAX_TURNS_PER_CONV" in s
+     and "devWaIds: set.data.dev_mode ? (" in s),
+    ("_shared/ai-auto", u"convTurnsFor: صفر لرقم التجربة بس (القايمة موجودة والرقم فيها) — غير كده العدد زي ما هو",
+     lambda s: "return Array.isArray(devWaIds) && !!waId && devWaIds.includes(String(waId)) ? 0 : turns;" in s),
     ("wa-ai-draft", u"self_check بعد التصريح وبحالات التقييم نفسها — وأي نداء لـselfCheck( بعد التصريح",
      lambda s: 'if (action === "self_check") return json({ ...(await selfCheck([EVAL_CASES, CTX, EXPECT])), source: await selfSource(import.meta.url) });' in s
      and "if (!(await authorized(req)))" in s

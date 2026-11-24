@@ -25,7 +25,8 @@
 //      الخلفية: mode لازم shadow/auto · بيستنى 12ث (debounce) · رسالة أحدث من العميل = الأحدث هي اللي بترد · موظف رد خلاص = مفيش مسودة.
 //      مع dry_run: بيرجّع المسودة في الرد من غير انتظار ومن غير أي كتابة (وبيتجاهل mode) — للتجربة على رسايل حقيقية.
 //      مع dry_run: بيقبل كمان layout (v1/v2/v3) لتجربة شكل دخل تاني على رسالة حقيقية، وcard_notes ({اسم الكارت: معلومات}) لتجربة
-//      «معلومات للـAgent» على كارت من غير أي كتابة.
+//      «معلومات للـAgent» على كارت من غير أي كتابة. ومع media_reread: true (24 نوفمبر) الصور والفويس بيتقروا من جديد بتعليمات النسخة دي
+//      (النص المتخزن بيتجاهل في الذاكرة والقراية الجديدة مابتتخزنش) — لتجربة تعليمات فهم الصور على صور حقيقية.
 //   2) { action: "eval", from, to, model?, gen?, rules_extra?, layout?, card_notes? } — بيشغّل حالات eval-cases.ts بسياق وهمي (صفر كتابة) ويرجّع النتايج.
 //      rules_extra = قواعد تجريبية بتتضاف لتعليمات الموديل في التقييم بس (عمرها ما بتوصل المسار العادي).
 //      layout = شكل الدخل (v1 الحالي · v2 الثابت الأول · v3 كروت المحادثة بس + فهرس) — من غيره = شكل الحي.
@@ -62,7 +63,7 @@ import {
   feeReplyBlocked, feeTagOf, replyAsksFee, type FeeBlock, type FeeCfg, type FeeEvent,
 } from "../_shared/ai-fee.ts";
 import { CACHE_TTL_S, cacheCreateBody, cacheKey, cachePlan, cacheRetryable, generateBody, parseCacheMeta } from "../_shared/ai-cache.ts";
-import { autoPlan, AUTO_MAX_TURNS_PER_CONV, AUTO_MAX_TURNS_PER_DAY, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
+import { autoPlan, AUTO_MAX_TURNS_PER_CONV, AUTO_MAX_TURNS_PER_DAY, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, convTurnsFor, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
   cancelInfo, cancelTag, ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, planReactivate, REACT_HANDOFF_TEXT, reactivateConfirmText,
   sessionText, type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder, type ReactOrder, type ReactStep,
@@ -271,6 +272,10 @@ async function callGeminiMedia(model: string, prompt: string, mime: string, b64:
 function mediaNames(st: Static): string[] {
   return [...st.products.map((p) => p.name), ...st.cards.map((c) => cardProductLine(c))].filter(Boolean);
 }
+/** «اسم المنتج: شكله» (ai_products.facts.look) — المنتجات اللي شبه بعض بتتسمّى من الصورة بالشكل (24 نوفمبر — الدور الواحد اتقرا «دورين»). */
+function mediaLooks(st: Static): string[] {
+  return st.products.map((p) => (typeof p.facts?.look === "string" && p.facts.look.trim() ? p.name + ": " + p.facts.look.trim() : "")).filter(Boolean);
+}
 async function storeMediaText(tenantId: string, messageId: string, text: string): Promise<void> {
   const up = await admin.from("wa_messages").update({ ai_media_text: text }).eq("id", messageId).eq("tenant_id", tenantId).is("ai_media_text", null);
   if (up.error) console.error("wa-ai-draft media: store failed", up.error.code || "");
@@ -286,7 +291,7 @@ async function readMedia(st: Static, tenantId: string, convId: string, row: Medi
   if (dl.error || !dl.data) return out(null, "download_failed");
   const buf = new Uint8Array(await dl.data.arrayBuffer());
   if (!buf.length || buf.length > (MEDIA_MAX_BYTES[type] || 0)) return out(null, "too_big");
-  const g = await callGeminiMedia(st.model, mediaPrompt(type, mediaNames(st)), mime, toBase64(buf));
+  const g = await callGeminiMedia(st.model, mediaPrompt(type, mediaNames(st), mediaLooks(st)), mime, toBase64(buf));
   if (store && g.text) await storeMediaText(tenantId, row.id, g.text);
   return out(g.text, g.error, g.ti, g.to);
 }
@@ -462,7 +467,7 @@ function planFor(st: Static, r: Result, state: AutoState, tenantId: string, orde
     ? { title: cardRow.title, body: cardRow.body, images: (st.cardMedia.get(cardRow.id) || []).filter((p) => isQuickReplyPath(tenantId, p)) } : null;
   const plan = autoPlan({
     draft: r.draft, fromModel: !!r.model, error: r.error, card, cardRepeat: state.cardRepeat, holdSent: state.holdSent,
-    turnsInConv: state.turnsInConv, turnsToday: state.turnsToday,
+    turnsInConv: convTurnsFor(state.turnsInConv, st.devWaIds, state.waId), turnsToday: state.turnsToday, // رقم التجربة وقت ON DEVELOP من غير سقف المحادثة
     holdMessage: typeof st.facts.hold_message === "string" ? st.facts.hold_message as string : null,
     order, react, escTalk: st.esc === "v2", lastBotText: state.lastBotText,
   });
@@ -886,7 +891,7 @@ async function typingStart(msg: any, st: Static, dry: boolean): Promise<string> 
     // رقم المحادثة والسقوف من نفس autoState بتاعة الإرسال: البوت واصل للحد (هيسكت) = مفيش «بيكتب...» وبعده سكوت
     const state = await autoState(msg.tenant_id, msg.conversation_id, null, null);
     if (!state.ok) return "state_error";
-    const capped = state.turnsToday >= AUTO_MAX_TURNS_PER_DAY || state.turnsInConv >= AUTO_MAX_TURNS_PER_CONV;
+    const capped = state.turnsToday >= AUTO_MAX_TURNS_PER_DAY || convTurnsFor(state.turnsInConv, st.devWaIds, state.waId) >= AUTO_MAX_TURNS_PER_CONV;
     if (!typingWanted({ dry, mode: st.mode, flag: st.facts.typing_indicator, devWaIds: st.devWaIds, waId: state.waId, capped })) return capped ? "capped" : "off";
     const { data: tn } = await admin.from("tenants").select("whatsapp_token, whatsapp_phone_id").eq("id", msg.tenant_id).maybeSingle();
     if (!tn?.whatsapp_token || !tn?.whatsapp_phone_id) return "no_wa_config";
@@ -905,7 +910,7 @@ async function typingStart(msg: any, st: Static, dry: boolean): Promise<string> 
 }
 
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
-async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null, factsOverride?: Record<string, unknown> | null): Promise<Record<string, unknown>> {
+async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null, factsOverride?: Record<string, unknown> | null, rereadMedia?: boolean): Promise<Record<string, unknown>> {
   // deno-lint-ignore no-explicit-any
   let mq: any = await admin.from("wa_messages").select(MSG_COLS + MEDIA_COLS).eq("id", messageId).maybeSingle();
   if (mq.error) mq = await admin.from("wa_messages").select(MSG_COLS).eq("id", messageId).maybeSingle();
@@ -955,6 +960,8 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   const histRows: any[] = rows.filter((r: any) => r.created_at <= msg.created_at).slice(0, HISTORY_N);
   // الفويس/الصور اللي لسه مااتفهمتش في الرسايل دي (رسالة المسودة الأول · بسقف) — واللي اتقرت مع الانتظار مابتتقريش تاني
   if (earlyRead?.text) for (const x of histRows) if (x.id === msg.id && !x.ai_media_text) x.ai_media_text = earlyRead.text;
+  // media_reread (24 نوفمبر — تجربة تعليمات فهم الصور الجديدة على صور حقيقية): dry_run بس — النص المتخزن بيتجاهل في الذاكرة والقراية الجديدة مابتتخزنش
+  if (dry && rereadMedia) for (const x of histRows) if (x.direction === "in" && MEDIA_TYPES.includes(String(x.type))) x.ai_media_text = null;
   const todo = mediaToRead(histRows, msg.tenant_id, msg.conversation_id, msg.id).filter((x) => !(earlyRead && x.id === msg.id));
   const reads: MediaRead[] = earlyRead ? [earlyRead] : [];
   if (todo.length) {
@@ -1060,12 +1067,12 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
   async function worker() {
     while (next < cases.length) {
       const c = cases[next++];
-      const [n, ctxKey, exp, text, extra, type, media] = c; // media = اللي السيستم فهمه من الفويس/الصورة (حالات 177+)
+      const [n, ctxKey, exp, text, extra, type, media, chk] = c; // media = اللي السيستم فهمه من الفويس/الصورة (حالات 177+) · chk = فحص كلام الرد (حالات 203+)
       const fx = CTX[ctxKey] || {};
       const hist: HistMsg[] = [...(fx.h || []), ...(extra || [])].map((h) => {
         const at = h.ago != null ? { at: new Date(now - h.ago * 3600000).toISOString() } : {}; // حالات 185+: الرسالة من كام ساعة (فواصل الوقت)
         if (h.card) { const k = st.allCards.find((x) => x.title === h.card); return { dir: "out", type: "image", body: k ? k.body : "[كارت " + h.card + "]", ...at } as HistMsg; }
-        return { dir: h.dir, type: h.type || "text", body: h.body || "", ...at } as HistMsg;
+        return { dir: h.dir, type: h.type || "text", body: h.body || "", ...(h.media && h.dir === "in" ? { media: h.media } : {}), ...at } as HistMsg; // media: صورة/فويس قبل رسالة الحالة (203+)
       });
       const timed = hist.some((h) => !!h.at); // حالة فيها أوقات (ago) = الرسالة نفسها دلوقتي — غير كده نفس الشكل القديم من غير أوقات
       hist.push({ dir: "in", type: type || "text", body: text, media: media || null, ...(timed ? { at: new Date(now).toISOString() } : {}) });
@@ -1099,8 +1106,11 @@ async function runEval(from: number, to: number, modelOverride: string | null, g
       if (rstep) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, null, reactOutcomePreview(st, rstep)).plan;
       const step = !rstep && ap.reason === "collect" ? orderStepFor(st, r, cv.orders, EVAL_WA_ID, sessionText(hist)) : null; // قرار الأوردر بس — مفيش تسجيل في التقييم
       if (step) ap = planFor(st, r, { ...NO_STATE, ok: true }, EVAL_TENANT, orderOutcome(st, r, step, PREVIEW_ORDER_UID)).plan;
+      // فحص كلام الرد (24 نوفمبر — حالات 203+): السلوك لوحده مابيمسكش «answer» بيقول للعميل إن المتاح خلصان
+      const badHit = !!chk?.bad && new RegExp(chk.bad).test(rawReply), needMiss = !!chk?.need && !new RegExp(chk.need).test(rawReply);
       results.push({
-        n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want, intent: r.draft?.intent || "", reply: rawReply, fee_blocked: feeBlock || undefined,
+        n, want, got: r.draft?.behavior || null, ok: r.draft?.behavior === want && !badHit && !needMiss, intent: r.draft?.intent || "", reply: rawReply, fee_blocked: feeBlock || undefined,
+        ...(badHit ? { bad_hit: true } : {}), ...(needMiss ? { need_miss: true } : {}),
         card: r.draft?.card || "", note: r.draft?.note || "", ms: r.ms, ti: r.tokensIn, to: r.tokensOut, tc: r.tokensCached, err: r.error, cache: r.cache || undefined,
         auto: ap.reason, auto_n: ap.actions.length, auto_esc: ap.escalate ? 1 : 0,
         order: r.draft?.order || null, order_step: orderPreview(step), reactivate: r.draft?.reactivate || null, react_step: reactPreview(rstep), fee: r.draft?.fee || undefined,
@@ -1159,7 +1169,7 @@ Deno.serve(async (req: Request) => {
   const messageId = String(body?.message_id || "");
   if (!/^[0-9a-f-]{36}$/i.test(messageId)) return json({ error: "bad_message_id" }, 400);
   const dry = body?.dry_run === true;
-  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes, esc, factsExtra));
+  if (dry) return json(await handleMessage(messageId, true, model, layout, cardNotes, esc, factsExtra, body?.media_reread === true));
   // المسار العادي: رد فوري والشغل في الخلفية (الانتظار 12ث + الموديل أطول من مهلة pg_net)
   const job = handleMessage(messageId, false, null, null, null, null).catch((e) => { console.error("wa-ai-draft", (e as Error)?.message || "error"); });
   // deno-lint-ignore no-explicit-any

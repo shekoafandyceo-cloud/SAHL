@@ -20,6 +20,11 @@ export const BOT_NAME = "🤖 AI Agent";
 export const AUTO_MAX_TURNS_PER_CONV = 10;            // ردود البوت في المحادثة الواحدة خلال النافذة
 export const AUTO_TURNS_WINDOW_MS = 12 * 3600 * 1000;
 export const AUTO_MAX_TURNS_PER_DAY = 400;            // لكل المتجر في 24 ساعة
+/** 🧪 ON DEVELOP (24 نوفمبر — المالك: «بعتله رسالة تانية مردش عليا»): رقم التجربة وقت ON DEVELOP مالوش سقف المحادثة (10 ردود في 12 ساعة) —
+ *  التجارب بتعدّيه في ساعة. سقف المتجر اليومي بيفضل. devWaIds = null لما ON DEVELOP مقفول (loadStatic) = السقف زي ما هو لكل الناس. */
+export function convTurnsFor(turns: number, devWaIds: string[] | null | undefined, waId: string | null | undefined): number {
+  return Array.isArray(devWaIds) && !!waId && devWaIds.includes(String(waId)) ? 0 : turns;
+}
 export const AUTO_MAX_CARD_REPEAT = 2;                // نفس الكارت لنفس المحادثة خلال النافذة
 export const AUTO_MAX_IMAGES = 5;
 export const CAPTION_MAX = 1024;                      // حد ميتا للـcaption

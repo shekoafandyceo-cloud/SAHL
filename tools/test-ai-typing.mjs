@@ -79,7 +79,9 @@ function checks({ T, D, A, idx }) {
   const body = fs0 !== -1 && fe !== -1 ? s.slice(fs0, fe) : '';
   ok('4و typingStart: try/catch بيرجّع نص · مهلة · مفيش كتابة ولا sendAction', /\btry \{/.test(body) && /\} catch \(e\) \{[\s\S]*return "failed";/.test(body)
     && body.includes('signal: AbortSignal.timeout(TYPING_TIMEOUT_MS)') && !/\.(insert|update|upsert|delete|rpc)\(/.test(body) && !body.includes('sendAction('));
-  ok('4ز السقوف = نفس autoPlan (اليوم ثم المحادثة) والـgate من wa-typing', body.includes('state.turnsToday >= AUTO_MAX_TURNS_PER_DAY || state.turnsInConv >= AUTO_MAX_TURNS_PER_CONV')
+  // 24 نوفمبر: سقف المحادثة بقى من convTurnsFor (رقم التجربة وقت ON DEVELOP من غيره) — نفس اللي planFor بيدّيه لـautoPlan
+  ok('4ز السقوف = نفس autoPlan (اليوم ثم المحادثة) والـgate من wa-typing', body.includes('state.turnsToday >= AUTO_MAX_TURNS_PER_DAY || convTurnsFor(state.turnsInConv, st.devWaIds, state.waId) >= AUTO_MAX_TURNS_PER_CONV')
+    && s.includes('turnsInConv: convTurnsFor(state.turnsInConv, st.devWaIds, state.waId), turnsToday: state.turnsToday,')
     && A.includes('if (i.turnsToday >= AUTO_MAX_TURNS_PER_DAY)') && A.includes('if (i.turnsInConv >= AUTO_MAX_TURNS_PER_CONV)')
     && body.includes('typingWanted({ dry, mode: st.mode, flag: st.facts.typing_indicator, devWaIds: st.devWaIds, waId: state.waId, capped })')
     && body.includes('body: JSON.stringify(typingBody(wid))') && body.includes('`${TYPING_GRAPH}/${tn.whatsapp_phone_id}/messages`'));
