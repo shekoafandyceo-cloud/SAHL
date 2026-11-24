@@ -62,12 +62,13 @@ import {
   feeReplyBlocked, feeTagOf, replyAsksFee, type FeeBlock, type FeeCfg, type FeeEvent,
 } from "../_shared/ai-fee.ts";
 import { CACHE_TTL_S, cacheCreateBody, cacheKey, cachePlan, cacheRetryable, generateBody, parseCacheMeta } from "../_shared/ai-cache.ts";
-import { autoPlan, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
+import { autoPlan, AUTO_MAX_TURNS_PER_CONV, AUTO_MAX_TURNS_PER_DAY, AUTO_REPEAT_WINDOW_MS, AUTO_TURNS_WINDOW_MS, BOT_NAME, mergeEscNote, type AutoAction, type AutoCard, type AutoPlan, type OrderOutcome, type ReactOutcome } from "../_shared/ai-auto.ts";
 import {
   cancelInfo, cancelTag, ORDER_HANDOFF_TEXT, orderConfirmText, orderSummary, orphanPromise, planOrder, planReactivate, REACT_HANDOFF_TEXT, reactivateConfirmText,
   sessionText, type CreateArgs, type OrderProduct, type OrderStep, type PrevOrder, type ReactOrder, type ReactStep,
 } from "../_shared/ai-order.ts";
 import { forgetMediaId, isQuickReplyPath, quickReplyMediaId, shouldRetryWithLink } from "../_shared/wa-media.ts";
+import { TYPING_GRAPH, TYPING_TIMEOUT_MS, typingBody, typingWanted } from "../_shared/wa-typing.ts";
 import {
   geminiMime, MEDIA_MAX_BYTES, MEDIA_SCHEMA, mediaPathOk, mediaPrompt, mediaToRead, MEDIA_TYPES, parseMediaText, toBase64, type MediaRow,
 } from "../_shared/ai-media.ts";
@@ -82,7 +83,7 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEBOUNCE_MS = 12000, HISTORY_N = 20, GEMINI_TIMEOUT_MS = 40000, EVAL_MAX = 60, EVAL_POOL = 6, MEDIA_TIMEOUT_MS = 20000;
 // أعمدة الرسالة — ومعاها أعمدة الفويس/الصورة (لو الاستعلام بيها وقع = نفس الأعمدة القديمة ومفيش فهم ميديا: السلوك القديم بالحرف)
-const MSG_COLS = "id, tenant_id, conversation_id, direction, type, body, created_at";
+const MSG_COLS = "id, tenant_id, conversation_id, direction, type, body, created_at, wa_message_id"; // wa_message_id = «بيكتب...» (wamid.…)
 const HIST_COLS = "id, direction, type, body, created_at, sent_by";
 const MEDIA_COLS = ", media_path, media_mime, ai_media_text";
 const GRAPH = "https://graph.facebook.com/v18.0";
@@ -299,11 +300,12 @@ interface Static {
   orderProducts: OrderProduct[];    // المنتجات اللي البوت بيسجّل أوردرها (ai_products اللي مقاساتها مربوطة بصنف مخزون) بالسعر المعتمد
   ads: Map<string, { name: string | null; productId: string | null }>;
   fee: FeeCfg | null; // رسوم الإلغاء بعد الشحن (facts.cancel_fee سليم) — null = الميزة مقفولة والتعليمات زي ما هي بالحرف
+  devWaIds: string[] | null; // أرقام التجربة وقت 🧪 ON DEVELOP (null = مقفول) — لـ«بيكتب...» بس (التريجر هو اللي بيفلتر الرسايل)
 }
 async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>): Promise<Static | null> {
   const since = new Date(Date.now() - 24 * 3600000).toISOString();
   const [set, prods, qr, stock, site, ads] = await Promise.all([
-    admin.from("ai_settings").select("mode, model, facts").eq("tenant_id", tenantId).maybeSingle(),
+    admin.from("ai_settings").select("mode, model, facts, dev_mode, dev_wa_ids").eq("tenant_id", tenantId).maybeSingle(),
     admin.from("ai_products").select("id, name, aliases, site_names, quick_reply_id, assembled, facts").eq("tenant_id", tenantId).eq("active", true),
     admin.from("wa_quick_replies").select("id, title, body, sort, media, ai_notes").eq("tenant_id", tenantId).order("sort", { ascending: true }),
     admin.from("stock_products").select("name").eq("tenant_id", tenantId).eq("active", true).limit(400),
@@ -351,6 +353,7 @@ async function loadStatic(tenantId: string, factsExtra?: Record<string, unknown>
     // deno-lint-ignore no-explicit-any
     ads: new Map((ads.data || []).map((a: any) => [String(a.ad_id), { name: a.ad_name || null, productId: a.ai_product_id || null }])),
     fee: feeConfigOf(facts),
+    devWaIds: set.data.dev_mode ? ((set.data.dev_wa_ids || []) as unknown[]).map((x) => String(x)) : null,
   };
 }
 
@@ -643,7 +646,7 @@ async function autoOff(tenantId: string, by: string): Promise<void> {
 }
 
 // deno-lint-ignore no-explicit-any
-async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: OrderLite[], sess: { all: string; inbound: string }): Promise<Record<string, unknown>> {
+async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrders: OrderLite[], sess: { all: string; inbound: string }, typing: string | null = null): Promise<Record<string, unknown>> {
   // 1) الزرار لسه ON؟ (المالك ممكن يكون طفّاه وإحنا مستنيين الموديل)
   const { data: now1 } = await admin.from("ai_settings").select("mode").eq("tenant_id", msg.tenant_id).maybeSingle();
   if (now1?.mode !== "auto") return { auto: "mode_changed" };
@@ -652,7 +655,7 @@ async function autoRun(msg: any, st: Static, r: Result, draftId: string, prevOrd
     .eq("id", draftId).is("auto_sent_at", null).select("id");
   if (!claim || !claim.length) return { auto: "already_claimed" };
   const finish = async (res: Record<string, unknown>, n: number, markSent: boolean): Promise<Record<string, unknown>> => {
-    await admin.from("wa_ai_drafts").update({ auto_sent_n: n, auto_result: res }).eq("id", draftId);
+    await admin.from("wa_ai_drafts").update({ auto_sent_n: n, auto_result: typing ? { ...res, typing } : res }).eq("id", draftId); // typing = نتيجة «بيكتب...»
     if (markSent) await admin.from("wa_ai_drafts").update({ status: "sent" }).eq("id", draftId).eq("status", "pending");
     return { auto: res.reason, sent: n, error: res.error || null };
   };
@@ -872,6 +875,35 @@ async function feeFollowOne(q: any): Promise<Record<string, unknown>> {
   return { sent: n + 1 };
 }
 
+// ── «بيكتب...» (24 نوفمبر — طلب المالك) ───────────────────────────
+/** «اتقرت» + Typing على رسالة العميل قبل الموديل (ميتا مابتعرضش واحد من غير التاني). بيرجّع "ok" أو سبب إنه مااتبعتش —
+ *  ومابيرميش أبداً: فشله مايأخّرش ولا يوقّف الرد (log بس). قراية بس — مفيش كتابة في الداتابيز. */
+// deno-lint-ignore no-explicit-any
+async function typingStart(msg: any, st: Static, dry: boolean): Promise<string> {
+  try {
+    const wid = String(msg.wa_message_id || "");
+    if (!wid) return "no_wa_message_id";
+    // رقم المحادثة والسقوف من نفس autoState بتاعة الإرسال: البوت واصل للحد (هيسكت) = مفيش «بيكتب...» وبعده سكوت
+    const state = await autoState(msg.tenant_id, msg.conversation_id, null, null);
+    if (!state.ok) return "state_error";
+    const capped = state.turnsToday >= AUTO_MAX_TURNS_PER_DAY || state.turnsInConv >= AUTO_MAX_TURNS_PER_CONV;
+    if (!typingWanted({ dry, mode: st.mode, flag: st.facts.typing_indicator, devWaIds: st.devWaIds, waId: state.waId, capped })) return capped ? "capped" : "off";
+    const { data: tn } = await admin.from("tenants").select("whatsapp_token, whatsapp_phone_id").eq("id", msg.tenant_id).maybeSingle();
+    if (!tn?.whatsapp_token || !tn?.whatsapp_phone_id) return "no_wa_config";
+    const res = await fetch(`${TYPING_GRAPH}/${tn.whatsapp_phone_id}/messages`, {
+      method: "POST", signal: AbortSignal.timeout(TYPING_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${tn.whatsapp_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(typingBody(wid)),
+    });
+    if (res.ok) return "ok";
+    console.error("wa-ai-draft typing: http", res.status, (await res.text().catch(() => "")).slice(0, 200));
+    return "http_" + res.status;
+  } catch (e) {
+    console.error("wa-ai-draft typing failed", String((e as Error)?.name || e));
+    return "failed";
+  }
+}
+
 // ── المسار العادي: رسالة واردة حقيقية ───────────────────────────────
 async function handleMessage(messageId: string, dry: boolean, modelOverride: string | null, layoutOverride: Layout | null, notesOverride: Record<string, unknown> | null, escOverride: EscStyle | null, factsOverride?: Record<string, unknown> | null): Promise<Record<string, unknown>> {
   // deno-lint-ignore no-explicit-any
@@ -916,6 +948,9 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   // deno-lint-ignore no-explicit-any
   const staffActive = rows.some((r: any) => r.direction === "out" && r.sent_by && Date.parse(r.created_at) >= staffCut);
   if (!dry && st.mode === "auto" && staffActive) { await staffActiveFlag(msg.tenant_id, msg.conversation_id); return { skipped: "staff_active" }; }
+  // 👀 «بيكتب...» (24 نوفمبر): البوت هيرد (الزرار ON · مش superseded/answered/staff_active) = «اتقرت» + Typing من دلوقتي، قبل قراية الميديا
+  //    والموديل. نايم من غير facts.typing_indicator = "on" (ووقت 🧪 ON DEVELOP لأرقام التجربة بس) — مفيش أي نداء ولا استعلام زيادة.
+  const typingP = !dry && st.mode === "auto" && (st.facts.typing_indicator === "on" || st.devWaIds) ? typingStart(msg, st, dry) : null;
   // deno-lint-ignore no-explicit-any
   const histRows: any[] = rows.filter((r: any) => r.created_at <= msg.created_at).slice(0, HISTORY_N);
   // الفويس/الصور اللي لسه مااتفهمتش في الرسايل دي (رسالة المسودة الأول · بسقف) — واللي اتقرت مع الانتظار مابتتقريش تاني
@@ -998,9 +1033,11 @@ async function handleMessage(messageId: string, dry: boolean, modelOverride: str
   // select = نعرف الصف اتدخل فعلاً ولا كان موجود (نداء مكرر) — المكرر مابيبعتش حاجة
   const { data: ins, error } = await admin.from("wa_ai_drafts").upsert(row, { onConflict: "trigger_message_id", ignoreDuplicates: true }).select("id");
   const draftId = !error && ins && ins.length ? String(ins[0].id) : null;
+  // «بيكتب...» لازم يخلص قبل الرد (لو وصل ميتا بعده بيفضل ظاهر لحد 25 ثانية) — بدأ قبل الموديل فغالباً خلص، والمهلة 4 ثواني
+  const typing = typingP ? await typingP : null;
   // 🔴 الإرسال للعميل: الزرار ON بس (mode = 'auto') — وفي shadow مفيش أي نداء لميتا
-  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders, sess) : null;
-  return { drafted: !error, behavior: row.behavior, error: error ? "insert_failed" : r.error, ...(auto || {}) };
+  const auto = st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders, sess, typing) : null;
+  return { drafted: !error, behavior: row.behavior, error: error ? "insert_failed" : r.error, ...(auto || {}), ...(typing ? { typing } : {}) };
 }
 
 // ── التقييم: حالات eval-cases.ts بسياق وهمي — صفر كتابة ──────────────

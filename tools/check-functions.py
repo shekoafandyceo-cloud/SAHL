@@ -451,7 +451,7 @@ CONTRACTS = [
     # (23 نوفمبر — رسوم الإلغاء) + مسار تاني واحد: تذكير الرسوم في feeFollowOne — نص ثابت من ai-fee.ts (مفيش نص من الموديل ولا من الـbody)
     ("wa-ai-draft", u"الإرسال للعميل في autoRun (بشرط mode = 'auto') وتذكير الرسوم بنص ثابت (feeFollowOne) بس · مفيش نداء لـwa-send ولا لأي EF",
      lambda s: "functions.invoke" not in s and "/functions/v1/" not in s
-     and s.count("autoRun(") == 2 and 'st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders, sess) : null' in s
+     and s.count("autoRun(") == 2 and 'st.mode === "auto" && draftId ? await autoRun(msg, st, r, draftId, orders, sess, typing) : null' in s
      and s.count("sendAction(") == 3 and s.count("${GRAPH}/") == 1 and s.count("graph.facebook.com") == 1
      and _between(s, "await sendAction(", u"async function autoRun(", u"// ── رسوم الإلغاء بعد الشحن")
      and _between(s, "await sendAction(", u"async function feeFollowOne(", u"// ── المسار العادي", at=_all(s, "await sendAction(")[1])
@@ -536,6 +536,20 @@ CONTRACTS = [
      and _between(s, 'if (plan.reason === "model_down")', u"async function autoRun(", u"// ── المسار العادي")
      and "autoOff(" not in s[s.index("async function runEval("):]
      and "autoOff(" not in s[s.index("if (dry) {"):s.index("return { dry_run: true")]),
+    # (24 نوفمبر — طلب المالك) «بيكتب...»: «اتقرت» + Typing — نداء لميتا مش رسالة (مالوش علاقة بعقد الإرسال): من typingStart بس ·
+    # بعد staff_active وقبل الميديا والموديل · بشرط !dry و auto · بيتستنى قبل autoRun (لو وصل ميتا بعد الرد بيفضل ظاهر 25 ثانية) ·
+    # فشله مابيوقفش الرد (مفيش return بين الاستنى وautoRun) · مفيش كتابة ولا sendAction · مش في التقييم
+    ("wa-ai-draft", u"«بيكتب...»: typingStart بس (try/catch · مهلة · مفيش كتابة ولا sendAction) · بعد staff_active وقبل الموديل · بشرط !dry و auto · بيتستنى قبل autoRun من غير return",
+     lambda s: s.count("typingStart(") == 2 and s.count("typingBody(") == 1 and s.count("${TYPING_GRAPH}/") == 1
+     and 'const typingP = !dry && st.mode === "auto" && (st.facts.typing_indicator === "on" || st.devWaIds) ? typingStart(msg, st, dry) : null;' in s
+     and _order(s, 'return { skipped: "staff_active" }', "typingStart(msg, st, dry)", "const todo = mediaToRead(histRows", "draftFor(st, cv",
+                "return { dry_run: true", "const typing = typingP ? await typingP : null;", "await autoRun(msg, st, r, draftId, orders, sess, typing)")
+     and "return" not in s[s.index("const typing = typingP ? await typingP : null;") + 10:s.index("await autoRun(msg, st, r, draftId, orders, sess, typing)")]
+     and _between(s, "${TYPING_GRAPH}/", u"async function typingStart(", u"// ── المسار العادي")
+     and "signal: AbortSignal.timeout(TYPING_TIMEOUT_MS)" in s[s.index("async function typingStart("):s.index(u"// ── المسار العادي")]
+     and 'return "failed";' in s[s.index("async function typingStart("):s.index(u"// ── المسار العادي")]
+     and not re.search(r"\.(insert|update|upsert|delete|rpc)\(|sendAction\(", s[s.index("async function typingStart("):s.index(u"// ── المسار العادي")])
+     and "typingStart(" not in s[s.index("async function runEval("):]),
     ("wa-ai-draft", u"موظف رد من أقل من 30 دقيقة والزرار ON = سكوت قبل الموديل (مش في dry_run ولا shadow) + علامة تصعيد من غير رسالة",
      lambda s: "const STAFF_ACTIVE_MS = 30 * 60000;" in s and s.count("staffActiveFlag(") == 2
      and 'if (!dry && st.mode === "auto" && staffActive) { await staffActiveFlag(msg.tenant_id, msg.conversation_id); return { skipped: "staff_active" }; }' in s
@@ -685,10 +699,14 @@ CONTRACTS = [
                 'if (!isFinite(age) || age < 0 || age >= REACTIVATE_WINDOW_MS) return { kind: "handoff", why: "old"', 'return { kind: "reactivate", order: o };')
      and u'return { at, by: /واتساب|whatsapp/i.test(by) ? "customer" : by ? "staff" : null };' in s
      and 'return o.cancelled_by === "customer" ? "self" : "staff";' in s),
+    ("_shared/wa-typing", u"«بيكتب...»: auto بس · مش dry · مش واصل للسقف · العلم \"on\" بالظبط أو رقم تجربة · status read + typing_indicator · من غير import",
+     lambda s: 'if (o.dry || o.mode !== "auto" || o.capped) return false;' in s and 'if (o.flag === "on") return true;' in s
+     and "return !!(o.devWaIds && o.waId && o.devWaIds.includes(o.waId));" in s
+     and 'status: "read", message_id: messageId, typing_indicator: { type: "text" }' in s and not re.search(r"^\s*import\s", s, re.M)),
     ("_shared/ai-draft", u"أسلوب التصعيد: من غير باراميتر = v1 بالحرف · v2 من الإعداد بس (esc_style مش معلومة للـprompt) · v2 بيسأل الأول ومابيوعدش «حالاً» ولا بتنفيذ",
      lambda s: 'export function escStyleOf(v: unknown): EscStyle { return v === "v2" ? "v2" : "v1"; }' in s
      and 'const v2 = !!o && o.esc === "v2";' in s
-     and '"hold_message", "esc_style", "work_hours", "cancel_fee"]' in s
+     and '"hold_message", "esc_style", "work_hours", "cancel_fee", "typing_indicator"]' in s
      and u': "- escalate: الموضوع محتاج موظف. اكتب رد قصير هادي يطمّن العميل إن زميل هيتابع معاه حالاً، واكتب السبب في note.",' in s
      and u': "8. دول escalate دايماً: شكوى' in s and u': "9. لو العميل سأل إنت بوت ولا بني آدم' in s
      and u"...(v2 ? [" in s and u"22. افهم العميل الأول وجاريه في الكلام" in s
