@@ -1160,6 +1160,52 @@
         (TABLES.wa_ai_drafts || []).forEach(function(d){ if(d.id === (args && args.p_id) && d.status === 'pending'){ d.status = args.p_status; d.final_body = args.p_final_body || null; } });
         return Promise.resolve({ data:null, error:null });
       }
+      // v90 — سبب الإلغاء بالأزرار + «اتصلت ومردش» + تقرير الإلغاء: المعاينة بتكتب في صف الأوردر في الذاكرة
+      // عشان المالك يشوف العدّاد بيزيد والسبب بيتسجّل، والتقرير داتا وهمية بنفس شكل `cancel_report`.
+      if(name === 'append_call_attempt'){
+        var co = TABLES.orders.filter(function(o){ return o.id === (args && args.p_order_id); })[0];
+        if(!co) return Promise.resolve({ data:null, error:null });
+        co.call_attempts = (Array.isArray(co.call_attempts) ? co.call_attempts : []).concat([args.p_attempt]);
+        return Promise.resolve({ data: co.call_attempts.slice(), error:null });
+      }
+      if(name === 'set_order_status'){
+        var xo = TABLES.orders.filter(function(o){ return o.id === (args && args.p_order_id); })[0];
+        if(!xo) return Promise.resolve({ data:null, error:null });
+        var xl = Array.isArray(xo.status_log) ? xo.status_log.slice() : [];
+        xl.push({ from: xo.status, to: args.p_status, at: new Date().toISOString(), by: args.p_by, reason: args.p_cancel_reason || null });
+        xo.status = args.p_status; xo.status_changed_at = new Date().toISOString(); xo.status_log = xl;
+        if(args.p_cancel_reason) xo.cancel_reason = args.p_cancel_reason;
+        return Promise.resolve({ data: xl, error:null });
+      }
+      if(name === 'cancel_report'){
+        var cd = new Date(); cd.setHours(12, 0, 0, 0);
+        var sat = new Date(cd.getTime() - ((cd.getDay() + 1) % 7) * 86400000);
+        var iso = function(d){ return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+        var wks = [3, 2, 1, 0].map(function(k){ var a = new Date(sat.getTime() - k * 7 * 86400000); return { start: iso(a), end: iso(new Date(a.getTime() + 6 * 86400000)) }; });
+        var P1 = 'منظم المطبخ المتكامل', P2 = 'تيربو بريمو', P3 = 'ترولي 3 دور ايكيا';
+        var R = function(w, p, c, n, e){ return { w: wks[w].start, product: p, code: c, n: n, early: e || 0 }; };
+        var ago = function(h){ return new Date(Date.now() - h * 3600000).toISOString(); };
+        return Promise.resolve({ data: { ok: true, since: ago(24 * 9), weeks: wks, rows: [
+          R(0, P1, 'free_text', 31), R(0, P1, 'wa_customer', 12), R(0, P2, 'free_text', 9), R(0, P3, 'free_text', 4),
+          R(1, P1, 'free_text', 27), R(1, P1, 'wa_customer', 10), R(1, P2, 'free_text', 8), R(1, P2, 'wa_customer', 3),
+          R(2, P1, 'no_answer', 11, 3), R(2, P1, 'changed_mind', 7), R(2, P1, 'size', 5), R(2, P1, 'price', 4, 1), R(2, P1, 'wa_customer', 9),
+          R(2, P1, 'duplicate', 3), R(2, P2, 'no_answer', 4, 1), R(2, P2, 'changed_mind', 2), R(2, P3, 'other_model', 2), R(2, P1, 'other', 1),
+          R(3, P1, 'no_answer', 6, 2), R(3, P1, 'size', 4), R(3, P1, 'changed_mind', 3), R(3, P1, 'wa_customer', 5), R(3, P1, 'fake', 2),
+          R(3, P2, 'price', 2, 1), R(3, P2, 'no_answer', 2), R(3, P3, 'address', 1), R(3, P1, 'admin_bulk', 2)
+        ], by: [ { by: 'ebrahim', n: 148, early: 8 }, { by: 'العميل (زرار الواتساب)', n: 39, early: 0 }, { by: 'shekoz', n: 9, early: 0 } ],
+          early: [
+            { id: 'x1', uid: '20411', product: P1, code: 'no_answer', reason: 'العميل مش بيرد أو التليفون مقفول', by: 'ebrahim', at: ago(3), calls: 1, days: 1, flag: 'few_calls' },
+            { id: 'x2', uid: '20398', product: P2, code: 'price', reason: 'السعر غالي أو عايز خصم', by: 'ebrahim', at: ago(7), calls: 0, days: 0, flag: 'no_contact' },
+            { id: 'x3', uid: '20377', product: P1, code: 'no_answer', reason: 'العميل مش بيرد أو التليفون مقفول', by: 'ebrahim', at: ago(26), calls: 3, days: 1, flag: 'few_calls' },
+            { id: 'x4', uid: '20301', product: P1, code: 'no_answer', reason: 'العميل مش بيرد أو التليفون مقفول', by: 'ebrahim', at: ago(170), calls: 0, days: 0, flag: 'few_calls' },
+            { id: 'x5', uid: '20288', product: P1, code: 'price', reason: 'السعر غالي أو عايز خصم — عايز 1200', by: 'ebrahim', at: ago(190), calls: 0, days: 0, flag: 'no_contact' }
+          ],
+          notes: [
+            { uid: '20352', w: wks[2].start, product: P1, code: 'other', text: 'سبب تاني — مسافر ومش هيرجع قبل شهر', by: 'ebrahim', at: ago(200) },
+            { uid: '20102', w: wks[1].start, product: P1, code: 'free_text', text: 'عايز مقاس 75 والحوض عريض', by: 'ebrahim', at: ago(290) },
+            { uid: '20077', w: wks[1].start, product: P2, code: 'free_text', text: 'مغلق ع طول', by: 'ebrahim', at: ago(320) }
+          ] }, error: null });
+      }
       if(name === 'get_notify_prefs')  return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null });
       if(name === 'update_notify_prefs'){ Object.assign(PREVIEW_PREFS, (args && args.p_prefs) || {}); return Promise.resolve({ data:Object.assign({}, PREVIEW_PREFS), error:null }); }
       return Promise.resolve({ data:null, error:null });

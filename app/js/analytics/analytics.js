@@ -4,6 +4,7 @@ import { emptyState } from '../core/empty.js';
 import { renderLoadError } from '../core/loaderr.js';
 import { ratePill } from './rate.js';
 import { renderDaysCalendar } from './days.js';
+import { initCancelsTab, renderCancelsReport } from './cancels.js';
 import { veilDone } from '../core/veil.js';
 import { parseProductItems } from './product-match.js';
 import { BOSTA_POSITIVE_STATUSES, CANCELLED_STATUSES, DELIVERED_STATUSES, RETURNED_STATUSES, normStatus, statusIn } from '../core/constants.js';
@@ -77,6 +78,7 @@ export function renderAnalyticsActive(){
   if(analyticsCurrentTab==='products') renderProductPerformance();
   else if(analyticsCurrentTab==='platforms') renderFinancePlatforms();
   else if(analyticsCurrentTab==='days') renderDaysCalendar();
+  else if(analyticsCurrentTab==='cancels') renderCancelsReport();
   // 'employees' is a static placeholder (under construction)
 }
 
@@ -94,6 +96,8 @@ export function loadAnalytics(){
 
 // تابات وفترات صفحة الأداء
 export function initAnalyticsTabs(){
+  // تاب «🚫 الإلغاءات» (v90) بيتعمل ديناميك — لازم قبل ربط الضغطات عشان زراره ياخد نفس الهاندلر
+  initCancelsTab();
   // Analytics (performance) sub-tabs
   document.querySelectorAll('.stock-tab[data-atab]').forEach(function(b){
     b.addEventListener('click',function(){
@@ -103,8 +107,9 @@ export function initAnalyticsTabs(){
       $id('analytics-platforms-tab').style.display = analyticsCurrentTab==='platforms'?'block':'none';
       if($id('analytics-days-tab'))$id('analytics-days-tab').style.display = analyticsCurrentTab==='days'?'block':'none';
       $id('analytics-employees-tab').style.display = analyticsCurrentTab==='employees'?'block':'none';
+      if($id('analytics-cancels-tab'))$id('analytics-cancels-tab').style.display = analyticsCurrentTab==='cancels'?'block':'none';
       // شريط المدة مالوش لازمة في الكالندر (ليه تنقّل شهور خاص) ولا الموظفين
-      if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = (analyticsCurrentTab==='employees'||analyticsCurrentTab==='days')?'none':'';
+      if($id('analytics-period-bar'))$id('analytics-period-bar').style.display = (analyticsCurrentTab==='employees'||analyticsCurrentTab==='days'||analyticsCurrentTab==='cancels')?'none':'';
       renderAnalyticsActive();
     });
   });

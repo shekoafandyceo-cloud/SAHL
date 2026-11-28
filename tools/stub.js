@@ -394,6 +394,11 @@
           return { order_uid:o.order_uid, tracking_no:o.tracking_no, customer_name:o.customer_name, city:o.city, phone:o.phone, total_cost:o.total_cost, status:o.status };
         }), error:null});
       }
+      // تقرير الإلغاء (v90): `__CANCEL_REPORT` = رد السيرفر · `__CANCEL_REPORT_MISSING` = الدالة لسه مش على السيرفر (PGRST202)
+      if(name === 'cancel_report'){
+        if(window.__CANCEL_REPORT_MISSING) return Promise.resolve({data:null, error:{code:'PGRST202', message:'Could not find the function public.cancel_report(p_weeks) in the schema cache'}});
+        return Promise.resolve({data: window.__CANCEL_REPORT || null, error:null});
+      }
       if(name === 'wa_inbox_status')   return Promise.resolve({data:{verified:false}, error:null});
       return Promise.resolve({data:null, error:null});
     },

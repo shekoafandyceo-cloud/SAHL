@@ -17,7 +17,7 @@ import { attachCopyHandlers, copyable, copyTextToClipboard } from '../ui/clipboa
 import { askCancelReason } from './cancel-reason.js';
 import { orderInventoryCost, orderInventoryCostSource } from './costs.js';
 import { isAdmin } from './guards.js';
-import { addCallAttempt, deleteCallAttempt, doUpdate, saveInternalNotes } from './mutations.js';
+import { addCallAttempt, deleteCallAttempt, doUpdate, quickNoAnswer, saveInternalNotes } from './mutations.js';
 import { doFilter, rtNoteServerRow } from './orders.js';
 import { addEmptyProductRow, EX_LOCK_MSG, exchangeLocked, jtWaybillLocked, renderProductsEditor, saveProducts } from './products-editor.js';
 import { ofExchangeAllowed, openOrderForm } from './order-form.js';
@@ -598,6 +598,10 @@ export function renderDetail(){
     +'<div class="ship-area" id="ship-area">'+shipControlsHtml(o)+'</div>'
     // 3 main action buttons: تأكيد - شحن يدوي - إلغاء
     // «اتشحن يدوي» بيسجّل رقم التتبع كمان — والأوردر اللي له بوليصة مابيشوفهوش
+    // «📞 اتصلت ومردش» (v90) — محاولة «لم يرد» بضغطة واحدة، قبل الشحن بس (pending/confirmed).
+    // هي اللي تقرير الإلغاء بيعدّها قبل ما يعلّم إلغاء «مش بيرد» إنه «مبكر» — فلازم تبقى أسهل من إنه مايسجّلش.
+    +((o.status==='pending'||o.status==='confirmed')?'<button class="abtn na-btn" id="da-na">📞 اتصلت ومردش'
+        +(calls.length?'<span class="na-cnt">متسجّل '+num(calls.length)+'</span>':'')+'</button>':'')
     +'<div class="dacts">'
     // 🔴 أوردر أصلاً مؤكد = الزرار مايعملش حاجة **غير** إنه يكتب سطر
     // «مؤكدة ← مؤكدة» في سجل الحالة (مفيش حارس نفس-الحالة في
@@ -621,12 +625,14 @@ export function renderDetail(){
   loadOfdNotice(o);
   wireShipControls();
   if($id('wa-follow-btn'))$id('wa-follow-btn').addEventListener('click',function(){waFollowupFlow();});
-  $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);});});
+  // سبب الإلغاء (v90): قايمة أسباب ثابتة بضغطة — `sel` بيتبعت لسطر التنبيه بس (محاولات الاتصال المتسجّلة)
+  $id('da-cn').addEventListener('click',function(){askCancelReason(function(reason){doUpdate('cancelled',reason);},sel);});
   $id('da-up').addEventListener('click',function(){
     var v=$id('dsel').value;
-    if(v==='cancelled'){askCancelReason(function(reason){doUpdate('cancelled',reason);});}
+    if(v==='cancelled'){askCancelReason(function(reason){doUpdate('cancelled',reason);},sel);}
     else doUpdate(v);
   });
+  if($id('da-na'))$id('da-na').addEventListener('click',quickNoAnswer);
   $id('ca-add').addEventListener('click',addCallAttempt);
   $id('save-notes').addEventListener('click',saveInternalNotes);
   // Auto-save internal notes 1.2s after stop typing

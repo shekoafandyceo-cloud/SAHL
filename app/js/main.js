@@ -64,6 +64,7 @@ import './tour/demo-data.js';
 import './finance/period.js';
 
 import './analytics/product-match.js';
+import './analytics/cancels.js';
 
 import './inbox/message-view.js';
 import './inbox/ai-draft.js';

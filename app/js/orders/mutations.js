@@ -32,11 +32,29 @@ export function saveInternalNotes(){
 }
 
 export function addCallAttempt(){
-  if(!ensureTenant())return;
-  if(!sel)return;
+  if(!$id('ca-res'))return;
+  logCallAttempt($id('ca-res').value, $id('ca-note').value.trim());
+}
+
+// «📞 اتصلت ومردش» (v90) — محاولة «لم يرد» بضغطة واحدة من غير اختيار ولا كتابة.
+// نفس المسار ونفس الشكل بتاع «+ إضافة (الآن)» (append_call_attempt) — تقرير الإلغاء بيعدّ الاتنين.
+// ضغطتين ورا بعض = محاولة واحدة: القفل بيفضل 1.2ث على الأقل من الضغطة **حتى لو السيرفر رد بسرعة**
+// (الرد بيعيد رسم النافذة، فالضغطة التانية كانت بتقع على الزرار الجديد = محاولتين) — وبحد أقصى 4ث لو الرد ماجاش.
+var naBusy=false;
+var NA_LOCK_MS=1200;
+export function quickNoAnswer(){
+  if(naBusy)return;
+  naBusy=true;
+  var t0=Date.now();
+  var release=function(){setTimeout(function(){naBusy=false;},Math.max(0,NA_LOCK_MS-(Date.now()-t0)));};
+  setTimeout(function(){naBusy=false;},4000);
+  if(!logCallAttempt('no_answer','',release)) naBusy=false;
+}
+
+function logCallAttempt(result,note,done){
+  if(!ensureTenant())return false;
+  if(!sel)return false;
   var ord=sel;   // التقاط الأوردر — sel الحي ممكن يتبدل قبل رد السيرفر
-  var result=$id('ca-res').value;
-  var note=$id('ca-note').value.trim();
   // Use exact current time — no datetime input, no timezone conversion needed
   var now = new Date();
   var isoNow = now.toISOString();
@@ -46,13 +64,16 @@ export function addCallAttempt(){
   // آخرهم كان بيمسح محاولة الأول
   var attempt={time:formatted, iso:isoNow, result:result, note:note, by: currentUser ? currentUser.name : '—'};
   sb.rpc('append_call_attempt',{p_order_id:ord.id, p_attempt:attempt}).then(function(r){
+    if(done)done();
     if(r.error){toast('خطأ: '+r.error.message,'er');return;}
     if(!r.data){toast('الأوردر مش موجود','er');return;}
     ord.call_attempts=r.data;   // السجل الكامل زي ما السيرفر شايفه
     for(var i=0;i<all.length;i++){if(all[i].id===ord.id){all[i].call_attempts=r.data;break;}}
-    toast('تم تسجيل المحاولة ✓','ok');
+    var n=Array.isArray(r.data)?r.data.length:0;
+    toast(done&&n?('اتسجّلت المحاولة رقم '+n+' ✓'):'تم تسجيل المحاولة ✓','ok');
     if(sel===ord) renderDetail();
   });
+  return true;
 }
 
 export function deleteCallAttempt(idx){

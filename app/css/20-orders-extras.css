@@ -68,3 +68,68 @@
 .ex-btn{background:#ecfdf5!important;color:#065f46!important;border:1px solid #6ee7b7!important}
 @media(max-width:600px){.of-row{grid-template-columns:1fr 80px 54px 38px}}
 #page-settings .jxs-rows{display:flex;flex-direction:column;gap:10px;}
+
+/* ── v90 (28 نوفمبر 2026): سبب الإلغاء بالأزرار — cancel-reason.js · الغلاف .jt-bd/.jt-box ── */
+.cr-bd{z-index:9999;}
+.cr-box{max-width:480px;padding:22px 20px;}
+.cr-title{font-size:1.1rem;font-weight:900;color:var(--txt);}
+.cr-sub{font-size:.82rem;color:var(--muted);font-weight:700;margin:4px 0 12px;}
+.cr-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.cr-opt{display:flex;align-items:center;gap:8px;min-height:48px;padding:9px 11px;border:1.5px solid var(--brd);border-radius:14px;background:var(--sur);color:var(--txt);font-family:inherit;font-size:.88rem;font-weight:800;line-height:1.35;text-align:right;cursor:pointer;transition:border-color .12s,background .12s;}
+.cr-opt:hover{border-color:#fca5a5;}
+.cr-opt.on{border-color:#ef4444;background:#fef2f2;color:#b91c1c;box-shadow:0 0 0 3px rgba(239,68,68,.12);}
+.cr-ic{flex:none;font-size:1.1rem;line-height:1;}
+.cr-lb{flex:1;min-width:0;}
+.cr-note{display:block;width:100%;box-sizing:border-box;margin-top:12px;padding:11px 13px;border:1.5px solid var(--brd);border-radius:13px;background:var(--sur);color:var(--txt);font-family:inherit;font-size:.92rem;font-weight:700;direction:rtl;text-align:right;outline:none;}
+.cr-note:focus{border-color:var(--acc);}
+.cr-note.bad{border-color:var(--red);}
+.cr-hint{margin-top:10px;padding:8px 11px;border:1px solid #fde68a;border-radius:12px;background:#fffbeb;color:#92400e;font-size:.8rem;font-weight:700;line-height:1.65;}
+.cr-acts{display:flex;gap:10px;margin-top:14px;}
+.cr-x{flex:1;padding:12px;border:1.5px solid var(--brd);border-radius:14px;background:var(--sur);color:var(--muted);font-family:inherit;font-size:.93rem;font-weight:800;cursor:pointer;}
+.cr-ok{flex:1.5;padding:12px;border:none;border-radius:14px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;font-family:inherit;font-size:.95rem;font-weight:900;cursor:pointer;}
+.cr-ok.off{opacity:.45;}
+.cr-grid.shake{animation:crShake .32s;}
+@keyframes crShake{0%,100%{transform:translateX(0)}25%{transform:translateX(6px)}75%{transform:translateX(-6px)}}
+@media(max-width:600px){.cr-box{padding:18px 14px;}.cr-opt{font-size:.84rem;padding:8px 9px;gap:6px;}}
+
+/* «📞 اتصلت ومردش» — محاولة اتصال بضغطة (detail.js) */
+.abtn.na-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:16px;background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;font-weight:800;}
+.na-btn + .dacts{margin-top:8px;}
+.na-cnt{padding:2px 9px;border:1px solid #bfdbfe;border-radius:999px;background:#fff;color:#1e40af;font-size:.76rem;font-weight:800;}
+
+/* تقرير الإلغاء — تاب «🚫 الإلغاءات» في صفحة الأداء (analytics/cancels.js) */
+.cxr-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+.cxr-ttl{font-size:1.02rem;font-weight:900;color:var(--txt);}
+.cxr-sub{font-size:.78rem;font-weight:700;color:var(--muted);}
+.cxr-ttl .cxr-sub{display:block;margin-top:2px;}
+.cxr-ctl{display:flex;align-items:center;gap:8px;min-width:0;}
+.cxr-ctl .fsel{max-width:270px;min-width:0;}
+.cxr-btn{flex:none;padding:8px 13px;border:1px solid var(--brd);border-radius:12px;background:var(--card);color:var(--txt);font-family:inherit;font-size:.9rem;font-weight:800;cursor:pointer;}
+.cxr-btn.cxr-busy{opacity:.5;}
+.cxr-chips{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+.cxr-chip{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border:1px solid var(--brd);border-radius:16px;background:var(--card);}
+.cxr-chip span{font-size:.78rem;font-weight:800;color:var(--muted);}
+.cxr-chip b{font-size:1.5rem;font-weight:900;color:var(--txt);line-height:1.2;}
+.cxr-chip.warn{border-color:#fdba74;background:#fff7ed;}
+.cxr-chip.warn b{color:#c2410c;}
+/* 19-mobile بيفرض min-width:480px وpadding بـ!important على أي جدول جوّه .twrap — الجدول ده لازم يساع الموبايل من غير سكرول */
+.twrap table.cxr-tbl,.thscroll table.cxr-tbl{width:100%;min-width:0;table-layout:auto;}
+.cxr-tbl td.nm{font-weight:800;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.5;}
+.cxr-tbl th,.cxr-tbl td{text-align:right;}
+.cxr-ws{display:none;}
+.cxr-tot td{font-weight:900;border-top:2px solid var(--brd);}
+.cxr-early{display:inline-block;margin-inline-start:6px;padding:1px 8px;border:1px solid #fdba74;border-radius:999px;background:#fff7ed;color:#c2410c;font-size:.74rem;font-weight:800;white-space:nowrap;}
+.cxr-z{color:var(--muted);}
+.cxr-sec{margin-top:18px;}
+.cxr-sec-t{margin-bottom:8px;font-size:.95rem;font-weight:900;color:var(--txt);}
+.cxr-sec-t .cxr-sub{font-weight:700;}
+.cxr-list{display:flex;flex-direction:column;gap:8px;}
+.cxr-item{padding:10px 13px;border:1px solid var(--brd);border-radius:14px;background:var(--card);color:var(--txt);font-size:.86rem;line-height:1.65;}
+.cxr-item-f{font-size:.78rem;color:var(--muted);}
+.cxr-why{color:#c2410c;font-weight:800;}
+.cxr-empty{padding:34px 16px;border:1px dashed var(--brd);border-radius:16px;color:var(--muted);font-size:.9rem;font-weight:700;text-align:center;line-height:1.8;}
+.cxr-empty.sm{padding:16px;}
+.cxr-empty .cxr-btn{margin-top:10px;}
+.cxr-note-line{margin-bottom:10px;color:#92400e;font-size:.82rem;font-weight:700;}
+.cxr-notes summary{cursor:pointer;font-size:.95rem;font-weight:900;color:var(--txt);margin-bottom:8px;}
+@media(max-width:600px){.cxr-wf{display:none;}.cxr-ws{display:inline;}.twrap .cxr-tbl th,.twrap .cxr-tbl td{padding:9px 4px !important;}.twrap .cxr-tbl td.nm,.twrap .cxr-tbl th:first-child{padding-inline-start:10px !important;}.cxr-chips{grid-template-columns:1fr 1fr;}.cxr-chips .cxr-chip:first-child{grid-column:1/-1;}.cxr-ctl{width:100%;}.cxr-ctl .fsel{flex:1;max-width:none;}}
